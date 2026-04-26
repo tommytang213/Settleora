@@ -1,0 +1,12 @@
+# Settleora
+
+Self-hosted cross-platform expense management, shared bill tracking, settlement workflow, receipt OCR, recurring bills, and forecasting.
+
+## Repo structure
+- `docs/` project requirements and architecture
+- `apps/mobile/` Flutter mobile app
+- `apps/web-user/` user web portal
+- `apps/web-admin/` admin web portal
+- `services/api/` backend API
+- `services/worker-ocr/` OCR worker
+- `infra/` deployment, Docker, environment, CI/CD support
