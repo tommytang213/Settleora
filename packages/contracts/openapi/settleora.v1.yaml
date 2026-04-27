@@ -2,6 +2,9 @@ openapi: 3.1.0
 info:
   title: Settleora API
   version: 0.1.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
   description: >
     Placeholder OpenAPI contract for Settleora scaffold materialization.
     Generated mobile and web clients will be produced from this file later,
@@ -16,6 +19,7 @@ paths:
       summary: Health check
       description: Placeholder health endpoint for future API availability checks.
       operationId: getHealth
+      security: []
       responses:
         "200":
           description: Service health response.
@@ -29,6 +33,12 @@ paths:
                   status:
                     type: string
                     example: ok
+        "400":
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         default:
           description: Problem response.
           content:

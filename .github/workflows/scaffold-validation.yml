@@ -1,0 +1,37 @@
+name: Scaffold Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - chore/monorepo-scaffold
+  push:
+    branches:
+      - main
+      - chore/monorepo-scaffold
+
+jobs:
+  validate:
+    name: Validate scaffold
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate scaffold paths
+        run: npm run validate:scaffold
+
+      - name: Validate OpenAPI
+        run: npm run validate:openapi
+
+      - name: Validate Docker Compose
+        run: npm run validate:compose

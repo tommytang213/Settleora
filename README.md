@@ -23,3 +23,22 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `packages/client-web/` future generated web client output.
 - `packages/client-dart/` future generated Dart/Flutter client output.
 - `infra/` local development infrastructure scaffold.
+
+## Scaffold Validation
+
+Current validation is scaffold-level only. It does not build or test mobile, backend, web, or worker apps yet.
+
+```powershell
+npm ci
+npm run validate
+```
+
+Individual checks:
+
+```powershell
+npm run validate:scaffold
+npm run validate:openapi
+npm run validate:compose
+```
+
+Docker must be available for `validate:compose`.
