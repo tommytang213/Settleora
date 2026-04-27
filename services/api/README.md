@@ -6,6 +6,7 @@ Current implementation:
 
 - `GET /health` returns a stable JSON health response.
 - Integration tests cover the current health endpoint.
+- `services/api/Dockerfile` packages this health-only API for local compose usage.
 
 No database, authentication, authorization, or business endpoints exist yet.
 

@@ -24,6 +24,14 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `packages/client-dart/` future generated Dart/Flutter client output.
 - `infra/` local development infrastructure scaffold.
 
+The API can be run through Docker Compose once Docker is available:
+
+```powershell
+docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up --build api
+```
+
+The health endpoint is available at `http://localhost:8080/health` by default.
+
 ## Scaffold Validation
 
 Current validation covers scaffold paths, the OpenAPI placeholder, the API health scaffold tests, and Docker Compose config. It does not build or test mobile, web, or worker apps yet.
@@ -40,6 +48,7 @@ npm run validate:scaffold
 npm run validate:openapi
 npm run validate:api
 npm run validate:compose
+npm run validate:api-docker
 ```
 
-Docker must be available for `validate:compose`.
+Docker must be available for `validate:compose` and `validate:api-docker`.

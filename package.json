@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "npm run validate:scaffold && npm run validate:openapi && npm run validate:api && npm run validate:compose",
+    "validate": "npm run validate:scaffold && npm run validate:openapi && npm run validate:api && npm run validate:compose && npm run validate:api-docker",
     "validate:scaffold": "node tools/validate-scaffold.mjs",
     "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
     "validate:api": "dotnet test services/api/Settleora.Api.sln",
-    "validate:compose": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml config"
+    "validate:compose": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml config",
+    "validate:api-docker": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml build api"
   },
   "devDependencies": {
     "@redocly/cli": "^2.30.1",
