@@ -1,6 +1,13 @@
 # Settleora API
 
-This directory will contain the ASP.NET Core Web API.
+This directory contains the ASP.NET Core Web API scaffold.
+
+Current implementation:
+
+- `GET /health` returns a stable JSON health response.
+- Integration tests cover the current health endpoint.
+
+No database, authentication, authorization, or business endpoints exist yet.
 
 The API is the only owner of core business database writes. Business rules, authorization, audit logging, money calculation, rounding, and policy application belong here or in shared backend/domain services.
 
