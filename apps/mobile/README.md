@@ -2,6 +2,14 @@
 
 A new Flutter project.
 
+## Architecture Notes
+
+The mobile app is expected to support required on-device OCR later. OCR must support local-only profiles, offline receipt processing, and server-unavailable flows.
+
+Implementation and package choices are not part of the current milestone. OCR-derived data for server-mode profiles remains provisional until the backend API validates and accepts it.
+
+See [OCR architecture](../../docs/architecture/OCR_ARCHITECTURE.md) for the canonical OCR boundaries.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

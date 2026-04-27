@@ -22,3 +22,5 @@ Database, queue, and storage clients are not implemented yet. The `/health` endp
 The API is the only owner of core business database writes. Business rules, authorization, audit logging, money calculation, rounding, and policy application belong here or in shared backend/domain services.
 
 File metadata will live in PostgreSQL. File bytes will go through storage abstractions, and API responses must not expose direct storage or filesystem paths.
+
+In server-mode, the API is authoritative for accepting OCR-derived records. OCR-derived client data is provisional until validated and accepted by the API. No OCR endpoints exist yet.

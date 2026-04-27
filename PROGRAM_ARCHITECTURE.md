@@ -73,6 +73,13 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - Clients must not infer authorization from hidden UI controls or cached data.
 - Generated API clients must stay isolated from hand-written app logic.
 
+## OCR Responsibilities
+
+- On-device OCR is a required mobile capability for offline receipt processing, server-unavailable flows, and local-only profiles.
+- The server-side Python OCR worker is complementary infrastructure for heavier OCR, reprocessing, consistency checks, batch processing, or future higher-confidence extraction.
+- In server-mode, OCR-derived data created on-device remains provisional until validated and accepted by the API.
+- OCR architecture details are defined in [docs/architecture/OCR_ARCHITECTURE.md](docs/architecture/OCR_ARCHITECTURE.md).
+
 ## Policy And Configuration Rules
 
 - Configurable product behavior should flow through policy/config systems rather than hardcoded client behavior.
