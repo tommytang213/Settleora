@@ -20,4 +20,17 @@ Additional application services will be added later once real projects exist.
 
 Docker/Compose support is currently a development scaffold only.
 
+Compose passes future API runtime configuration with ASP.NET Core environment variable keys:
+
+- `Settleora__Database__ConnectionString`
+- `Settleora__RabbitMq__HostName`
+- `Settleora__RabbitMq__Port`
+- `Settleora__RabbitMq__UserName`
+- `Settleora__RabbitMq__Password`
+- `Settleora__RabbitMq__VirtualHost`
+- `Settleora__Storage__Provider`
+- `Settleora__Storage__RootPath`
+
+These values are placeholders for future integrations. The API does not connect to PostgreSQL or RabbitMQ, run migrations, or access storage yet.
+
 Do not commit real secrets.

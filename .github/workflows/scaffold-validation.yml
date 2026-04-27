@@ -7,12 +7,14 @@ on:
       - chore/monorepo-scaffold
       - feat/api-health-scaffold
       - feat/api-docker-health
+      - feat/api-runtime-config
   push:
     branches:
       - main
       - chore/monorepo-scaffold
       - feat/api-health-scaffold
       - feat/api-docker-health
+      - feat/api-runtime-config
 
 jobs:
   validate:

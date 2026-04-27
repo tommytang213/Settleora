@@ -18,6 +18,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `apps/web-user/` placeholder for the future React + Vite user portal.
 - `apps/web-admin/` placeholder for the future React + Vite admin portal.
 - `services/api/` ASP.NET Core Web API scaffold with only `GET /health`.
+- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage, but those integrations are not active yet.
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
 - `packages/contracts/` placeholder OpenAPI contract source.
 - `packages/client-web/` future generated web client output.

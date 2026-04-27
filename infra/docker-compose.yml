@@ -6,6 +6,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${SETTLEORA_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080
+      Settleora__Database__ConnectionString: Host=postgres;Port=5432;Database=${POSTGRES_DB:-settleora};Username=${POSTGRES_USER:-settleora};Password=${POSTGRES_PASSWORD:-settleora_dev_password}
+      Settleora__RabbitMq__HostName: rabbitmq
+      Settleora__RabbitMq__Port: 5672
+      Settleora__RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-settleora}
+      Settleora__RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:-settleora_dev_password}
+      Settleora__RabbitMq__VirtualHost: /
+      Settleora__Storage__Provider: ${SETTLEORA_STORAGE_PROVIDER:-Local}
+      Settleora__Storage__RootPath: ${SETTLEORA_STORAGE_ROOT:-./data/storage}
     ports:
       - "${SETTLEORA_API_HTTP_PORT:-8080}:8080"
 
