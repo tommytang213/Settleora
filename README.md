@@ -6,7 +6,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 
 ## Key References
 
-- [Program architecture](docs/architecture/PROGRAM_ARCHITECTURE.md)
+- [Program architecture](PROGRAM_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
 - [Workflow guidance](docs/workflow/)
 - [OpenAPI placeholder](packages/contracts/openapi/settleora.v1.yaml)
