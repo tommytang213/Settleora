@@ -12,7 +12,7 @@ info:
     contract for expenses, auth, settlement, sync, OCR upload, users, or
     database behavior.
 servers:
-  - url: /api/v1
+  - url: /
 paths:
   /health:
     get:
