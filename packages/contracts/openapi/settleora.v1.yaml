@@ -1,0 +1,126 @@
+openapi: 3.1.0
+info:
+  title: Settleora API
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: >
+    Placeholder OpenAPI contract for Settleora scaffold materialization.
+    Generated mobile and web clients will be produced from this file later,
+    and generated output must not be manually edited. This is not the feature
+    contract for expenses, auth, settlement, sync, OCR upload, users, or
+    database behavior.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Placeholder health endpoint for future API availability checks.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service health response.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "400":
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+components:
+  schemas:
+    CurrencyCode:
+      type: string
+      pattern: "^[A-Z]{3}$"
+      description: ISO-4217 style currency code.
+      examples:
+        - USD
+    Money:
+      type: object
+      description: Decimal-safe money value with an attached currency.
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string to avoid floating point loss.
+          examples:
+            - "12.34"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    RoundingMode:
+      type: string
+      description: Placeholder rounding modes for future policy-driven money handling.
+      enum:
+        - up
+        - down
+        - nearest
+        - bankers
+    SyncState:
+      type: string
+      description: Placeholder sync state values shared by local and server-mode clients.
+      enum:
+        - queued
+        - synced
+        - conflict
+        - failed
+    StorageObjectRef:
+      type: object
+      description: Stable storage object reference that does not expose physical filesystem paths.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: Opaque storage object identifier.
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+    ProblemDetails:
+      type: object
+      description: RFC 7807 / RFC 9457 style problem response.
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    OcrJobStatus:
+      type: string
+      description: Placeholder OCR job status values for future worker contract design.
+      enum:
+        - queued
+        - processing
+        - completed
+        - failed

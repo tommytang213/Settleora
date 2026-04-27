@@ -1,0 +1,16 @@
+{
+  "name": "settleora-scaffold",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "npm run validate:scaffold && npm run validate:openapi && npm run validate:compose",
+    "validate:scaffold": "node tools/validate-scaffold.mjs",
+    "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
+    "validate:compose": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml config"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.30.1",
+    "yaml": "^2.8.3"
+  }
+}

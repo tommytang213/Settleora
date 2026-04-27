@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-settleora}
+      POSTGRES_USER: ${POSTGRES_USER:-settleora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-settleora_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - settleora_postgres_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-settleora}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-settleora_dev_password}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - settleora_rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  settleora_postgres_data:
+  settleora_rabbitmq_data:
