@@ -11,14 +11,17 @@ Thumbs.db
 
 # Logs
 *.log
+.local/
 
 # Env
 .env
 .env.*
 !.env.example
+!**/.env.example
 
 # Node
 node_modules/
+dist/
 
 # Flutter / Dart
 .dart_tool/
@@ -34,6 +37,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+pytest-cache-files-*/
+.ruff_cache/
 
 # .NET
 bin/
@@ -42,3 +48,9 @@ obj/
 # Coverage
 coverage/
 test-results/
+
+# Generated client outputs
+packages/client-web/src/generated/*
+!packages/client-web/src/generated/.gitkeep
+packages/client-dart/generated/*
+!packages/client-dart/generated/.gitkeep
