@@ -9,6 +9,7 @@ const requiredPaths = [
   "apps/web-user/README.md",
   "apps/web-admin/README.md",
   "services/api/README.md",
+  "services/api/Dockerfile",
   "services/worker-ocr/README.md",
   "packages/contracts/openapi/settleora.v1.yaml",
   "packages/client-web/README.md",
