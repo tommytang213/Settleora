@@ -9,6 +9,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
+- [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)
 - [OpenAPI placeholder](packages/contracts/openapi/settleora.v1.yaml)
 - [Local infrastructure compose](infra/docker-compose.yml)
