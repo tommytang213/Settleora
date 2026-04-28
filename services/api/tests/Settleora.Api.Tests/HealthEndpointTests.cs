@@ -80,7 +80,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
             ["Settleora:Database:ConnectionString"] = connectionString
         };
 
-        using var factory = CreateFactoryWithDatabaseReadiness(isReady: false, configuration);
+        using var factory = CreateFactoryWithDatabaseReadiness(isReady: false, configuration: configuration);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
@@ -97,8 +97,28 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.DoesNotContain("Password=", content);
     }
 
+    [Fact]
+    public async Task GetReadyReturnsServiceUnavailableWhenDatabaseReadinessThrows()
+    {
+        const string exceptionMessage = "database failure with sensitive details";
+        using var factory = CreateFactoryWithDatabaseReadiness(exception: new InvalidOperationException(exceptionMessage));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.DoesNotContain(exceptionMessage, content);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("unready", payload.RootElement.GetProperty("status").GetString());
+        Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
+        Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
+    }
+
     private WebApplicationFactory<Program> CreateFactoryWithDatabaseReadiness(
-        bool isReady,
+        bool isReady = false,
+        Exception? exception = null,
         Dictionary<string, string?>? configuration = null)
     {
         return _factory
@@ -115,7 +135,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 builder.ConfigureServices(services =>
                 {
                     services.RemoveAll<IDatabaseReadinessCheck>();
-                    services.AddSingleton<IDatabaseReadinessCheck>(new FakeDatabaseReadinessCheck(isReady));
+                    services.AddSingleton<IDatabaseReadinessCheck>(new FakeDatabaseReadinessCheck(isReady, exception));
                 });
             });
     }
@@ -123,14 +143,21 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     private sealed class FakeDatabaseReadinessCheck : IDatabaseReadinessCheck
     {
         private readonly bool _isReady;
+        private readonly Exception? _exception;
 
-        public FakeDatabaseReadinessCheck(bool isReady)
+        public FakeDatabaseReadinessCheck(bool isReady, Exception? exception)
         {
             _isReady = isReady;
+            _exception = exception;
         }
 
         public Task<bool> IsReadyAsync(CancellationToken cancellationToken)
         {
+            if (_exception is not null)
+            {
+                throw _exception;
+            }
+
             return Task.FromResult(_isReady);
         }
     }

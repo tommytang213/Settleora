@@ -7,6 +7,8 @@ namespace Settleora.Api.Health;
 
 internal sealed class NpgsqlDatabaseReadinessCheck : IDatabaseReadinessCheck
 {
+    private static readonly TimeSpan ReadinessTimeout = TimeSpan.FromSeconds(2);
+
     private const string ReadinessQuery = "SELECT 1";
 
     private readonly IOptions<DatabaseOptions> _databaseOptions;
@@ -26,16 +28,23 @@ internal sealed class NpgsqlDatabaseReadinessCheck : IDatabaseReadinessCheck
 
         try
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ReadinessTimeout);
+
             await using var connection = new NpgsqlConnection(connectionString);
-            await connection.OpenAsync(cancellationToken);
+            await connection.OpenAsync(timeout.Token);
 
             await using var command = new NpgsqlCommand(ReadinessQuery, connection);
-            var result = await command.ExecuteScalarAsync(cancellationToken);
+            var result = await command.ExecuteScalarAsync(timeout.Token);
 
             return string.Equals(
                 Convert.ToString(result, CultureInfo.InvariantCulture),
                 "1",
                 StringComparison.Ordinal);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
         }
         catch (Exception exception) when (IsReadinessFailure(exception))
         {
