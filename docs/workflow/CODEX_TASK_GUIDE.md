@@ -1,113 +1,65 @@
-Task: Add reusable Codex task guide.
+# Codex Task Guide
 
-Read first:
-- PROGRAM_ARCHITECTURE.md
-- README.md
-- docs/workflow/
-- services/api/README.md
-- infra/README.md
+This guide defines repeatable Settleora Codex task rules so future prompts can stay short without losing project safety boundaries. It does not replace [PROGRAM_ARCHITECTURE.md](../../PROGRAM_ARCHITECTURE.md); read the architecture document first for authoritative system rules.
 
-Branch:
-- docs/codex-task-guide
+## Required Pre-task Reading
 
-Scope:
-- Documentation only.
-- Do not modify API code.
-- Do not modify OpenAPI.
-- Do not modify Docker Compose.
-- Do not add features.
+- [PROGRAM_ARCHITECTURE.md](../../PROGRAM_ARCHITECTURE.md)
+- [README.md](../../README.md)
+- Relevant service, app, infrastructure, contract, or workflow docs for the requested change.
+- Relevant architecture docs only when the task touches that area.
 
-Create:
-- docs/workflow/CODEX_TASK_GUIDE.md
+## Standard Task Boundaries
 
-Update:
-- README.md only if needed to link the guide from the workflow/documentation references.
+- Use one branch per task and one focused goal per task.
+- Do not add unrelated feature work.
+- Do not push directly to `main`.
+- Do not force push.
+- Do not use `git add .`; stage explicit paths only.
+- Do not amend commits unless explicitly requested.
 
-Goal:
-Create a concise reusable guide so future Codex prompts can be shorter without losing project safety rules.
+## Architecture Guardrails
 
-Required contents for CODEX_TASK_GUIDE.md:
+- The API owns core business database writes.
+- Workers must not directly mutate core business tables.
+- OpenAPI is the source of truth.
+- Generated clients are not hand-edited.
+- File bytes go through the storage abstraction.
+- File metadata belongs in PostgreSQL.
+- Do not expose direct filesystem paths or storage provider internals.
+- Money must be decimal-safe.
+- Currency must always be attached to monetary values.
+- Rounding policy is centralized.
+- On-device OCR is required.
+- The server OCR worker is complementary infrastructure.
 
-1. Purpose
-- This guide defines standard rules for Codex tasks in Settleora.
-- It does not replace PROGRAM_ARCHITECTURE.md.
+## Validation Rules
 
-2. Required pre-task reading
-- PROGRAM_ARCHITECTURE.md
-- README.md
-- relevant service/app README files
-- relevant architecture docs only
+- Run dotnet validation for API changes.
+- Run npm validation for repo tooling, documentation, or contract changes.
+- Run Docker validation for Docker, compose, or API runtime changes.
+- Do not fake validation success; report the exact failing command and error summary.
 
-3. Standard task boundaries
-- one branch per task
-- one focused goal per task
-- no unrelated feature work
-- do not push directly to main
-- do not force push
-- do not use git add .
-- stage explicit paths only
-- do not amend commits unless explicitly requested
+## Git Rules
 
-4. Architecture rules summary
-- API owns core business database writes
-- worker must not directly mutate core business tables
-- OpenAPI is source of truth
-- generated clients are not hand-edited
-- file bytes go through storage abstraction
-- file metadata belongs in PostgreSQL
-- no direct filesystem/storage path exposure
-- money must be decimal-safe
-- currency must always be attached
-- rounding policy is centralized
-- on-device OCR is required; server OCR worker is complementary
+- Work on the requested branch and keep changes scoped.
+- Stage only the intended files by explicit path.
+- Commit with the requested message when one is provided.
+- Push only the task branch unless asked otherwise.
+- Do not merge to `main` unless the task explicitly asks for it.
 
-5. Validation rules
-- run dotnet validation when API changes
-- run npm validation when repo tooling/docs/contracts change
-- run Docker validation when Docker/compose/API runtime changes
-- do not fake validation success
-- report exact failing command if validation fails
+## Final Report Format
 
-6. Git/reporting format
-- branch name
-- commit hash
-- pushed yes/no
-- files created
-- files modified
-- packages added
-- commands run
-- validation results
-- Docker runtime result if relevant
-- warnings/follow-up tasks
+- Files changed.
+- Commit hash.
+- Branch pushed: yes/no.
+- Validation results by command.
+- Warnings or follow-up tasks.
 
-7. Current milestone notes
-- GET /health exists
-- GET /health/ready currently checks PostgreSQL
-- no schema/migrations/business endpoints yet
-- infrastructure readiness checks should be additive and scoped
-- next likely infrastructure check is RabbitMQ readiness
+## Current Milestone Notes
 
-Keep it concise.
-Do not duplicate the full architecture document.
-Do not rewrite the PRD.
-
-Validation:
-- npm ci
-- npm run validate:scaffold
-- npm run validate:openapi
-- npm run validate:api
-- npm run validate:compose
-- npm run validate:api-docker
-
-Git:
-- Commit message:
-  docs: add reusable codex task guide
-- Push branch:
-  docs/codex-task-guide
-- Do not merge to main.
-
-Final report:
-- files changed
-- commit hash
-- validation results
-- warnings
+- `GET /health` exists.
+- `GET /health/ready` currently checks PostgreSQL.
+- No schema, migrations, EF Core business logic, auth, OCR endpoints, frontend, worker, or generated clients exist yet.
+- Infrastructure readiness checks should be additive and scoped.
+- The next likely infrastructure check is RabbitMQ readiness.
