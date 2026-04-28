@@ -2,18 +2,19 @@
 
 Docker/docker-compose is the first local development deployment target.
 
-The compose file currently runs local infrastructure plus the API health scaffold.
+The compose file currently runs local infrastructure plus the API scaffold.
 
-The API container exposes only the current health endpoint:
+The API container exposes the stable health endpoint and PostgreSQL readiness endpoint:
 
 ```powershell
-docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up --build api
+docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up --build postgres api
 ```
 
 Then check:
 
 ```powershell
 curl http://localhost:8080/health
+curl http://localhost:8080/health/ready
 ```
 
 Additional application services will be added later once real projects exist.
@@ -31,6 +32,6 @@ Compose passes future API runtime configuration with ASP.NET Core environment va
 - `Settleora__Storage__Provider`
 - `Settleora__Storage__RootPath`
 
-These values are placeholders for future integrations. The API does not connect to PostgreSQL or RabbitMQ, run migrations, or access storage yet.
+The API connects to PostgreSQL only when `GET /health/ready` is requested. It does not connect during startup, run migrations, connect to RabbitMQ, or access storage yet.
 
 Do not commit real secrets.

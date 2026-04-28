@@ -5,11 +5,12 @@ This directory contains the ASP.NET Core Web API scaffold.
 Current implementation:
 
 - `GET /health` returns a stable JSON health response.
-- Integration tests cover the current health endpoint.
-- `services/api/Dockerfile` packages this health-only API for local compose usage.
+- `GET /health/ready` checks PostgreSQL connectivity with the configured connection string and returns no connection details.
+- Integration tests cover the health and readiness endpoints.
+- `services/api/Dockerfile` packages this API scaffold for local compose usage.
 - Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, and storage.
 
-No database, authentication, authorization, or business endpoints exist yet.
+No schema, migrations, EF Core, authentication, authorization, or business endpoints exist yet.
 
 Configuration sections:
 
@@ -17,7 +18,7 @@ Configuration sections:
 - `Settleora:RabbitMq`
 - `Settleora:Storage`
 
-Database, queue, and storage clients are not implemented yet. The `/health` endpoint does not expose configuration details.
+The PostgreSQL readiness check connects only when `GET /health/ready` is requested; API startup does not connect to PostgreSQL or run migrations. The `/health` and `/health/ready` endpoints do not expose configuration details.
 
 The API is the only owner of core business database writes. Business rules, authorization, audit logging, money calculation, rounding, and policy application belong here or in shared backend/domain services.
 
