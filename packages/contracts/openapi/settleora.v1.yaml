@@ -45,6 +45,83 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /health/ready:
+    get:
+      summary: Readiness check
+      description: Checks PostgreSQL connectivity without exposing database connection details.
+      operationId: getHealthReady
+      security: []
+      responses:
+        "200":
+          description: Service is ready for requests that require PostgreSQL connectivity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                  - checks
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                    example: ready
+                  service:
+                    type: string
+                    example: settleora-api
+                  checks:
+                    type: object
+                    required:
+                      - postgres
+                    properties:
+                      postgres:
+                        type: string
+                        enum:
+                          - ok
+                        example: ok
+        "400":
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Service is not ready because PostgreSQL connectivity is unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                  - checks
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - unready
+                    example: unready
+                  service:
+                    type: string
+                    example: settleora-api
+                  checks:
+                    type: object
+                    required:
+                      - postgres
+                    properties:
+                      postgres:
+                        type: string
+                        enum:
+                          - failed
+                        example: failed
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
 components:
   schemas:
     CurrencyCode:
