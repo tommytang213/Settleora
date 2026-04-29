@@ -48,12 +48,12 @@ paths:
   /health/ready:
     get:
       summary: Readiness check
-      description: Checks PostgreSQL connectivity without exposing database connection details.
+      description: Checks PostgreSQL and RabbitMQ connectivity without exposing dependency connection details.
       operationId: getHealthReady
       security: []
       responses:
         "200":
-          description: Service is ready for requests that require PostgreSQL connectivity.
+          description: Service is ready for requests that require PostgreSQL and RabbitMQ connectivity.
           content:
             application/json:
               schema:
@@ -75,8 +75,14 @@ paths:
                     type: object
                     required:
                       - postgres
+                      - rabbitmq
                     properties:
                       postgres:
+                        type: string
+                        enum:
+                          - ok
+                        example: ok
+                      rabbitmq:
                         type: string
                         enum:
                           - ok
@@ -88,7 +94,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
         "503":
-          description: Service is not ready because PostgreSQL connectivity is unavailable.
+          description: Service is not ready because PostgreSQL or RabbitMQ connectivity is unavailable.
           content:
             application/json:
               schema:
@@ -110,10 +116,18 @@ paths:
                     type: object
                     required:
                       - postgres
+                      - rabbitmq
                     properties:
                       postgres:
                         type: string
                         enum:
+                          - ok
+                          - failed
+                        example: failed
+                      rabbitmq:
+                        type: string
+                        enum:
+                          - ok
                           - failed
                         example: failed
         default:

@@ -10,6 +10,7 @@ builder.Services.Configure<RabbitMqOptions>(
 builder.Services.Configure<StorageOptions>(
     builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.AddSingleton<IDatabaseReadinessCheck, NpgsqlDatabaseReadinessCheck>();
+builder.Services.AddSingleton<IRabbitMqReadinessCheck, RabbitMqReadinessCheck>();
 
 var app = builder.Build();
 
@@ -21,6 +22,7 @@ app.MapGet("/health", () => Results.Ok(new
 
 app.MapGet("/health/ready", async (
     IDatabaseReadinessCheck databaseReadinessCheck,
+    IRabbitMqReadinessCheck rabbitMqReadinessCheck,
     CancellationToken cancellationToken) =>
 {
     bool postgresIsReady;
@@ -33,17 +35,29 @@ app.MapGet("/health/ready", async (
         postgresIsReady = false;
     }
 
+    bool rabbitMqIsReady;
+    try
+    {
+        rabbitMqIsReady = await rabbitMqReadinessCheck.IsReadyAsync(cancellationToken);
+    }
+    catch (Exception exception) when (exception is not OperationCanceledException)
+    {
+        rabbitMqIsReady = false;
+    }
+
+    var isReady = postgresIsReady && rabbitMqIsReady;
     var response = new
     {
-        status = postgresIsReady ? "ready" : "unready",
+        status = isReady ? "ready" : "unready",
         service = "settleora-api",
         checks = new
         {
-            postgres = postgresIsReady ? "ok" : "failed"
+            postgres = postgresIsReady ? "ok" : "failed",
+            rabbitmq = rabbitMqIsReady ? "ok" : "failed"
         }
     };
 
-    return postgresIsReady
+    return isReady
         ? Results.Ok(response)
         : Results.Json(response, statusCode: StatusCodes.Status503ServiceUnavailable);
 });

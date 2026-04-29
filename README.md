@@ -19,8 +19,8 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `apps/mobile/` existing Flutter mobile app.
 - `apps/web-user/` placeholder for the future React + Vite user portal.
 - `apps/web-admin/` placeholder for the future React + Vite admin portal.
-- `services/api/` ASP.NET Core Web API scaffold with `GET /health` and PostgreSQL connectivity readiness at `GET /health/ready`.
-- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL only for the readiness check; no schema, migrations, or business database access exists yet.
+- `services/api/` ASP.NET Core Web API scaffold with `GET /health` and PostgreSQL/RabbitMQ connectivity readiness at `GET /health/ready`.
+- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL and RabbitMQ only for the readiness check; no schema, migrations, messaging workflows, or business database access exists yet.
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
 - `packages/contracts/` placeholder OpenAPI contract source.
 - `packages/client-web/` future generated web client output.
@@ -33,7 +33,7 @@ The API can be run through Docker Compose once Docker is available:
 docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up --build api
 ```
 
-The health endpoint is available at `http://localhost:8080/health` by default. PostgreSQL readiness is available at `http://localhost:8080/health/ready` when the API is run with a configured PostgreSQL connection string.
+The health endpoint is available at `http://localhost:8080/health` by default. PostgreSQL and RabbitMQ readiness is available at `http://localhost:8080/health/ready` when the API is run with configured dependency settings.
 
 ## Scaffold Validation
 
