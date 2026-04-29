@@ -4,7 +4,7 @@ Docker/docker-compose is the first local development deployment target.
 
 The compose file currently runs local infrastructure plus the API scaffold.
 
-The API container exposes the stable health endpoint and PostgreSQL/RabbitMQ readiness endpoint:
+The API container exposes the stable health endpoint and PostgreSQL/RabbitMQ/storage readiness endpoint:
 
 ```powershell
 docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up --build postgres rabbitmq api
@@ -32,6 +32,6 @@ Compose passes future API runtime configuration with ASP.NET Core environment va
 - `Settleora__Storage__Provider`
 - `Settleora__Storage__RootPath`
 
-The API connects to PostgreSQL and RabbitMQ only when `GET /health/ready` is requested. It does not connect during startup, run migrations, publish messages, consume messages, declare queues, or access storage yet.
+The API connects to PostgreSQL and RabbitMQ and checks local storage only when `GET /health/ready` is requested. It does not connect during startup, touch storage during startup, run migrations, publish messages, consume messages, declare queues, implement upload/download endpoints, or store file metadata yet. Future file bytes must go through storage abstractions, and physical filesystem paths must not be exposed.
 
 Do not commit real secrets.
