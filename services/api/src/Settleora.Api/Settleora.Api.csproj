@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.2" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
   </ItemGroup>
 
 </Project>
