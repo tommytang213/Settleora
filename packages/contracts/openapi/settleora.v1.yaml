@@ -48,12 +48,12 @@ paths:
   /health/ready:
     get:
       summary: Readiness check
-      description: Checks PostgreSQL and RabbitMQ connectivity without exposing dependency connection details.
+      description: Checks PostgreSQL, RabbitMQ, and storage connectivity without exposing dependency details.
       operationId: getHealthReady
       security: []
       responses:
         "200":
-          description: Service is ready for requests that require PostgreSQL and RabbitMQ connectivity.
+          description: Service is ready for requests that require PostgreSQL, RabbitMQ, and storage connectivity.
           content:
             application/json:
               schema:
@@ -76,6 +76,7 @@ paths:
                     required:
                       - postgres
                       - rabbitmq
+                      - storage
                     properties:
                       postgres:
                         type: string
@@ -87,6 +88,11 @@ paths:
                         enum:
                           - ok
                         example: ok
+                      storage:
+                        type: string
+                        enum:
+                          - ok
+                        example: ok
         "400":
           description: Problem response.
           content:
@@ -94,7 +100,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
         "503":
-          description: Service is not ready because PostgreSQL or RabbitMQ connectivity is unavailable.
+          description: Service is not ready because PostgreSQL, RabbitMQ, or storage connectivity is unavailable.
           content:
             application/json:
               schema:
@@ -117,6 +123,7 @@ paths:
                     required:
                       - postgres
                       - rabbitmq
+                      - storage
                     properties:
                       postgres:
                         type: string
@@ -125,6 +132,12 @@ paths:
                           - failed
                         example: failed
                       rabbitmq:
+                        type: string
+                        enum:
+                          - ok
+                          - failed
+                        example: failed
+                      storage:
                         type: string
                         enum:
                           - ok

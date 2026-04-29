@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Health;
+using Settleora.Api.Storage;
 
 namespace Settleora.Api.Tests;
 
@@ -36,9 +37,12 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
-    public async Task GetReadyReturnsOkWhenDatabaseAndRabbitMqReadinessSucceed()
+    public async Task GetReadyReturnsOkWhenDatabaseRabbitMqAndStorageReadinessSucceed()
     {
-        using var factory = CreateFactoryWithReadiness(databaseIsReady: true, rabbitMqIsReady: true);
+        using var factory = CreateFactoryWithReadiness(
+            databaseIsReady: true,
+            rabbitMqIsReady: true,
+            storageIsReady: true);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
@@ -52,12 +56,16 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
     }
 
     [Fact]
     public async Task GetReadyReturnsServiceUnavailableWhenDatabaseFailsAndRabbitMqSucceeds()
     {
-        using var factory = CreateFactoryWithReadiness(databaseIsReady: false, rabbitMqIsReady: true);
+        using var factory = CreateFactoryWithReadiness(
+            databaseIsReady: false,
+            rabbitMqIsReady: true,
+            storageIsReady: true);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
@@ -71,12 +79,16 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
         Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
     }
 
     [Fact]
     public async Task GetReadyReturnsServiceUnavailableWhenRabbitMqFailsAndDatabaseSucceeds()
     {
-        using var factory = CreateFactoryWithReadiness(databaseIsReady: true, rabbitMqIsReady: false);
+        using var factory = CreateFactoryWithReadiness(
+            databaseIsReady: true,
+            rabbitMqIsReady: false,
+            storageIsReady: true);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
@@ -90,6 +102,30 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
         Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
+    }
+
+    [Fact]
+    public async Task GetReadyReturnsServiceUnavailableWhenStorageFailsAndDatabaseAndRabbitMqSucceed()
+    {
+        using var factory = CreateFactoryWithReadiness(
+            databaseIsReady: true,
+            rabbitMqIsReady: true,
+            storageIsReady: false);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        await using var responseStream = await response.Content.ReadAsStreamAsync();
+        using var payload = await JsonDocument.ParseAsync(responseStream);
+
+        Assert.Equal("unready", payload.RootElement.GetProperty("status").GetString());
+        Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
     }
 
     [Fact]
@@ -104,6 +140,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         using var factory = CreateFactoryWithReadiness(
             databaseIsReady: false,
             rabbitMqIsReady: true,
+            storageIsReady: true,
             configuration: configuration);
         using var client = factory.CreateClient();
 
@@ -122,6 +159,40 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task GetReadyDoesNotExposeStorageRootPathOrExceptionDetails()
+    {
+        const string storageRootPath = "C:\\secret\\settleora\\storage";
+        const string exceptionMessage = "storage failure with C:\\secret\\settleora\\storage details";
+        Dictionary<string, string?> configuration = new()
+        {
+            ["Settleora:Storage:Provider"] = "Local",
+            ["Settleora:Storage:RootPath"] = storageRootPath
+        };
+
+        using var factory = CreateFactoryWithReadiness(
+            databaseIsReady: true,
+            rabbitMqIsReady: true,
+            storageException: new InvalidOperationException(exceptionMessage),
+            configuration: configuration);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.DoesNotContain(storageRootPath, content);
+        Assert.DoesNotContain(exceptionMessage, content);
+        Assert.DoesNotContain("C:\\secret", content);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("unready", payload.RootElement.GetProperty("status").GetString());
+        Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
+    }
+
+    [Fact]
     public async Task GetReadyDoesNotExposeRabbitMqConnectionDetails()
     {
         const string exceptionMessage = "rabbitmq failure with sensitive details";
@@ -137,6 +208,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         using var factory = CreateFactoryWithReadiness(
             databaseIsReady: true,
             rabbitMqException: new InvalidOperationException(exceptionMessage),
+            storageIsReady: true,
             configuration: configuration);
         using var client = factory.CreateClient();
 
@@ -155,6 +227,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
         Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
     }
 
     [Fact]
@@ -163,7 +236,8 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         const string exceptionMessage = "database failure with sensitive details";
         using var factory = CreateFactoryWithReadiness(
             databaseException: new InvalidOperationException(exceptionMessage),
-            rabbitMqIsReady: true);
+            rabbitMqIsReady: true,
+            storageIsReady: true);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
@@ -177,13 +251,16 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("settleora-api", payload.RootElement.GetProperty("service").GetString());
         Assert.Equal("failed", payload.RootElement.GetProperty("checks").GetProperty("postgres").GetString());
         Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("rabbitmq").GetString());
+        Assert.Equal("ok", payload.RootElement.GetProperty("checks").GetProperty("storage").GetString());
     }
 
     private WebApplicationFactory<Program> CreateFactoryWithReadiness(
         bool databaseIsReady = false,
         bool rabbitMqIsReady = false,
+        bool storageIsReady = false,
         Exception? databaseException = null,
         Exception? rabbitMqException = null,
+        Exception? storageException = null,
         Dictionary<string, string?>? configuration = null)
     {
         return _factory
@@ -201,10 +278,13 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 {
                     services.RemoveAll<IDatabaseReadinessCheck>();
                     services.RemoveAll<IRabbitMqReadinessCheck>();
+                    services.RemoveAll<IStorageReadinessCheck>();
                     services.AddSingleton<IDatabaseReadinessCheck>(
                         new FakeDatabaseReadinessCheck(databaseIsReady, databaseException));
                     services.AddSingleton<IRabbitMqReadinessCheck>(
                         new FakeRabbitMqReadinessCheck(rabbitMqIsReady, rabbitMqException));
+                    services.AddSingleton<IStorageReadinessCheck>(
+                        new FakeStorageReadinessCheck(storageIsReady, storageException));
                 });
             });
     }
@@ -237,6 +317,28 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         private readonly Exception? _exception;
 
         public FakeRabbitMqReadinessCheck(bool isReady, Exception? exception)
+        {
+            _isReady = isReady;
+            _exception = exception;
+        }
+
+        public Task<bool> IsReadyAsync(CancellationToken cancellationToken)
+        {
+            if (_exception is not null)
+            {
+                throw _exception;
+            }
+
+            return Task.FromResult(_isReady);
+        }
+    }
+
+    private sealed class FakeStorageReadinessCheck : IStorageReadinessCheck
+    {
+        private readonly bool _isReady;
+        private readonly Exception? _exception;
+
+        public FakeStorageReadinessCheck(bool isReady, Exception? exception)
         {
             _isReady = isReady;
             _exception = exception;
