@@ -16,65 +16,7 @@ builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck
 
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new
-{
-    status = "ok",
-    service = "settleora-api"
-}));
-
-app.MapGet("/health/ready", async (
-    IDatabaseReadinessCheck databaseReadinessCheck,
-    IRabbitMqReadinessCheck rabbitMqReadinessCheck,
-    IStorageReadinessCheck storageReadinessCheck,
-    CancellationToken cancellationToken) =>
-{
-    bool postgresIsReady;
-    try
-    {
-        postgresIsReady = await databaseReadinessCheck.IsReadyAsync(cancellationToken);
-    }
-    catch (Exception exception) when (exception is not OperationCanceledException)
-    {
-        postgresIsReady = false;
-    }
-
-    bool rabbitMqIsReady;
-    try
-    {
-        rabbitMqIsReady = await rabbitMqReadinessCheck.IsReadyAsync(cancellationToken);
-    }
-    catch (Exception exception) when (exception is not OperationCanceledException)
-    {
-        rabbitMqIsReady = false;
-    }
-
-    bool storageIsReady;
-    try
-    {
-        storageIsReady = await storageReadinessCheck.IsReadyAsync(cancellationToken);
-    }
-    catch (Exception exception) when (exception is not OperationCanceledException)
-    {
-        storageIsReady = false;
-    }
-
-    var isReady = postgresIsReady && rabbitMqIsReady && storageIsReady;
-    var response = new
-    {
-        status = isReady ? "ready" : "unready",
-        service = "settleora-api",
-        checks = new
-        {
-            postgres = postgresIsReady ? "ok" : "failed",
-            rabbitmq = rabbitMqIsReady ? "ok" : "failed",
-            storage = storageIsReady ? "ok" : "failed"
-        }
-    };
-
-    return isReady
-        ? Results.Ok(response)
-        : Results.Json(response, statusCode: StatusCodes.Status503ServiceUnavailable);
-});
+app.MapHealthEndpoints();
 
 app.Run();
 
