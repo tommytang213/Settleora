@@ -10,6 +10,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - Python workers consume jobs and publish results; they must not directly mutate core business tables unless a future design explicitly creates and reviews that path.
 - Centralized API/domain services own financial calculations, status transitions, authorization checks, audit logging, and policy application.
 - Frontend clients may cache, validate forms, and queue offline work, but server authorization and business rules remain authoritative in server mode.
+- Database foundation details are defined in [docs/architecture/DATABASE_FOUNDATION.md](docs/architecture/DATABASE_FOUNDATION.md).
 
 ## OpenAPI And Generated Clients
 
