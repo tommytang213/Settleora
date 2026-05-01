@@ -21,6 +21,14 @@ Configuration sections:
 
 The PostgreSQL, RabbitMQ, and storage readiness checks run only when `GET /health/ready` is requested; API startup does not connect to PostgreSQL or RabbitMQ, touch storage, or run migrations. The `/health` and `/health/ready` endpoints do not expose configuration details, storage roots, or physical paths.
 
+Migration apply validation is available from the repo root:
+
+```powershell
+npm run validate:api-migrations
+```
+
+The command starts PostgreSQL in a unique Docker Compose project, applies the current EF Core migrations to a disposable database by setting `Settleora__Database__ConnectionString` for the EF command, and removes only that validation project's containers and volumes afterward.
+
 The API is the only owner of core business database writes. Business rules, authorization, audit logging, money calculation, rounding, and policy application belong here or in shared backend/domain services.
 
 File metadata will live in PostgreSQL later. File bytes will go through storage abstractions later, and API responses must not expose direct storage or filesystem paths. No upload/download endpoints or file metadata implementation exist yet.
