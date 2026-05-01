@@ -17,6 +17,22 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthIdentityProviderNameMaxLength = 120;
     private const int AuthIdentityProviderSubjectMaxLength = 320;
     private const int SystemRoleMaxLength = 16;
+    private const int LocalPasswordCredentialPasswordHashMaxLength = 512;
+    private const int LocalPasswordCredentialPasswordHashAlgorithmMaxLength = 64;
+    private const int LocalPasswordCredentialPasswordHashAlgorithmVersionMaxLength = 32;
+    private const int LocalPasswordCredentialPasswordHashParametersMaxLength = 1024;
+    private const int LocalPasswordCredentialStatusMaxLength = 16;
+    private const int AuthSessionTokenHashMaxLength = 128;
+    private const int AuthSessionStatusMaxLength = 16;
+    private const int AuthSessionRevocationReasonMaxLength = 120;
+    private const int AuthSessionDeviceLabelMaxLength = 120;
+    private const int AuthSessionUserAgentSummaryMaxLength = 320;
+    private const int AuthSessionNetworkAddressHashMaxLength = 128;
+    private const int AuthAuditActionMaxLength = 120;
+    private const int AuthAuditOutcomeMaxLength = 32;
+    private const int AuthAuditCorrelationIdMaxLength = 120;
+    private const int AuthAuditRequestIdMaxLength = 120;
+    private const int AuthAuditSafeMetadataJsonMaxLength = 4096;
 
     public SettleoraDbContext(DbContextOptions<SettleoraDbContext> options)
         : base(options)
@@ -32,6 +48,9 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<GroupMembership>(ConfigureGroupMembership);
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
+        modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
+        modelBuilder.Entity<AuthSession>(ConfigureAuthSession);
+        modelBuilder.Entity<AuthAuditEvent>(ConfigureAuthAuditEvent);
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
     }
 
@@ -283,6 +302,278 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(account => account.Identities)
             .HasForeignKey(identity => identity.AuthAccountId)
             .HasConstraintName("fk_auth_identities_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureLocalPasswordCredential(EntityTypeBuilder<LocalPasswordCredential> entity)
+    {
+        entity.ToTable("local_password_credentials", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_local_password_credentials_status",
+                "status IN ('active', 'disabled', 'revoked')");
+            table.HasCheckConstraint(
+                "ck_local_password_credentials_hash_not_blank",
+                "length(btrim(password_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_local_password_credentials_hash_algorithm_not_blank",
+                "length(btrim(password_hash_algorithm)) > 0");
+            table.HasCheckConstraint(
+                "ck_local_password_credentials_hash_algorithm_version_not_blank",
+                "length(btrim(password_hash_algorithm_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_local_password_credentials_hash_parameters_not_blank",
+                "length(btrim(password_hash_parameters)) > 0");
+        });
+
+        entity.HasKey(credential => credential.Id);
+
+        entity.Property(credential => credential.Id)
+            .HasColumnName("id");
+
+        entity.Property(credential => credential.AuthAccountId)
+            .HasColumnName("auth_account_id");
+
+        entity.Property(credential => credential.PasswordHash)
+            .HasColumnName("password_hash")
+            .HasMaxLength(LocalPasswordCredentialPasswordHashMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.PasswordHashAlgorithm)
+            .HasColumnName("password_hash_algorithm")
+            .HasMaxLength(LocalPasswordCredentialPasswordHashAlgorithmMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.PasswordHashAlgorithmVersion)
+            .HasColumnName("password_hash_algorithm_version")
+            .HasMaxLength(LocalPasswordCredentialPasswordHashAlgorithmVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.PasswordHashParameters)
+            .HasColumnName("password_hash_parameters")
+            .HasMaxLength(LocalPasswordCredentialPasswordHashParametersMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.Status)
+            .HasColumnName("status")
+            .HasMaxLength(LocalPasswordCredentialStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.LastVerifiedAtUtc)
+            .HasColumnName("last_verified_at_utc");
+
+        entity.Property(credential => credential.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(credential => credential.RequiresRehash)
+            .HasColumnName("requires_rehash")
+            .IsRequired();
+
+        entity.HasIndex(credential => credential.AuthAccountId)
+            .IsUnique()
+            .HasDatabaseName("ux_local_password_credentials_auth_account_id");
+
+        entity.HasOne(credential => credential.AuthAccount)
+            .WithMany(account => account.LocalPasswordCredentials)
+            .HasForeignKey(credential => credential.AuthAccountId)
+            .HasConstraintName("fk_local_password_credentials_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthSession(EntityTypeBuilder<AuthSession> entity)
+    {
+        entity.ToTable("auth_sessions", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_sessions_status",
+                "status IN ('active', 'revoked', 'expired')");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_session_token_hash_not_blank",
+                "length(btrim(session_token_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_refresh_token_hash_not_blank",
+                "refresh_token_hash IS NULL OR length(btrim(refresh_token_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_revocation_reason_not_blank",
+                "revocation_reason IS NULL OR length(btrim(revocation_reason)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_device_label_not_blank",
+                "device_label IS NULL OR length(btrim(device_label)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_user_agent_summary_not_blank",
+                "user_agent_summary IS NULL OR length(btrim(user_agent_summary)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_sessions_network_address_hash_not_blank",
+                "network_address_hash IS NULL OR length(btrim(network_address_hash)) > 0");
+        });
+
+        entity.HasKey(session => session.Id);
+
+        entity.Property(session => session.Id)
+            .HasColumnName("id");
+
+        entity.Property(session => session.AuthAccountId)
+            .HasColumnName("auth_account_id");
+
+        entity.Property(session => session.SessionTokenHash)
+            .HasColumnName("session_token_hash")
+            .HasMaxLength(AuthSessionTokenHashMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.RefreshTokenHash)
+            .HasColumnName("refresh_token_hash")
+            .HasMaxLength(AuthSessionTokenHashMaxLength);
+
+        entity.Property(session => session.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthSessionStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.IssuedAtUtc)
+            .HasColumnName("issued_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.ExpiresAtUtc)
+            .HasColumnName("expires_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.LastSeenAtUtc)
+            .HasColumnName("last_seen_at_utc");
+
+        entity.Property(session => session.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(session => session.RevocationReason)
+            .HasColumnName("revocation_reason")
+            .HasMaxLength(AuthSessionRevocationReasonMaxLength);
+
+        entity.Property(session => session.DeviceLabel)
+            .HasColumnName("device_label")
+            .HasMaxLength(AuthSessionDeviceLabelMaxLength);
+
+        entity.Property(session => session.UserAgentSummary)
+            .HasColumnName("user_agent_summary")
+            .HasMaxLength(AuthSessionUserAgentSummaryMaxLength);
+
+        entity.Property(session => session.NetworkAddressHash)
+            .HasColumnName("network_address_hash")
+            .HasMaxLength(AuthSessionNetworkAddressHashMaxLength);
+
+        entity.Property(session => session.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(session => session.AuthAccountId)
+            .HasDatabaseName("ix_auth_sessions_auth_account_id");
+
+        entity.HasIndex(session => session.ExpiresAtUtc)
+            .HasDatabaseName("ix_auth_sessions_expires_at_utc");
+
+        entity.HasIndex(session => session.SessionTokenHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_sessions_session_token_hash");
+
+        entity.HasIndex(session => session.RefreshTokenHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_sessions_refresh_token_hash")
+            .HasFilter("refresh_token_hash IS NOT NULL");
+
+        entity.HasOne(session => session.AuthAccount)
+            .WithMany(account => account.Sessions)
+            .HasForeignKey(session => session.AuthAccountId)
+            .HasConstraintName("fk_auth_sessions_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthAuditEvent(EntityTypeBuilder<AuthAuditEvent> entity)
+    {
+        entity.ToTable("auth_audit_events", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_audit_events_outcome",
+                "outcome IN ('success', 'failure', 'denied', 'revoked', 'expired', 'blocked_by_policy')");
+            table.HasCheckConstraint(
+                "ck_auth_audit_events_action_not_blank",
+                "length(btrim(action)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_audit_events_correlation_id_not_blank",
+                "correlation_id IS NULL OR length(btrim(correlation_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_audit_events_request_id_not_blank",
+                "request_id IS NULL OR length(btrim(request_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_audit_events_safe_metadata_json_not_blank",
+                "safe_metadata_json IS NULL OR length(btrim(safe_metadata_json)) > 0");
+        });
+
+        entity.HasKey(auditEvent => auditEvent.Id);
+
+        entity.Property(auditEvent => auditEvent.Id)
+            .HasColumnName("id");
+
+        entity.Property(auditEvent => auditEvent.ActorAuthAccountId)
+            .HasColumnName("actor_auth_account_id");
+
+        entity.Property(auditEvent => auditEvent.SubjectAuthAccountId)
+            .HasColumnName("subject_auth_account_id");
+
+        entity.Property(auditEvent => auditEvent.Action)
+            .HasColumnName("action")
+            .HasMaxLength(AuthAuditActionMaxLength)
+            .IsRequired();
+
+        entity.Property(auditEvent => auditEvent.Outcome)
+            .HasColumnName("outcome")
+            .HasMaxLength(AuthAuditOutcomeMaxLength)
+            .IsRequired();
+
+        entity.Property(auditEvent => auditEvent.OccurredAtUtc)
+            .HasColumnName("occurred_at_utc")
+            .IsRequired();
+
+        entity.Property(auditEvent => auditEvent.CorrelationId)
+            .HasColumnName("correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.Property(auditEvent => auditEvent.RequestId)
+            .HasColumnName("request_id")
+            .HasMaxLength(AuthAuditRequestIdMaxLength);
+
+        entity.Property(auditEvent => auditEvent.SafeMetadataJson)
+            .HasColumnName("safe_metadata_json")
+            .HasMaxLength(AuthAuditSafeMetadataJsonMaxLength);
+
+        entity.HasIndex(auditEvent => auditEvent.OccurredAtUtc)
+            .HasDatabaseName("ix_auth_audit_events_occurred_at_utc");
+
+        entity.HasIndex(auditEvent => auditEvent.ActorAuthAccountId)
+            .HasDatabaseName("ix_auth_audit_events_actor_auth_account_id");
+
+        entity.HasIndex(auditEvent => auditEvent.SubjectAuthAccountId)
+            .HasDatabaseName("ix_auth_audit_events_subject_auth_account_id");
+
+        entity.HasOne(auditEvent => auditEvent.ActorAuthAccount)
+            .WithMany(account => account.ActorAuditEvents)
+            .HasForeignKey(auditEvent => auditEvent.ActorAuthAccountId)
+            .HasConstraintName("fk_auth_audit_events_actor_auth_account")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(auditEvent => auditEvent.SubjectAuthAccount)
+            .WithMany(account => account.SubjectAuditEvents)
+            .HasForeignKey(auditEvent => auditEvent.SubjectAuthAccountId)
+            .HasConstraintName("fk_auth_audit_events_subject_auth_account")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

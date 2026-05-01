@@ -25,4 +25,12 @@ public sealed class AuthAccount
     public ICollection<SystemRoleAssignment> RoleAssignments { get; } = new List<SystemRoleAssignment>();
 
     public ICollection<SystemRoleAssignment> AssignedRoleAssignments { get; } = new List<SystemRoleAssignment>();
+
+    public ICollection<LocalPasswordCredential> LocalPasswordCredentials { get; } = new List<LocalPasswordCredential>();
+
+    public ICollection<AuthSession> Sessions { get; } = new List<AuthSession>();
+
+    public ICollection<AuthAuditEvent> ActorAuditEvents { get; } = new List<AuthAuditEvent>();
+
+    public ICollection<AuthAuditEvent> SubjectAuditEvents { get; } = new List<AuthAuditEvent>();
 }
