@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events. It does not authorize OpenAPI changes, generated clients, UI behavior, password hashing implementation, token issuance, session middleware, or auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, password hashing implementation, token issuance, session middleware, or auth runtime behavior.
 
 ## Current State
 
@@ -157,7 +157,7 @@ This schema foundation does not authorize:
 
 Future work should remain small and separately reviewable.
 
-- Password hashing policy design.
+- Password hashing policy design is now defined in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md).
 - Current-user API boundary that resolves the authenticated account/session to the linked `UserProfile`.
 - Auth middleware and runtime only after schema and password/session policy are reviewed.
 - Separate passkey schema review before passkey implementation.
