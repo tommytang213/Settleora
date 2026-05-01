@@ -2,6 +2,8 @@
 
 This document defines Settleora's authentication and identity foundation. The current repository includes a schema-only identity foundation, but it still has no auth implementation, credential storage, session persistence, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
 
+Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
+
 It is an architecture gate for future user and group endpoint work. It describes boundaries and required design properties only.
 
 ## Current State

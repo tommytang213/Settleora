@@ -8,6 +8,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
 - [Auth identity foundation](docs/architecture/AUTH_IDENTITY_FOUNDATION.md)
+- [Auth credentials, sessions, and audit design](docs/architecture/AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
