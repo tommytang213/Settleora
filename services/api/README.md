@@ -9,8 +9,9 @@ Current implementation:
 - Integration tests cover the health and readiness endpoints.
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
 - Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, and storage.
+- EF Core runtime registration and design-time tooling exist for future API-owned PostgreSQL migrations.
 
-No schema, migrations, EF Core, authentication, authorization, or business endpoints exist yet.
+No schema, migrations, EF Core business entities, DbSets, authentication, authorization, or business endpoints exist yet.
 
 Configuration sections:
 

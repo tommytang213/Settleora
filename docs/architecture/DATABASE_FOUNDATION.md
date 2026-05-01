@@ -31,7 +31,16 @@ This document defines Settleora's database foundation direction before schema, m
 
 - Migrations must be explicit, reviewable files.
 - Production startup must not automatically apply migrations.
-- A local/dev migration command should be documented later when migration tooling is introduced.
+- No migrations exist yet.
+- Future local migration creation should use the repo-pinned EF Core tool and the API-owned context:
+
+```powershell
+dotnet tool restore
+$env:Settleora__Database__ConnectionString = "<local-dev-connection-string>"
+dotnet ef migrations add <MigrationName> --project services/api/src/Settleora.Api --startup-project services/api/src/Settleora.Api --context SettleoraDbContext --output-dir Persistence/Migrations
+```
+
+- Migration creation must not require production credentials, and production startup must not auto-apply migrations.
 - Schema changes require validation and review before merge.
 - Migration diffs should be reviewed for destructive operations, default values, nullability, indexes, constraints, and data-shape assumptions.
 - Runtime readiness must not be treated as proof that schema or migration design is complete.
