@@ -1,11 +1,12 @@
 # Database Foundation
 
-This document defines Settleora's database foundation direction before EF Core, schema, migrations, or business tables are implemented. It records architecture rules only; it does not authorize runtime or contract changes by itself.
+This document defines Settleora's database foundation direction before schema, migrations, or business tables are implemented. It records architecture rules only; it does not authorize runtime or contract changes by itself.
 
 ## Current State
 
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
+- The API has EF Core infrastructure registered for future API-owned PostgreSQL persistence.
 - No PostgreSQL schema exists yet.
 - No migrations exist yet.
 - No EF Core business persistence exists yet.
@@ -77,8 +78,6 @@ Schema boundaries should keep authoritative server state distinct from client ca
 
 This document does not add or authorize:
 
-- EF Core packages.
-- A `DbContext`.
 - Migrations.
 - Database tables.
 - OpenAPI changes.
@@ -87,4 +86,4 @@ This document does not add or authorize:
 
 ## Next Implementation Candidate
 
-A later small branch may add EF Core infrastructure only, still without business schema unless separately approved. That branch should keep the scope narrow: package references, API-owned persistence wiring, configuration, and tests or validation needed to prove the infrastructure loads safely. Business tables, migrations, and feature persistence should remain separate reviewable work unless explicitly approved together.
+Future database branches should remain small and reviewable. Business tables, migrations, and feature persistence should remain separate work unless explicitly approved together.
