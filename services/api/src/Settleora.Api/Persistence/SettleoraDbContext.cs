@@ -17,12 +17,6 @@ public sealed class SettleoraDbContext : DbContext
     {
     }
 
-    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
-
-    public DbSet<UserGroup> UserGroups => Set<UserGroup>();
-
-    public DbSet<GroupMembership> GroupMemberships => Set<GroupMembership>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
