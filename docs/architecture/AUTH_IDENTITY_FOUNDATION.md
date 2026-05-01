@@ -1,18 +1,22 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation before any auth implementation, identity schema, session persistence, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior are added.
+This document defines Settleora's authentication and identity foundation. The current repository includes a schema-only identity foundation, but it still has no auth implementation, credential storage, session persistence, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
 
 It is an architecture gate for future user and group endpoint work. It describes boundaries and required design properties only.
 
 ## Current State
 
 - `UserProfile`, `UserGroup`, and `GroupMembership` domain models exist under the API users domain.
-- The current EF Core migration creates `user_profiles`, `user_groups`, and `group_memberships`.
+- `AuthAccount`, `AuthIdentity`, and `SystemRoleAssignment` domain models exist under the API auth domain.
+- The current EF Core migrations create `user_profiles`, `user_groups`, `group_memberships`, `auth_accounts`, `auth_identities`, and `system_role_assignments`.
 - `user_profiles` stores app-domain profile data: display name, optional default currency, timestamps, and a future soft-delete timestamp.
 - `user_groups` stores shared group containers with a creator profile reference.
 - `group_memberships` stores profile-to-group membership rows with group-level `role` values of `owner` or `member`, and `status` values of `active` or `removed`.
-- No authentication, authorization, sessions, invitations, friends, or user/group business API endpoints exist yet.
-- No identity, account, session, audit, invitation, friend, or permission tables exist yet.
+- `auth_accounts` links one server-side auth account root to exactly one `UserProfile`.
+- `auth_identities` stores provider type, provider name, and stable provider subject links for local or OIDC-style identities without credentials or raw tokens.
+- `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
+- No authentication runtime behavior, authorization, credentials, password hashes, raw tokens, sessions, invitations, friends, or user/group business API endpoints exist yet.
+- No session, credential, audit, invitation, friend, or business permission tables exist yet.
 
 ## Identity Concepts
 
@@ -51,7 +55,7 @@ Required mapping properties:
 - Provider secrets, raw access tokens, raw refresh tokens, raw ID tokens, password hashes, passkey credential material, and MFA secrets must not be stored in profile, group, or membership tables.
 - Profile deletion, account disablement, and account unlinking are related but distinct state transitions and must be designed explicitly before implementation.
 
-The current `UserProfile` schema remains a profile foundation, not an account schema.
+The current `UserProfile` schema remains a profile foundation. Authentication account linkage belongs to `auth_accounts`, and provider-specific identity linkage belongs to `auth_identities`.
 
 ## Session Model
 
@@ -135,12 +139,10 @@ This distinction protects local-only use while keeping server-mode collaboration
 This document does not authorize:
 
 - Auth implementation.
-- Identity tables.
 - Sessions table.
 - API endpoints.
 - OpenAPI changes.
 - Generated client changes.
-- Migrations.
 - UI behavior.
 - Runtime behavior changes.
 - Password storage, token storage, passkey storage, or MFA storage.
@@ -150,7 +152,7 @@ This document does not authorize:
 
 Future work should remain small and reviewable. Good next candidates are:
 
-- Auth/identity schema foundation for accounts, provider identities, credentials, role assignments, sessions, and audit requirements.
+- Credential storage, sessions, and audit schema foundations after their fields and retention rules are separately reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
 - Guarded user/group endpoints only after the auth boundary exists and server-side policy checks are designed.
 

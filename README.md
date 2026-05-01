@@ -21,8 +21,8 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `apps/mobile/` existing Flutter mobile app.
 - `apps/web-user/` placeholder for the future React + Vite user portal.
 - `apps/web-admin/` placeholder for the future React + Vite admin portal.
-- `services/api/` ASP.NET Core Web API scaffold with `GET /health`, PostgreSQL/RabbitMQ/storage readiness at `GET /health/ready`, and the first API-owned users/groups schema foundation.
-- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure and the first migration define schema-only user profile, group, and group membership tables, but authentication, authorization, business endpoints, messaging workflows, upload/download endpoints, file metadata, expenses, bills, settlements, OCR endpoints, and business database workflows are not implemented yet.
+- `services/api/` ASP.NET Core Web API scaffold with `GET /health`, PostgreSQL/RabbitMQ/storage readiness at `GET /health/ready`, and the first API-owned users/groups plus auth identity schema foundations.
+- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure and migrations define schema-only user profile, group, group membership, auth account, auth identity, and system role assignment tables, but authentication runtime behavior, authorization, business endpoints, messaging workflows, upload/download endpoints, file metadata, expenses, bills, settlements, OCR endpoints, and business database workflows are not implemented yet.
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
 - `packages/contracts/` placeholder OpenAPI contract source.
 - `packages/client-web/` future generated web client output.

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Settleora.Api.Persistence;
@@ -11,9 +12,11 @@ using Settleora.Api.Persistence;
 namespace Settleora.Api.Persistence.Migrations
 {
     [DbContext(typeof(SettleoraDbContext))]
-    partial class SettleoraDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260501131636_AddAuthIdentitySchemaFoundation")]
+    partial class AddAuthIdentitySchemaFoundation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

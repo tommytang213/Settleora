@@ -7,9 +7,9 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- The first schema-only EF Core migration defines user profile, user group, and group membership tables.
-- No authentication, authorization, user/group business endpoints, or EF Core business workflows exist yet.
-- No business tables for expenses, settlement, files, OCR, audit, sync, identity, or sessions exist yet.
+- EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, and system role assignment tables.
+- No authentication runtime behavior, authorization, user/group business endpoints, or EF Core business workflows exist yet.
+- No business tables for expenses, settlement, files, OCR, audit, sync, credentials, or sessions exist yet.
 
 ## Authority Boundary
 
@@ -50,12 +50,15 @@ The current schema foundation is intentionally limited to:
 - `user_profiles`: API-owned user profile identity placeholders, including display name, optional default currency, timestamps, and future soft-delete timestamp.
 - `user_groups`: API-owned shared group containers, including name, creator reference, timestamps, and future soft-delete timestamp.
 - `group_memberships`: user-to-group membership rows with composite key, minimal role/status values, and timestamps.
+- `auth_accounts`: server-side auth account roots linked one-to-one with `user_profiles`, with status timestamps and no credential material.
+- `auth_identities`: provider identity links for local or OIDC-style identities, keyed by provider type, provider name, and stable provider subject without raw tokens.
+- `system_role_assignments`: product-level role assignments for `owner`, `admin`, and `user`, separate from group membership roles.
 
-Authentication, authorization, invitations, friends, sessions, admin roles, and user/group business endpoints are not implemented by this schema foundation.
+Authentication runtime behavior, authorization, invitations, friends, sessions, credential storage, and user/group business endpoints are not implemented by this schema foundation.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 
-- Identity and sessions.
+- Credentials, sessions, and auth audit records.
 - Money, expenses, recurring bills, reimbursements, and reconciliation records.
 - Settlement workflows, balances, approvals, and status history.
 - File and storage metadata.

@@ -9,9 +9,9 @@ Current implementation:
 - Integration tests cover the health and readiness endpoints.
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
 - Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, and storage.
-- EF Core runtime registration, design-time tooling, and the first schema-only migration exist for API-owned PostgreSQL persistence.
+- EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, and group memberships. No authentication, authorization, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, and system role assignments. No authentication runtime behavior, authorization, credentials, password hashes, raw tokens, sessions, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 

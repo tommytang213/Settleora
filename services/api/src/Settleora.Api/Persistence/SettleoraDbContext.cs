@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
 
 namespace Settleora.Api.Persistence;
@@ -11,6 +12,11 @@ public sealed class SettleoraDbContext : DbContext
     private const int GroupNameMaxLength = 160;
     private const int MembershipRoleMaxLength = 16;
     private const int MembershipStatusMaxLength = 16;
+    private const int AuthAccountStatusMaxLength = 16;
+    private const int AuthIdentityProviderTypeMaxLength = 16;
+    private const int AuthIdentityProviderNameMaxLength = 120;
+    private const int AuthIdentityProviderSubjectMaxLength = 320;
+    private const int SystemRoleMaxLength = 16;
 
     public SettleoraDbContext(DbContextOptions<SettleoraDbContext> options)
         : base(options)
@@ -24,6 +30,9 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<UserProfile>(ConfigureUserProfile);
         modelBuilder.Entity<UserGroup>(ConfigureUserGroup);
         modelBuilder.Entity<GroupMembership>(ConfigureGroupMembership);
+        modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
+        modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
+        modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
     }
 
     private static void ConfigureUserProfile(EntityTypeBuilder<UserProfile> entity)
@@ -159,6 +168,167 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasOne(membership => membership.UserProfile)
             .WithMany(userProfile => userProfile.GroupMemberships)
             .HasForeignKey(membership => membership.UserProfileId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthAccount(EntityTypeBuilder<AuthAccount> entity)
+    {
+        entity.ToTable("auth_accounts", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_accounts_status",
+                "status IN ('active', 'disabled')");
+        });
+
+        entity.HasKey(account => account.Id);
+
+        entity.Property(account => account.Id)
+            .HasColumnName("id");
+
+        entity.Property(account => account.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(account => account.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthAccountStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(account => account.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(account => account.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(account => account.DisabledAtUtc)
+            .HasColumnName("disabled_at_utc");
+
+        entity.Property(account => account.DeletedAtUtc)
+            .HasColumnName("deleted_at_utc");
+
+        entity.HasIndex(account => account.UserProfileId)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_accounts_user_profile_id");
+
+        entity.HasOne(account => account.UserProfile)
+            .WithOne()
+            .HasForeignKey<AuthAccount>(account => account.UserProfileId)
+            .HasConstraintName("fk_auth_accounts_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthIdentity(EntityTypeBuilder<AuthIdentity> entity)
+    {
+        entity.ToTable("auth_identities", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_identities_provider_type",
+                "provider_type IN ('local', 'oidc')");
+            table.HasCheckConstraint(
+                "ck_auth_identities_provider_name_not_blank",
+                "length(btrim(provider_name)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_identities_provider_subject_not_blank",
+                "length(btrim(provider_subject)) > 0");
+        });
+
+        entity.HasKey(identity => identity.Id);
+
+        entity.Property(identity => identity.Id)
+            .HasColumnName("id");
+
+        entity.Property(identity => identity.AuthAccountId)
+            .HasColumnName("auth_account_id");
+
+        entity.Property(identity => identity.ProviderType)
+            .HasColumnName("provider_type")
+            .HasMaxLength(AuthIdentityProviderTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(identity => identity.ProviderName)
+            .HasColumnName("provider_name")
+            .HasMaxLength(AuthIdentityProviderNameMaxLength)
+            .IsRequired();
+
+        entity.Property(identity => identity.ProviderSubject)
+            .HasColumnName("provider_subject")
+            .HasMaxLength(AuthIdentityProviderSubjectMaxLength)
+            .IsRequired();
+
+        entity.Property(identity => identity.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(identity => identity.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(identity => identity.DisabledAtUtc)
+            .HasColumnName("disabled_at_utc");
+
+        entity.HasIndex(identity => identity.AuthAccountId)
+            .HasDatabaseName("ix_auth_identities_auth_account_id");
+
+        entity.HasIndex(identity => new
+            {
+                identity.ProviderType,
+                identity.ProviderName,
+                identity.ProviderSubject
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_auth_identities_provider_lookup");
+
+        entity.HasOne(identity => identity.AuthAccount)
+            .WithMany(account => account.Identities)
+            .HasForeignKey(identity => identity.AuthAccountId)
+            .HasConstraintName("fk_auth_identities_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSystemRoleAssignment(EntityTypeBuilder<SystemRoleAssignment> entity)
+    {
+        entity.ToTable("system_role_assignments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_system_role_assignments_role",
+                "role IN ('owner', 'admin', 'user')");
+        });
+
+        entity.HasKey(assignment => new
+        {
+            assignment.AuthAccountId,
+            assignment.Role
+        });
+
+        entity.Property(assignment => assignment.AuthAccountId)
+            .HasColumnName("auth_account_id");
+
+        entity.Property(assignment => assignment.Role)
+            .HasColumnName("role")
+            .HasMaxLength(SystemRoleMaxLength)
+            .IsRequired();
+
+        entity.Property(assignment => assignment.AssignedAtUtc)
+            .HasColumnName("assigned_at_utc")
+            .IsRequired();
+
+        entity.Property(assignment => assignment.AssignedByAuthAccountId)
+            .HasColumnName("assigned_by_auth_account_id");
+
+        entity.HasIndex(assignment => assignment.AssignedByAuthAccountId)
+            .HasDatabaseName("ix_system_role_assignments_assigned_by_auth_account_id");
+
+        entity.HasOne(assignment => assignment.AuthAccount)
+            .WithMany(account => account.RoleAssignments)
+            .HasForeignKey(assignment => assignment.AuthAccountId)
+            .HasConstraintName("fk_system_role_assignments_auth_account")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(assignment => assignment.AssignedByAuthAccount)
+            .WithMany(account => account.AssignedRoleAssignments)
+            .HasForeignKey(assignment => assignment.AssignedByAuthAccountId)
+            .HasConstraintName("fk_system_role_assignments_assigned_by_auth_account")
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
