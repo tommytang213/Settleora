@@ -9,7 +9,8 @@
     "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
     "validate:api": "dotnet test services/api/Settleora.Api.sln",
     "validate:compose": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml config",
-    "validate:api-docker": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml build api"
+    "validate:api-docker": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml build api",
+    "validate:api-runtime": "node tools/validate-api-runtime.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "^2.30.1",

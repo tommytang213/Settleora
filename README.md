@@ -53,6 +53,8 @@ npm run validate:openapi
 npm run validate:api
 npm run validate:compose
 npm run validate:api-docker
+npm run validate:api-runtime
 ```
 
-Docker must be available for `validate:compose` and `validate:api-docker`.
+Docker must be available for `validate:compose`, `validate:api-docker`, and `validate:api-runtime`.
+`validate:api-docker` builds the API image only. `validate:api-runtime` starts PostgreSQL, RabbitMQ, and the API through Docker Compose, polls `http://localhost:8080/health/ready` for HTTP 200 with JSON status `ready`, and then stops the stack without deleting persistent Docker volumes.
