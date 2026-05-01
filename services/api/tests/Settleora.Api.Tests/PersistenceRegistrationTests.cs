@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Settleora.Api.Persistence;
+using Settleora.Api.Domain.Users;
 
 namespace Settleora.Api.Tests;
 
@@ -41,11 +42,13 @@ public sealed class PersistenceRegistrationTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
-    public void SettleoraDbContextDoesNotDefineBusinessEntitiesYet()
+    public void SettleoraDbContextDefinesUsersGroupsSchemaFoundation()
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
 
-        Assert.Empty(dbContext.Model.GetEntityTypes());
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserProfile)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserGroup)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(GroupMembership)));
     }
 }

@@ -60,6 +60,7 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 
 - `GET /health` exists.
 - `GET /health/ready` currently checks PostgreSQL.
-- No schema, migrations, EF Core business logic, auth, OCR endpoints, frontend, worker, or generated clients exist yet.
+- The first EF Core migration defines schema-only user profile, user group, and group membership tables.
+- No authentication, authorization, business endpoints, EF Core business workflows, expenses, bills, settlements, OCR endpoints, frontend behavior, worker behavior, or generated clients exist yet.
 - Infrastructure readiness checks should be additive and scoped.
 - The next likely infrastructure check is RabbitMQ readiness.

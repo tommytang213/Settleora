@@ -20,8 +20,8 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `apps/mobile/` existing Flutter mobile app.
 - `apps/web-user/` placeholder for the future React + Vite user portal.
 - `apps/web-admin/` placeholder for the future React + Vite admin portal.
-- `services/api/` ASP.NET Core Web API scaffold with `GET /health` and PostgreSQL/RabbitMQ/storage readiness at `GET /health/ready`.
-- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure is registered for future API-owned PostgreSQL persistence, but no schema, migrations, messaging workflows, upload/download endpoints, file metadata, or business database access exists yet.
+- `services/api/` ASP.NET Core Web API scaffold with `GET /health`, PostgreSQL/RabbitMQ/storage readiness at `GET /health/ready`, and the first API-owned users/groups schema foundation.
+- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, and storage. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure and the first migration define schema-only user profile, group, and group membership tables, but authentication, authorization, business endpoints, messaging workflows, upload/download endpoints, file metadata, expenses, bills, settlements, OCR endpoints, and business database workflows are not implemented yet.
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
 - `packages/contracts/` placeholder OpenAPI contract source.
 - `packages/client-web/` future generated web client output.

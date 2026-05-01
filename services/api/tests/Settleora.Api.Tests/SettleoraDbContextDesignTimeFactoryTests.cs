@@ -7,7 +7,7 @@ namespace Settleora.Api.Tests;
 public sealed class SettleoraDbContextDesignTimeFactoryTests
 {
     [Fact]
-    public void DesignTimeFactoryBuildsPostgreSqlContextWithoutBusinessEntities()
+    public void DesignTimeFactoryBuildsPostgreSqlContextWithUsersGroupsModel()
     {
         const string connectionString =
             "Host=localhost;Port=5432;Database=settleora;Username=settleora;Password=settleora_dev_password";
@@ -23,7 +23,7 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Empty(dbContext.Model.GetEntityTypes());
+        Assert.Equal(3, dbContext.Model.GetEntityTypes().Count());
     }
 
     [Fact]

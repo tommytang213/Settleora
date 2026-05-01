@@ -1,15 +1,14 @@
 # Database Foundation
 
-This document defines Settleora's database foundation direction before schema, migrations, or business tables are implemented. It records architecture rules only; it does not authorize runtime or contract changes by itself.
+This document defines Settleora's database foundation direction for API-owned PostgreSQL persistence. It records architecture rules only; it does not authorize runtime behavior, API contract changes, or feature work by itself.
 
 ## Current State
 
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
-- The API has EF Core infrastructure registered for future API-owned PostgreSQL persistence.
-- No PostgreSQL schema exists yet.
-- No migrations exist yet.
-- No EF Core business persistence exists yet.
+- The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
+- The first schema-only EF Core migration defines user profile, user group, and group membership tables.
+- No authentication, authorization, user/group business endpoints, or EF Core business workflows exist yet.
 - No business tables for expenses, settlement, files, OCR, audit, sync, identity, or sessions exist yet.
 
 ## Authority Boundary
@@ -31,8 +30,7 @@ This document defines Settleora's database foundation direction before schema, m
 
 - Migrations must be explicit, reviewable files.
 - Production startup must not automatically apply migrations.
-- No migrations exist yet.
-- Future local migration creation should use the repo-pinned EF Core tool and the API-owned context:
+- Local migration creation should use the repo-pinned EF Core tool and the API-owned context:
 
 ```powershell
 dotnet tool restore
@@ -47,7 +45,15 @@ dotnet ef migrations add <MigrationName> --project services/api/src/Settleora.Ap
 
 ## Schema Boundaries
 
-Actual business tables are deferred. Future schema design should separate concerns as appropriate, including:
+The current schema foundation is intentionally limited to:
+
+- `user_profiles`: API-owned user profile identity placeholders, including display name, optional default currency, timestamps, and future soft-delete timestamp.
+- `user_groups`: API-owned shared group containers, including name, creator reference, timestamps, and future soft-delete timestamp.
+- `group_memberships`: user-to-group membership rows with composite key, minimal role/status values, and timestamps.
+
+Authentication, authorization, invitations, friends, sessions, admin roles, and user/group business endpoints are not implemented by this schema foundation.
+
+Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 
 - Identity and sessions.
 - Money, expenses, recurring bills, reimbursements, and reconciliation records.
@@ -85,13 +91,14 @@ Schema boundaries should keep authoritative server state distinct from client ca
 
 ## Non-goals
 
-This document does not add or authorize:
+This document does not authorize:
 
-- Migrations.
-- Database tables.
 - OpenAPI changes.
 - Runtime behavior changes.
-- Business persistence logic.
+- Authentication or authorization.
+- User/group business endpoints.
+- Expenses, bills, settlements, files, OCR, audit, sync, identity, or session persistence.
+- Business persistence workflows.
 
 ## Next Implementation Candidate
 
