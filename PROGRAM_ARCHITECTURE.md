@@ -90,6 +90,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 
 ## Identity And Session Rules
 
+- Auth identity foundation details are defined in [docs/architecture/AUTH_IDENTITY_FOUNDATION.md](docs/architecture/AUTH_IDENTITY_FOUNDATION.md).
 - Local accounts and OIDC/Keycloak integration are supported foundations.
 - Role and permission checks are enforced by the API.
 - Sessions and tokens must use secure expiry, revocation, and device/session visibility patterns.

@@ -7,6 +7,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 ## Key References
 
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
+- [Auth identity foundation](docs/architecture/AUTH_IDENTITY_FOUNDATION.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
