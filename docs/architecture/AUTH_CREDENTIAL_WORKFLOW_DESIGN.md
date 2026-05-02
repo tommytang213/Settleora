@@ -15,6 +15,7 @@ It defines the internal service boundary now implemented for EF-backed local pas
 - The internal password hashing service exists and can create and verify Argon2id password verifiers through `IPasswordHashingService`.
 - An internal credential workflow service can create EF-backed local password credentials for existing active auth accounts.
 - Internal password verification is wired to EF rows and can update `last_verified_at_utc` plus rehash after successful verification when required.
+- Credential creation and verification workflows write EF-backed `auth_audit_events` rows with bounded safe metadata for workflow name and status category.
 - No login, current-user, session, token, OpenAPI auth path, generated-client, Flutter, web, or worker auth behavior exists.
 
 ## Authority Boundaries
@@ -193,5 +194,5 @@ The implemented internal service boundary:
 
 - Adds an internal credential workflow service using `IPasswordHashingService`.
 - Adds EF-backed tests for creation, verification success, wrong password, disabled/revoked credential rejection, malformed verifier handling, unsupported algorithm handling, invalid configuration handling, successful `last_verified_at_utc` update, successful rehash, no mutation on failed verification, missing credentials, and safe result string output.
-- Adds a no-op audit writer seam for future safe auth audit persistence.
+- Adds an EF-backed credential audit writer that persists bounded safe `auth_audit_events` metadata for credential creation and verification outcomes.
 - Keeps public endpoints, OpenAPI, generated clients, token/session issuance, migrations, UI, and worker changes out of scope.

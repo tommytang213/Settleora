@@ -4,5 +4,6 @@ internal sealed record AuthCredentialAuditEvent(
     string Action,
     string Outcome,
     Guid? SubjectAuthAccountId,
-    string ReasonCategory,
+    string WorkflowName,
+    string StatusCategory,
     DateTimeOffset OccurredAtUtc);
