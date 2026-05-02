@@ -7,12 +7,16 @@ This repository is currently in scaffold materialization. It preserves the exist
 ## Key References
 
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
+- [MVP Day 1 scope](docs/prd/MVP_DAY1_SCOPE.md)
+- [Day 2 scope](docs/prd/DAY2_SCOPE.md)
+- [Day 3 AI insights scope](docs/prd/DAY3_AI_INSIGHTS_SCOPE.md)
 - [Auth identity foundation](docs/architecture/AUTH_IDENTITY_FOUNDATION.md)
 - [Auth credentials, sessions, and audit design](docs/architecture/AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md)
 - [Auth credential workflow design](docs/architecture/AUTH_CREDENTIAL_WORKFLOW_DESIGN.md)
 - [Password hashing policy](docs/architecture/PASSWORD_HASHING_POLICY.md)
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
+- [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
