@@ -33,6 +33,8 @@ Future implementation should keep runtime auth decisions behind cohesive API/dom
 
 Future local sign-in may accept an identifier and password only at a separately approved endpoint. Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts remain future proposals until that branch explicitly reviews them.
 
+Future sign-in endpoint work is also gated by [AUTH_SIGN_IN_ABUSE_POLICY.md](AUTH_SIGN_IN_ABUSE_POLICY.md), which defines account enumeration resistance, rate limiting, lockout/throttling, credential-stuffing defense, audit categories, and operational diagnostics boundaries before public login or token issuance exists.
+
 A future local sign-in flow should:
 
 - Accept only the minimum identifier and password input needed for the selected sign-in policy.
@@ -180,7 +182,8 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add local sign-in endpoint and OpenAPI path only after rate limiting, lockout, account enumeration behavior, unauthenticated response shape, and audit detail are reviewed.
-2. Add sign-out and per-session revocation after the session service boundary is in place.
-3. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
-4. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+1. Add an internal sign-in abuse policy service only after the sign-in abuse policy design is reviewed, with no public endpoint.
+2. Add local sign-in endpoint and OpenAPI path only after the abuse policy service exists and public response behavior is reviewed.
+3. Add sign-out and per-session revocation after the session service boundary is in place.
+4. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+5. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
