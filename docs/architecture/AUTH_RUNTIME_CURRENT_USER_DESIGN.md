@@ -1,8 +1,8 @@
 # Auth Runtime And Current-User Design
 
-This document defines the next Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
+This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
 
-It is a design gate only. It does not authorize runtime implementation, endpoint code, OpenAPI auth paths, generated clients, middleware, token issuance, UI integration, migrations, package changes, Docker changes, or worker behavior.
+It started as a design gate. The current repository now includes the explicitly scoped current-user read endpoint described below; remaining auth runtime work still requires separate reviewed branches before login, registration, token issuance, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -13,7 +13,8 @@ It is a design gate only. It does not authorize runtime implementation, endpoint
 - `auth_sessions` stores metadata and token hashes only. It is a foundation for future session lookup, expiry, revocation, and replay detection.
 - `auth_audit_events` stores bounded auth audit metadata and must not contain raw secrets, raw tokens, password material, verifier strings, MFA secrets, passkey private material, full provider payloads, or unnecessary PII.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
-- No public registration, login, current-user, sign-out, session-list, session-revocation, authorization middleware, token issuance, OpenAPI auth paths, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
+- No public registration, login, sign-out, session-list, session-revocation, authorization middleware, token issuance, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -66,9 +67,9 @@ This document does not prescribe production secrets, signing algorithms, token l
 
 ## Current-User Endpoint Boundary
 
-A future current-user endpoint should be added only after authenticated actor and session validation exist.
+The implemented current-user endpoint is the first public read boundary on top of authenticated actor and session validation.
 
-Future behavior should:
+Current and future behavior should:
 
 - Resolve the authenticated `AuthAccount` from the validated credential/session boundary.
 - Reject expired, revoked, replayed, disabled, deleted, or policy-invalid sessions uniformly.
@@ -77,9 +78,22 @@ Future behavior should:
 - Return only the current actor's data. It must not return unrelated users, groups, memberships, invitations, audit history, or admin-only state.
 - Exclude secret fields, raw tokens, token hashes, session hashes, password verifier fields, password hash metadata, provider payloads, storage paths, provider internals, and sensitive operational diagnostics.
 - Use uniform unauthenticated response behavior so clients cannot distinguish missing account, missing profile, revoked session, expired session, disabled account, or deleted account unless a future policy explicitly approves a distinction.
-- Keep OpenAPI auth paths, response schemas, generated web clients, generated Dart clients, Flutter integration, web integration, and admin integration in explicit future branches.
+- Keep additional OpenAPI auth paths, response schemas, generated web clients, generated Dart clients, Flutter integration, web integration, and admin integration in explicit future branches.
 
 The current-user boundary is a read boundary for the authenticated actor. It is not a general user lookup, group membership API, admin user search, audit viewer, or session-management API.
+
+## Implemented Current-User Endpoint
+
+The implemented slice adds `GET /api/v1/auth/current-user`.
+
+- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
+- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` and relies on the internal session runtime to reject missing, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions.
+- After validation succeeds, it resolves the linked non-deleted `UserProfile` server-side and loads `system_role_assignments` for the authenticated auth account.
+- It returns only `authAccountId`, `userProfile.id`, `userProfile.displayName`, `userProfile.defaultCurrency`, `session.id`, `session.expiresAtUtc`, and `roles`.
+- It maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, missing-profile, and deleted-profile cases to one uniform `401` problem response.
+- It does not expose unrelated users, groups, memberships, invitations, audit history, credential rows, session token hashes, raw tokens, password verifier fields, provider payloads, storage paths, or diagnostics.
+
+This slice deliberately does not add login, registration, token issuance, refresh rotation, sign-out, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Authorization Handoff
 
@@ -137,18 +151,18 @@ The implemented internal service boundary:
 - Updates `last_seen_at_utc` and `updated_at_utc` only after successful validation.
 - Revokes sessions by session ID and owning auth account context without requiring raw token material.
 - Writes bounded `auth_audit_events` metadata for session creation, successful validation, matched validation failures, and revocation without raw tokens, token hashes, password material, provider payloads, or unbounded request metadata.
-- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps public auth endpoints, OpenAPI auth paths, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
+- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps additional public auth endpoints, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
 
 ## Non-goals
 
 This document does not authorize:
 
-- Runtime implementation.
-- Endpoint code.
-- OpenAPI auth paths.
+- Additional runtime implementation beyond the current-user read boundary.
+- Additional endpoint code beyond the current-user read boundary.
+- Additional OpenAPI auth paths.
 - Generated clients.
 - Login endpoint implementation.
-- Current-user endpoint implementation.
+- Additional current-user behavior beyond the implemented read endpoint.
 - Token issuance implementation.
 - Session middleware implementation.
 - Authorization handlers.
@@ -159,15 +173,14 @@ This document does not authorize:
 - Schema changes.
 - Package changes.
 - Docker behavior changes.
-- Runtime behavior changes.
+- Additional runtime behavior changes.
 - Production secret, signing-key, token-library, cookie, or crypto-package choices.
 
 ## Next Implementation Candidates
 
 Future branches should stay small and reviewable:
 
-1. Add an internal runtime session service interface and implementation for session creation, hash lookup, expiry, revocation, rotation metadata, and safe audit writes without public endpoints.
-2. Add local sign-in endpoint and OpenAPI path only after rate limiting, lockout, account enumeration behavior, unauthenticated response shape, and audit detail are reviewed.
-3. Add current-user endpoint only after authenticated actor and session validation exist.
-4. Add sign-out and per-session revocation after the session service boundary is in place.
-5. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+1. Add local sign-in endpoint and OpenAPI path only after rate limiting, lockout, account enumeration behavior, unauthenticated response shape, and audit detail are reviewed.
+2. Add sign-out and per-session revocation after the session service boundary is in place.
+3. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+4. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.

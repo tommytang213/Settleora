@@ -1,4 +1,5 @@
 using Settleora.Api.Auth.Credentials;
+using Settleora.Api.Auth.CurrentUser;
 using Settleora.Api.Auth.PasswordHashing;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Configuration;
@@ -23,6 +24,7 @@ builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck
 var app = builder.Build();
 
 app.MapHealthEndpoints();
+app.MapCurrentUserEndpoints();
 
 app.Run();
 

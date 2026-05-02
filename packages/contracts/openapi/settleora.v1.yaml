@@ -6,11 +6,12 @@ info:
     name: Apache-2.0
     identifier: Apache-2.0
   description: >
-    Placeholder OpenAPI contract for Settleora scaffold materialization.
-    Generated mobile and web clients will be produced from this file later,
-    and generated output must not be manually edited. This is not the feature
-    contract for expenses, auth, settlement, sync, OCR upload, users, or
-    database behavior.
+    OpenAPI contract for Settleora scaffold materialization. Generated mobile
+    and web clients will be produced from this file later, and generated output
+    must not be manually edited. This contract currently covers scaffold health
+    checks and the minimal current-user auth read boundary; it is not the
+    feature contract for login, registration, token issuance, expenses,
+    settlement, sync, OCR upload, users, or database behavior.
 servers:
   - url: /
 paths:
@@ -149,8 +150,94 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/current-user:
+    get:
+      summary: Current authenticated user
+      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary.
+      operationId: getCurrentUser
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Current authenticated user summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUserResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
 components:
+  securitySchemes:
+    SessionBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
   schemas:
+    CurrentUserResponse:
+      type: object
+      description: Minimal current authenticated actor, profile, session, and system-role summary.
+      required:
+        - authAccountId
+        - userProfile
+        - session
+        - roles
+      properties:
+        authAccountId:
+          type: string
+          format: uuid
+        userProfile:
+          $ref: "#/components/schemas/CurrentUserProfile"
+        session:
+          $ref: "#/components/schemas/CurrentUserSession"
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - owner
+              - admin
+              - user
+          uniqueItems: true
+    CurrentUserProfile:
+      type: object
+      description: Linked active user profile summary for the authenticated account.
+      required:
+        - id
+        - displayName
+        - defaultCurrency
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+    CurrentUserSession:
+      type: object
+      description: Validated current session summary.
+      required:
+        - id
+        - expiresAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        expiresAtUtc:
+          type: string
+          format: date-time
     CurrencyCode:
       type: string
       pattern: "^[A-Z]{3}$"
