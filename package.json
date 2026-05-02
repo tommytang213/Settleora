@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "npm run validate:scaffold && npm run validate:openapi && npm run validate:api && npm run validate:compose && npm run validate:api-docker",
+    "validate": "node tools/validate.mjs",
     "validate:scaffold": "node tools/validate-scaffold.mjs",
     "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
     "validate:api": "dotnet test services/api/Settleora.Api.sln",
