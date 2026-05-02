@@ -54,3 +54,6 @@ packages/client-web/src/generated/*
 !packages/client-web/src/generated/.gitkeep
 packages/client-dart/generated/*
 !packages/client-dart/generated/.gitkeep
+
+# Codex output
+.codex/
