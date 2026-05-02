@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events, plus an internal password hashing service boundary. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, credential persistence workflows, token issuance, session middleware, or auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events, plus an internal password hashing service boundary. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), and design-only credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize OpenAPI changes, generated clients, UI behavior, credential persistence workflow implementation, token issuance, session middleware, or auth runtime behavior.
 
 ## Current State
 
@@ -157,7 +157,7 @@ This schema foundation does not authorize:
 
 Future work should remain small and separately reviewable.
 
-- Credential creation and verification workflows that use the internal password hashing service.
+- Internal credential creation and verification service implementation that follows [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 - Current-user API boundary that resolves the authenticated account/session to the linked `UserProfile`.
 - Auth middleware and runtime only after schema and password/session policy are reviewed.
 - Separate passkey schema review before passkey implementation.

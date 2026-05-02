@@ -1,6 +1,6 @@
 # Password Hashing Policy
 
-This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. It does not authorize migrations, OpenAPI changes, generated clients, login behavior, credential creation behavior, or UI behavior.
+This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize migrations, OpenAPI changes, generated clients, login behavior, credential creation behavior, or UI behavior.
 
 The policy is based on current OWASP Password Storage Cheat Sheet guidance and NIST SP 800-63B-4 password authenticator guidance. Future auth workflow work must re-check those sources and benchmark deployment hardware before freezing production parameters.
 
@@ -137,6 +137,6 @@ Future work should remain small and separately reviewable:
 
 - Benchmark Argon2id work factors on deployment-class hardware and container limits.
 - Define password policy configuration shape and secret-provider boundaries for optional pepper support.
-- Add credential creation and verification workflows behind reviewed auth boundaries.
+- Add internal credential creation and verification service implementation behind the reviewed [credential workflow design](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 - Add credential creation and verification tests with policy-version and `requires_rehash` coverage.
 - Design rate limiting, lockout, audit event detail, reset-token storage, and current-user/login endpoint boundaries before adding auth endpoints.

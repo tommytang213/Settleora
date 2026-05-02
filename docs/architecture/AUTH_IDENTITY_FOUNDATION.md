@@ -3,6 +3,7 @@
 This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, and auth audit foundations plus an internal password hashing service boundary, but it still has no login/current-user endpoints, credential persistence workflows, token issuance, session middleware, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
+Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 
 It is an architecture gate for future user and group endpoint work. It describes boundaries and required design properties only.
 
@@ -20,7 +21,7 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal hashing service is not wired to credential row creation or mutation yet.
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
-- No login/current-user runtime behavior, credential persistence workflow, token issuance, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
+- No login/current-user runtime behavior, credential persistence workflow implementation, token issuance, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts
@@ -157,7 +158,7 @@ This document does not authorize:
 
 Future work should remain small and reviewable. Good next candidates are:
 
-- Credential creation and verification workflows that use the internal password hashing service.
+- Internal credential creation and verification service implementation that follows [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 - Runtime auth/session boundaries only after credential and session policy are reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
 - Guarded user/group endpoints only after the auth boundary exists and server-side policy checks are designed.

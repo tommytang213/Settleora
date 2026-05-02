@@ -215,4 +215,4 @@ This task does not authorize:
 
 ## Next Implementation Candidate
 
-After this boundary, the next safe code branch is credential creation and verification workflow design that uses `IPasswordHashingService` without exposing verifier internals. PBKDF2-HMAC-SHA-256 fallback remains a separate implementation task for explicit FIPS-compatible deployments.
+After this boundary, the next safe code branch is internal credential creation and verification service implementation that follows [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md) and uses `IPasswordHashingService` without exposing verifier internals. PBKDF2-HMAC-SHA-256 fallback remains a separate implementation task for explicit FIPS-compatible deployments.
