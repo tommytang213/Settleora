@@ -13,6 +13,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - `auth_sessions` stores metadata and token hashes only. It is a foundation for future session lookup, expiry, revocation, and replay detection.
 - `auth_audit_events` stores bounded auth audit metadata and must not contain raw secrets, raw tokens, password material, verifier strings, MFA secrets, passkey private material, full provider payloads, or unnecessary PII.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
+- An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - No public registration, login, sign-out, session-list, session-revocation, authorization middleware, token issuance, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
@@ -182,8 +183,8 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add an internal sign-in abuse policy service only after the sign-in abuse policy design is reviewed, with no public endpoint.
-2. Add local sign-in endpoint and OpenAPI path only after the abuse policy service exists and public response behavior is reviewed.
+1. Add local sign-in endpoint and OpenAPI path only after the public response behavior is reviewed.
+2. Connect future sign-in runtime outcomes to safe audit writes without exposing account existence or raw request metadata.
 3. Add sign-out and per-session revocation after the session service boundary is in place.
 4. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
 5. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
