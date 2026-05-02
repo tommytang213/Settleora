@@ -54,6 +54,8 @@ npm ci
 npm run validate
 ```
 
+`npm run validate` runs the same checks listed below in order and stops on the first failure with the failed subcommand and exit code.
+
 Individual checks:
 
 ```powershell
