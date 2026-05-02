@@ -30,6 +30,21 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - Public login, sign-in, registration, token issuance, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
+## Implemented Internal Policy Boundary
+
+The first internal service boundary now exists under the API auth layer.
+
+- `ISignInAbusePolicyService` exposes endpoint-independent pre-verification checking and post-result recording for future sign-in code.
+- The in-memory implementation is a single-node dev/self-hosted limiter. It uses only .NET BCL types, process-local state, `TimeProvider`, short and longer windows, temporary throttling, retention pruning, and bounded bucket counts.
+- The service evaluates source, normalized identifier, combined source plus identifier, and global buckets before credential lookup or password verification.
+- The service records failed, throttled, and policy-blocked attempts into the layered buckets. Successful attempts clear the matching identifier and combined counters, while source and global counters remain in place.
+- Bucket keys must be caller-provided safe, bounded values such as normalized hashes or coarse source buckets. The service rejects blank, oversized, or unsafe keys and its result strings do not include raw identifier or source keys.
+- The implementation does not query accounts, identities, credentials, sessions, or audit rows, so it cannot reveal whether an account exists.
+
+This boundary deliberately remains internal-only. It does not add public login/sign-in behavior, OpenAPI paths, generated clients, migrations, packages, Docker changes, distributed limiter storage, password reset, MFA, passkeys, token issuance, sign-out, session list/revocation, or auth middleware.
+
+Audit integration remains for the future sign-in runtime branch. That branch should connect pre-check and post-result categories to bounded `auth_audit_events` writes only after the public sign-in response behavior is reviewed.
+
 ## Threat Model
 
 Settleora is self-hosted, often for small groups, but small deployments are still reachable software once exposed to a LAN, VPN, reverse proxy, or the public internet.
@@ -232,8 +247,8 @@ This branch does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add an internal sign-in policy service interface and in-memory limiter for single-node dev/self-hosted mode, with tests and no endpoint.
-2. Add the sign-in endpoint only after the policy service exists and the public response shape is reviewed with OpenAPI.
+1. Add the sign-in endpoint only after the internal policy service exists and the public response shape is reviewed with OpenAPI.
+2. Wire safe sign-in audit events to the policy decisions in the future sign-in runtime branch.
 3. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
 4. Add password reset and account recovery design separately.
 5. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.
