@@ -13,6 +13,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Auth identity foundation](docs/architecture/AUTH_IDENTITY_FOUNDATION.md)
 - [Auth credentials, sessions, and audit design](docs/architecture/AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md)
 - [Auth credential workflow design](docs/architecture/AUTH_CREDENTIAL_WORKFLOW_DESIGN.md)
+- [Auth runtime and current-user design](docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md)
 - [Password hashing policy](docs/architecture/PASSWORD_HASHING_POLICY.md)
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
