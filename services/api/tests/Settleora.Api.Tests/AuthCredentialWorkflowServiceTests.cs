@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.PasswordHashing;
 using Settleora.Api.Domain.Auth;
@@ -39,6 +41,14 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.Null(credential.LastVerifiedAtUtc);
         Assert.Null(credential.RevokedAtUtc);
         Assert.False(credential.RequiresRehash);
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.created",
+            AuthAuditOutcomes.Success,
+            authAccountId,
+            InitialTimestamp,
+            CredentialCreationStatus.Created.ToString());
     }
 
     [Fact]
@@ -56,6 +66,14 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.Equal(CredentialCreationStatus.CredentialAlreadyExists, result.Status);
         Assert.Equal(0, passwordHashingService.HashPasswordCallCount);
         Assert.Equal(1, await dbContext.Set<LocalPasswordCredential>().CountAsync());
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.created",
+            AuthAuditOutcomes.Denied,
+            authAccountId,
+            InitialTimestamp,
+            CredentialCreationStatus.CredentialAlreadyExists.ToString());
     }
 
     [Fact]
@@ -73,6 +91,14 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.Equal(CredentialCreationStatus.AccountUnavailable, result.Status);
         Assert.Equal(0, passwordHashingService.HashPasswordCallCount);
         Assert.Empty(await dbContext.Set<LocalPasswordCredential>().ToListAsync());
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.created",
+            AuthAuditOutcomes.Denied,
+            null,
+            InitialTimestamp,
+            CredentialCreationStatus.AccountUnavailable.ToString());
     }
 
     [Fact]
@@ -94,6 +120,14 @@ public sealed class AuthCredentialWorkflowServiceTests
         var credential = await dbContext.Set<LocalPasswordCredential>().SingleAsync();
         Assert.Equal(VerificationTimestamp, credential.LastVerifiedAtUtc);
         Assert.Equal(VerificationTimestamp, credential.UpdatedAtUtc);
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.verification",
+            AuthAuditOutcomes.Success,
+            authAccountId,
+            VerificationTimestamp,
+            PasswordCredentialVerificationStatus.Verified.ToString());
     }
 
     [Fact]
@@ -118,6 +152,14 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.Equal(InitialTimestamp, credential.UpdatedAtUtc);
         Assert.Null(credential.LastVerifiedAtUtc);
         Assert.False(credential.RequiresRehash);
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.verification",
+            AuthAuditOutcomes.Failure,
+            authAccountId,
+            VerificationTimestamp,
+            PasswordCredentialVerificationStatus.WrongPassword.ToString());
     }
 
     [Theory]
@@ -147,6 +189,16 @@ public sealed class AuthCredentialWorkflowServiceTests
         var credential = await dbContext.Set<LocalPasswordCredential>().SingleAsync();
         Assert.Null(credential.LastVerifiedAtUtc);
         Assert.Equal(InitialTimestamp, credential.UpdatedAtUtc);
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.verification",
+            status == LocalPasswordCredentialStatuses.Revoked
+                ? AuthAuditOutcomes.Revoked
+                : AuthAuditOutcomes.Denied,
+            authAccountId,
+            VerificationTimestamp,
+            expectedStatus.ToString());
     }
 
     [Fact]
@@ -248,6 +300,18 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.False(credential.RequiresRehash);
         Assert.Equal(VerificationTimestamp, credential.LastVerifiedAtUtc);
         Assert.Equal(VerificationTimestamp, credential.UpdatedAtUtc);
+
+        var auditEvent = await AssertSingleAuditEventAsync(
+            dbContext,
+            "credential.verification",
+            AuthAuditOutcomes.Success,
+            authAccountId,
+            VerificationTimestamp,
+            PasswordCredentialVerificationStatus.Verified.ToString());
+        Assert.DoesNotContain(FakePasswordHashingService.CorrectPassword, auditEvent.SafeMetadataJson!);
+        Assert.DoesNotContain(FakePasswordHashingService.CurrentVerifier, auditEvent.SafeMetadataJson!);
+        Assert.DoesNotContain(FakePasswordHashingService.RehashedVerifier, auditEvent.SafeMetadataJson!);
+        Assert.DoesNotContain(FakePasswordHashingService.RehashedParametersJson, auditEvent.SafeMetadataJson!);
     }
 
     [Fact]
@@ -314,6 +378,36 @@ public sealed class AuthCredentialWorkflowServiceTests
         Assert.DoesNotContain(verifier, creationResult.ToString());
         Assert.DoesNotContain(plaintextPassword, verificationResult.ToString());
         Assert.DoesNotContain(verifier, verificationResult.ToString());
+
+        var auditEvents = await dbContext.Set<AuthAuditEvent>().ToListAsync();
+        Assert.Equal(2, auditEvents.Count);
+        Assert.All(auditEvents, auditEvent =>
+        {
+            Assert.DoesNotContain(plaintextPassword, auditEvent.Action);
+            Assert.DoesNotContain(verifier, auditEvent.Action);
+            Assert.DoesNotContain(plaintextPassword, auditEvent.Outcome);
+            Assert.DoesNotContain(verifier, auditEvent.Outcome);
+            Assert.DoesNotContain(plaintextPassword, auditEvent.SafeMetadataJson!);
+            Assert.DoesNotContain(verifier, auditEvent.SafeMetadataJson!);
+        });
+    }
+
+    [Fact]
+    public void AuthCredentialWorkflowRegistersEfAuditWriter()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<SettleoraDbContext>(options =>
+        {
+            options.UseInMemoryDatabase(Guid.NewGuid().ToString());
+        });
+        services.AddAuthCredentialWorkflow();
+
+        using var serviceProvider = services.BuildServiceProvider();
+        using var scope = serviceProvider.CreateScope();
+
+        var auditWriter = scope.ServiceProvider.GetRequiredService<IAuthCredentialAuditWriter>();
+
+        Assert.IsType<EfAuthCredentialAuditWriter>(auditWriter);
     }
 
     private static AuthCredentialWorkflowService CreateService(
@@ -324,7 +418,7 @@ public sealed class AuthCredentialWorkflowServiceTests
         return new AuthCredentialWorkflowService(
             dbContext,
             passwordHashingService,
-            new FakeAuthCredentialAuditWriter(),
+            new EfAuthCredentialAuditWriter(dbContext),
             new FixedTimeProvider(utcNow));
     }
 
@@ -466,11 +560,53 @@ public sealed class AuthCredentialWorkflowServiceTests
         }
     }
 
-    private sealed class FakeAuthCredentialAuditWriter : IAuthCredentialAuditWriter
+    private static async Task<AuthAuditEvent> AssertSingleAuditEventAsync(
+        SettleoraDbContext dbContext,
+        string expectedAction,
+        string expectedOutcome,
+        Guid? expectedSubjectAuthAccountId,
+        DateTimeOffset expectedOccurredAtUtc,
+        string expectedStatusCategory)
     {
-        public ValueTask WriteAsync(AuthCredentialAuditEvent auditEvent, CancellationToken cancellationToken)
+        var auditEvent = await dbContext.Set<AuthAuditEvent>().SingleAsync();
+
+        Assert.Null(auditEvent.ActorAuthAccountId);
+        Assert.Equal(expectedSubjectAuthAccountId, auditEvent.SubjectAuthAccountId);
+        Assert.Equal(expectedAction, auditEvent.Action);
+        Assert.Equal(expectedOutcome, auditEvent.Outcome);
+        Assert.Equal(expectedOccurredAtUtc, auditEvent.OccurredAtUtc);
+        Assert.Null(auditEvent.CorrelationId);
+        Assert.Null(auditEvent.RequestId);
+        AssertSafeAuditMetadata(auditEvent.SafeMetadataJson, expectedStatusCategory);
+
+        return auditEvent;
+    }
+
+    private static void AssertSafeAuditMetadata(string? safeMetadataJson, string expectedStatusCategory)
+    {
+        Assert.NotNull(safeMetadataJson);
+        Assert.True(safeMetadataJson!.Length <= 4096);
+
+        using var metadata = JsonDocument.Parse(safeMetadataJson);
+        var propertyNames = metadata.RootElement
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .Order()
+            .ToArray();
+
+        Assert.Equal(["statusCategory", "workflowName"], propertyNames);
+        Assert.Equal(
+            "local_password_credential",
+            metadata.RootElement.GetProperty("workflowName").GetString());
+        Assert.Equal(
+            expectedStatusCategory,
+            metadata.RootElement.GetProperty("statusCategory").GetString());
+
+        foreach (var property in metadata.RootElement.EnumerateObject())
         {
-            return ValueTask.CompletedTask;
+            var value = property.Value.GetString();
+            Assert.NotNull(value);
+            Assert.InRange(value!.Length, 1, 120);
         }
     }
 

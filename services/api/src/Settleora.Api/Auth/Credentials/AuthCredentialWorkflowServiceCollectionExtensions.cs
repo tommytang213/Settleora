@@ -7,7 +7,7 @@ internal static class AuthCredentialWorkflowServiceCollectionExtensions
     public static IServiceCollection AddAuthCredentialWorkflow(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<IAuthCredentialAuditWriter, NoOpAuthCredentialAuditWriter>();
+        services.TryAddScoped<IAuthCredentialAuditWriter, EfAuthCredentialAuditWriter>();
         services.AddScoped<IAuthCredentialWorkflowService, AuthCredentialWorkflowService>();
 
         return services;

@@ -7,6 +7,7 @@ namespace Settleora.Api.Auth.Credentials;
 
 internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowService
 {
+    private const string LocalPasswordCredentialWorkflowName = "local_password_credential";
     private const string CredentialCreatedAction = "credential.created";
     private const string CredentialVerificationAction = "credential.verification";
 
@@ -39,9 +40,9 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         if (!IsAccountEligibleForLocalCredential(account))
         {
             var result = CredentialCreationResult.Failure(CredentialCreationStatus.AccountUnavailable);
-            await WriteAuditAsync(
+            await WriteAuditAndSaveAsync(
                 CredentialCreatedAction,
-                "denied",
+                AuthAuditOutcomes.Denied,
                 account?.Id,
                 result.Status.ToString(),
                 occurredAtUtc,
@@ -55,9 +56,9 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         if (credentialExists)
         {
             var result = CredentialCreationResult.Failure(CredentialCreationStatus.CredentialAlreadyExists);
-            await WriteAuditAsync(
+            await WriteAuditAndSaveAsync(
                 CredentialCreatedAction,
-                "denied",
+                AuthAuditOutcomes.Denied,
                 authAccountId,
                 result.Status.ToString(),
                 occurredAtUtc,
@@ -69,9 +70,9 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         if (!hashResult.Succeeded)
         {
             var result = CredentialCreationResult.HashFailure(hashResult.FailureReason!.Value);
-            await WriteAuditAsync(
+            await WriteAuditAndSaveAsync(
                 CredentialCreatedAction,
-                "failure",
+                AuthAuditOutcomes.Failure,
                 authAccountId,
                 result.Status.ToString(),
                 occurredAtUtc,
@@ -95,6 +96,14 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
             RequiresRehash = false
         });
 
+        await WriteAuditAsync(
+            CredentialCreatedAction,
+            AuthAuditOutcomes.Success,
+            authAccountId,
+            CredentialCreationStatus.Created.ToString(),
+            occurredAtUtc,
+            cancellationToken);
+
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -102,9 +111,9 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         catch (DbUpdateException)
         {
             var result = CredentialCreationResult.Failure(CredentialCreationStatus.PersistenceFailed);
-            await WriteAuditAsync(
+            await WritePersistenceFailureAuditAfterFailedSaveAsync(
                 CredentialCreatedAction,
-                "failure",
+                AuthAuditOutcomes.Failure,
                 authAccountId,
                 result.Status.ToString(),
                 occurredAtUtc,
@@ -112,13 +121,6 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
             return result;
         }
 
-        await WriteAuditAsync(
-            CredentialCreatedAction,
-            "success",
-            authAccountId,
-            CredentialCreationStatus.Created.ToString(),
-            occurredAtUtc,
-            cancellationToken);
         return CredentialCreationResult.Created();
     }
 
@@ -135,7 +137,7 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         {
             var result = PasswordCredentialVerificationResult.Failure(
                 PasswordCredentialVerificationStatus.AccountUnavailable);
-            await WriteVerificationAuditAsync(result, account?.Id, occurredAtUtc, cancellationToken);
+            await WriteVerificationAuditAndSaveAsync(result, account?.Id, occurredAtUtc, cancellationToken);
             return result;
         }
 
@@ -147,7 +149,7 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         var unavailableResult = GetCredentialUnavailableResult(credential);
         if (unavailableResult is not null)
         {
-            await WriteVerificationAuditAsync(unavailableResult, authAccountId, occurredAtUtc, cancellationToken);
+            await WriteVerificationAuditAndSaveAsync(unavailableResult, authAccountId, occurredAtUtc, cancellationToken);
             return unavailableResult;
         }
 
@@ -163,7 +165,7 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         {
             var result = PasswordCredentialVerificationResult.Failure(
                 MapPasswordVerificationStatus(verificationResult.Status));
-            await WriteVerificationAuditAsync(result, authAccountId, occurredAtUtc, cancellationToken);
+            await WriteVerificationAuditAndSaveAsync(result, authAccountId, occurredAtUtc, cancellationToken);
             return result;
         }
 
@@ -192,6 +194,12 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
             }
         }
 
+        var verifiedResult = PasswordCredentialVerificationResult.Verified(
+            rehashAttempted,
+            rehashed,
+            rehashFailureReason);
+        await WriteVerificationAuditAsync(verifiedResult, authAccountId, occurredAtUtc, cancellationToken);
+
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -200,15 +208,16 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         {
             var result = PasswordCredentialVerificationResult.Failure(
                 PasswordCredentialVerificationStatus.PersistenceFailed);
-            await WriteVerificationAuditAsync(result, authAccountId, occurredAtUtc, cancellationToken);
+            await WritePersistenceFailureAuditAfterFailedSaveAsync(
+                CredentialVerificationAction,
+                AuthAuditOutcomes.Failure,
+                authAccountId,
+                result.Status.ToString(),
+                occurredAtUtc,
+                cancellationToken);
             return result;
         }
 
-        var verifiedResult = PasswordCredentialVerificationResult.Verified(
-            rehashAttempted,
-            rehashed,
-            rehashFailureReason);
-        await WriteVerificationAuditAsync(verifiedResult, authAccountId, occurredAtUtc, cancellationToken);
         return verifiedResult;
     }
 
@@ -274,12 +283,12 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
     {
         var outcome = result.Status switch
         {
-            PasswordCredentialVerificationStatus.Verified => "success",
-            PasswordCredentialVerificationStatus.CredentialDisabled => "denied",
-            PasswordCredentialVerificationStatus.CredentialRevoked => "revoked",
-            PasswordCredentialVerificationStatus.AccountUnavailable => "denied",
-            PasswordCredentialVerificationStatus.CredentialUnavailable => "denied",
-            _ => "failure"
+            PasswordCredentialVerificationStatus.Verified => AuthAuditOutcomes.Success,
+            PasswordCredentialVerificationStatus.CredentialDisabled => AuthAuditOutcomes.Denied,
+            PasswordCredentialVerificationStatus.CredentialRevoked => AuthAuditOutcomes.Revoked,
+            PasswordCredentialVerificationStatus.AccountUnavailable => AuthAuditOutcomes.Denied,
+            PasswordCredentialVerificationStatus.CredentialUnavailable => AuthAuditOutcomes.Denied,
+            _ => AuthAuditOutcomes.Failure
         };
 
         return WriteAuditAsync(
@@ -291,11 +300,57 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
             cancellationToken);
     }
 
+    private async ValueTask WriteVerificationAuditAndSaveAsync(
+        PasswordCredentialVerificationResult result,
+        Guid? subjectAuthAccountId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await WriteVerificationAuditAsync(result, subjectAuthAccountId, occurredAtUtc, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async ValueTask WriteAuditAndSaveAsync(
+        string action,
+        string outcome,
+        Guid? subjectAuthAccountId,
+        string statusCategory,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await WriteAuditAsync(
+            action,
+            outcome,
+            subjectAuthAccountId,
+            statusCategory,
+            occurredAtUtc,
+            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async ValueTask WritePersistenceFailureAuditAfterFailedSaveAsync(
+        string action,
+        string outcome,
+        Guid? subjectAuthAccountId,
+        string statusCategory,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ChangeTracker.Clear();
+        await WriteAuditAndSaveAsync(
+            action,
+            outcome,
+            subjectAuthAccountId,
+            statusCategory,
+            occurredAtUtc,
+            cancellationToken);
+    }
+
     private ValueTask WriteAuditAsync(
         string action,
         string outcome,
         Guid? subjectAuthAccountId,
-        string reasonCategory,
+        string statusCategory,
         DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken)
     {
@@ -304,7 +359,8 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
                 action,
                 outcome,
                 subjectAuthAccountId,
-                reasonCategory,
+                LocalPasswordCredentialWorkflowName,
+                statusCategory,
                 occurredAtUtc),
             cancellationToken);
     }

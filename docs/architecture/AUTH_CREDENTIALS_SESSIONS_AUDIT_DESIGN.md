@@ -12,7 +12,7 @@ This document defines the schema direction for credential storage, sessions, and
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
 - `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, or MFA secrets. The internal credential workflow service writes and verifies these rows for existing auth accounts.
 - `auth_sessions` stores server-authoritative session metadata and token hashes; it does not store raw session IDs, raw bearer tokens, or raw refresh tokens.
-- `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
+- `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
 - No authentication runtime behavior, authorization middleware, sign-in endpoint, session flow, or current-user API exists yet.
 
@@ -147,7 +147,7 @@ This schema foundation does not authorize:
 - Session implementation.
 - Passkey implementation.
 - MFA implementation.
-- Auth audit implementation.
+- General auth audit implementation outside the internal credential workflow.
 - OpenAPI changes.
 - Generated client changes.
 - UI behavior.
