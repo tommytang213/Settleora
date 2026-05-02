@@ -8,16 +8,18 @@ Current implementation:
 - `GET /health/ready` checks PostgreSQL, RabbitMQ, and local storage readiness with configured dependency settings and returns no connection details or physical paths.
 - Integration tests cover the health and readiness endpoints.
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
-- Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, and storage.
+- Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, storage, and password hashing policy.
 - EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
+- An internal password hashing service boundary can create and verify Argon2id password verifiers without adding auth endpoints or credential persistence workflows.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, and system role assignments. No authentication runtime behavior, authorization, credentials, password hashes, raw tokens, sessions, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No login/current-user runtime behavior, authorization, credential persistence workflows, raw tokens, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 
 - `Settleora:Database`
 - `Settleora:RabbitMq`
 - `Settleora:Storage`
+- `Settleora:Auth:PasswordHashing`
 
 The PostgreSQL, RabbitMQ, and storage readiness checks run only when `GET /health/ready` is requested; API startup does not connect to PostgreSQL or RabbitMQ, touch storage, or run migrations. The `/health` and `/health/ready` endpoints do not expose configuration details, storage roots, or physical paths.
 

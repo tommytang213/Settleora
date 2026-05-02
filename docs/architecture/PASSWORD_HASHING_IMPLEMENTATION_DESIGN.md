@@ -1,6 +1,6 @@
 # Password Hashing Implementation Design
 
-This document evaluates the future runtime implementation shape for Settleora local-account password hashing. It is a design document only. It does not authorize package additions, runtime password hashing, migrations, OpenAPI changes, generated clients, login behavior, current-user behavior, session middleware, password reset, recovery, or UI auth behavior.
+This document records the implementation shape for Settleora local-account password hashing. It does not authorize migrations, OpenAPI changes, generated clients, login behavior, current-user behavior, session middleware, password reset, recovery, or UI auth behavior.
 
 ## References Checked
 
@@ -17,17 +17,17 @@ External sources were reachable and re-checked on 2026-05-02:
 
 Those sources support the existing Settleora policy direction: prefer Argon2id for normal non-FIPS deployments, keep salts unique, record algorithm and work-factor metadata for migration, benchmark parameters on the actual deployment class, and use PBKDF2-HMAC-SHA-256 only when an explicit FIPS-compatible deployment mode requires it.
 
-NuGet metadata is useful for target frameworks, package versions, licenses, dependencies, owners, and release recency. It is not enough by itself to approve a security dependency. A future implementation branch must still review source, transitive dependencies, vulnerability/deprecation status, container behavior, and test-vector coverage before choosing a package.
+NuGet metadata is useful for target frameworks, package versions, licenses, dependencies, owners, and release recency. It is not enough by itself to approve a security dependency. Future package changes must still review source, transitive dependencies, vulnerability/deprecation status, container behavior, and test-vector coverage before choosing or replacing a package.
 
 ## Current State
 
 - `local_password_credentials` exists in the EF Core schema foundation.
 - `local_password_credentials` is linked to `auth_accounts` and stores password verifier metadata fields: `password_hash`, `password_hash_algorithm`, `password_hash_algorithm_version`, `password_hash_parameters`, `status`, timestamps, `last_verified_at_utc`, `revoked_at_utc`, and `requires_rehash`.
-- Password hashing and verification runtime does not exist.
+- An internal `IPasswordHashingService` boundary exists for Argon2id verifier creation, verification, metadata, and rehash decisions.
 - Login, token issuance, current-user endpoints, session middleware, password reset, recovery, generated clients, and UI auth behavior do not exist.
 - No OpenAPI auth paths exist.
 - The API project currently targets `net9.0`.
-- Current direct API packages are EF Core 9.0.15, EF Core Design 9.0.15, Npgsql 9.0.5, Npgsql EF Core provider 9.0.4, and RabbitMQ.Client 7.1.2. There is no password hashing package today.
+- Current direct API packages are Geralt 4.0.1, EF Core 9.0.15, EF Core Design 9.0.15, Npgsql 9.0.5, Npgsql EF Core provider 9.0.4, and RabbitMQ.Client 7.1.2.
 
 ## Architecture Boundaries
 
@@ -35,7 +35,7 @@ The API/domain auth boundary must own local credential writes and password verif
 
 Workers and clients must not mutate `local_password_credentials`. Generated clients may eventually call reviewed auth endpoints, but generated client availability must not imply authorization and must not expose password verifier internals.
 
-No OpenAPI auth paths, generated client changes, UI auth behavior, or runtime endpoint work belongs in this design task. The future implementation should keep password hashing behind an internal service boundary until login/current-user/session endpoint contracts are separately reviewed.
+No OpenAPI auth paths, generated client changes, UI auth behavior, or runtime endpoint work belongs in this password hashing boundary. Password hashing must stay behind the internal service boundary until login/current-user/session endpoint contracts are separately reviewed.
 
 ## Library Evaluation Criteria
 
@@ -69,13 +69,13 @@ Strengths:
 
 Risks and unknowns:
 
-- The native `libsodium` dependency must be validated in the API Docker image and target deployment environments.
-- The implementation branch must confirm exact encoded verifier format, length, and whether it fits the current `password_hash` max length.
-- The implementation branch must confirm constant-time verification behavior from source or tests.
+- The native `libsodium` dependency must continue to be validated in the API Docker image and target deployment environments when package/runtime behavior changes.
+- The current Geralt encoded verifier length fits the existing `password_hash` max length.
+- Geralt delegates verification to libsodium's password-hash verify API; deeper source audit remains a security review follow-up.
 - Current version adoption is lower than older Argon2 packages, so operational maturity should be evaluated beyond release recency.
 - Not FIPS-approved for password hashing; PBKDF2 fallback is still required for explicit FIPS-compatible mode.
 
-Assessment: strong first candidate for an implementation spike if native dependency and container behavior are acceptable. Not approved by this document.
+Assessment: selected for the current internal service after package metadata, source posture, verifier format, and Docker behavior validation.
 
 ### Konscious.Security.Cryptography.Argon2 1.3.1
 
@@ -142,11 +142,11 @@ Assessment: required fallback path for explicit FIPS-compatible deployment mode.
 
 ## Recommended Direction
 
-Use Argon2id for non-FIPS deployments if an acceptable dependency is selected in a future implementation branch. Start the implementation spike with Geralt because its current API shape appears closest to Settleora's desired high-level behavior: encoded hashes, verification, and rehash checks. Validate its native `libsodium` dependency in the API container before adopting it.
+Use Argon2id for non-FIPS deployments through Geralt because its API shape matches Settleora's internal boundary: encoded hashes, verification, and rehash checks. Validate its native `libsodium` dependency in the API container when package/runtime behavior changes.
 
 If native dependency risk is unacceptable, evaluate Konscious as the no-obvious-native-dependency fallback, but only with a Settleora-owned verifier wrapper that provides encoded verifier strings, parameter parsing, fixed-time comparison, and rehash decisions. Keep Isopoh in the record as technically relevant but blocked pending license/support review.
 
-Use PBKDF2-HMAC-SHA-256 only when an explicit FIPS-compatible deployment mode is configured. FIPS mode should be policy-controlled and auditable because it changes the password hashing family and expected parameter profile.
+Use PBKDF2-HMAC-SHA-256 only when an explicit FIPS-compatible deployment mode is implemented. The current service rejects PBKDF2 configuration as unsupported rather than silently downgrading from Argon2id.
 
 Store the verifier output in `local_password_credentials.password_hash`. Store the algorithm family in `password_hash_algorithm`, such as `argon2id` or `pbkdf2-hmac-sha256`. Store Settleora's policy version in `password_hash_algorithm_version`. Store normalized non-secret parameters in `password_hash_parameters`, such as memory cost, iterations, parallelism, salt length, output length, PRF, encoded-verifier format, and non-secret pepper key identifier if pepper support is enabled.
 
@@ -154,14 +154,14 @@ Support `requires_rehash` as a normal migration path. A credential may require r
 
 Do not store raw passwords, raw verifier inputs, pepper secrets, reset tokens, recovery codes, raw session tokens, or MFA/passkey material in `local_password_credentials`.
 
-## Proposed Future Runtime Shape
+## Runtime Shape
 
-Names below are examples for the future code branch, not code approved by this document.
+The current internal service boundary uses these shapes:
 
-- `PasswordHashingOptions`: binds non-secret password hashing policy under a namespaced configuration section such as `Settleora:Auth:PasswordHashing`.
-- `IPasswordHashingService`: hashes new local credentials, verifies submitted passwords, and decides whether a verified credential needs rehash.
-- `PasswordHashResult`: returns `PasswordHash`, `Algorithm`, `PolicyVersion`, and normalized `ParametersJson`.
-- `PasswordVerificationResult`: returns outcome, credential status decision, algorithm family observed, policy version observed, and `RequiresRehash`.
+- `PasswordHashingOptions`: binds non-secret password hashing policy under `Settleora:Auth:PasswordHashing`.
+- `IPasswordHashingService`: hashes new local credential verifiers, verifies submitted passwords, and decides whether a verified credential needs rehash.
+- `PasswordHashResult`: returns verifier output, `Algorithm`, `AlgorithmVersion`, and normalized `ParametersJson`.
+- `PasswordVerificationResult`: returns a safe outcome status, `RequiresRehash`, and a bounded rehash reason.
 - `PasswordRehashDecision`: explains whether rehash is needed and why, without exposing password material.
 - `IPasswordPepperProvider`: optional boundary for retrieving pepper secrets from a secret provider, not appsettings or the database.
 - `IAuthAuditEventWriter`: emits safe audit events such as credential created, verification succeeded, verification failed, credential rehashed, credential disabled, or credential revoked.
@@ -172,7 +172,7 @@ The service boundary must normalize all verification failures into safe result c
 
 ## Benchmark And Validation Plan
 
-The future implementation branch must benchmark on deployment-class hardware and container limits before freezing Argon2id or PBKDF2 parameters. Benchmarks must include the API Docker image or the same runtime constraints expected in production. Memory-heavy Argon2id settings must be tested under realistic concurrent login attempts to avoid turning password verification into a denial-of-service lever.
+Future auth workflow work must benchmark deployment-class hardware and container limits before freezing production Argon2id or PBKDF2 parameters. Benchmarks must include the API Docker image or the same runtime constraints expected in production. Memory-heavy Argon2id settings must be tested under realistic concurrent login attempts to avoid turning password verification into a denial-of-service lever.
 
 Latency should be a decision criterion, not an invented measurement. Candidate targets:
 
@@ -201,9 +201,6 @@ Required future test categories:
 
 This task does not authorize:
 
-- Runtime password hashing implementation.
-- Runtime password verification implementation.
-- Package additions.
 - Migrations.
 - Login endpoints.
 - Current-user endpoints.
@@ -218,4 +215,4 @@ This task does not authorize:
 
 ## Next Implementation Candidate
 
-After this document is reviewed, the next safe code branch is a password hashing service implementation behind an internal interface with tests and no public endpoints. That branch should choose one Argon2id package candidate only after validating license, source posture, package metadata, Docker/container behavior, verifier format, constant-time verification semantics, and benchmark results. It should also implement the PBKDF2-HMAC-SHA-256 fallback path for explicit FIPS-compatible mode if the branch scope includes deployment-mode switching.
+After this boundary, the next safe code branch is credential creation and verification workflow design that uses `IPasswordHashingService` without exposing verifier internals. PBKDF2-HMAC-SHA-256 fallback remains a separate implementation task for explicit FIPS-compatible deployments.

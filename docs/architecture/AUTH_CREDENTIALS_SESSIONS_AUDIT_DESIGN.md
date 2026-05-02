@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, password hashing implementation, token issuance, session middleware, or auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events, plus an internal password hashing service boundary. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, credential persistence workflows, token issuance, session middleware, or auth runtime behavior.
 
 ## Current State
 
@@ -10,7 +10,7 @@ This document defines the schema direction for credential storage, sessions, and
 - `auth_accounts` links a server-side auth account root to one `UserProfile`, but it does not store credentials.
 - `auth_identities` stores local or OIDC-style provider identity links, but it does not store password hashes, passkey material, MFA secrets, or raw tokens.
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
-- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, MFA secrets, or hashing runtime behavior.
+- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, or MFA secrets. The internal password hashing service is not wired to row creation or mutation yet.
 - `auth_sessions` stores server-authoritative session metadata and token hashes; it does not store raw session IDs, raw bearer tokens, or raw refresh tokens.
 - `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
@@ -143,7 +143,7 @@ Retention must be policy-driven and bounded.
 This schema foundation does not authorize:
 
 - Auth implementation.
-- Password hashing implementation.
+- Credential creation and password verification workflows.
 - Session implementation.
 - Passkey implementation.
 - MFA implementation.
@@ -157,7 +157,7 @@ This schema foundation does not authorize:
 
 Future work should remain small and separately reviewable.
 
-- Password hashing policy design is now defined in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md).
+- Credential creation and verification workflows that use the internal password hashing service.
 - Current-user API boundary that resolves the authenticated account/session to the linked `UserProfile`.
 - Auth middleware and runtime only after schema and password/session policy are reviewed.
 - Separate passkey schema review before passkey implementation.

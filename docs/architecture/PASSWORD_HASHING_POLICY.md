@@ -1,8 +1,8 @@
 # Password Hashing Policy
 
-This document defines Settleora's local-account password hashing policy before any password hashing runtime exists. It is an architecture policy only. It does not authorize code, packages, migrations, OpenAPI changes, generated clients, login behavior, credential creation behavior, or UI behavior.
+This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. It does not authorize migrations, OpenAPI changes, generated clients, login behavior, credential creation behavior, or UI behavior.
 
-The policy is based on current OWASP Password Storage Cheat Sheet guidance and NIST SP 800-63B-4 password authenticator guidance. Future implementation work must re-check those sources, evaluate the selected .NET library, and benchmark deployment hardware before freezing production parameters.
+The policy is based on current OWASP Password Storage Cheat Sheet guidance and NIST SP 800-63B-4 password authenticator guidance. Future auth workflow work must re-check those sources and benchmark deployment hardware before freezing production parameters.
 
 ## References
 
@@ -13,22 +13,22 @@ The policy is based on current OWASP Password Storage Cheat Sheet guidance and N
 
 - The schema includes `local_password_credentials`.
 - `local_password_credentials` is linked to `auth_accounts` and has fields for password hash material, algorithm name, algorithm version, algorithm parameters, status, timestamps, last verification time, revocation time, and `requires_rehash`.
-- The password hashing and verification runtime does not exist.
+- An internal password hashing service boundary exists for Argon2id verifier creation, verification, metadata, and rehash decisions.
 - Login, credential creation, password rotation, reset, recovery, current-user, and auth session runtime endpoints do not exist.
 - No OpenAPI auth paths, generated auth clients, or UI auth behavior exist.
 
 ## Algorithm Policy
 
-Settleora should prefer Argon2id for new local-account password verifiers when an approved .NET dependency and implementation design are selected later.
+Settleora should prefer Argon2id for new local-account password verifiers.
 
-Argon2id is the preferred policy because it is designed for password hashing and provides memory-hard resistance to offline attacks. The future implementation must choose a maintained .NET library, confirm its encoding and verification semantics, validate that it can safely handle Settleora's accepted password character set, and tune memory, iteration, and parallelism parameters on deployment-class hardware.
+Argon2id is the preferred policy because it is designed for password hashing and provides memory-hard resistance to offline attacks. The internal implementation uses Geralt for encoded Argon2id verifiers. Future auth workflow work must tune memory, iteration, and parallelism parameters on deployment-class hardware.
 
 Fallback policy is intentionally narrow:
 
 - If Argon2id is unavailable in an acceptable .NET dependency, evaluate another modern password hashing option only through a separate implementation design.
 - If a deployment requires FIPS-compatible password hashing, use PBKDF2-HMAC-SHA-256 with an approved implementation and a policy-configured iteration count.
 - PBKDF2 is a compatibility fallback, not the preferred default for non-FIPS deployments.
-- Do not choose or add a concrete password hashing library in this docs-only branch. Future library names may be evaluated as candidates only in the implementation design.
+- The current internal service uses Geralt for Argon2id. Future library changes must go through implementation design review.
 
 ## Stored Hash Format
 
@@ -67,7 +67,7 @@ If Settleora uses a pepper later:
 
 Work factors must be configured by password hashing policy, not hardcoded inside endpoint handlers.
 
-Future implementation must:
+Future auth workflow work must:
 
 - Tune Argon2id memory, iteration, and parallelism parameters on deployment-class hardware.
 - Tune PBKDF2 iteration count on deployment-class hardware if FIPS-compatible fallback is required.
@@ -80,7 +80,7 @@ The current schema already supports multiple parameter profiles during migration
 
 ## Verification Flow Boundaries
 
-Future verification must stay inside an API/domain auth service boundary. Endpoint handlers should not parse verifier strings, select algorithms, compare hashes, or log credential material directly.
+Verification must stay inside an API/domain auth service boundary. Endpoint handlers should not parse verifier strings, select algorithms, compare hashes, or log credential material directly.
 
 Verification policy:
 
@@ -90,7 +90,7 @@ Verification policy:
 - Use constant-time comparison when the implementation exposes raw derived bytes or when Settleora must compare verifier material directly.
 - Prefer the selected library's verified password-check API when it safely handles salt, work factor, and constant-time comparison internally.
 - Do not log plaintext passwords, password hashes, salts, pepper identifiers in sensitive contexts, verifier strings, failed password values, or derived key material.
-- Rate limiting, lockout, credential-stuffing defense, account enumeration behavior, and sign-in audit detail belong in the future auth runtime design, not in this schema-only policy branch.
+- Rate limiting, lockout, credential-stuffing defense, account enumeration behavior, and sign-in audit detail belong in future auth runtime design, not in the internal hashing boundary.
 
 ## Rehash And Rotation
 
@@ -114,7 +114,7 @@ Disabled credentials must not authenticate but may be preserved for administrati
 - Reversible encryption must not be used for local-account password storage.
 - Raw reset tokens, recovery codes, passkeys, MFA secrets, raw session tokens, and OIDC tokens do not belong in `local_password_credentials`.
 - Password hashing inputs, outputs, verifier strings, salts, peppers, and derived material must not be exposed through API responses, generated clients, logs, metrics, traces, audit metadata, or validation output.
-- Credential creation, password change, password reset, credential disablement, revocation, rehash, and suspected compromise events require safe auth audit events when the runtime exists.
+- Credential creation, password change, password reset, credential disablement, revocation, rehash, and suspected compromise events require safe auth audit events when auth workflows exist.
 - Workers and clients must not mutate local password credential rows directly. The API owns credential writes.
 - Production startup must not silently migrate or rewrite password verifiers.
 
@@ -122,11 +122,7 @@ Disabled credentials must not authenticate but may be preserved for administrati
 
 This document does not authorize:
 
-- Code changes.
 - Migrations.
-- Package changes.
-- Password hashing implementation.
-- Password verification implementation.
 - Credential creation implementation.
 - Login implementation.
 - Session middleware or token issuance.
@@ -139,8 +135,8 @@ This document does not authorize:
 
 Future work should remain small and separately reviewable:
 
-- Evaluate .NET password hashing library choices for Argon2id and, if needed, FIPS-compatible PBKDF2.
+- Benchmark Argon2id work factors on deployment-class hardware and container limits.
 - Define password policy configuration shape and secret-provider boundaries for optional pepper support.
-- Implement a password hashing service behind an interface.
+- Add credential creation and verification workflows behind reviewed auth boundaries.
 - Add credential creation and verification tests with policy-version and `requires_rehash` coverage.
 - Design rate limiting, lockout, audit event detail, reset-token storage, and current-user/login endpoint boundaries before adding auth endpoints.

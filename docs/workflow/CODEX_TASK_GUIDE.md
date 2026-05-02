@@ -61,6 +61,6 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - `GET /health` exists.
 - `GET /health/ready` currently checks PostgreSQL.
 - EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, and auth audit event tables.
-- No authentication runtime behavior, password hashing or verification, token issuance, session middleware, authorization, business endpoints, EF Core business workflows, expenses, bills, settlements, OCR endpoints, frontend behavior, worker behavior, or generated clients exist yet.
+- An internal password hashing service boundary exists for Argon2id verifier creation and verification. No login/current-user endpoints, credential persistence workflows, token issuance, session middleware, authorization, business endpoints, EF Core business workflows, expenses, bills, settlements, OCR endpoints, frontend behavior, worker behavior, or generated clients exist yet.
 - Infrastructure readiness checks should be additive and scoped.
 - The next likely infrastructure check is RabbitMQ readiness.

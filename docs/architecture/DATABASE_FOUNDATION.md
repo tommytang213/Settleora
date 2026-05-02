@@ -8,7 +8,7 @@ This document defines Settleora's database foundation direction for API-owned Po
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
 - EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, and auth audit event tables.
-- No authentication runtime behavior, password hashing or verification, token issuance, session middleware, authorization, user/group business endpoints, or EF Core business workflows exist yet.
+- An internal password hashing service boundary exists, but no login/current-user endpoints, credential persistence workflows, token issuance, session middleware, authorization, user/group business endpoints, or EF Core business workflows exist yet.
 - No business tables for expenses, settlement, files, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
@@ -53,11 +53,11 @@ The current schema foundation is intentionally limited to:
 - `auth_accounts`: server-side auth account roots linked one-to-one with `user_profiles`, with status timestamps and no credential material.
 - `auth_identities`: provider identity links for local or OIDC-style identities, keyed by provider type, provider name, and stable provider subject without raw tokens.
 - `system_role_assignments`: product-level role assignments for `owner`, `admin`, and `user`, separate from group membership roles.
-- `local_password_credentials`: local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, MFA secrets, or hashing runtime behavior.
+- `local_password_credentials`: local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal password hashing service is not wired to credential row creation or mutation yet.
 - `auth_sessions`: server-side session and revocation metadata linked to `auth_accounts`, storing token hashes only and no raw bearer or refresh tokens.
 - `auth_audit_events`: bounded auth audit event metadata with optional actor and subject auth-account links, without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 
-Authentication runtime behavior, password hashing or verification, token issuance, session middleware, authorization, invitations, friends, and user/group business endpoints are not implemented by this schema foundation.
+Authentication runtime behavior, credential persistence workflows, token issuance, session middleware, authorization, invitations, friends, and user/group business endpoints are not implemented by this schema foundation.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 

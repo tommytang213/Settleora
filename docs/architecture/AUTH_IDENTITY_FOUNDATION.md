@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, and auth audit foundations, but it still has no auth implementation, password hashing or verification, token issuance, session middleware, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, and auth audit foundations plus an internal password hashing service boundary, but it still has no login/current-user endpoints, credential persistence workflows, token issuance, session middleware, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 
@@ -17,10 +17,10 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `auth_accounts` links one server-side auth account root to exactly one `UserProfile`.
 - `auth_identities` stores provider type, provider name, and stable provider subject links for local or OIDC-style identities without credentials or raw tokens.
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
-- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, MFA secrets, or hashing runtime.
+- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal hashing service is not wired to credential row creation or mutation yet.
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
-- No authentication runtime behavior, password hashing or verification, token issuance, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
+- No login/current-user runtime behavior, credential persistence workflow, token issuance, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts
@@ -143,7 +143,7 @@ This distinction protects local-only use while keeping server-mode collaboration
 
 This document does not authorize:
 
-- Auth implementation.
+- Login/current-user auth implementation.
 - Session middleware or runtime session validation.
 - API endpoints.
 - OpenAPI changes.
@@ -157,7 +157,7 @@ This document does not authorize:
 
 Future work should remain small and reviewable. Good next candidates are:
 
-- Password hashing policy design for the existing local password credential schema.
+- Credential creation and verification workflows that use the internal password hashing service.
 - Runtime auth/session boundaries only after credential and session policy are reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
 - Guarded user/group endpoints only after the auth boundary exists and server-side policy checks are designed.
