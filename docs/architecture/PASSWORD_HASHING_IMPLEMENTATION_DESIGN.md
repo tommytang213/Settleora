@@ -23,7 +23,7 @@ NuGet metadata is useful for target frameworks, package versions, licenses, depe
 
 - `local_password_credentials` exists in the EF Core schema foundation.
 - `local_password_credentials` is linked to `auth_accounts` and stores password verifier metadata fields: `password_hash`, `password_hash_algorithm`, `password_hash_algorithm_version`, `password_hash_parameters`, `status`, timestamps, `last_verified_at_utc`, `revoked_at_utc`, and `requires_rehash`.
-- An internal `IPasswordHashingService` boundary exists for Argon2id verifier creation, verification, metadata, and rehash decisions.
+- Internal `IPasswordHashingService` and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation for existing auth accounts, verification, metadata, and rehash decisions.
 - Login, token issuance, current-user endpoints, session middleware, password reset, recovery, generated clients, and UI auth behavior do not exist.
 - No OpenAPI auth paths exist.
 - The API project currently targets `net9.0`.
@@ -215,4 +215,4 @@ This task does not authorize:
 
 ## Next Implementation Candidate
 
-After this boundary, the next safe code branch is internal credential creation and verification service implementation that follows [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md) and uses `IPasswordHashingService` without exposing verifier internals. PBKDF2-HMAC-SHA-256 fallback remains a separate implementation task for explicit FIPS-compatible deployments.
+After this boundary, public auth runtime work remains blocked on separate review for login/current-user contracts, session issuance, rate limiting, lockout, and audit behavior. PBKDF2-HMAC-SHA-256 fallback remains a separate implementation task for explicit FIPS-compatible deployments.

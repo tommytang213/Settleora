@@ -2,7 +2,7 @@
 
 This document designs Settleora's next local-account credential boundary: creating local password credentials and verifying submitted passwords against `local_password_credentials` by using the internal `IPasswordHashingService`.
 
-It is design-only. It does not authorize runtime workflows, endpoints, token/session issuance, OpenAPI auth paths, generated clients, UI behavior, migrations, or package changes.
+It defines the internal service boundary now implemented for EF-backed local password credential creation and verification. It does not authorize public runtime workflows, endpoints, token/session issuance, OpenAPI auth paths, generated clients, UI behavior, migrations, or package changes.
 
 ## Current State
 
@@ -13,8 +13,8 @@ It is design-only. It does not authorize runtime workflows, endpoints, token/ses
 - `auth_sessions` stores future server-side session metadata and token hashes only.
 - `auth_audit_events` stores bounded safe audit metadata only.
 - The internal password hashing service exists and can create and verify Argon2id password verifiers through `IPasswordHashingService`.
-- No credential creation workflow exists.
-- No password verification workflow is wired to EF rows.
+- An internal credential workflow service can create EF-backed local password credentials for existing active auth accounts.
+- Internal password verification is wired to EF rows and can update `last_verified_at_utc` plus rehash after successful verification when required.
 - No login, current-user, session, token, OpenAPI auth path, generated-client, Flutter, web, or worker auth behavior exists.
 
 ## Authority Boundaries
@@ -187,13 +187,11 @@ This design does not authorize:
 - Worker behavior changes.
 - Docker or runtime behavior changes.
 
-## Next Implementation Candidate
+## Implemented Internal Service Boundary
 
-The next safe implementation branch is a small internal-service branch that creates credential creation and password verification workflows behind the API auth boundary.
+The implemented internal service boundary:
 
-Suggested scope:
-
-- Add an internal credential workflow service using `IPasswordHashingService`.
-- Add EF-backed tests for creation, verification success, wrong password, disabled/revoked credential rejection, malformed verifier handling, unsupported algorithm handling, successful `last_verified_at_utc` update, successful rehash, and no mutation on failed verification.
-- Add safe audit writer shape or test double only if needed to prove the workflow boundary.
-- Keep public endpoints, OpenAPI, generated clients, token/session issuance, migrations, UI, and worker changes out of scope.
+- Adds an internal credential workflow service using `IPasswordHashingService`.
+- Adds EF-backed tests for creation, verification success, wrong password, disabled/revoked credential rejection, malformed verifier handling, unsupported algorithm handling, invalid configuration handling, successful `last_verified_at_utc` update, successful rehash, no mutation on failed verification, missing credentials, and safe result string output.
+- Adds a no-op audit writer seam for future safe auth audit persistence.
+- Keeps public endpoints, OpenAPI, generated clients, token/session issuance, migrations, UI, and worker changes out of scope.

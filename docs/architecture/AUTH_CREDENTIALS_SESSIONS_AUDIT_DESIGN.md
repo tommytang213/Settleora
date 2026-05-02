@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema-only foundation for local password credentials, server-side sessions, and auth audit events, plus an internal password hashing service boundary. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), and design-only credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize OpenAPI changes, generated clients, UI behavior, credential persistence workflow implementation, token issuance, session middleware, or auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, and auth audit events, plus internal password hashing and credential workflow service boundaries. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), and credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize OpenAPI changes, generated clients, UI behavior, public credential endpoints, token issuance, session middleware, or auth runtime behavior.
 
 ## Current State
 
@@ -10,11 +10,11 @@ This document defines the schema direction for credential storage, sessions, and
 - `auth_accounts` links a server-side auth account root to one `UserProfile`, but it does not store credentials.
 - `auth_identities` stores local or OIDC-style provider identity links, but it does not store password hashes, passkey material, MFA secrets, or raw tokens.
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
-- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, or MFA secrets. The internal password hashing service is not wired to row creation or mutation yet.
+- `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, or MFA secrets. The internal credential workflow service writes and verifies these rows for existing auth accounts.
 - `auth_sessions` stores server-authoritative session metadata and token hashes; it does not store raw session IDs, raw bearer tokens, or raw refresh tokens.
 - `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
-- No authentication runtime behavior, authorization middleware, sign-in flow, session flow, or current-user API exists yet.
+- No authentication runtime behavior, authorization middleware, sign-in endpoint, session flow, or current-user API exists yet.
 
 ## Credential Storage Boundaries
 
@@ -143,7 +143,7 @@ Retention must be policy-driven and bounded.
 This schema foundation does not authorize:
 
 - Auth implementation.
-- Credential creation and password verification workflows.
+- Public credential creation or password verification endpoints.
 - Session implementation.
 - Passkey implementation.
 - MFA implementation.
@@ -157,7 +157,6 @@ This schema foundation does not authorize:
 
 Future work should remain small and separately reviewable.
 
-- Internal credential creation and verification service implementation that follows [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 - Current-user API boundary that resolves the authenticated account/session to the linked `UserProfile`.
 - Auth middleware and runtime only after schema and password/session policy are reviewed.
 - Separate passkey schema review before passkey implementation.

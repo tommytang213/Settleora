@@ -13,8 +13,8 @@ The policy is based on current OWASP Password Storage Cheat Sheet guidance and N
 
 - The schema includes `local_password_credentials`.
 - `local_password_credentials` is linked to `auth_accounts` and has fields for password hash material, algorithm name, algorithm version, algorithm parameters, status, timestamps, last verification time, revocation time, and `requires_rehash`.
-- An internal password hashing service boundary exists for Argon2id verifier creation, verification, metadata, and rehash decisions.
-- Login, credential creation, password rotation, reset, recovery, current-user, and auth session runtime endpoints do not exist.
+- Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation for existing auth accounts, verification, metadata, and rehash decisions.
+- Login, public credential creation endpoints, password rotation, reset, recovery, current-user, and auth session runtime endpoints do not exist.
 - No OpenAPI auth paths, generated auth clients, or UI auth behavior exist.
 
 ## Algorithm Policy
@@ -137,6 +137,5 @@ Future work should remain small and separately reviewable:
 
 - Benchmark Argon2id work factors on deployment-class hardware and container limits.
 - Define password policy configuration shape and secret-provider boundaries for optional pepper support.
-- Add internal credential creation and verification service implementation behind the reviewed [credential workflow design](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
-- Add credential creation and verification tests with policy-version and `requires_rehash` coverage.
+- Add public auth runtime boundaries only after credential, session, rate limiting, lockout, and audit behavior are reviewed.
 - Design rate limiting, lockout, audit event detail, reset-token storage, and current-user/login endpoint boundaries before adding auth endpoints.

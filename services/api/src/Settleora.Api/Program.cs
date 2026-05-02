@@ -1,3 +1,4 @@
+using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.PasswordHashing;
 using Settleora.Api.Configuration;
 using Settleora.Api.Health;
@@ -8,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSettleoraPersistence(builder.Configuration);
 builder.Services.AddPasswordHashing(builder.Configuration);
+builder.Services.AddAuthCredentialWorkflow();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
