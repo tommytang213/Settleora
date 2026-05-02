@@ -11,3 +11,8 @@ This directory keeps supporting architecture and release-process notes.
 - [Password hashing implementation design](PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md): library evaluation, internal service boundary, verifier storage direction, benchmark plan, and non-goals for auth workflow work.
 - [Database foundation](DATABASE_FOUNDATION.md): database authority boundaries, PostgreSQL/EF Core direction, migration rules, schema boundaries, and non-goals before persistence implementation.
 - [OCR architecture](OCR_ARCHITECTURE.md): canonical OCR architecture for required on-device OCR, complementary server-side OCR worker responsibilities, authority boundaries, offline flow, and validation rules.
+- [Currency exchange architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md): Day 2 FX provider, exchange-rate storage, bill-level snapshot, recalculation, and audit rules.
+- [Statement reconciliation architecture](STATEMENT_RECONCILIATION_ARCHITECTURE.md): Day 2 statement import, matching, tolerance, payment-method, FX, privacy, and audit rules.
+- [Lock, refund, and group governance architecture](LOCK_REFUND_GOVERNANCE_ARCHITECTURE.md): Day 2 period/final lock, group approval, refund, reimbursement, and audit rules.
+- [Group membership and participation architecture](GROUP_MEMBERSHIP_PARTICIPATION_ARCHITECTURE.md): Day 2 member type, participation status, default selection, authorization, notification, and audit rules.
+- [AI insights architecture](AI_INSIGHTS_ARCHITECTURE.md): Day 3 AI provider mode, data sharing, authorized access, deterministic reporting, sensitive data, and audit rules.
