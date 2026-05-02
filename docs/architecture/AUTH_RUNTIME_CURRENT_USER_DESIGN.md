@@ -14,6 +14,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - `auth_audit_events` stores bounded auth audit metadata and must not contain raw secrets, raw tokens, password material, verifier strings, MFA secrets, passkey private material, full provider payloads, or unnecessary PII.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
+- An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, and session creation.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - No public registration, login, sign-out, session-list, session-revocation, authorization middleware, token issuance, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
@@ -35,6 +36,8 @@ Future implementation should keep runtime auth decisions behind cohesive API/dom
 Future local sign-in may accept an identifier and password only at a separately approved endpoint. Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts remain future proposals until that branch explicitly reviews them.
 
 Future sign-in endpoint work is also gated by [AUTH_SIGN_IN_ABUSE_POLICY.md](AUTH_SIGN_IN_ABUSE_POLICY.md), which defines account enumeration resistance, rate limiting, lockout/throttling, credential-stuffing defense, audit categories, and operational diagnostics boundaries before public login or token issuance exists.
+
+The internal local sign-in orchestration service now prepares this flow without adding a public endpoint. Future endpoint code should call that service, then map ordinary failures to a generic `401` and throttled failures to a generic `429` without exposing account, identity, credential, or policy state.
 
 A future local sign-in flow should:
 
@@ -160,7 +163,7 @@ The implemented internal service boundary:
 
 This document does not authorize:
 
-- Additional runtime implementation beyond the current-user read boundary.
+- Additional runtime implementation beyond the current-user read and internal local sign-in orchestration boundaries.
 - Additional endpoint code beyond the current-user read boundary.
 - Additional OpenAPI auth paths.
 - Generated clients.
@@ -183,7 +186,7 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add local sign-in endpoint and OpenAPI path only after the public response behavior is reviewed.
+1. Add local sign-in endpoint and OpenAPI path only after this internal service boundary and the public response behavior are reviewed together.
 2. Connect future sign-in runtime outcomes to safe audit writes without exposing account existence or raw request metadata.
 3. Add sign-out and per-session revocation after the session service boundary is in place.
 4. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.

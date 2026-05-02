@@ -2,7 +2,7 @@
 
 This document defines Settleora's local sign-in abuse policy before any public login, sign-in, or token issuance endpoint exists.
 
-It is a design gate for future runtime branches. It does not authorize endpoint implementation, OpenAPI auth paths, generated clients, UI behavior, migrations, package changes, Docker changes, or runtime sign-in behavior by itself.
+It began as a design gate and now also records the implemented internal policy and local sign-in orchestration boundaries. It does not authorize endpoint implementation, OpenAPI auth paths, generated clients, UI behavior, migrations, package changes, Docker changes, or public sign-in behavior by itself.
 
 ## Purpose
 
@@ -27,6 +27,7 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - The internal credential workflow service exists for EF-backed local password credential creation, password verification, safe credential audit writes, and rehash after successful verification.
 - The internal session runtime service exists for opaque session creation, validation, revocation, token hashing, and bounded session audit writes.
 - `GET /api/v1/auth/current-user` exists and validates an existing opaque session token into a minimal current actor/profile/session/role response.
+- An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and session creation.
 - Public login, sign-in, registration, token issuance, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
@@ -43,7 +44,18 @@ The first internal service boundary now exists under the API auth layer.
 
 This boundary deliberately remains internal-only. It does not add public login/sign-in behavior, OpenAPI paths, generated clients, migrations, packages, Docker changes, distributed limiter storage, password reset, MFA, passkeys, token issuance, sign-out, session list/revocation, or auth middleware.
 
-Audit integration remains for the future sign-in runtime branch. That branch should connect pre-check and post-result categories to bounded `auth_audit_events` writes only after the public sign-in response behavior is reviewed.
+## Implemented Internal Sign-In Orchestration Boundary
+
+The internal local sign-in orchestration boundary now exists under the API auth layer.
+
+- `ILocalSignInService` exposes endpoint-independent local sign-in orchestration for future endpoint code.
+- The service trims and lower-cases submitted identifiers with invariant culture, rejects blank or overlong identifiers, and looks up local identities with `ProviderType = local`, `ProviderName = local`, and `ProviderSubject = normalized identifier`.
+- It derives abuse-policy identifier keys as `local-id-sha256:<base64url-sha256(normalizedIdentifier)>` and requires caller-provided source keys to already be safe, bounded, and coarsened.
+- It calls `ISignInAbusePolicyService.CheckPreVerification` before local identity/account lookup and password verification, and records succeeded, failed, or throttled attempts with bounded policy outcomes.
+- It verifies local passwords only through `IAuthCredentialWorkflowService.VerifyLocalPasswordAsync` and creates sessions only through `IAuthSessionRuntimeService.CreateSessionAsync`.
+- Its results use bounded internal statuses such as signed-in, invalid credentials, throttled, and session-creation failed. Success returns the raw session token only through the result object and result strings do not include raw identifiers, normalized identifiers, passwords, source keys, token material, hashes, verifiers, or credential details.
+
+Sign-in-specific `auth_audit_events` are deferred to a later reviewed branch so audit metadata and public endpoint response behavior can be designed together. Existing credential and session runtime services still write their bounded credential/session audit events during verification and session creation.
 
 ## Threat Model
 
@@ -228,7 +240,7 @@ Session creation must happen after password verification and policy approval. Cr
 
 This branch does not authorize:
 
-- Runtime implementation.
+- Additional runtime implementation beyond the internal policy and local sign-in orchestration boundaries described above.
 - Endpoint code.
 - Login or sign-in OpenAPI paths.
 - Token issuance.
@@ -247,8 +259,8 @@ This branch does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add the sign-in endpoint only after the internal policy service exists and the public response shape is reviewed with OpenAPI.
-2. Wire safe sign-in audit events to the policy decisions in the future sign-in runtime branch.
+1. Add the sign-in endpoint and OpenAPI path only after this internal orchestration boundary and the public response shape are reviewed together.
+2. Wire safe sign-in audit events to the policy decisions in a future sign-in audit branch.
 3. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
 4. Add password reset and account recovery design separately.
 5. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.
