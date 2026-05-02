@@ -127,6 +127,18 @@ Audit metadata must avoid:
 
 Retention for audit and session metadata must be policy-driven and bounded. User-visible session metadata may have different retention from security audit records.
 
+## Implemented Internal Session Boundary
+
+The implemented internal service boundary:
+
+- Adds an internal session runtime service for existing active `AuthAccount` rows.
+- Creates opaque server-side session tokens with .NET BCL cryptographic randomness, stores only deterministic session token hashes in `auth_sessions`, and returns raw session token material only in the creation result.
+- Validates submitted raw session tokens through hash lookup, rejects missing, expired, revoked, inactive, disabled, or deleted account state with bounded internal statuses, and resolves authenticated actor context to the linked `UserProfile`.
+- Updates `last_seen_at_utc` and `updated_at_utc` only after successful validation.
+- Revokes sessions by session ID and owning auth account context without requiring raw token material.
+- Writes bounded `auth_audit_events` metadata for session creation, successful validation, matched validation failures, and revocation without raw tokens, token hashes, password material, provider payloads, or unbounded request metadata.
+- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps public auth endpoints, OpenAPI auth paths, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
+
 ## Non-goals
 
 This document does not authorize:

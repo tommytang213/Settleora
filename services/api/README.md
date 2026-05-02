@@ -10,9 +10,10 @@ Current implementation:
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
 - Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, storage, and password hashing policy.
 - EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
-- An internal password hashing service boundary can create and verify Argon2id password verifiers without adding auth endpoints or credential persistence workflows.
+- An internal password hashing service boundary can create and verify Argon2id password verifiers.
+- Internal credential and session runtime service boundaries can create/verify local password credentials and create/validate/revoke auth sessions for existing active auth accounts without adding public auth endpoints.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No login/current-user runtime behavior, authorization, credential persistence workflows, raw tokens, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No public login/current-user runtime behavior, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 
