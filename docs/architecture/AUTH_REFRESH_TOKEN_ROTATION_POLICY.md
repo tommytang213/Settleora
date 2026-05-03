@@ -1,8 +1,8 @@
 # Auth Refresh Token Rotation Policy
 
-This document defines Settleora's design-only policy for refresh-like credentials and session continuity. It exists so future refresh-token generation, rotation, replay detection, and session-family revocation can be implemented without guessing security behavior.
+This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, and future public refresh endpoint work stay aligned with reviewed security behavior.
 
-The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here. This document still does not authorize refresh-token runtime implementation, endpoint implementation, OpenAPI changes, generated clients, middleware, authorization handlers, package changes, Docker behavior changes, or UI behavior.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, plus an internal refresh session runtime service foundation. This document still does not authorize public refresh endpoint implementation, OpenAPI changes, generated clients, middleware, authorization handlers, package changes, Docker behavior changes, or UI behavior.
 
 ## Purpose
 
@@ -27,6 +27,7 @@ The repository currently includes:
 - Current-account session list.
 - Current-account per-session revocation.
 - Internal password hashing, credential workflow, local sign-in, sign-in abuse policy, and session runtime boundaries.
+- Internal refresh session runtime boundary for creating refresh-capable session families and rotating refresh-like credentials.
 - Schema foundations for `auth_accounts`, `auth_identities`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
 
 The current session runtime creates opaque server-side session tokens with cryptographic randomness, stores token hashes only in `auth_sessions`, returns raw session token material only once on creation, validates submitted bearer credentials through hash lookup, updates safe session metadata, and writes bounded session audit events.
@@ -45,7 +46,9 @@ The current refresh/session-family schema foundation supports:
 - `auth_refresh_credentials` linked to a session family, optionally linked to an `auth_sessions` row, with a required unique `refresh_token_hash`, bounded status, issued/idle-expiry/absolute-expiry timestamps, consumed and revoked timestamps, optional replacement self-reference, and safe revocation reason state.
 - Restrictive foreign keys, useful lookup/expiry/status indexes, bounded status check constraints, non-blank hash/reason constraints, and no raw refresh-token storage.
 
-No refresh-token runtime exists yet. No public refresh endpoint, refresh credential creation, refresh rotation, refresh validation, refresh replay detection behavior, generated auth client support, middleware, or UI flow exists yet.
+The internal refresh session runtime can create a refresh-capable access session, session family, and initial refresh-like credential for an existing active auth account. It can rotate a submitted raw refresh-like credential, consume the old credential, create a replacement access session and refresh-like credential in the same family, classify expired/revoked/rotated/replayed/inactive/account-unavailable/persistence failures through internal statuses, and conservatively mark or revoke linked families and active family credentials/sessions when replay, expiry, or account-unavailable conditions require it. The service stores only deterministic credential hashes and writes bounded safe audit metadata.
+
+No public refresh endpoint, OpenAPI refresh path/schema, generated auth client support, middleware, authorization handler, or UI flow exists yet.
 
 ## Terminology
 
@@ -169,7 +172,7 @@ Settleora:Auth:Sessions:RefreshAbsoluteLifetime=30.00:00:00
 Settleora:Auth:Sessions:ClockSkewAllowance=00:02:00
 ```
 
-Only the current access-session default and max are used by the existing no-refresh sign-in/session runtime. The refresh-mode access-session, idle timeout, absolute lifetime, and clock-skew values are policy configuration for future refresh runtime work; they do not implement refresh credential generation, rotation, replay detection, family revocation, endpoint behavior, OpenAPI paths, generated clients, middleware, or UI behavior.
+The existing no-refresh sign-in/session runtime uses the current access-session default and max. The internal refresh session runtime uses the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. These configuration values still do not add public refresh endpoint behavior, OpenAPI paths, generated clients, middleware, or UI behavior.
 
 Idle timeout and absolute timeout are different:
 
@@ -339,13 +342,10 @@ Future distributed deployment:
 - Clock skew policy must be explicit.
 - Secret-provider-backed keyed hashes, key rotation, and hash-version migration need separate design if selected.
 
-## Non-goals
+## Remaining Non-goals
 
 This document does not authorize:
 
-- Refresh-token generation implementation.
-- Refresh rotation implementation.
-- Replay detection implementation.
 - Refresh endpoints.
 - OpenAPI paths or schemas.
 - Generated client updates.
@@ -363,8 +363,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add typed refresh/session lifetime policy configuration with secure self-hosted defaults.
-2. Add an internal refresh credential rotation service that uses `auth_session_families` and `auth_refresh_credentials`, with tests for success, expiry, revocation, replay classification, family revocation, and safe audit metadata.
-3. Add a public refresh endpoint and OpenAPI contract only after the internal service and response-shape policy are approved.
-4. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
-5. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.
+1. Add a public refresh endpoint and OpenAPI contract only after the internal service and response-shape policy are approved.
+2. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
+3. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.

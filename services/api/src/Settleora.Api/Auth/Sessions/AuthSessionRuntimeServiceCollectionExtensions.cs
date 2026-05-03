@@ -20,6 +20,7 @@ internal static class AuthSessionRuntimeServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IAuthSessionAuditWriter, EfAuthSessionAuditWriter>();
         services.AddScoped<IAuthSessionRuntimeService, AuthSessionRuntimeService>();
+        services.AddScoped<IAuthRefreshSessionRuntimeService, AuthRefreshSessionRuntimeService>();
 
         return services;
     }

@@ -2,7 +2,7 @@
 
 This document defines Settleora's local sign-in abuse policy for the public local sign-in endpoint and the internal sign-in orchestration boundary.
 
-It began as a design gate and now also records the implemented internal policy, local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, sign-out, refresh-token runtime, session list/revocation, or additional auth endpoints by itself.
+It began as a design gate and now also records the implemented internal policy, local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, public refresh endpoints, or additional auth endpoints by itself.
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - `GET /api/v1/auth/current-user` exists and validates an existing opaque session token into a minimal current actor/profile/session/role response.
 - An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and session creation.
 - The local sign-in runtime writes safe sign-in-specific `auth_audit_events` for success, invalid credentials, pre-verification throttling, and session-creation failure without storing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
-- Public registration, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
+- Public registration and public refresh endpoints do not exist. Current-session and current-account session endpoints are covered by the auth runtime design.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
 ## Implemented Internal Policy Boundary
