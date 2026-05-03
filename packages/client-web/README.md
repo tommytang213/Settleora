@@ -1,7 +1,12 @@
 # Web API Client
 
-The web API client will be generated from `packages/contracts/openapi/settleora.v1.yaml`.
+The web API client is generated from `packages/contracts/openapi/settleora.v1.yaml`.
 
-Generated files must not be manually edited. The generator choice is deferred to a later task.
+Generated files live in `packages/client-web/src/generated/` and must not be manually edited.
 
-The `.gitkeep` file only preserves the future generated output folder.
+Regenerate and validate from the repo root:
+
+```powershell
+npm run generate:clients
+npm run validate:clients
+```

@@ -49,11 +49,7 @@ obj/
 coverage/
 test-results/
 
-# Generated client outputs
-packages/client-web/src/generated/*
-!packages/client-web/src/generated/.gitkeep
-packages/client-dart/generated/*
-!packages/client-dart/generated/.gitkeep
+# Generated client outputs are intentionally tracked.
 
 # Codex output
 .codex/

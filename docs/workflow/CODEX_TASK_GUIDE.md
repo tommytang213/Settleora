@@ -37,6 +37,7 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 
 - Run dotnet validation for API changes.
 - Run npm validation for repo tooling, documentation, or contract changes.
+- Run `npm run generate:clients` and `npm run validate:clients` when OpenAPI or generated client output changes.
 - Run Docker validation for Docker, compose, or API runtime changes.
 - Do not fake validation success; report the exact failing command and error summary.
 
@@ -61,6 +62,6 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - `GET /health` exists.
 - `GET /health/ready` currently checks PostgreSQL.
 - EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential, and auth audit event tables.
-- Auth runtime foundations now include password hashing, credential workflow, session runtime, refresh-session runtime, sign-in abuse policy, refresh-capable local sign-in, public refresh, current-user, sign-out, sign-out-all, session-list, and session-revocation endpoints. Session middleware, authorization handlers, business endpoints, EF Core business workflows, expenses, bills, settlements, OCR endpoints, frontend behavior, worker behavior, and generated clients do not exist yet.
+- Auth runtime foundations now include password hashing, credential workflow, session runtime, refresh-session runtime, sign-in abuse policy, refresh-capable local sign-in, public refresh, current-user, sign-out, sign-out-all, session-list, session-revocation endpoints, and generated web/Dart client foundations from OpenAPI. Session middleware, authorization handlers, business endpoints, EF Core business workflows, expenses, bills, settlements, OCR endpoints, frontend behavior, and worker behavior do not exist yet.
 - Infrastructure readiness checks should be additive and scoped.
 - The next likely infrastructure check is RabbitMQ readiness.

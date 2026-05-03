@@ -25,7 +25,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Product requirements](docs/prd/)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)
-- [OpenAPI placeholder](packages/contracts/openapi/settleora.v1.yaml)
+- [OpenAPI contract](packages/contracts/openapi/settleora.v1.yaml)
 - [Local infrastructure compose](infra/docker-compose.yml)
 
 ## Current Scaffold
@@ -34,11 +34,11 @@ This repository is currently in scaffold materialization. It preserves the exist
 - `apps/web-user/` placeholder for the future React + Vite user portal.
 - `apps/web-admin/` placeholder for the future React + Vite admin portal.
 - `services/api/` ASP.NET Core Web API scaffold with `GET /health`, PostgreSQL/RabbitMQ/storage readiness at `GET /health/ready`, the first API-owned users/groups plus auth schema foundations, an internal password hashing service boundary, an internal credential workflow service boundary, internal session and refresh-session runtime service boundaries, internal sign-in abuse policy and local sign-in orchestration service boundaries, `POST /api/v1/auth/sign-in` for local sign-in, `POST /api/v1/auth/refresh` for rotating a submitted refresh-like credential, `GET /api/v1/auth/current-user` for validating an existing opaque session token into a minimal current actor/profile/session/role summary, `POST /api/v1/auth/sign-out` for revoking only the submitted current bearer session, `POST /api/v1/auth/sign-out-all` for revoking all active sessions owned by the current authenticated account, `GET /api/v1/auth/sessions` for listing safe active-session metadata owned by the authenticated account, and `DELETE /api/v1/auth/sessions/{sessionId}` for revoking one session owned by the authenticated account.
-- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, storage, password hashing policy, and auth session lifetime policy. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure and migrations define schema-only user profile, group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables. Credential/session/audit tables are persistence foundations only: local password rows store password hash metadata, session rows store token hashes, refresh/session-family rows store refresh credential hashes plus bounded lineage/status/expiry metadata, and audit rows store bounded safe metadata. The internal password hashing service can create and verify Argon2id password verifiers, the internal credential workflow service can create and verify EF-backed local password credentials for existing auth accounts, the internal session runtime service can create, validate, revoke one session, and revoke all active sessions for an authenticated account while storing token hashes only and writing bounded session audit events, the internal refresh session runtime service can create refresh-capable session families and rotate refresh-like credentials while storing only deterministic hashes and writing bounded refresh audit events, the internal sign-in abuse policy service can evaluate and record bounded in-memory sign-in attempt buckets for single-node dev/self-hosted mode, and the internal local sign-in orchestration service connects safe local identifier lookup, abuse-policy decisions, credential verification, refresh-capable session creation, and bounded sign-in audit events. The public local sign-in endpoint maps ordinary failures to a generic `401`, throttled attempts to a generic `429`, and returns only the new raw access-session token plus initial raw refresh-like credential once on success. The public refresh endpoint maps missing, invalid, expired, revoked, rotated/replayed, unavailable, or account-unavailable refresh-like credentials to a uniform generic `401` and returns only a new raw access-session token plus new raw refresh-like credential once on success. The public current-user endpoint validates existing opaque bearer session tokens through the session runtime boundary, the public sign-out endpoint revokes only the current validated bearer session with no response body, the public sign-out-all endpoint revokes all active sessions for the current authenticated account with no response body, the public session list endpoint returns only safe active-session metadata for the authenticated account, and the public session revocation endpoint revokes one session owned by the authenticated account. Public registration, arbitrary/admin session revocation endpoints, session middleware, authorization handlers, generated clients, mobile/web/admin UI behavior, business endpoints, messaging workflows, upload/download endpoints, file metadata, expenses, bills, settlements, OCR endpoints, and business database workflows are not implemented yet.
+- API runtime configuration placeholders exist for PostgreSQL, RabbitMQ, storage, password hashing policy, and auth session lifetime policy. The API connects to PostgreSQL and RabbitMQ and checks local storage only for the readiness check. EF Core infrastructure and migrations define schema-only user profile, group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables. Credential/session/audit tables are persistence foundations only: local password rows store password hash metadata, session rows store token hashes, refresh/session-family rows store refresh credential hashes plus bounded lineage/status/expiry metadata, and audit rows store bounded safe metadata. The internal password hashing service can create and verify Argon2id password verifiers, the internal credential workflow service can create and verify EF-backed local password credentials for existing auth accounts, the internal session runtime service can create, validate, revoke one session, and revoke all active sessions for an authenticated account while storing token hashes only and writing bounded session audit events, the internal refresh session runtime service can create refresh-capable session families and rotate refresh-like credentials while storing only deterministic hashes and writing bounded refresh audit events, the internal sign-in abuse policy service can evaluate and record bounded in-memory sign-in attempt buckets for single-node dev/self-hosted mode, and the internal local sign-in orchestration service connects safe local identifier lookup, abuse-policy decisions, credential verification, refresh-capable session creation, and bounded sign-in audit events. The public local sign-in endpoint maps ordinary failures to a generic `401`, throttled attempts to a generic `429`, and returns only the new raw access-session token plus initial raw refresh-like credential once on success. The public refresh endpoint maps missing, invalid, expired, revoked, rotated/replayed, unavailable, or account-unavailable refresh-like credentials to a uniform generic `401` and returns only a new raw access-session token plus new raw refresh-like credential once on success. The public current-user endpoint validates existing opaque bearer session tokens through the session runtime boundary, the public sign-out endpoint revokes only the current validated bearer session with no response body, the public sign-out-all endpoint revokes all active sessions for the current authenticated account with no response body, the public session list endpoint returns only safe active-session metadata for the authenticated account, and the public session revocation endpoint revokes one session owned by the authenticated account. Generated web and Dart client foundations exist from the OpenAPI contract. Public registration, arbitrary/admin session revocation endpoints, session middleware, authorization handlers, mobile/web/admin UI behavior, business endpoints, messaging workflows, upload/download endpoints, file metadata, expenses, bills, settlements, OCR endpoints, and business database workflows are not implemented yet.
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
-- `packages/contracts/` placeholder OpenAPI contract source.
-- `packages/client-web/` future generated web client output.
-- `packages/client-dart/` future generated Dart/Flutter client output.
+- `packages/contracts/` OpenAPI contract source.
+- `packages/client-web/` generated web client output from the OpenAPI contract.
+- `packages/client-dart/` generated Dart/Flutter client output from the OpenAPI contract.
 - `infra/` local development infrastructure scaffold.
 
 The API can be run through Docker Compose once Docker is available:
@@ -51,7 +51,7 @@ The health endpoint is available at `http://localhost:8080/health` by default. P
 
 ## Scaffold Validation
 
-Current validation covers scaffold paths, the OpenAPI placeholder, the API health scaffold tests, and Docker Compose config. It does not build or test mobile, web, or worker apps yet.
+Current validation covers scaffold paths, the OpenAPI contract, generated client freshness, API tests, and Docker Compose config. It does not build or test mobile, web, or worker apps yet.
 
 ```powershell
 npm ci
@@ -60,11 +60,20 @@ npm run validate
 
 `npm run validate` runs the same checks listed below in order and stops on the first failure with the failed subcommand and exit code.
 
+Generate OpenAPI clients after contract changes:
+
+```powershell
+npm run generate:clients
+npm run validate:clients
+```
+
 Individual checks:
 
 ```powershell
 npm run validate:scaffold
 npm run validate:openapi
+npm run generate:clients
+npm run validate:clients
 npm run validate:api
 npm run validate:compose
 npm run validate:api-docker

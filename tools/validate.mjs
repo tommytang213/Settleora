@@ -16,6 +16,11 @@ const steps = [
     ]
   },
   {
+    script: "validate:clients",
+    command: "node",
+    args: ["tools/validate-clients.mjs"]
+  },
+  {
     script: "validate:api",
     command: "dotnet",
     args: ["test", "services/api/Settleora.Api.sln"]
