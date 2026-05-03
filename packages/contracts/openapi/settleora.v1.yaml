@@ -9,10 +9,11 @@ info:
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
     and web clients will be produced from this file later, and generated output
     must not be manually edited. This contract currently covers scaffold health
-    checks, local sign-in, and the minimal current-user auth read boundary; it
-    is not the feature contract for registration, sign-out, refresh-token
-    rotation, session management, expenses, settlement, sync, OCR upload, users,
-    or database behavior.
+    checks, local sign-in, current-session sign-out, and the minimal
+    current-user auth read boundary; it is not the feature contract for
+    registration, refresh-token rotation, session management beyond current
+    session sign-out, expenses, settlement, sync, OCR upload, users, or database
+    behavior.
 servers:
   - url: /
 paths:
@@ -178,6 +179,28 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "429":
           description: Too many sign-in attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/sign-out:
+    post:
+      summary: Current session sign-out
+      description: Validates the submitted opaque bearer session token and revokes only that current session.
+      operationId: signOutCurrentSession
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "204":
+          description: Current session was revoked. No response body is returned.
+        "401":
+          description: Authentication is required to access this resource.
           content:
             application/problem+json:
               schema:

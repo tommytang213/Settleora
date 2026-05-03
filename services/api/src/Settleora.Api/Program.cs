@@ -28,6 +28,7 @@ var app = builder.Build();
 app.MapHealthEndpoints();
 app.MapLocalSignInEndpoints();
 app.MapCurrentUserEndpoints();
+app.MapSignOutEndpoints();
 
 app.Run();
 

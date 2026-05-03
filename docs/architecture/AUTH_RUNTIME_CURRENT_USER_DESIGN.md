@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
 
-It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint and current-user read endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, sign-out, refresh-token runtime, session management, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, and current-session sign-out endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -17,7 +17,8 @@ It started as a design gate. The current repository now includes the explicitly 
 - An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, session creation, and safe sign-in-specific audit writes.
 - `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
-- No public registration, sign-out, session-list, session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- `POST /api/v1/auth/sign-out` now exists as a focused public endpoint for revoking only the current validated bearer session.
+- No public registration, session-list, sign-out-all, arbitrary session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -115,6 +116,18 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 
 This slice deliberately does not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
+## Implemented Current-Session Sign-Out Endpoint
+
+The implemented slice adds `POST /api/v1/auth/sign-out`.
+
+- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
+- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user.
+- After validation succeeds, it calls `IAuthSessionRuntimeService.RevokeSessionAsync` for the same `AuthAccountId` and `AuthSessionId` with the bounded reason `user_sign_out`.
+- It returns `204 No Content` on revocation success and also treats a rare already-revoked race after validation as idempotent success.
+- It does not require a request body and does not expose raw tokens, session token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
+
+This slice deliberately does not add registration, refresh rotation, session list, sign-out-all, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+
 ## Authorization Handoff
 
 Future endpoint authorization should consume authenticated actor context produced by the auth runtime boundary.
@@ -177,9 +190,9 @@ The implemented internal service boundary:
 
 This document does not authorize:
 
-- Additional runtime implementation beyond the current-user read and public local sign-in boundaries.
-- Additional endpoint code beyond the current-user read and public local sign-in boundaries.
-- Additional OpenAPI auth paths beyond local sign-in and current-user.
+- Additional runtime implementation beyond the current-user read, current-session sign-out, and public local sign-in boundaries.
+- Additional endpoint code beyond the current-user read, current-session sign-out, and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond local sign-in, current-user, and current-session sign-out.
 - Generated clients.
 - Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
@@ -200,6 +213,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add sign-out and per-session revocation after the session service boundary is in place.
-2. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
-3. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+1. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+2. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+3. Add auth middleware and authorization handoff after endpoint-level behavior is proven.

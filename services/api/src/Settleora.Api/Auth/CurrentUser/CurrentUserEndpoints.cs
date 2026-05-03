@@ -8,7 +8,6 @@ namespace Settleora.Api.Auth.CurrentUser;
 
 internal static class CurrentUserEndpoints
 {
-    private const string BearerScheme = "Bearer";
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
 
@@ -25,7 +24,7 @@ internal static class CurrentUserEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = TryGetBearerToken(request);
+        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
         if (rawSessionToken is null)
         {
             return Unauthenticated();
@@ -79,38 +78,6 @@ internal static class CurrentUserEndpoints
                 actor.AuthSessionId,
                 actor.SessionExpiresAtUtc),
             roles));
-    }
-
-    private static string? TryGetBearerToken(HttpRequest request)
-    {
-        var authorizationHeaders = request.Headers.Authorization;
-        if (authorizationHeaders.Count != 1)
-        {
-            return null;
-        }
-
-        var authorizationHeader = authorizationHeaders[0];
-        if (string.IsNullOrWhiteSpace(authorizationHeader)
-            || authorizationHeader.Contains(',', StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var trimmedAuthorizationHeader = authorizationHeader.Trim();
-        if (trimmedAuthorizationHeader.Length <= BearerScheme.Length
-            || !trimmedAuthorizationHeader.StartsWith(BearerScheme, StringComparison.OrdinalIgnoreCase)
-            || !char.IsWhiteSpace(trimmedAuthorizationHeader[BearerScheme.Length]))
-        {
-            return null;
-        }
-
-        var rawSessionToken = trimmedAuthorizationHeader[BearerScheme.Length..].Trim();
-        if (rawSessionToken.Length == 0 || rawSessionToken.Any(char.IsWhiteSpace))
-        {
-            return null;
-        }
-
-        return rawSessionToken;
     }
 
     private static IResult Unauthenticated()
