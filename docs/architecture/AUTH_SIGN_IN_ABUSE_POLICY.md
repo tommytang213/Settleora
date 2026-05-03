@@ -2,7 +2,7 @@
 
 This document defines Settleora's local sign-in abuse policy for the public local sign-in endpoint and the internal sign-in orchestration boundary.
 
-It began as a design gate and now also records the implemented internal policy, local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, public refresh endpoints, or additional auth endpoints by itself.
+It began as a design gate and now also records the implemented internal policy, refresh-capable local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, additional public refresh behavior, or additional auth endpoints by itself.
 
 ## Purpose
 
@@ -18,7 +18,7 @@ This policy defines the required boundaries for:
 - Uniform public error responses.
 - Operational diagnostics that help administrators without leaking secrets or identity state.
 
-Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts remain future proposals until a separate reviewed OpenAPI/runtime branch approves them.
+The reviewed public sign-in endpoint path, request schema, response schema, and OpenAPI contract now exist. Additional sign-in variants or auth endpoints remain future proposals until a separate reviewed OpenAPI/runtime branch approves them.
 
 ## Current State
 
@@ -28,9 +28,10 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - The internal session runtime service exists for opaque session creation, validation, revocation, token hashing, and bounded session audit writes.
 - `POST /api/v1/auth/sign-in` exists and exposes the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` exists and validates an existing opaque session token into a minimal current actor/profile/session/role response.
-- An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and session creation.
+- An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and refresh-capable session creation.
 - The local sign-in runtime writes safe sign-in-specific `auth_audit_events` for success, invalid credentials, pre-verification throttling, and session-creation failure without storing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
-- Public registration and public refresh endpoints do not exist. Current-session and current-account session endpoints are covered by the auth runtime design.
+- `POST /api/v1/auth/refresh`, current-session sign-out, current-account sign-out-all, current-account session list, and current-account session revocation endpoints exist and are covered by the auth runtime design.
+- Public registration does not exist.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
 ## Implemented Internal Policy Boundary
@@ -256,7 +257,7 @@ This branch does not authorize:
 - Additional runtime implementation beyond the internal policy, local sign-in orchestration, current-user, and public local sign-in boundaries described above.
 - Additional auth endpoint code.
 - Additional login or sign-in OpenAPI paths.
-- Refresh-token issuance.
+- Additional refresh-token issuance behavior beyond the implemented refresh-capable local sign-in and public refresh boundaries.
 - Session middleware.
 - Generated clients.
 - UI, mobile, web, or admin changes.

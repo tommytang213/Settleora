@@ -149,17 +149,16 @@ This schema foundation does not authorize:
 - Passkey implementation.
 - MFA implementation.
 - General auth audit implementation outside the internal credential workflow.
-- Additional OpenAPI changes beyond the reviewed public refresh contract.
+- Additional OpenAPI changes beyond the reviewed auth endpoint contracts.
 - Generated client changes.
 - UI behavior.
 - Runtime behavior changes.
-- Refresh-capable local sign-in integration.
 
 ## Next Implementation Candidates
 
 Future work should remain small and separately reviewable.
 
-- Current-user API boundary that resolves the authenticated account/session to the linked `UserProfile`.
-- Auth middleware and runtime only after schema and password/session policy are reviewed.
-- Separate passkey schema review before passkey implementation.
-- Separate MFA schema review before MFA implementation.
+- Generated auth clients from the reviewed OpenAPI contract.
+- Auth middleware and authorization handoff after the current endpoint-level behavior is proven.
+- Admin revocation, retention cleanup, and distributed hardening in separate reviewed slices.
+- Separate passkey and MFA schema review before passkey or MFA implementation.

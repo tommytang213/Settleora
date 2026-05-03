@@ -2,7 +2,7 @@
 
 This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, the public refresh endpoint, and future refresh-adjacent work stay aligned with reviewed security behavior.
 
-The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, the first public refresh endpoint plus OpenAPI contract, and the design decision for future refresh-capable local sign-in. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or refresh-capable local sign-in runtime implementation.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, the first public refresh endpoint plus OpenAPI contract, and refresh-capable public local sign-in. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or additional refresh/sign-in runtime behavior.
 
 ## Purpose
 
@@ -49,7 +49,7 @@ The current refresh/session-family schema foundation supports:
 
 The internal refresh session runtime can create a refresh-capable access session, session family, and initial refresh-like credential for an existing active auth account. It can rotate a submitted raw refresh-like credential, consume the old credential, create a replacement access session and refresh-like credential in the same family, classify expired/revoked/rotated/replayed/inactive/account-unavailable/persistence failures through internal statuses, and conservatively mark or revoke linked families and active family credentials/sessions when replay, expiry, or account-unavailable conditions require it. The service stores only deterministic credential hashes and writes bounded safe audit metadata.
 
-`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, refresh-capable local sign-in implementation, middleware, authorization handlers, and UI flows remain separate future slices. The local sign-in decision below resolves the initial credential issuance model before that public contract is changed.
+`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, middleware, authorization handlers, UI flows, admin revocation, retention cleanup, and distributed hardening remain separate future slices. The local sign-in decision below records the implemented initial credential issuance model.
 
 ## Terminology
 
@@ -395,5 +395,5 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add generated clients and UI integration only after the updated OpenAPI contract is reviewed.
+1. Add generated clients and UI integration from the current reviewed OpenAPI contract.
 2. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.

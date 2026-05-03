@@ -278,7 +278,7 @@ The implemented internal service boundary:
 
 - Adds an internal session runtime service for existing active `AuthAccount` rows.
 - Creates opaque server-side session tokens with .NET BCL cryptographic randomness, stores only deterministic session token hashes in `auth_sessions`, and returns raw session token material only in the creation result.
-- Uses typed `Settleora:Auth:Sessions` current access-session policy values instead of hard-coded service constants, preserving the default no-refresh sign-in lifetime at 8 hours and the configured max at 30 days.
+- Uses typed `Settleora:Auth:Sessions` current access-session policy values instead of hard-coded service constants, preserving the older direct no-refresh session lifetime default at 8 hours and the configured max at 30 days when this boundary is called directly.
 - Validates submitted raw session tokens through hash lookup, rejects missing, expired, revoked, inactive, disabled, or deleted account state with bounded internal statuses, and resolves authenticated actor context to the linked `UserProfile`.
 - Updates `last_seen_at_utc` and `updated_at_utc` only after successful validation.
 - Revokes sessions by session ID and owning auth account context without requiring raw token material.
@@ -325,6 +325,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Implement refresh-capable local sign-in using the request/response and lifetime decision above.
-2. Update the public sign-in OpenAPI schema before generated clients exist, then generate clients only in a separate reviewed slice.
-3. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+1. Generate and review auth clients from the current OpenAPI contract without hand-editing generated output.
+2. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+3. Add UI integration, admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.
