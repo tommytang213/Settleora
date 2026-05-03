@@ -16,6 +16,8 @@ public sealed class AuthCredentialsSessionsAuditModelTests
     [
         typeof(LocalPasswordCredential),
         typeof(AuthSession),
+        typeof(AuthSessionFamily),
+        typeof(AuthRefreshCredential),
         typeof(AuthAuditEvent)
     ];
 
@@ -210,6 +212,159 @@ public sealed class AuthCredentialsSessionsAuditModelTests
     }
 
     [Fact]
+    public void AuthSessionFamilyModelUsesAccountScopedRefreshLineageAndRestrictiveDeleteBehavior()
+    {
+        using var dbContext = CreateDbContext();
+        var entity = FindEntityType<AuthSessionFamily>(dbContext);
+        var storeObject = StoreObjectIdentifier.Table("auth_session_families", null);
+
+        Assert.Equal("auth_session_families", entity.GetTableName());
+        Assert.Equal(["Id"], entity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
+        AssertColumn(entity, storeObject, "AuthAccountId", "auth_account_id", isNullable: false);
+        AssertColumn(entity, storeObject, "Status", "status", isNullable: false, maxLength: 16);
+        AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "AbsoluteExpiresAtUtc", "absolute_expires_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "LastRotatedAtUtc", "last_rotated_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "RevokedAtUtc", "revoked_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "RevocationReason", "revocation_reason", isNullable: true, maxLength: 120);
+
+        AssertIndex(
+            entity,
+            "ix_auth_session_families_auth_account_id",
+            ["AuthAccountId"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_session_families_status",
+            ["Status"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_session_families_absolute_expires_at_utc",
+            ["AbsoluteExpiresAtUtc"],
+            isUnique: false);
+
+        AssertForeignKey(
+            entity,
+            typeof(AuthAccount),
+            ["AuthAccountId"],
+            DeleteBehavior.Restrict);
+
+        AssertCheckConstraint(
+            entity,
+            "ck_auth_session_families_status",
+            "status IN ('active', 'revoked', 'expired', 'replayed')");
+        AssertCheckConstraint(
+            entity,
+            "ck_auth_session_families_revocation_reason_not_blank",
+            "revocation_reason IS NULL OR length(btrim(revocation_reason)) > 0");
+    }
+
+    [Fact]
+    public void AuthRefreshCredentialModelUsesHashedHistoryAndRestrictiveDeleteBehavior()
+    {
+        using var dbContext = CreateDbContext();
+        var entity = FindEntityType<AuthRefreshCredential>(dbContext);
+        var storeObject = StoreObjectIdentifier.Table("auth_refresh_credentials", null);
+
+        Assert.Equal("auth_refresh_credentials", entity.GetTableName());
+        Assert.Equal(["Id"], entity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
+        AssertColumn(entity, storeObject, "AuthSessionFamilyId", "auth_session_family_id", isNullable: false);
+        AssertColumn(entity, storeObject, "AuthSessionId", "auth_session_id", isNullable: true);
+        AssertColumn(entity, storeObject, "RefreshTokenHash", "refresh_token_hash", isNullable: false, maxLength: 128);
+        AssertColumn(entity, storeObject, "Status", "status", isNullable: false, maxLength: 16);
+        AssertColumn(entity, storeObject, "IssuedAtUtc", "issued_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "IdleExpiresAtUtc", "idle_expires_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "AbsoluteExpiresAtUtc", "absolute_expires_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "ConsumedAtUtc", "consumed_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "RevokedAtUtc", "revoked_at_utc", isNullable: true);
+        AssertColumn(
+            entity,
+            storeObject,
+            "ReplacedByRefreshCredentialId",
+            "replaced_by_refresh_credential_id",
+            isNullable: true);
+        AssertColumn(entity, storeObject, "RevocationReason", "revocation_reason", isNullable: true, maxLength: 120);
+        AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_auth_session_family_id",
+            ["AuthSessionFamilyId"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_auth_session_id",
+            ["AuthSessionId"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_family_status",
+            ["AuthSessionFamilyId", "Status"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_idle_expires_at_utc",
+            ["IdleExpiresAtUtc"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_absolute_expires_at_utc",
+            ["AbsoluteExpiresAtUtc"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_consumed_at_utc",
+            ["ConsumedAtUtc"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_auth_refresh_credentials_replaced_by_id",
+            ["ReplacedByRefreshCredentialId"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ux_auth_refresh_credentials_refresh_token_hash",
+            ["RefreshTokenHash"],
+            isUnique: true);
+
+        AssertForeignKey(
+            entity,
+            typeof(AuthSessionFamily),
+            ["AuthSessionFamilyId"],
+            DeleteBehavior.Restrict);
+        AssertForeignKey(
+            entity,
+            typeof(AuthSession),
+            ["AuthSessionId"],
+            DeleteBehavior.Restrict);
+        AssertForeignKey(
+            entity,
+            typeof(AuthRefreshCredential),
+            ["ReplacedByRefreshCredentialId"],
+            DeleteBehavior.Restrict);
+
+        AssertCheckConstraint(
+            entity,
+            "ck_auth_refresh_credentials_status",
+            "status IN ('active', 'rotated', 'revoked', 'expired', 'replayed')");
+        AssertCheckConstraint(
+            entity,
+            "ck_auth_refresh_credentials_hash_not_blank",
+            "length(btrim(refresh_token_hash)) > 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_auth_refresh_credentials_revocation_reason_not_blank",
+            "revocation_reason IS NULL OR length(btrim(revocation_reason)) > 0");
+    }
+
+    [Fact]
     public void AuthCredentialsSessionsAuditMigrationCreatesReviewableSchemaOperations()
     {
         using var dbContext = CreateDbContext();
@@ -295,6 +450,94 @@ public sealed class AuthCredentialsSessionsAuditModelTests
                 && index.Name == "ix_auth_audit_events_occurred_at_utc"
                 && !index.IsUnique
                 && index.Columns.SequenceEqual(["occurred_at_utc"]));
+    }
+
+    [Fact]
+    public void RefreshSessionFamilyMigrationCreatesReviewableSchemaOperations()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith(
+                "_AddRefreshSessionFamilySchemaFoundation",
+                StringComparison.Ordinal));
+
+        var migration = new AddRefreshSessionFamilySchemaFoundation();
+
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var createTables = migration.UpOperations
+            .OfType<CreateTableOperation>()
+            .Where(operation => operation.Name is "auth_session_families" or "auth_refresh_credentials")
+            .ToList();
+
+        Assert.Equal(
+            ["auth_refresh_credentials", "auth_session_families"],
+            createTables.Select(operation => operation.Name).Order());
+
+        var sessionFamilies = Assert.Single(createTables, table => table.Name == "auth_session_families");
+        Assert.Equal(["id"], sessionFamilies.PrimaryKey!.Columns);
+        Assert.Contains(
+            sessionFamilies.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == "auth_accounts"
+                && foreignKey.Columns.SequenceEqual(["auth_account_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+
+        var refreshCredentials = Assert.Single(createTables, table => table.Name == "auth_refresh_credentials");
+        Assert.Equal(["id"], refreshCredentials.PrimaryKey!.Columns);
+        Assert.Contains(
+            refreshCredentials.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == "auth_session_families"
+                && foreignKey.Columns.SequenceEqual(["auth_session_family_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            refreshCredentials.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == "auth_sessions"
+                && foreignKey.Columns.SequenceEqual(["auth_session_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            refreshCredentials.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == "auth_refresh_credentials"
+                && foreignKey.Columns.SequenceEqual(["replaced_by_refresh_credential_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+
+        Assert.All(
+            createTables.SelectMany(table => table.Columns).Where(column => column.ClrType == typeof(string)),
+            column => Assert.NotNull(column.MaxLength));
+
+        var indexes = migration.UpOperations.OfType<CreateIndexOperation>();
+        Assert.Contains(
+            indexes,
+            index => index.Table == "auth_refresh_credentials"
+                && index.Name == "ux_auth_refresh_credentials_refresh_token_hash"
+                && index.IsUnique
+                && index.Columns.SequenceEqual(["refresh_token_hash"]));
+        Assert.Contains(
+            indexes,
+            index => index.Table == "auth_refresh_credentials"
+                && index.Name == "ix_auth_refresh_credentials_family_status"
+                && !index.IsUnique
+                && index.Columns.SequenceEqual(["auth_session_family_id", "status"]));
+        Assert.Contains(
+            indexes,
+            index => index.Table == "auth_refresh_credentials"
+                && index.Name == "ix_auth_refresh_credentials_consumed_at_utc"
+                && !index.IsUnique
+                && index.Columns.SequenceEqual(["consumed_at_utc"]));
+        Assert.Contains(
+            indexes,
+            index => index.Table == "auth_session_families"
+                && index.Name == "ix_auth_session_families_auth_account_id"
+                && !index.IsUnique
+                && index.Columns.SequenceEqual(["auth_account_id"]));
     }
 
     [Fact]

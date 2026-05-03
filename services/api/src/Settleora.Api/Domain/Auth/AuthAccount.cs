@@ -30,6 +30,8 @@ public sealed class AuthAccount
 
     public ICollection<AuthSession> Sessions { get; } = new List<AuthSession>();
 
+    public ICollection<AuthSessionFamily> SessionFamilies { get; } = new List<AuthSessionFamily>();
+
     public ICollection<AuthAuditEvent> ActorAuditEvents { get; } = new List<AuthAuditEvent>();
 
     public ICollection<AuthAuditEvent> SubjectAuditEvents { get; } = new List<AuthAuditEvent>();

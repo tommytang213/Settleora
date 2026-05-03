@@ -33,4 +33,6 @@ public sealed class AuthSession
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
+
+    public ICollection<AuthRefreshCredential> RefreshCredentials { get; } = new List<AuthRefreshCredential>();
 }

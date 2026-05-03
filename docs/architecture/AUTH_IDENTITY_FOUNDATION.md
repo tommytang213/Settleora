@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, and auth audit foundations, an internal password hashing service boundary, and an internal credential workflow service boundary, but it still has no login/current-user endpoints, token issuance, session middleware, user/group API endpoints, OpenAPI contract changes, generated clients, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus scoped public local sign-in/current-user/current-account session endpoints. It still has no registration, refresh-token runtime, session middleware, user/group API endpoints, generated clients, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -11,7 +11,7 @@ It is an architecture gate for future user and group endpoint work. It describes
 
 - `UserProfile`, `UserGroup`, and `GroupMembership` domain models exist under the API users domain.
 - `AuthAccount`, `AuthIdentity`, and `SystemRoleAssignment` domain models exist under the API auth domain.
-- The current EF Core migrations create `user_profiles`, `user_groups`, `group_memberships`, `auth_accounts`, `auth_identities`, `system_role_assignments`, `local_password_credentials`, `auth_sessions`, and `auth_audit_events`.
+- The current EF Core migrations create `user_profiles`, `user_groups`, `group_memberships`, `auth_accounts`, `auth_identities`, `system_role_assignments`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
 - `user_profiles` stores app-domain profile data: display name, optional default currency, timestamps, and a future soft-delete timestamp.
 - `user_groups` stores shared group containers with a creator profile reference.
 - `group_memberships` stores profile-to-group membership rows with group-level `role` values of `owner` or `member`, and `status` values of `active` or `removed`.
@@ -20,8 +20,9 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
 - `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal credential workflow service can create and verify local password credentials for existing active auth accounts.
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
+- `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
-- No login/current-user runtime behavior, public credential endpoints, token issuance, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
+- No registration, refresh-token runtime behavior, public credential management endpoints, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts

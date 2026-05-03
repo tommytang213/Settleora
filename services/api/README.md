@@ -20,7 +20,7 @@ Current implementation:
 - `GET /api/v1/auth/sessions` validates the submitted opaque bearer session token and returns capped, safe metadata for active sessions owned by the authenticated account.
 - `DELETE /api/v1/auth/sessions/{sessionId}` validates the submitted opaque bearer session token and revokes one active session owned by the authenticated account with a `204` response and no body.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No registration, refresh-token runtime, arbitrary/admin session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, auth session families, auth refresh credential history, and auth audit events. The refresh/session-family tables store refresh credential hashes and bounded lineage/status/expiry metadata only; no raw refresh tokens are stored. No registration, refresh-token runtime, arbitrary/admin session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 

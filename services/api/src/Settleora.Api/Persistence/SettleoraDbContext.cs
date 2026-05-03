@@ -28,6 +28,11 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthSessionDeviceLabelMaxLength = 120;
     private const int AuthSessionUserAgentSummaryMaxLength = 320;
     private const int AuthSessionNetworkAddressHashMaxLength = 128;
+    private const int AuthSessionFamilyStatusMaxLength = 16;
+    private const int AuthSessionFamilyRevocationReasonMaxLength = 120;
+    private const int AuthRefreshCredentialTokenHashMaxLength = 128;
+    private const int AuthRefreshCredentialStatusMaxLength = 16;
+    private const int AuthRefreshCredentialRevocationReasonMaxLength = 120;
     private const int AuthAuditActionMaxLength = 120;
     private const int AuthAuditOutcomeMaxLength = 32;
     private const int AuthAuditCorrelationIdMaxLength = 120;
@@ -50,6 +55,8 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
         modelBuilder.Entity<AuthSession>(ConfigureAuthSession);
+        modelBuilder.Entity<AuthSessionFamily>(ConfigureAuthSessionFamily);
+        modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
         modelBuilder.Entity<AuthAuditEvent>(ConfigureAuthAuditEvent);
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
     }
@@ -574,6 +581,186 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(account => account.SubjectAuditEvents)
             .HasForeignKey(auditEvent => auditEvent.SubjectAuthAccountId)
             .HasConstraintName("fk_auth_audit_events_subject_auth_account")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthSessionFamily(EntityTypeBuilder<AuthSessionFamily> entity)
+    {
+        entity.ToTable("auth_session_families", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_session_families_status",
+                "status IN ('active', 'revoked', 'expired', 'replayed')");
+            table.HasCheckConstraint(
+                "ck_auth_session_families_revocation_reason_not_blank",
+                "revocation_reason IS NULL OR length(btrim(revocation_reason)) > 0");
+        });
+
+        entity.HasKey(sessionFamily => sessionFamily.Id);
+
+        entity.Property(sessionFamily => sessionFamily.Id)
+            .HasColumnName("id");
+
+        entity.Property(sessionFamily => sessionFamily.AuthAccountId)
+            .HasColumnName("auth_account_id");
+
+        entity.Property(sessionFamily => sessionFamily.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthSessionFamilyStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(sessionFamily => sessionFamily.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(sessionFamily => sessionFamily.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(sessionFamily => sessionFamily.AbsoluteExpiresAtUtc)
+            .HasColumnName("absolute_expires_at_utc")
+            .IsRequired();
+
+        entity.Property(sessionFamily => sessionFamily.LastRotatedAtUtc)
+            .HasColumnName("last_rotated_at_utc");
+
+        entity.Property(sessionFamily => sessionFamily.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(sessionFamily => sessionFamily.RevocationReason)
+            .HasColumnName("revocation_reason")
+            .HasMaxLength(AuthSessionFamilyRevocationReasonMaxLength);
+
+        entity.HasIndex(sessionFamily => sessionFamily.AuthAccountId)
+            .HasDatabaseName("ix_auth_session_families_auth_account_id");
+
+        entity.HasIndex(sessionFamily => sessionFamily.Status)
+            .HasDatabaseName("ix_auth_session_families_status");
+
+        entity.HasIndex(sessionFamily => sessionFamily.AbsoluteExpiresAtUtc)
+            .HasDatabaseName("ix_auth_session_families_absolute_expires_at_utc");
+
+        entity.HasOne(sessionFamily => sessionFamily.AuthAccount)
+            .WithMany(account => account.SessionFamilies)
+            .HasForeignKey(sessionFamily => sessionFamily.AuthAccountId)
+            .HasConstraintName("fk_auth_session_families_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthRefreshCredential(EntityTypeBuilder<AuthRefreshCredential> entity)
+    {
+        entity.ToTable("auth_refresh_credentials", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_refresh_credentials_status",
+                "status IN ('active', 'rotated', 'revoked', 'expired', 'replayed')");
+            table.HasCheckConstraint(
+                "ck_auth_refresh_credentials_hash_not_blank",
+                "length(btrim(refresh_token_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_refresh_credentials_revocation_reason_not_blank",
+                "revocation_reason IS NULL OR length(btrim(revocation_reason)) > 0");
+        });
+
+        entity.HasKey(credential => credential.Id);
+
+        entity.Property(credential => credential.Id)
+            .HasColumnName("id");
+
+        entity.Property(credential => credential.AuthSessionFamilyId)
+            .HasColumnName("auth_session_family_id");
+
+        entity.Property(credential => credential.AuthSessionId)
+            .HasColumnName("auth_session_id");
+
+        entity.Property(credential => credential.RefreshTokenHash)
+            .HasColumnName("refresh_token_hash")
+            .HasMaxLength(AuthRefreshCredentialTokenHashMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthRefreshCredentialStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(credential => credential.IssuedAtUtc)
+            .HasColumnName("issued_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.IdleExpiresAtUtc)
+            .HasColumnName("idle_expires_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.AbsoluteExpiresAtUtc)
+            .HasColumnName("absolute_expires_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.ConsumedAtUtc)
+            .HasColumnName("consumed_at_utc");
+
+        entity.Property(credential => credential.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(credential => credential.ReplacedByRefreshCredentialId)
+            .HasColumnName("replaced_by_refresh_credential_id");
+
+        entity.Property(credential => credential.RevocationReason)
+            .HasColumnName("revocation_reason")
+            .HasMaxLength(AuthRefreshCredentialRevocationReasonMaxLength);
+
+        entity.Property(credential => credential.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(credential => credential.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(credential => credential.AuthSessionFamilyId)
+            .HasDatabaseName("ix_auth_refresh_credentials_auth_session_family_id");
+
+        entity.HasIndex(credential => credential.AuthSessionId)
+            .HasDatabaseName("ix_auth_refresh_credentials_auth_session_id");
+
+        entity.HasIndex(credential => new
+            {
+                credential.AuthSessionFamilyId,
+                credential.Status
+            })
+            .HasDatabaseName("ix_auth_refresh_credentials_family_status");
+
+        entity.HasIndex(credential => credential.IdleExpiresAtUtc)
+            .HasDatabaseName("ix_auth_refresh_credentials_idle_expires_at_utc");
+
+        entity.HasIndex(credential => credential.AbsoluteExpiresAtUtc)
+            .HasDatabaseName("ix_auth_refresh_credentials_absolute_expires_at_utc");
+
+        entity.HasIndex(credential => credential.ConsumedAtUtc)
+            .HasDatabaseName("ix_auth_refresh_credentials_consumed_at_utc");
+
+        entity.HasIndex(credential => credential.ReplacedByRefreshCredentialId)
+            .HasDatabaseName("ix_auth_refresh_credentials_replaced_by_id");
+
+        entity.HasIndex(credential => credential.RefreshTokenHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_refresh_credentials_refresh_token_hash");
+
+        entity.HasOne(credential => credential.SessionFamily)
+            .WithMany(sessionFamily => sessionFamily.RefreshCredentials)
+            .HasForeignKey(credential => credential.AuthSessionFamilyId)
+            .HasConstraintName("fk_auth_refresh_credentials_session_families_family_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(credential => credential.AuthSession)
+            .WithMany(session => session.RefreshCredentials)
+            .HasForeignKey(credential => credential.AuthSessionId)
+            .HasConstraintName("fk_auth_refresh_credentials_auth_sessions_auth_session_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(credential => credential.ReplacedByRefreshCredential)
+            .WithMany(credential => credential.ReplacedRefreshCredentials)
+            .HasForeignKey(credential => credential.ReplacedByRefreshCredentialId)
+            .HasConstraintName("fk_auth_refresh_credentials_replaced_by_refresh_credential_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

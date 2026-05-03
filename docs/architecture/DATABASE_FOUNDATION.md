@@ -7,8 +7,8 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, and auth audit event tables.
-- An internal password hashing service boundary exists, but no login/current-user endpoints, credential persistence workflows, token issuance, session middleware, authorization, user/group business endpoints, or EF Core business workflows exist yet.
+- EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
+- Internal password hashing, credential workflow, session runtime, sign-in abuse policy, and local sign-in/current-account session endpoint boundaries exist. No refresh-token runtime, session middleware, authorization, user/group business endpoints, or EF Core business workflows exist yet.
 - No business tables for expenses, settlement, files, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
@@ -53,11 +53,13 @@ The current schema foundation is intentionally limited to:
 - `auth_accounts`: server-side auth account roots linked one-to-one with `user_profiles`, with status timestamps and no credential material.
 - `auth_identities`: provider identity links for local or OIDC-style identities, keyed by provider type, provider name, and stable provider subject without raw tokens.
 - `system_role_assignments`: product-level role assignments for `owner`, `admin`, and `user`, separate from group membership roles.
-- `local_password_credentials`: local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal password hashing service is not wired to credential row creation or mutation yet.
+- `local_password_credentials`: local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal credential workflow can create and verify these rows for existing auth accounts.
 - `auth_sessions`: server-side session and revocation metadata linked to `auth_accounts`, storing token hashes only and no raw bearer or refresh tokens.
+- `auth_session_families`: account-scoped refresh/session continuity lineage state linked to `auth_accounts`, with bounded status, absolute expiry, rotation, and revocation metadata.
+- `auth_refresh_credentials`: refresh-like credential history linked to `auth_session_families`, optionally linked to `auth_sessions`, storing unique refresh credential hashes and bounded rotation/revocation/expiry metadata with no raw refresh tokens.
 - `auth_audit_events`: bounded auth audit event metadata with optional actor and subject auth-account links, without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 
-Authentication runtime behavior, credential persistence workflows, token issuance, session middleware, authorization, invitations, friends, and user/group business endpoints are not implemented by this schema foundation.
+Refresh-token runtime behavior, additional credential persistence workflows, session middleware, authorization, invitations, friends, and user/group business endpoints are not implemented by this schema foundation.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 
@@ -104,7 +106,7 @@ This document does not authorize:
 - Runtime behavior changes.
 - Authentication or authorization.
 - User/group business endpoints.
-- Expenses, bills, settlements, files, OCR, audit, sync, identity, or session persistence.
+- Expenses, bills, settlements, files, OCR, audit, sync, or additional identity/session persistence beyond the listed schema foundations.
 - Business persistence workflows.
 
 ## Next Implementation Candidate

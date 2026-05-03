@@ -1,20 +1,22 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, and auth audit events, plus internal password hashing and credential workflow service boundaries. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), and credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize OpenAPI changes, generated clients, UI behavior, public credential endpoints, token issuance, session middleware, or auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing and credential workflow service boundaries. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, public refresh or credential endpoints, refresh runtime behavior, session middleware, or additional auth runtime behavior.
 
 ## Current State
 
 - The auth identity schema foundation exists.
-- The credential/session/audit schema foundation exists.
+- The credential/session/audit schema foundation exists, including explicit refresh/session-family persistence for future rotation and replay detection.
 - The current auth schema includes `auth_accounts`, `auth_identities`, and `system_role_assignments`.
 - `auth_accounts` links a server-side auth account root to one `UserProfile`, but it does not store credentials.
 - `auth_identities` stores local or OIDC-style provider identity links, but it does not store password hashes, passkey material, MFA secrets, or raw tokens.
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
 - `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`; it does not store plaintext passwords, reset tokens, raw recovery codes, passkeys, or MFA secrets. The internal credential workflow service writes and verifies these rows for existing auth accounts.
 - `auth_sessions` stores server-authoritative session metadata and token hashes; it does not store raw session IDs, raw bearer tokens, or raw refresh tokens.
+- `auth_session_families` stores account-scoped refresh/session continuity lineage status, absolute expiry, rotation, and revocation metadata without raw credential material.
+- `auth_refresh_credentials` stores unique refresh credential hashes, status, issued/idle/absolute expiry, consumed/revoked timestamps, optional session linkage, and optional replacement linkage without raw refresh tokens.
 - `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
-- No authentication runtime behavior, authorization middleware, sign-in endpoint, session flow, or current-user API exists yet.
+- No refresh-token generation, refresh rotation, refresh replay detection runtime, public refresh endpoint, authorization middleware, registration flow, arbitrary/admin session flow, generated auth client support, or UI behavior exists yet.
 
 ## Credential Storage Boundaries
 
@@ -142,9 +144,10 @@ Retention must be policy-driven and bounded.
 
 This schema foundation does not authorize:
 
-- Auth implementation.
+- Refresh-token runtime implementation.
+- Public refresh endpoints.
 - Public credential creation or password verification endpoints.
-- Session implementation.
+- Additional session implementation beyond the current reviewed sign-in/current-user/sign-out/session-list/session-revocation boundaries.
 - Passkey implementation.
 - MFA implementation.
 - General auth audit implementation outside the internal credential workflow.

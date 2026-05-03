@@ -2,7 +2,7 @@
 
 This document defines Settleora's design-only policy for refresh-like credentials and session continuity. It exists so future refresh-token generation, rotation, replay detection, and session-family revocation can be implemented without guessing security behavior.
 
-It does not authorize refresh-token runtime implementation, endpoint implementation, OpenAPI changes, generated clients, migrations, schema changes, middleware, authorization handlers, package changes, Docker behavior changes, or UI behavior.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here. This document still does not authorize refresh-token runtime implementation, endpoint implementation, OpenAPI changes, generated clients, middleware, authorization handlers, package changes, Docker behavior changes, or UI behavior.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ The repository currently includes:
 - Current-account session list.
 - Current-account per-session revocation.
 - Internal password hashing, credential workflow, local sign-in, sign-in abuse policy, and session runtime boundaries.
-- Schema foundations for `auth_accounts`, `auth_identities`, `local_password_credentials`, `auth_sessions`, and `auth_audit_events`.
+- Schema foundations for `auth_accounts`, `auth_identities`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
 
 The current session runtime creates opaque server-side session tokens with cryptographic randomness, stores token hashes only in `auth_sessions`, returns raw session token material only once on creation, validates submitted bearer credentials through hash lookup, updates safe session metadata, and writes bounded session audit events.
 
@@ -39,7 +39,13 @@ The current `auth_sessions` schema supports:
 - `issued_at_utc`, `expires_at_utc`, `last_seen_at_utc`, `revoked_at_utc`, and `revocation_reason`.
 - Bounded optional metadata fields such as `device_label`, `user_agent_summary`, and `network_address_hash`.
 
-No refresh-token runtime exists yet. No public refresh endpoint, refresh rotation, refresh replay detection, explicit session-family identifier, consumed-refresh-token history, generated auth client support, middleware, or UI flow exists yet.
+The current refresh/session-family schema foundation supports:
+
+- `auth_session_families` linked to `auth_accounts`, with bounded family status, absolute expiry, rotation timestamp, revocation timestamp, and safe revocation reason state.
+- `auth_refresh_credentials` linked to a session family, optionally linked to an `auth_sessions` row, with a required unique `refresh_token_hash`, bounded status, issued/idle-expiry/absolute-expiry timestamps, consumed and revoked timestamps, optional replacement self-reference, and safe revocation reason state.
+- Restrictive foreign keys, useful lookup/expiry/status indexes, bounded status check constraints, non-blank hash/reason constraints, and no raw refresh-token storage.
+
+No refresh-token runtime exists yet. No public refresh endpoint, refresh credential creation, refresh rotation, refresh validation, refresh replay detection behavior, generated auth client support, middleware, or UI flow exists yet.
 
 ## Terminology
 
@@ -84,11 +90,11 @@ Persist only values needed for lookup, revocation, expiry, rotation, replay dete
 - Keep device, client, user-agent, and network metadata bounded and normalized.
 - Do not store provider payloads, raw OIDC tokens, raw bearer tokens, signing keys, password material, verifier strings, reset tokens, recovery codes, MFA secrets, passkey private material, or unnecessary PII.
 
-The current schema can store one current `refresh_token_hash` per `auth_sessions` row. Robust replay detection for already consumed refresh-like credentials may require retaining consumed credential hashes or identifiers until the family expires. That retention is not represented explicitly by the current single nullable `refresh_token_hash` field. A future implementation must either prove the selected single-row model satisfies the approved replay policy or add a reviewed persistence slice before claiming replay detection.
+The legacy `auth_sessions` schema can store one current `refresh_token_hash` per session row and is intentionally left in place as transitional state. The reviewed `auth_session_families` and `auth_refresh_credentials` schema foundation now explicitly represents session-family lineage, consumed credential history, parent-child replacement links, refresh idle expiry, refresh absolute expiry, and replay-capable status markers. Future runtime work must use or deliberately migrate this foundation before claiming robust replay detection.
 
 ## Session Family Concepts
 
-Future implementation should model these responsibilities even if the first reviewed slice maps some concepts onto the existing `auth_sessions` row:
+The persistence foundation now models these responsibilities so future runtime work does not have to overload the existing `auth_sessions` row:
 
 - Auth account: owns sessions and remains the account status authority.
 - Access session: stores the active access-session credential hash, status, expiry, revocation state, and user-visible metadata.
@@ -96,9 +102,7 @@ Future implementation should model these responsibilities even if the first revi
 - Session family: groups refresh continuity state from one sign-in lineage so suspected replay can revoke the affected lineage.
 - Audit event: records security-impactful outcomes with safe bounded metadata.
 
-The current `auth_sessions.refresh_token_hash` field is enough to represent the currently active refresh-like credential hash for a simple single-row session model. It is not enough by itself to preserve a full lineage of consumed refresh-like credentials, parent-child rotation links, a separate family identifier, refresh idle expiry distinct from access-session expiry, or replay markers after the hash is replaced.
-
-Do not silently treat those missing concepts as implemented. If the selected policy requires them, add a separate schema and migration review.
+The legacy `auth_sessions.refresh_token_hash` field can remain unused or transitional until runtime work migrates behavior. Do not treat that single nullable field as the replay-detection model.
 
 ## Rotation Flow
 
@@ -333,8 +337,7 @@ This document does not authorize:
 - Generated client updates.
 - Session middleware.
 - Authorization handlers.
-- EF migrations.
-- Schema changes.
+- Additional EF migrations or schema changes beyond the reviewed session-family and refresh-credential foundation.
 - Package changes.
 - Docker or CI behavior changes.
 - Mobile, web, or admin UI changes.
@@ -346,9 +349,8 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Decide whether the current `auth_sessions.refresh_token_hash` single-row model is sufficient for the first refresh implementation, or add a design and migration for explicit refresh credential history and session-family state.
-2. Add typed refresh/session lifetime policy configuration with secure self-hosted defaults.
-3. Add an internal refresh credential rotation service with tests for success, expiry, revocation, replay classification, family revocation, and safe audit metadata.
-4. Add a public refresh endpoint and OpenAPI contract only after the internal service and response-shape policy are approved.
-5. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
-6. Add distributed deployment hardening, keyed hash secret rotation, and admin revocation only in separate reviewed slices.
+1. Add typed refresh/session lifetime policy configuration with secure self-hosted defaults.
+2. Add an internal refresh credential rotation service that uses `auth_session_families` and `auth_refresh_credentials`, with tests for success, expiry, revocation, replay classification, family revocation, and safe audit metadata.
+3. Add a public refresh endpoint and OpenAPI contract only after the internal service and response-shape policy are approved.
+4. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
+5. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.
