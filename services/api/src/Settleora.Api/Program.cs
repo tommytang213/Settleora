@@ -29,6 +29,7 @@ app.MapHealthEndpoints();
 app.MapLocalSignInEndpoints();
 app.MapCurrentUserEndpoints();
 app.MapSignOutEndpoints();
+app.MapSessionListEndpoints();
 
 app.Run();
 

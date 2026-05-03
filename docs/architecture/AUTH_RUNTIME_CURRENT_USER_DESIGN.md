@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
 
-It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, and current-session sign-out endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, current-session sign-out endpoint, and current-account session list endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out/list, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -18,7 +18,8 @@ It started as a design gate. The current repository now includes the explicitly 
 - `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - `POST /api/v1/auth/sign-out` now exists as a focused public endpoint for revoking only the current validated bearer session.
-- No public registration, session-list, sign-out-all, arbitrary session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
+- No public registration, sign-out-all, arbitrary session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -128,6 +129,19 @@ The implemented slice adds `POST /api/v1/auth/sign-out`.
 
 This slice deliberately does not add registration, refresh rotation, session list, sign-out-all, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
+## Implemented Current-Account Session List Endpoint
+
+The implemented slice adds `GET /api/v1/auth/sessions`.
+
+- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
+- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user and sign-out.
+- After validation succeeds, it queries only `auth_sessions` rows where `AuthAccountId` matches the validated actor.
+- It returns a capped list of active, non-revoked, non-expired sessions with only `id`, `isCurrent`, `status`, `issuedAtUtc`, `expiresAtUtc`, `lastSeenAtUtc`, and `deviceLabel`.
+- It marks the current validated session with `isCurrent: true`.
+- It does not accept account IDs, session IDs, or a request body, and does not expose raw tokens, session token hashes, refresh token hashes, network address hashes, user-agent summaries, revocation reasons, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
+
+This slice deliberately does not add registration, refresh rotation, sign-out-all, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+
 ## Authorization Handoff
 
 Future endpoint authorization should consume authenticated actor context produced by the auth runtime boundary.
@@ -190,9 +204,9 @@ The implemented internal service boundary:
 
 This document does not authorize:
 
-- Additional runtime implementation beyond the current-user read, current-session sign-out, and public local sign-in boundaries.
-- Additional endpoint code beyond the current-user read, current-session sign-out, and public local sign-in boundaries.
-- Additional OpenAPI auth paths beyond local sign-in, current-user, and current-session sign-out.
+- Additional runtime implementation beyond the current-user read, current-account session list, current-session sign-out, and public local sign-in boundaries.
+- Additional endpoint code beyond the current-user read, current-account session list, current-session sign-out, and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond local sign-in, current-user, current-account session list, and current-session sign-out.
 - Generated clients.
 - Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
@@ -213,6 +227,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+1. Add account-wide revocation or user-visible per-session revocation later, with privacy retention rules and response shapes reviewed separately.
 2. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
 3. Add auth middleware and authorization handoff after endpoint-level behavior is proven.

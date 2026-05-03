@@ -16,8 +16,9 @@ Current implementation:
 - `POST /api/v1/auth/sign-in` exposes the first public local sign-in endpoint. It maps ordinary failures to a generic `401`, throttled attempts to a generic `429`, and returns the raw opaque session token only once on success.
 - `GET /api/v1/auth/current-user` validates an existing opaque bearer session token through the internal session runtime boundary and returns a minimal current actor, linked profile, session, and system-role summary.
 - `POST /api/v1/auth/sign-out` validates the submitted opaque bearer session token and revokes only that current session with a `204` response and no body.
+- `GET /api/v1/auth/sessions` validates the submitted opaque bearer session token and returns capped, safe metadata for active sessions owned by the authenticated account.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No registration, refresh-token runtime, session list, sign-out-all, arbitrary session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No registration, refresh-token runtime, sign-out-all, arbitrary session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 
