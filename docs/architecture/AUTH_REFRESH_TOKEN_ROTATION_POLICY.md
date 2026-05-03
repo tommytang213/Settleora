@@ -1,8 +1,8 @@
 # Auth Refresh Token Rotation Policy
 
-This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, and future public refresh endpoint work stay aligned with reviewed security behavior.
+This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, the public refresh endpoint, and future refresh-adjacent work stay aligned with reviewed security behavior.
 
-The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, plus an internal refresh session runtime service foundation. This document still does not authorize public refresh endpoint implementation, OpenAPI changes, generated clients, middleware, authorization handlers, package changes, Docker behavior changes, or UI behavior.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, and the first public refresh endpoint plus OpenAPI contract. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or refresh-capable local sign-in integration.
 
 ## Purpose
 
@@ -26,6 +26,7 @@ The repository currently includes:
 - Current-account sign-out-all.
 - Current-account session list.
 - Current-account per-session revocation.
+- Public refresh endpoint and OpenAPI contract for rotating a submitted refresh-like credential.
 - Internal password hashing, credential workflow, local sign-in, sign-in abuse policy, and session runtime boundaries.
 - Internal refresh session runtime boundary for creating refresh-capable session families and rotating refresh-like credentials.
 - Schema foundations for `auth_accounts`, `auth_identities`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
@@ -48,7 +49,7 @@ The current refresh/session-family schema foundation supports:
 
 The internal refresh session runtime can create a refresh-capable access session, session family, and initial refresh-like credential for an existing active auth account. It can rotate a submitted raw refresh-like credential, consume the old credential, create a replacement access session and refresh-like credential in the same family, classify expired/revoked/rotated/replayed/inactive/account-unavailable/persistence failures through internal statuses, and conservatively mark or revoke linked families and active family credentials/sessions when replay, expiry, or account-unavailable conditions require it. The service stores only deterministic credential hashes and writes bounded safe audit metadata.
 
-No public refresh endpoint, OpenAPI refresh path/schema, generated auth client support, middleware, authorization handler, or UI flow exists yet.
+`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, refresh-capable local sign-in integration, middleware, authorization handlers, and UI flows remain separate future slices.
 
 ## Terminology
 
@@ -75,7 +76,7 @@ Reasons:
 - A short access-session credential limits exposure if an ordinary bearer credential leaks.
 - A refresh-like credential provides continuity without requiring the access-session credential itself to be long-lived.
 
-The future refresh endpoint should therefore authenticate the submitted refresh-like credential through the auth runtime boundary, rotate it on success, and return a new raw access-session credential and new raw refresh-like credential only once.
+The public refresh endpoint authenticates the submitted refresh-like credential through the auth runtime boundary, rotates it on success, and returns a new raw access-session credential and new raw refresh-like credential only once.
 
 If a future review chooses cookies, JWTs, proof-of-possession tokens, device-bound credentials, or external identity-provider refresh tokens, that choice must be reviewed separately and must still preserve the storage, revocation, replay, audit, and privacy rules in this document.
 
@@ -172,7 +173,7 @@ Settleora:Auth:Sessions:RefreshAbsoluteLifetime=30.00:00:00
 Settleora:Auth:Sessions:ClockSkewAllowance=00:02:00
 ```
 
-The existing no-refresh sign-in/session runtime uses the current access-session default and max. The internal refresh session runtime uses the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. These configuration values still do not add public refresh endpoint behavior, OpenAPI paths, generated clients, middleware, or UI behavior.
+The existing no-refresh sign-in/session runtime uses the current access-session default and max. The internal refresh session runtime and public refresh endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. These configuration values still do not add generated clients, middleware, UI behavior, or refresh-capable local sign-in integration.
 
 Idle timeout and absolute timeout are different:
 
@@ -267,9 +268,9 @@ Audit metadata must not include:
 
 Audit writes should happen after internal state is classified and should not turn unavailable credentials into public account or session enumeration signals.
 
-## Future API Response Guidance
+## Public API Response Guidance
 
-A future refresh endpoint should use a uniform public failure response.
+The public refresh endpoint uses a uniform public failure response for ordinary refresh failures.
 
 The response must not reveal whether:
 
@@ -289,13 +290,13 @@ On success, the endpoint may return only the minimal data needed by clients to c
 
 Raw credentials must be returned only once on success. Token hashes, refresh-token hashes, family lookup identifiers, credential status, audit metadata, provider payloads, account state details, storage paths, diagnostics, and policy internals must not be returned.
 
-The endpoint should be reviewed separately before OpenAPI paths or schemas are added.
+The OpenAPI source of truth now includes the reviewed `/api/v1/auth/refresh` path and minimal request/response schemas. Generated clients must still wait for a separate reviewed slice.
 
 ## Authorization And Middleware Handoff
 
 Refresh-like credentials are not authorization for business APIs. They are only inputs to the refresh boundary.
 
-Future middleware should authenticate ordinary API requests with the access-session credential or approved equivalent. The refresh endpoint may need to bypass ordinary access-session middleware because an access-session credential may be expired when refresh is attempted. It should authenticate only through the refresh runtime service and should produce new authenticated state only after successful rotation.
+Future middleware should authenticate ordinary API requests with the access-session credential or approved equivalent. The refresh endpoint intentionally has no bearer-auth requirement because an access-session credential may be expired when refresh is attempted. It authenticates only through the refresh runtime service and produces new authenticated state only after successful rotation.
 
 Authorization handoff rules:
 
@@ -346,8 +347,6 @@ Future distributed deployment:
 
 This document does not authorize:
 
-- Refresh endpoints.
-- OpenAPI paths or schemas.
 - Generated client updates.
 - Session middleware.
 - Authorization handlers.
@@ -358,11 +357,12 @@ This document does not authorize:
 - JWT, cookie, proof-of-possession, external-provider refresh-token, or secret-provider implementation choices.
 - Admin session-management endpoints.
 - Password reset, recovery, MFA, passkey, or provider-token storage behavior.
+- Refresh-capable local sign-in integration that issues an initial refresh-like credential.
 
 ## Next Implementation Candidates
 
 Future branches should stay small and reviewable:
 
-1. Add a public refresh endpoint and OpenAPI contract only after the internal service and response-shape policy are approved.
+1. Add refresh-capable local sign-in integration only after reviewing the initial credential issuance response shape.
 2. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
 3. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.

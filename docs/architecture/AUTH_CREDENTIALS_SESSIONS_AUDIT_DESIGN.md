@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, and refresh session runtime service boundaries. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize OpenAPI changes, generated clients, UI behavior, public refresh or credential endpoints, session middleware, or additional public auth runtime behavior.
+This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, refresh session runtime service boundaries, and the first public refresh endpoint/OpenAPI contract. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize generated clients, UI behavior, public credential endpoints, session middleware, refresh-capable local sign-in integration, or additional public auth runtime behavior.
 
 ## Current State
 
@@ -16,7 +16,7 @@ This document defines the schema direction for credential storage, sessions, ref
 - `auth_refresh_credentials` stores unique refresh credential hashes, status, issued/idle/absolute expiry, consumed/revoked timestamps, optional session linkage, and optional replacement linkage without raw refresh tokens.
 - `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
-- Internal refresh credential generation, rotation, replay classification, and linked family revocation behavior now exists behind an unexposed service boundary. No public refresh endpoint, authorization middleware, registration flow, arbitrary/admin session flow, generated auth client support, or UI behavior exists yet.
+- Internal refresh credential generation, rotation, replay classification, and linked family revocation behavior now exists behind the refresh runtime service boundary. `POST /api/v1/auth/refresh` now exposes a public refresh endpoint on top of that boundary without adding raw refresh-token storage or new schema. No authorization middleware, refresh-capable local sign-in integration, registration flow, arbitrary/admin session flow, generated auth client support, or UI behavior exists yet.
 
 ## Credential Storage Boundaries
 
@@ -144,17 +144,16 @@ Retention must be policy-driven and bounded.
 
 This schema foundation does not authorize:
 
-- Public refresh-token endpoint implementation.
-- Public refresh endpoints.
 - Public credential creation or password verification endpoints.
-- Additional session implementation beyond the current reviewed sign-in/current-user/sign-out/session-list/session-revocation boundaries.
+- Additional session implementation beyond the current reviewed sign-in/refresh/current-user/sign-out/session-list/session-revocation boundaries.
 - Passkey implementation.
 - MFA implementation.
 - General auth audit implementation outside the internal credential workflow.
-- OpenAPI changes.
+- Additional OpenAPI changes beyond the reviewed public refresh contract.
 - Generated client changes.
 - UI behavior.
 - Runtime behavior changes.
+- Refresh-capable local sign-in integration.
 
 ## Next Implementation Candidates
 

@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, and internal refresh session runtime foundation described below; remaining auth runtime work still requires separate reviewed branches before public refresh endpoint behavior, session management beyond current-session sign-out/sign-out-all/list/revocation, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, and internal refresh session runtime foundation described below; remaining auth runtime work still requires separate reviewed branches before refresh-capable local sign-in integration, session management beyond current-session sign-out/sign-out-all/list/revocation, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -16,13 +16,14 @@ It started as a design gate. The current repository now includes the explicitly 
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
 - An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, session creation, and safe sign-in-specific audit writes.
 - `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
+- `POST /api/v1/auth/refresh` now exists as the first public refresh endpoint for rotating a submitted refresh-like credential.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - `POST /api/v1/auth/sign-out` now exists as a focused public endpoint for revoking only the current validated bearer session.
 - `POST /api/v1/auth/sign-out-all` now exists as a focused public endpoint for revoking all active sessions owned by the current authenticated account.
 - `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
 - `DELETE /api/v1/auth/sessions/{sessionId}` now exists as a focused public endpoint for revoking one session owned by the authenticated auth account.
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
-- No public registration, public refresh endpoint, arbitrary or admin session-revocation, authorization middleware, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- No public registration, refresh-capable local sign-in integration, arbitrary or admin session-revocation, authorization middleware, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -118,7 +119,23 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 - It returns the raw opaque session token only in the success response and does not return token hashes, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, or diagnostics.
 - It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
 
-This slice deliberately does not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This slice deliberately did not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes. A later slice added the public refresh endpoint without changing the local sign-in response shape.
+
+## Implemented Public Refresh Endpoint
+
+The implemented slice adds `POST /api/v1/auth/refresh`.
+
+- It accepts JSON only with `refreshCredential` and optional `deviceLabel`.
+- It does not require or parse bearer auth; the submitted refresh-like credential is the only authentication input for this endpoint.
+- It does not accept auth account IDs, user/profile IDs, session IDs, session-family IDs, refresh credential IDs, status, expiry overrides, source keys, revocation flags, or policy inputs.
+- It calls `IAuthRefreshSessionRuntimeService.RotateRefreshCredentialAsync(...)` and keeps endpoint code out of credential lookup, hashing, persistence, replay classification, family revocation, account-state checks, and audit writes.
+- It returns only `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc` on success.
+- It returns the new raw access-session token and replacement raw refresh-like credential only once, and it does not return the submitted or old refresh-like credential.
+- It maps missing, blank, malformed, unknown, expired, revoked, rotated/replayed, inactive, account-unavailable, family-revoked, family-expired, family-replayed, policy-invalid, or otherwise unavailable refresh-like credentials to one generic `401` problem response.
+- It maps persistence failures to a generic `500` problem response.
+- It does not expose auth account IDs, user profile IDs, session-family IDs, refresh credential IDs, token hashes, audit metadata, credential status, revocation reasons, replay status, account state, provider payloads, diagnostics, storage paths, or policy internals.
+
+This slice deliberately does not add generated clients, mobile/web/admin UI behavior, auth middleware/global authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, refresh-capable local sign-in integration, public sign-in response-shape changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Session Sign-Out Endpoint
 
@@ -242,23 +259,23 @@ The implemented internal refresh runtime service boundary:
 - Creates `auth_session_families` and `auth_refresh_credentials` lineage rows for refresh-like credential continuity.
 - Generates raw access-session credentials and raw refresh-like credentials with cryptographic randomness, stores only deterministic hashes, and returns raw values only in internal result objects.
 - Rotates submitted raw refresh-like credentials by hash lookup, consumes the old credential, creates a replacement access session and refresh-like credential, links the old credential to the replacement where the current schema supports it, and updates family rotation metadata.
-- Classifies expired, revoked, rotated/replayed, inactive, account-unavailable, and persistence-failed conditions through internal statuses suitable for future generic public failure mapping.
+- Classifies expired, revoked, rotated/replayed, inactive, account-unavailable, and persistence-failed conditions through internal statuses suitable for the public refresh endpoint's generic failure mapping.
 - Conservatively marks or revokes linked session families and active family access sessions/refresh credentials for replay, expiry, and account-unavailable conditions.
 - Writes bounded safe audit metadata for refresh creation, rotation, failure, replay detection, and family revocation without raw tokens, token hashes, password material, provider payloads, secrets, or unnecessary PII.
 - Uses a relational transaction and conditional old-credential consume update for PostgreSQL-facing rotation so simultaneous rotations cannot both leave active replacements for the same consumed credential.
-- Keeps public refresh endpoints, OpenAPI refresh paths/schemas, generated clients, middleware, UI integration, migrations, package changes, Docker/CI changes, current public sign-in response-shape changes, and password hashing behavior changes out of scope.
+- The original internal-runtime slice kept public refresh endpoints and OpenAPI refresh paths/schemas out of scope; the later public refresh slice added only that endpoint/contract layer while generated clients, middleware, UI integration, migrations, package changes, Docker/CI changes, current public sign-in response-shape changes, and password hashing behavior changes remain out of scope.
 
 ## Non-goals
 
 This document does not authorize:
 
-- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, and public local sign-in boundaries.
-- Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, and public local sign-in boundaries.
-- Additional OpenAPI auth paths beyond local sign-in, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
+- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
+- Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
 - Generated clients.
 - Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
-- Public refresh-token endpoint implementation.
+- Refresh-capable local sign-in integration.
 - Session middleware implementation.
 - Authorization handlers.
 - UI integration.
@@ -275,5 +292,5 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add a public refresh endpoint and reviewed OpenAPI contract only after the internal refresh runtime foundation is approved.
+1. Add refresh-capable local sign-in integration only after initial refresh credential issuance is separately reviewed.
 2. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
