@@ -2,7 +2,7 @@
 
 This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, the public refresh endpoint, and future refresh-adjacent work stay aligned with reviewed security behavior.
 
-The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, the first public refresh endpoint plus OpenAPI contract, and refresh-capable public local sign-in. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or additional refresh/sign-in runtime behavior.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, the first public refresh endpoint plus OpenAPI contract, refresh-capable public local sign-in, and generated web/Dart client foundations from OpenAPI. This document still does not authorize additional generated-client changes, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or additional refresh/sign-in runtime behavior.
 
 ## Purpose
 
@@ -49,7 +49,7 @@ The current refresh/session-family schema foundation supports:
 
 The internal refresh session runtime can create a refresh-capable access session, session family, and initial refresh-like credential for an existing active auth account. It can rotate a submitted raw refresh-like credential, consume the old credential, create a replacement access session and refresh-like credential in the same family, classify expired/revoked/rotated/replayed/inactive/account-unavailable/persistence failures through internal statuses, and conservatively mark or revoke linked families and active family credentials/sessions when replay, expiry, or account-unavailable conditions require it. The service stores only deterministic credential hashes and writes bounded safe audit metadata.
 
-`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, middleware, authorization handlers, UI flows, admin revocation, retention cleanup, and distributed hardening remain separate future slices. The local sign-in decision below records the implemented initial credential issuance model.
+`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated web and Dart client foundations exist from the OpenAPI contract, while middleware, authorization handlers, UI flows, admin revocation, retention cleanup, and distributed hardening remain separate future slices. The local sign-in decision below records the implemented initial credential issuance model.
 
 ## Terminology
 
@@ -105,13 +105,13 @@ The sign-in response returns `session.id`, `session.token`, `session.expiresAtUt
 
 The sign-in response does not return `authAccountId` or `userProfileId`. Clients should call `GET /api/v1/auth/current-user` with the returned access-session credential to initialize authenticated actor, profile, session, and role state. That keeps sign-in focused on one-time credential issuance and keeps profile/role bootstrapping behind the existing bearer-session validation boundary.
 
-`requestedSessionLifetimeMinutes` has been removed from the public `LocalSignInRequest` before generated clients exist. Unknown legacy input is ignored by the endpoint JSON reader and cannot lengthen refresh-mode access sessions.
+`requestedSessionLifetimeMinutes` was removed from the public `LocalSignInRequest` before the generated web/Dart client foundations were added. Unknown legacy input is ignored by the endpoint JSON reader and cannot lengthen refresh-mode access sessions.
 
 Refresh-capable sign-in access sessions use `Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime`, not the current 8-hour no-refresh access-session default. Refresh idle and absolute expiry come from the same typed `Settleora:Auth:Sessions` refresh policy already used by the internal refresh runtime and public refresh endpoint.
 
 Ordinary sign-in failures should keep the uniform public sign-in failure response and must not reveal whether the account, identity, credential, session family, or policy state exists. Throttled attempts may keep the existing generic public too-many-attempts response. Public failure bodies must not disclose credential-verification state, account state, refresh eligibility, family creation state, expiry policy, or policy counters.
 
-The public sign-in endpoint, focused endpoint tests, OpenAPI request/response schemas, and documentation have been updated together. Generated clients remain deferred to a separate reviewed client-generation slice unless that slice explicitly approves them.
+The public sign-in endpoint, focused endpoint tests, OpenAPI request/response schemas, and documentation were updated together. A later reviewed slice generated the web and Dart client foundations from the current OpenAPI contract.
 
 ## Storage Rules
 
@@ -206,7 +206,7 @@ Settleora:Auth:Sessions:RefreshAbsoluteLifetime=30.00:00:00
 Settleora:Auth:Sessions:ClockSkewAllowance=00:02:00
 ```
 
-The older no-refresh session runtime uses the current access-session default and max when called directly. The internal refresh session runtime, public refresh endpoint, and public local sign-in endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. Sign-in-created access sessions use the refresh-mode access-session lifetime and do not accept a public client override for a longer access-session lifetime. These configuration values still do not add generated clients, middleware, UI behavior, or authorization behavior.
+The older no-refresh session runtime uses the current access-session default and max when called directly. The internal refresh session runtime, public refresh endpoint, and public local sign-in endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. Sign-in-created access sessions use the refresh-mode access-session lifetime and do not accept a public client override for a longer access-session lifetime. These configuration values still do not add middleware, UI behavior, authorization behavior, or additional generated-client behavior.
 
 Idle timeout and absolute timeout are different:
 
@@ -323,7 +323,7 @@ On success, the endpoint may return only the minimal data needed by clients to c
 
 Raw credentials must be returned only once on success. Token hashes, refresh-token hashes, family lookup identifiers, credential status, audit metadata, provider payloads, account state details, storage paths, diagnostics, and policy internals must not be returned.
 
-The OpenAPI source of truth now includes the reviewed `/api/v1/auth/refresh` path and minimal request/response schemas. Generated clients must still wait for a separate reviewed slice.
+The OpenAPI source of truth now includes the reviewed `/api/v1/auth/refresh` path and minimal request/response schemas. Generated web and Dart client foundations now reflect that reviewed contract; further generated-client changes still require a separate reviewed slice.
 
 ## Authorization And Middleware Handoff
 
@@ -380,7 +380,7 @@ Future distributed deployment:
 
 This document does not authorize:
 
-- Generated client updates.
+- Additional generated-client updates beyond the existing web/Dart client foundations.
 - Session middleware.
 - Authorization handlers.
 - Additional EF migrations or schema changes beyond the reviewed session-family and refresh-credential foundation.
@@ -395,5 +395,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add generated clients and UI integration from the current reviewed OpenAPI contract.
-2. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.
+1. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+2. Add UI integration over the generated client foundations only in separate reviewed slices.
+3. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.

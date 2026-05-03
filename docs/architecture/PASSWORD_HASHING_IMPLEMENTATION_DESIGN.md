@@ -1,6 +1,6 @@
 # Password Hashing Implementation Design
 
-This document records the implementation shape for Settleora local-account password hashing. It does not authorize migrations, OpenAPI changes, generated clients, login behavior, current-user behavior, session middleware, password reset, recovery, or UI auth behavior.
+This document records the implementation shape for Settleora local-account password hashing. It does not authorize migrations, OpenAPI changes, additional generated-client changes, login behavior, current-user behavior, session middleware, password reset, recovery, or UI auth behavior.
 
 ## References Checked
 
@@ -24,8 +24,8 @@ NuGet metadata is useful for target frameworks, package versions, licenses, depe
 - `local_password_credentials` exists in the EF Core schema foundation.
 - `local_password_credentials` is linked to `auth_accounts` and stores password verifier metadata fields: `password_hash`, `password_hash_algorithm`, `password_hash_algorithm_version`, `password_hash_parameters`, `status`, timestamps, `last_verified_at_utc`, `revoked_at_utc`, and `requires_rehash`.
 - Internal `IPasswordHashingService` and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation for existing auth accounts, verification, metadata, and rehash decisions.
-- Login, token issuance, current-user endpoints, session middleware, password reset, recovery, generated clients, and UI auth behavior do not exist.
-- No OpenAPI auth paths exist.
+- Public local sign-in, refresh, current-user, auth session endpoints, OpenAPI auth paths, and generated web/Dart client foundations exist.
+- Session middleware, password reset, recovery, and UI auth behavior do not exist.
 - The API project currently targets `net9.0`.
 - Current direct API packages are Geralt 4.0.1, EF Core 9.0.15, EF Core Design 9.0.15, Npgsql 9.0.5, Npgsql EF Core provider 9.0.4, and RabbitMQ.Client 7.1.2.
 
@@ -33,9 +33,9 @@ NuGet metadata is useful for target frameworks, package versions, licenses, depe
 
 The API/domain auth boundary must own local credential writes and password verification decisions. Endpoint handlers may pass a submitted password into an approved auth service, but they must not parse verifier strings, choose password hashing algorithms, compare derived hash bytes, update credential rows directly, or log credential material.
 
-Workers and clients must not mutate `local_password_credentials`. Generated clients may eventually call reviewed auth endpoints, but generated client availability must not imply authorization and must not expose password verifier internals.
+Workers and clients must not mutate `local_password_credentials`. Generated clients may call reviewed auth endpoints, but generated client availability must not imply authorization and must not expose password verifier internals.
 
-No OpenAPI auth paths, generated client changes, UI auth behavior, or runtime endpoint work belongs in this password hashing boundary. Password hashing must stay behind the internal service boundary until login/current-user/session endpoint contracts are separately reviewed.
+No additional OpenAPI auth paths, generated-client changes, UI auth behavior, or runtime endpoint work belongs in this password hashing boundary. Password hashing must stay behind the internal service boundary for future auth changes.
 
 ## Library Evaluation Criteria
 
@@ -208,7 +208,7 @@ This task does not authorize:
 - Token issuance.
 - Session middleware.
 - OpenAPI changes.
-- Generated clients.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI changes.
 - Flutter changes.
 - Docker/runtime behavior changes.

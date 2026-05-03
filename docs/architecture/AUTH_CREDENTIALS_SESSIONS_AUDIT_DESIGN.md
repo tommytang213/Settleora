@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, refresh session runtime service boundaries, refresh-capable local sign-in, and the public refresh endpoint/OpenAPI contract. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize generated clients, UI behavior, public credential endpoints, session middleware, authorization middleware, or additional public auth runtime behavior beyond the implemented auth endpoints.
+This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, refresh session runtime service boundaries, refresh-capable local sign-in, the public refresh endpoint/OpenAPI contract, and generated web/Dart client foundations from OpenAPI. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize additional generated-client changes, UI behavior, public credential endpoints, session middleware, authorization middleware, or additional public auth runtime behavior beyond the implemented auth endpoints.
 
 ## Current State
 
@@ -16,7 +16,7 @@ This document defines the schema direction for credential storage, sessions, ref
 - `auth_refresh_credentials` stores unique refresh credential hashes, status, issued/idle/absolute expiry, consumed/revoked timestamps, optional session linkage, and optional replacement linkage without raw refresh tokens.
 - `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
-- Internal refresh credential generation, rotation, replay classification, and linked family revocation behavior now exists behind the refresh runtime service boundary. `POST /api/v1/auth/sign-in` now creates refresh-capable session families and initial refresh-like credentials through that boundary, and `POST /api/v1/auth/refresh` rotates submitted refresh-like credentials without adding raw refresh-token storage or new schema. No authorization middleware, registration flow, arbitrary/admin session flow, generated auth client support, or UI behavior exists yet.
+- Internal refresh credential generation, rotation, replay classification, and linked family revocation behavior now exists behind the refresh runtime service boundary. `POST /api/v1/auth/sign-in` now creates refresh-capable session families and initial refresh-like credentials through that boundary, and `POST /api/v1/auth/refresh` rotates submitted refresh-like credentials without adding raw refresh-token storage or new schema. Generated web and Dart client foundations exist from the OpenAPI contract. No authorization middleware, registration flow, arbitrary/admin session flow, or UI behavior exists yet.
 
 ## Credential Storage Boundaries
 
@@ -138,7 +138,7 @@ Retention must be policy-driven and bounded.
 - Workers must not bypass the API to change accounts, sessions, credentials, roles, MFA, passkeys, or auth audit records.
 - Clients must not decide authorization.
 - Clients may present session state, device lists, security prompts, or cached profile data, but the API remains authoritative for authentication and authorization.
-- Generated clients may expose future auth endpoints, but generated client availability must not imply permission.
+- Generated clients expose typed calls for reviewed auth endpoints, but generated client availability must not imply permission.
 
 ## Non-goals
 
@@ -150,7 +150,7 @@ This schema foundation does not authorize:
 - MFA implementation.
 - General auth audit implementation outside the internal credential workflow.
 - Additional OpenAPI changes beyond the reviewed auth endpoint contracts.
-- Generated client changes.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.
 
@@ -158,7 +158,7 @@ This schema foundation does not authorize:
 
 Future work should remain small and separately reviewable.
 
-- Generated auth clients from the reviewed OpenAPI contract.
 - Auth middleware and authorization handoff after the current endpoint-level behavior is proven.
+- UI integration over the generated client foundations only in separate reviewed slices.
 - Admin revocation, retention cleanup, and distributed hardening in separate reviewed slices.
 - Separate passkey and MFA schema review before passkey or MFA implementation.

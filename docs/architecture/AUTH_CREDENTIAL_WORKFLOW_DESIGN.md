@@ -2,7 +2,7 @@
 
 This document designs Settleora's next local-account credential boundary: creating local password credentials and verifying submitted passwords against `local_password_credentials` by using the internal `IPasswordHashingService`.
 
-It defines the internal service boundary now implemented for EF-backed local password credential creation and verification. It does not authorize public runtime workflows, endpoints, token/session issuance, OpenAPI auth paths, generated clients, UI behavior, migrations, or package changes.
+It defines the internal service boundary now implemented for EF-backed local password credential creation and verification. It does not authorize public runtime workflows, endpoints, token/session issuance, additional OpenAPI auth paths, additional generated-client changes, UI behavior, migrations, or package changes.
 
 ## Current State
 
@@ -183,7 +183,7 @@ This design does not authorize:
 - Auth middleware.
 - Password reset, recovery code, passkey, or MFA flows.
 - OpenAPI auth paths.
-- Generated clients.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - Flutter, web, or admin UI changes.
 - Worker behavior changes.
 - Docker or runtime behavior changes.
@@ -195,4 +195,4 @@ The implemented internal service boundary:
 - Adds an internal credential workflow service using `IPasswordHashingService`.
 - Adds EF-backed tests for creation, verification success, wrong password, disabled/revoked credential rejection, malformed verifier handling, unsupported algorithm handling, invalid configuration handling, successful `last_verified_at_utc` update, successful rehash, no mutation on failed verification, missing credentials, and safe result string output.
 - Adds an EF-backed credential audit writer that persists bounded safe `auth_audit_events` metadata for credential creation and verification outcomes.
-- Keeps public endpoints, OpenAPI, generated clients, token/session issuance, migrations, UI, and worker changes out of scope.
+- Keeps public endpoints, additional OpenAPI paths, additional generated-client changes, token/session issuance, migrations, UI, and worker changes out of scope.

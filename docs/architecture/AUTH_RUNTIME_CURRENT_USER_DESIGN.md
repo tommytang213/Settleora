@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, and internal refresh session runtime foundation described below; remaining auth runtime work still requires separate reviewed branches before generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before middleware, UI integration, additional generated-client changes, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -23,13 +23,14 @@ It started as a design gate. The current repository now includes the explicitly 
 - `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
 - `DELETE /api/v1/auth/sessions/{sessionId}` now exists as a focused public endpoint for revoking one session owned by the authenticated auth account.
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
-- No public registration, arbitrary or admin session-revocation, authorization middleware, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- Generated web and Dart client foundations exist from the OpenAPI contract.
+- No public registration, arbitrary or admin session-revocation, authorization middleware, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
 The API owns authentication and session validation in server mode.
 
-- Clients must not decide authorization. They may display UI state, cache non-sensitive profile display data, and call generated clients later, but server-side policy remains authoritative.
+- Clients must not decide authorization. They may display UI state, cache non-sensitive profile display data, and call generated clients, but server-side policy remains authoritative.
 - Workers must not mutate `auth_accounts`, `auth_identities`, `local_password_credentials`, `auth_sessions`, `auth_audit_events`, system role assignments, user profiles, groups, or memberships directly.
 - Workers must not create, revoke, rotate, or validate auth sessions.
 - Endpoint handlers should stay thin. They should accept transport input, call API/domain auth services, map approved result categories to HTTP responses, and avoid direct credential, token, or session persistence logic.
@@ -89,7 +90,7 @@ Current and future behavior should:
 - Return only the current actor's data. It must not return unrelated users, groups, memberships, invitations, audit history, or admin-only state.
 - Exclude secret fields, raw tokens, token hashes, session hashes, password verifier fields, password hash metadata, provider payloads, storage paths, provider internals, and sensitive operational diagnostics.
 - Use uniform unauthenticated response behavior so clients cannot distinguish missing account, missing profile, revoked session, expired session, disabled account, or deleted account unless a future policy explicitly approves a distinction.
-- Keep additional OpenAPI auth paths, response schemas, generated web clients, generated Dart clients, Flutter integration, web integration, and admin integration in explicit future branches.
+- Keep additional OpenAPI auth paths, response schemas, generated-client changes, Flutter integration, web integration, and admin integration in explicit future branches.
 
 The current-user boundary is a read boundary for the authenticated actor. It is not a general user lookup, group membership API, admin user search, audit viewer, or session-management API.
 
@@ -153,7 +154,7 @@ Refresh-capable sign-in-created access sessions use `Settleora:Auth:Sessions:Ref
 
 Ordinary sign-in failures should continue to map to one generic public `401` sign-in failure response without revealing missing account, missing identity, wrong password, disabled/deleted account, disabled credential, revoked credential, session-family creation, refresh eligibility, or policy-denied state. Throttled attempts may continue to map to one generic public `429` too-many-attempts response without exposing counters, bucket keys, or retry policy internals.
 
-The implementation slice updated endpoint code, focused endpoint tests, the OpenAPI `LocalSignInRequest` and `LocalSignInResponse` schemas, and the relevant docs together. It did not edit generated clients; client generation still requires a separate reviewed slice.
+The implementation slice updated endpoint code, focused endpoint tests, the OpenAPI `LocalSignInRequest` and `LocalSignInResponse` schemas, and the relevant docs together. A later reviewed slice generated the web and Dart client foundations from the updated OpenAPI contract.
 
 ## Implemented Public Refresh Endpoint
 
@@ -297,7 +298,7 @@ The implemented internal refresh runtime service boundary:
 - Conservatively marks or revokes linked session families and active family access sessions/refresh credentials for replay, expiry, and account-unavailable conditions.
 - Writes bounded safe audit metadata for refresh creation, rotation, failure, replay detection, and family revocation without raw tokens, token hashes, password material, provider payloads, secrets, or unnecessary PII.
 - Uses a relational transaction and conditional old-credential consume update for PostgreSQL-facing rotation so simultaneous rotations cannot both leave active replacements for the same consumed credential.
-- The original internal-runtime slice kept public refresh endpoints and OpenAPI refresh paths/schemas out of scope; the later public refresh slice added only that endpoint/contract layer. The refresh-capable local sign-in slice then updated sign-in runtime behavior, OpenAPI sign-in schemas, and focused tests while generated clients, middleware, UI integration, migrations, package changes, Docker/CI changes, and password hashing behavior changes remain out of scope.
+- The original internal-runtime slice kept public refresh endpoints and OpenAPI refresh paths/schemas out of scope; the later public refresh slice added only that endpoint/contract layer. The refresh-capable local sign-in slice then updated sign-in runtime behavior, OpenAPI sign-in schemas, and focused tests while generated-client output, middleware, UI integration, migrations, package changes, Docker/CI changes, and password hashing behavior changes remained out of scope. Generated web and Dart client foundations were added later from the reviewed OpenAPI contract.
 
 ## Non-goals
 
@@ -306,7 +307,7 @@ This document does not authorize:
 - Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and refresh-capable public local sign-in behavior above.
 - Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
 - Additional OpenAPI auth paths beyond local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
-- Generated clients.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
 - Session middleware implementation.
@@ -325,6 +326,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Generate and review auth clients from the current OpenAPI contract without hand-editing generated output.
-2. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
-3. Add UI integration, admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.
+1. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+2. Add UI integration over the generated client foundations only in separate reviewed slices.
+3. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.

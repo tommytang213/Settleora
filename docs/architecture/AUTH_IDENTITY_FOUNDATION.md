@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus scoped public local sign-in/current-user/current-account session endpoints. It still has no registration, public refresh endpoint, session middleware, user/group API endpoints, generated clients, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus scoped public local sign-in/refresh/current-user/current-account session endpoints and generated web/Dart client foundations from OpenAPI. It still has no registration, session middleware, user/group API endpoints, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -22,7 +22,7 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
 - `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
-- No registration, public refresh endpoint behavior, public credential management endpoints, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
+- No registration, public credential management endpoints, session middleware, authorization, invitations, friends, or user/group business API endpoints exist yet.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts
@@ -88,7 +88,7 @@ Authorization must be enforced by the API through server-side policy checks.
 - API endpoints must check the authenticated actor, linked `UserProfile`, product role, group membership, record ownership, sharing state, and policy requirements as appropriate.
 - Group membership is not enough by itself without server policy checks.
 - Possessing a `UserProfile` ID is not enough to access that profile or related records.
-- Generated clients may expose typed calls later, but generated client availability does not imply permission.
+- Generated clients expose typed calls for reviewed auth endpoints, but generated client availability does not imply permission.
 - Authorization decisions should be centralized enough to avoid duplicating sensitive policy across handlers, clients, workers, or generated code.
 
 Workers must not bypass API authorization for core business database writes. If future worker outputs affect user data, the API must validate and apply those outputs through domain policy.
@@ -149,7 +149,7 @@ This document does not authorize:
 - Session middleware or runtime session validation.
 - API endpoints.
 - OpenAPI changes.
-- Generated client changes.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.
 - Plaintext password storage, raw token storage, passkey storage, or MFA storage.

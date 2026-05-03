@@ -1,6 +1,6 @@
 # Password Hashing Policy
 
-This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize migrations, OpenAPI changes, generated clients, login behavior, credential creation behavior, or UI behavior.
+This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize migrations, OpenAPI changes, additional generated-client changes, login behavior, credential creation behavior, or UI behavior.
 
 The policy is based on current OWASP Password Storage Cheat Sheet guidance and NIST SP 800-63B-4 password authenticator guidance. Future auth workflow work must re-check those sources and benchmark deployment hardware before freezing production parameters.
 
@@ -14,8 +14,8 @@ The policy is based on current OWASP Password Storage Cheat Sheet guidance and N
 - The schema includes `local_password_credentials`.
 - `local_password_credentials` is linked to `auth_accounts` and has fields for password hash material, algorithm name, algorithm version, algorithm parameters, status, timestamps, last verification time, revocation time, and `requires_rehash`.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation for existing auth accounts, verification, metadata, and rehash decisions.
-- Login, public credential creation endpoints, password rotation, reset, recovery, current-user, and auth session runtime endpoints do not exist.
-- No OpenAPI auth paths, generated auth clients, or UI auth behavior exist.
+- Public credential creation endpoints, password rotation, reset, and recovery do not exist.
+- OpenAPI auth paths, generated web/Dart client foundations, local sign-in, refresh, current-user, and auth session runtime endpoints exist, but UI auth behavior does not.
 
 ## Algorithm Policy
 
@@ -127,7 +127,7 @@ This document does not authorize:
 - Login implementation.
 - Session middleware or token issuance.
 - OpenAPI changes.
-- Generated client changes.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.
 

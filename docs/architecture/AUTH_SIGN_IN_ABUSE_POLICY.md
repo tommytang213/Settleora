@@ -2,7 +2,7 @@
 
 This document defines Settleora's local sign-in abuse policy for the public local sign-in endpoint and the internal sign-in orchestration boundary.
 
-It began as a design gate and now also records the implemented internal policy, refresh-capable local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, additional public refresh behavior, or additional auth endpoints by itself.
+It began as a design gate and now also records the implemented internal policy, refresh-capable local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize additional generated-client changes, UI behavior, migrations, package changes, Docker changes, registration, additional public refresh behavior, or additional auth endpoints by itself.
 
 ## Purpose
 
@@ -32,7 +32,8 @@ The reviewed public sign-in endpoint path, request schema, response schema, and 
 - The local sign-in runtime writes safe sign-in-specific `auth_audit_events` for success, invalid credentials, pre-verification throttling, and session-creation failure without storing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
 - `POST /api/v1/auth/refresh`, current-session sign-out, current-account sign-out-all, current-account session list, and current-account session revocation endpoints exist and are covered by the auth runtime design.
 - Public registration does not exist.
-- Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
+- Generated web and Dart client foundations exist from the OpenAPI contract, but they do not authorize client-side auth decisions or UI behavior.
+- Global auth middleware, authorization handlers, and UI/mobile/web/admin auth flows do not exist.
 
 ## Implemented Internal Policy Boundary
 
@@ -259,7 +260,7 @@ This branch does not authorize:
 - Additional login or sign-in OpenAPI paths.
 - Additional refresh-token issuance behavior beyond the implemented refresh-capable local sign-in and public refresh boundaries.
 - Session middleware.
-- Generated clients.
+- Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI, mobile, web, or admin changes.
 - Migrations or schema changes.
 - Package changes.
