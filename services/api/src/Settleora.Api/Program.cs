@@ -30,6 +30,7 @@ app.MapLocalSignInEndpoints();
 app.MapCurrentUserEndpoints();
 app.MapSignOutEndpoints();
 app.MapSessionListEndpoints();
+app.MapSessionRevocationEndpoints();
 
 app.Run();
 

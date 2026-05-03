@@ -17,8 +17,9 @@ Current implementation:
 - `GET /api/v1/auth/current-user` validates an existing opaque bearer session token through the internal session runtime boundary and returns a minimal current actor, linked profile, session, and system-role summary.
 - `POST /api/v1/auth/sign-out` validates the submitted opaque bearer session token and revokes only that current session with a `204` response and no body.
 - `GET /api/v1/auth/sessions` validates the submitted opaque bearer session token and returns capped, safe metadata for active sessions owned by the authenticated account.
+- `DELETE /api/v1/auth/sessions/{sessionId}` validates the submitted opaque bearer session token and revokes one active session owned by the authenticated account with a `204` response and no body.
 
-The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No registration, refresh-token runtime, sign-out-all, arbitrary session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
+The current EF Core model is limited to schema foundation entities for user profiles, user groups, group memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events. No registration, refresh-token runtime, sign-out-all, arbitrary/admin session revocation endpoints, authorization middleware, raw token storage, user/group business endpoints, expenses, bills, settlements, OCR endpoints, generated clients, or UI behavior exist yet.
 
 Configuration sections:
 

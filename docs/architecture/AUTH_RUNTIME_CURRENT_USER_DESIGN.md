@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
 
-It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, current-session sign-out endpoint, and current-account session list endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out/list, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, current-session sign-out endpoint, current-account session list endpoint, and current-account per-session revocation endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out/list/revocation, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -19,7 +19,8 @@ It started as a design gate. The current repository now includes the explicitly 
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - `POST /api/v1/auth/sign-out` now exists as a focused public endpoint for revoking only the current validated bearer session.
 - `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
-- No public registration, sign-out-all, arbitrary session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- `DELETE /api/v1/auth/sessions/{sessionId}` now exists as a focused public endpoint for revoking one session owned by the authenticated auth account.
+- No public registration, sign-out-all, arbitrary or admin session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -68,7 +69,7 @@ Recommended boundaries:
 - Detect replay of a rotated or revoked refresh-like credential and revoke the affected session family when policy requires it.
 - Store bounded device and session metadata such as display label, client category, coarse network or user-agent metadata, first-seen timestamp, last-seen timestamp, and safe revocation reason.
 - Support a user-visible session list later without turning session metadata into unnecessary tracking history.
-- Support per-session revocation and account-wide revocation later for sign-out-all, credential rotation, account disablement, suspected compromise, and policy changes.
+- Support the implemented current-account per-session revocation path and add account-wide revocation later for sign-out-all, credential rotation, account disablement, suspected compromise, and policy changes.
 
 This document does not prescribe production secrets, signing algorithms, token libraries, cookie settings, or cryptographic implementation packages. Those choices require a separate implementation review aligned with the existing password hashing and secret-provider boundaries.
 
@@ -140,7 +141,21 @@ The implemented slice adds `GET /api/v1/auth/sessions`.
 - It marks the current validated session with `isCurrent: true`.
 - It does not accept account IDs, session IDs, or a request body, and does not expose raw tokens, session token hashes, refresh token hashes, network address hashes, user-agent summaries, revocation reasons, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
 
-This slice deliberately does not add registration, refresh rotation, sign-out-all, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This slice deliberately does not add registration, refresh rotation, sign-out-all, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+
+## Implemented Current-Account Session Revocation Endpoint
+
+The implemented slice adds `DELETE /api/v1/auth/sessions/{sessionId}`.
+
+- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
+- It uses the route constraint `{sessionId:guid}`, so invalid session IDs do not hit the endpoint handler.
+- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid current sessions to the same uniform `401` problem response used by current-user, sign-out, and session list.
+- After validation succeeds, it calls `IAuthSessionRuntimeService.RevokeSessionAsync` with the validated `AuthAccountId`, requested `sessionId`, and bounded reason `user_session_revoke`.
+- It returns `204 No Content` only when revocation succeeds. Missing, not-owned, already revoked, or inactive target sessions return a safe `404` problem response without revealing ownership or target state.
+- The endpoint allows revoking the current session itself. That path uses the same `user_session_revoke` reason and leaves the submitted bearer token unusable afterward.
+- It does not expose raw tokens, session token hashes, refresh token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, ownership hints, or storage paths.
+
+This slice deliberately does not add registration, refresh rotation, sign-out-all, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Authorization Handoff
 
@@ -198,15 +213,15 @@ The implemented internal service boundary:
 - Updates `last_seen_at_utc` and `updated_at_utc` only after successful validation.
 - Revokes sessions by session ID and owning auth account context without requiring raw token material.
 - Writes bounded `auth_audit_events` metadata for session creation, successful validation, matched validation failures, and revocation without raw tokens, token hashes, password material, provider payloads, or unbounded request metadata.
-- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps additional public auth endpoints, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
+- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps sign-out-all, arbitrary/admin session revocation, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
 
 ## Non-goals
 
 This document does not authorize:
 
-- Additional runtime implementation beyond the current-user read, current-account session list, current-session sign-out, and public local sign-in boundaries.
-- Additional endpoint code beyond the current-user read, current-account session list, current-session sign-out, and public local sign-in boundaries.
-- Additional OpenAPI auth paths beyond local sign-in, current-user, current-account session list, and current-session sign-out.
+- Additional runtime implementation beyond the current-user read, current-account session list/revocation, current-session sign-out, and public local sign-in boundaries.
+- Additional endpoint code beyond the current-user read, current-account session list/revocation, current-session sign-out, and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond local sign-in, current-user, current-account session list/revocation, and current-session sign-out.
 - Generated clients.
 - Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
@@ -227,6 +242,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add account-wide revocation or user-visible per-session revocation later, with privacy retention rules and response shapes reviewed separately.
+1. Add account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
 2. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
 3. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
