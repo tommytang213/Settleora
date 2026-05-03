@@ -1,6 +1,6 @@
 # Auth Runtime And Current-User Design
 
-This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
+This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
 It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, and current-account per-session revocation endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, refresh-token runtime, session management beyond current-session sign-out/sign-out-all/list/revocation, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
@@ -57,7 +57,7 @@ Credential verification alone is not sign-in. It must not authorize business act
 
 ## Session And Token Model
 
-Future runtime work should treat sessions and token-like credentials as server-authoritative security state.
+Future runtime work should treat sessions and token-like credentials as server-authoritative security state. Refresh-like credential behavior must also follow [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
 Recommended boundaries:
 
@@ -231,7 +231,7 @@ The implemented internal service boundary:
 - Revokes sessions by session ID and owning auth account context without requiring raw token material.
 - Revokes all active sessions for a validated auth account context without requiring raw token material beyond the initially validated submitted bearer token.
 - Writes bounded `auth_audit_events` metadata for session creation, successful validation, matched validation failures, and revocation without raw tokens, token hashes, password material, provider payloads, or unbounded request metadata.
-- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch; this slice also keeps arbitrary/admin session revocation, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
+- TODO: Add refresh-token generation, refresh rotation, and replay detection in a future reviewed branch after the policy in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md) is approved; this slice also keeps arbitrary/admin session revocation, generated clients, middleware, UI integration, migrations, and Docker behavior changes out of scope.
 
 ## Non-goals
 
@@ -260,5 +260,5 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+1. Add refresh-token generation, refresh rotation, and replay detection only after the refresh-token rotation policy is approved.
 2. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
