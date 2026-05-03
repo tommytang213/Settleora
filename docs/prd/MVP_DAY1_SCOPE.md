@@ -198,10 +198,12 @@ Day 1 includes:
 - API responses use stable file IDs, not direct storage paths.
 - File reads/writes require API authorization.
 - Receipt, statement, payment proof, and QR files are sensitive application data.
+- Day 1 supports two user-selectable privacy modes where deployment/admin policy allows them: `standard_secure` and `recoverable_private_vault`.
 - Standard Secure Mode is the Day 1 default privacy mode.
-- Recoverable Private Vault is the Day 1 direction for selected sensitive data such as payment details, private notes, receipt images, OCR raw text where stored, and settlement proof files.
+- Recoverable Private Vault is the Day 1 user-selectable direction for selected sensitive data such as payment details, private notes, receipt images, OCR raw text where stored, and settlement proof files.
+- Users can choose or change privacy mode only within deployment/admin policy, including policies that disable vault features, allow Standard only, allow Recoverable Private Vault, or require Recoverable Private Vault for sensitive data.
 - Strict Private Vault is a future-compatible architecture path, not a Day 1 implementation unless explicitly requested later.
-- Users should have a future migration path from Recoverable Private Vault to Strict Private Vault, including clear warnings about recovery-key loss and older backup retention.
+- Users should have a future migration path from Recoverable Private Vault to Strict Private Vault, including key rotation or re-wrapping, removal or disablement of recovery envelopes, audit events, clear warnings about recovery-key loss, and older backup retention caveats.
 - Core financial truth remains API/domain-authoritative: money, currency, split shares, settlement states, authorization, audit, sync state, and shared accounting truth must not move into client authority because of vault protection.
 - Privacy vault architecture details are defined in [../architecture/PRIVACY_VAULT_ARCHITECTURE.md](../architecture/PRIVACY_VAULT_ARCHITECTURE.md).
 

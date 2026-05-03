@@ -39,6 +39,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 ## Privacy Mode Rules
 
 - Privacy mode and private vault architecture are defined in [docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md).
+- Day 1 supports two user-selectable privacy modes, where deployment/admin policy allows them: `standard_secure` and `recoverable_private_vault`.
 - Standard Secure Mode is the default Day 1 privacy mode.
 - Recoverable Private Vault may protect selected sensitive fields/files, but it must not make clients authoritative for money, settlement states, authorization, audit, shared accounting truth, or server-mode validation.
 - Strict Private Vault remains future-compatible architecture only unless a later implementation task explicitly approves it.

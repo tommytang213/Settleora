@@ -13,7 +13,7 @@ This directory keeps supporting architecture and release-process notes.
 - [Password hashing policy](PASSWORD_HASHING_POLICY.md): local-account password hashing algorithm, salt, pepper, work-factor, verifier storage, and rehash policy.
 - [Password hashing implementation design](PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md): library evaluation, internal service boundary, verifier storage direction, benchmark plan, and non-goals for auth workflow work.
 - [Database foundation](DATABASE_FOUNDATION.md): database authority boundaries, PostgreSQL/EF Core direction, migration rules, schema boundaries, and non-goals before persistence implementation.
-- [Privacy vault architecture](PRIVACY_VAULT_ARCHITECTURE.md): Day 1 Standard Secure Mode, Recoverable Private Vault for selected sensitive data, future-compatible Strict Private Vault, and recovery/migration boundaries without authorizing implementation.
+- [Privacy vault architecture](PRIVACY_VAULT_ARCHITECTURE.md): Day 1 user-selectable Standard Secure Mode and Recoverable Private Vault for selected sensitive data, future-compatible Strict Private Vault, and recovery/migration boundaries without authorizing implementation.
 - [OCR architecture](OCR_ARCHITECTURE.md): canonical OCR architecture for required on-device OCR, complementary server-side OCR worker responsibilities, authority boundaries, offline flow, and validation rules.
 - [Currency exchange architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md): Day 2 FX provider, exchange-rate storage, bill-level snapshot, recalculation, and audit rules.
 - [Statement reconciliation architecture](STATEMENT_RECONCILIATION_ARCHITECTURE.md): Day 2 statement import, matching, tolerance, payment-method, FX, privacy, and audit rules.

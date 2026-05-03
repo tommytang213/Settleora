@@ -14,7 +14,7 @@ This document does not authorize implementation by itself. It defines architectu
 
 ## Product Decision
 
-Day 1 supports two privacy modes:
+Day 1 supports two user-selectable privacy modes where deployment/admin policy allows them:
 
 ```text
 standard_secure
@@ -26,6 +26,28 @@ Future architecture must remain compatible with:
 ```text
 strict_private_vault
 ```
+
+Privacy mode is controlled by both user preference and deployment/admin policy. Users should be able to choose or change privacy mode only within the limits allowed by the deployment policy.
+
+User preference options:
+
+```text
+standard_secure
+recoverable_private_vault
+strict_private_vault_future
+```
+
+Deployment/admin policy options:
+
+```text
+disabled
+allow_standard_only
+allow_recoverable_private_vault
+require_recoverable_private_vault_for_sensitive_data
+allow_strict_private_vault_future
+```
+
+Day 1 should allow users to choose between `standard_secure` and `recoverable_private_vault` when the deployment policy allows recoverable vault use. `strict_private_vault` remains future-compatible only unless a later implementation task explicitly approves it.
 
 Day 1 must not require users to manually copy encryption keys between devices. Device onboarding should use trusted-device approval, recovery flow, or server-assisted rewrap depending on privacy mode.
 
@@ -39,7 +61,7 @@ Day 1 must not require users to manually copy encryption keys between devices. D
 
 ### Standard Secure Mode
 
-Standard Secure Mode is the default.
+Standard Secure Mode is the default user-selectable Day 1 mode.
 
 Characteristics:
 
@@ -52,7 +74,7 @@ Characteristics:
 
 ### Recoverable Private Vault
 
-Recoverable Private Vault protects selected sensitive data while still allowing account-recovery-based vault recovery through controlled server-assisted recovery.
+Recoverable Private Vault is a user-selectable Day 1 mode, subject to deployment/admin policy. It protects selected sensitive data while still allowing account-recovery-based vault recovery through controlled server-assisted recovery.
 
 Characteristics:
 
@@ -64,7 +86,7 @@ Characteristics:
 
 ### Strict Private Vault Future Mode
 
-Strict Private Vault is future-only.
+Strict Private Vault is future-only. It is included so Day 1 architecture, data classification, envelope storage, audit categories, and backup warnings do not block a later strict mode, but it is not Day 1 runtime scope.
 
 Characteristics:
 
@@ -294,7 +316,7 @@ Key regeneration cannot decrypt old data if the old vault key is unavailable.
 
 ## Recoverable To Strict Future Migration
 
-Users should be allowed to convert from Recoverable Private Vault to Strict Private Vault later.
+Users should be allowed to convert from Recoverable Private Vault to Strict Private Vault later when future implementation and deployment/admin policy allow it.
 
 Flow:
 
@@ -308,6 +330,8 @@ App disables/deletes server recovery envelope.
 App records audit event.
 App warns that older backups may contain recoverable envelopes until retention expires.
 ```
+
+This migration must include key rotation or re-wrapping where needed, removal or disablement of recovery envelopes, audit events, and backup-retention caveats. It must not silently downgrade API/domain authority for core financial truth.
 
 Important warning:
 
@@ -471,6 +495,7 @@ This document does not authorize:
 Day 1 privacy architecture is acceptable when:
 
 ```text
+Standard Secure Mode and Recoverable Private Vault are user-selectable where deployment policy allows them.
 Standard Secure Mode is default.
 Recoverable Private Vault is defined for selected sensitive data.
 Core financial truth remains server-readable and API-authoritative.
