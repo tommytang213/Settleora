@@ -8,10 +8,8 @@ internal sealed record LocalSignInEndpointRequest
 
     public string? DeviceLabel { get; init; }
 
-    public int? RequestedSessionLifetimeMinutes { get; init; }
-
     public override string ToString()
     {
-        return $"LocalSignInEndpointRequest {{ HasIdentifier = {Identifier is not null}, HasPassword = {Password is not null}, HasDeviceLabel = {DeviceLabel is not null}, RequestedSessionLifetimeMinutes = {RequestedSessionLifetimeMinutes?.ToString() ?? "None"} }}";
+        return $"LocalSignInEndpointRequest {{ HasIdentifier = {Identifier is not null}, HasPassword = {Password is not null}, HasDeviceLabel = {DeviceLabel is not null} }}";
     }
 }

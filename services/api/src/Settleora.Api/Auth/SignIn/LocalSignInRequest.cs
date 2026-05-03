@@ -6,11 +6,10 @@ internal sealed record LocalSignInRequest(
     string? SourceKey,
     string? DeviceLabel = null,
     string? UserAgentSummary = null,
-    string? NetworkAddressHash = null,
-    TimeSpan? RequestedSessionLifetime = null)
+    string? NetworkAddressHash = null)
 {
     public override string ToString()
     {
-        return $"LocalSignInRequest {{ HasSubmittedIdentifier = {SubmittedIdentifier is not null}, HasSubmittedPassword = {SubmittedPassword is not null}, HasSourceKey = {SourceKey is not null}, HasDeviceLabel = {DeviceLabel is not null}, HasUserAgentSummary = {UserAgentSummary is not null}, HasNetworkAddressHash = {NetworkAddressHash is not null}, RequestedSessionLifetime = {RequestedSessionLifetime?.ToString() ?? "None"} }}";
+        return $"LocalSignInRequest {{ HasSubmittedIdentifier = {SubmittedIdentifier is not null}, HasSubmittedPassword = {SubmittedPassword is not null}, HasSourceKey = {SourceKey is not null}, HasDeviceLabel = {DeviceLabel is not null}, HasUserAgentSummary = {UserAgentSummary is not null}, HasNetworkAddressHash = {NetworkAddressHash is not null} }}";
     }
 }

@@ -527,8 +527,7 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
             {
                 identifier = SubmittedIdentifier,
                 password = SubmittedPassword,
-                deviceLabel = "Sign-out endpoint test device",
-                requestedSessionLifetimeMinutes = 45
+                deviceLabel = "Sign-out endpoint test device"
             }),
             Encoding.UTF8,
             "application/json");

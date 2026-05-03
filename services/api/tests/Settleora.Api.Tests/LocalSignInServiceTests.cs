@@ -21,7 +21,9 @@ public sealed class LocalSignInServiceTests
     private const string WrongPassword = "visible-wrong-local-sign-in-password";
     private const string SourceKey = "src:test-source";
     private const string RawSessionTokenFragment = "visible-session-token";
+    private const string RawRefreshCredentialFragment = "visible-refresh-credential";
     private const string SessionTokenHashFragment = "visible-session-token-hash";
+    private const string RefreshTokenHashFragment = "visible-refresh-token-hash";
     private const string VerifierFragment = "visible-password-verifier";
     private const string SignInSucceededAction = "sign_in.succeeded";
     private const string SignInFailedAction = "sign_in.failed";
@@ -43,18 +45,20 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             CreateCredentialWorkflowService(dbContext, passwordHashingService),
-            CreateSessionRuntimeService(dbContext));
+            CreateRefreshSessionRuntimeService(dbContext));
 
         var result = await service.SignInAsync(CreateRequest());
 
         Assert.True(result.Succeeded);
         Assert.Equal(LocalSignInStatus.SignedIn, result.Status);
-        Assert.Equal(seededAccount.AuthAccountId, result.AuthAccountId);
-        Assert.Equal(seededAccount.UserProfileId, result.UserProfileId);
         Assert.NotNull(result.AuthSessionId);
         Assert.NotNull(result.RawSessionToken);
         Assert.NotEqual(string.Empty, result.RawSessionToken);
-        Assert.Equal(SignInTimestamp.AddMinutes(45), result.SessionExpiresAtUtc);
+        Assert.Equal(SignInTimestamp.AddMinutes(15), result.SessionExpiresAtUtc);
+        Assert.NotNull(result.RawRefreshCredential);
+        Assert.NotEqual(string.Empty, result.RawRefreshCredential);
+        Assert.Equal(SignInTimestamp.AddDays(7), result.RefreshCredentialIdleExpiresAtUtc);
+        Assert.Equal(SignInTimestamp.AddDays(30), result.RefreshCredentialAbsoluteExpiresAtUtc);
         Assert.Equal(1, passwordHashingService.VerifyPasswordCallCount);
 
         var attempt = Assert.Single(policyService.Attempts);
@@ -76,12 +80,13 @@ public sealed class LocalSignInServiceTests
         AssertNoSensitiveAuditText(
             auditEvent,
             result.RawSessionToken,
+            result.RawRefreshCredential,
             session.SessionTokenHash,
             attempt.IdentifierKey);
     }
 
     [Fact]
-    public async Task SuccessfulResultReturnsRawSessionTokenWithoutLeakingItInStrings()
+    public async Task SuccessfulResultReturnsRawCredentialMaterialWithoutLeakingItInStrings()
     {
         using var dbContext = CreateDbContext();
         var seededAccount = await SeedLocalIdentityAsync(dbContext);
@@ -91,13 +96,15 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             CreateCredentialWorkflowService(dbContext),
-            CreateSessionRuntimeService(dbContext));
+            CreateRefreshSessionRuntimeService(dbContext));
 
         var result = await service.SignInAsync(CreateRequest());
 
         Assert.True(result.Succeeded);
         Assert.NotNull(result.RawSessionToken);
+        Assert.NotNull(result.RawRefreshCredential);
         Assert.DoesNotContain(result.RawSessionToken!, result.ToString());
+        Assert.DoesNotContain(result.RawRefreshCredential!, result.ToString());
         Assert.DoesNotContain(SubmittedPassword, result.ToString());
         Assert.DoesNotContain(SubmittedIdentifier.Trim(), result.ToString());
         Assert.DoesNotContain(NormalizedIdentifier, result.ToString());
@@ -105,7 +112,7 @@ public sealed class LocalSignInServiceTests
     }
 
     [Fact]
-    public async Task SuccessfulSignInRecordsSucceededAttemptAndStoresOnlyHashedSessionToken()
+    public async Task SuccessfulSignInRecordsSucceededAttemptAndStoresOnlyHashedCredentialMaterial()
     {
         using var dbContext = CreateDbContext();
         var seededAccount = await SeedLocalIdentityAsync(dbContext);
@@ -115,7 +122,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             CreateCredentialWorkflowService(dbContext),
-            CreateSessionRuntimeService(dbContext));
+            CreateRefreshSessionRuntimeService(dbContext));
 
         var result = await service.SignInAsync(CreateRequest());
 
@@ -126,6 +133,22 @@ public sealed class LocalSignInServiceTests
         Assert.NotEqual(result.RawSessionToken, session.SessionTokenHash);
         Assert.DoesNotContain(result.RawSessionToken!, session.SessionTokenHash);
         Assert.Null(session.RefreshTokenHash);
+        Assert.Equal(SignInTimestamp.AddMinutes(15), session.ExpiresAtUtc);
+
+        var sessionFamily = await dbContext.Set<AuthSessionFamily>().SingleAsync();
+        Assert.Equal(seededAccount.AuthAccountId, sessionFamily.AuthAccountId);
+        Assert.Equal(AuthSessionFamilyStatuses.Active, sessionFamily.Status);
+        Assert.Equal(SignInTimestamp.AddDays(30), sessionFamily.AbsoluteExpiresAtUtc);
+
+        var refreshCredential = await dbContext.Set<AuthRefreshCredential>().SingleAsync();
+        Assert.Equal(sessionFamily.Id, refreshCredential.AuthSessionFamilyId);
+        Assert.Equal(session.Id, refreshCredential.AuthSessionId);
+        Assert.StartsWith("refresh-sha256:", refreshCredential.RefreshTokenHash, StringComparison.Ordinal);
+        Assert.NotEqual(result.RawRefreshCredential, refreshCredential.RefreshTokenHash);
+        Assert.DoesNotContain(result.RawRefreshCredential!, refreshCredential.RefreshTokenHash);
+        Assert.Equal(AuthRefreshCredentialStatuses.Active, refreshCredential.Status);
+        Assert.Equal(SignInTimestamp.AddDays(7), refreshCredential.IdleExpiresAtUtc);
+        Assert.Equal(SignInTimestamp.AddDays(30), refreshCredential.AbsoluteExpiresAtUtc);
         Assert.Single(policyService.Attempts, attempt => attempt.Outcome is SignInAttemptOutcome.Succeeded);
     }
 
@@ -140,7 +163,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             CreateCredentialWorkflowService(dbContext),
-            CreateSessionRuntimeService(dbContext));
+            CreateRefreshSessionRuntimeService(dbContext));
 
         var result = await service.SignInAsync(CreateRequest(password: WrongPassword));
 
@@ -169,7 +192,7 @@ public sealed class LocalSignInServiceTests
         using var dbContext = CreateDbContext();
         var policyService = new RecordingSignInAbusePolicyService();
         var credentialService = new FakeCredentialWorkflowService();
-        var sessionService = new FakeSessionRuntimeService();
+        var sessionService = new FakeRefreshSessionRuntimeService();
         var service = CreateService(dbContext, policyService, credentialService, sessionService);
 
         var result = await service.SignInAsync(CreateRequest(identifier: MissingIdentifier));
@@ -204,7 +227,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             credentialService,
-            new FakeSessionRuntimeService());
+            new FakeRefreshSessionRuntimeService());
 
         var result = await service.SignInAsync(CreateRequest());
 
@@ -232,7 +255,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             credentialService,
-            new FakeSessionRuntimeService());
+            new FakeRefreshSessionRuntimeService());
 
         var result = await service.SignInAsync(CreateRequest());
 
@@ -279,7 +302,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             CreateCredentialWorkflowService(dbContext),
-            CreateSessionRuntimeService(dbContext));
+            CreateRefreshSessionRuntimeService(dbContext));
 
         var result = await service.SignInAsync(CreateRequest());
 
@@ -297,7 +320,7 @@ public sealed class LocalSignInServiceTests
         var policyService = new RecordingSignInAbusePolicyService(
             SignInAbusePreCheckResult.Throttled(SignInAbusePreCheckStatus.ThrottledByIdentifier));
         var credentialService = new FakeCredentialWorkflowService();
-        var sessionService = new FakeSessionRuntimeService();
+        var sessionService = new FakeRefreshSessionRuntimeService();
         var service = CreateService(dbContext, policyService, credentialService, sessionService);
 
         var result = await service.SignInAsync(CreateRequest());
@@ -323,15 +346,16 @@ public sealed class LocalSignInServiceTests
     }
 
     [Fact]
-    public async Task SessionCreationFailureReturnsSafeStatusWithoutLeakingRequestOrTokenMaterial()
+    public async Task RefreshSessionCreationFailureReturnsSafeStatusWithoutLeakingRequestOrTokenMaterial()
     {
         using var dbContext = CreateDbContext();
         var seededAccount = await SeedLocalIdentityAsync(dbContext);
         var policyService = new RecordingSignInAbusePolicyService();
         var credentialService = new FakeCredentialWorkflowService();
-        var sessionService = new FakeSessionRuntimeService
+        var sessionService = new FakeRefreshSessionRuntimeService
         {
-            NextCreationResult = AuthSessionCreationResult.Failure(AuthSessionCreationStatus.PersistenceFailed)
+            NextCreationResult = AuthRefreshSessionCreationResult.Failure(
+                AuthRefreshSessionCreationStatus.PersistenceFailed)
         };
         var service = CreateService(dbContext, policyService, credentialService, sessionService);
 
@@ -340,6 +364,7 @@ public sealed class LocalSignInServiceTests
         Assert.False(result.Succeeded);
         Assert.Equal(LocalSignInStatus.SessionCreationFailed, result.Status);
         Assert.Null(result.RawSessionToken);
+        Assert.Null(result.RawRefreshCredential);
         Assert.Equal(seededAccount.AuthAccountId, credentialService.LastAuthAccountId);
         AssertNoSensitiveText(result.ToString());
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Failed);
@@ -368,7 +393,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             new FakeCredentialWorkflowService(),
-            new FakeSessionRuntimeService());
+            new FakeRefreshSessionRuntimeService());
 
         var result = await service.SignInAsync(CreateRequest(identifier: identifier));
 
@@ -386,7 +411,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             new FakeCredentialWorkflowService(),
-            new FakeSessionRuntimeService());
+            new FakeRefreshSessionRuntimeService());
 
         var result = await service.SignInAsync(CreateRequest(identifier: new string('a', 321)));
 
@@ -407,7 +432,7 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             new FakeCredentialWorkflowService(),
-            new FakeSessionRuntimeService());
+            new FakeRefreshSessionRuntimeService());
 
         var result = await service.SignInAsync(CreateRequest(sourceKey: sourceKey));
 
@@ -425,14 +450,14 @@ public sealed class LocalSignInServiceTests
             SourceKey,
             DeviceLabel: "visible-device-label",
             UserAgentSummary: "visible-user-agent-summary",
-            NetworkAddressHash: "visible-network-address-hash",
-            RequestedSessionLifetime: TimeSpan.FromMinutes(45));
+            NetworkAddressHash: "visible-network-address-hash");
         var result = LocalSignInResult.SignedIn(
             Guid.NewGuid(),
-            Guid.NewGuid(),
-            Guid.NewGuid(),
             RawSessionTokenFragment,
-            SignInTimestamp.AddHours(1));
+            SignInTimestamp.AddMinutes(15),
+            RawRefreshCredentialFragment,
+            SignInTimestamp.AddDays(7),
+            SignInTimestamp.AddDays(30));
 
         AssertNoSensitiveText(request.ToString());
         AssertNoSensitiveText(result.ToString());
@@ -447,7 +472,7 @@ public sealed class LocalSignInServiceTests
             options.UseInMemoryDatabase(Guid.NewGuid().ToString());
         });
         services.AddScoped<IAuthCredentialWorkflowService, FakeCredentialWorkflowService>();
-        services.AddScoped<IAuthSessionRuntimeService, FakeSessionRuntimeService>();
+        services.AddScoped<IAuthRefreshSessionRuntimeService, FakeRefreshSessionRuntimeService>();
         services.AddSignInAbusePolicy();
 
         using var serviceProvider = services.BuildServiceProvider();
@@ -471,21 +496,20 @@ public sealed class LocalSignInServiceTests
             sourceKey,
             DeviceLabel: "Local sign-in test device",
             UserAgentSummary: "Local sign-in test user agent",
-            NetworkAddressHash: "network:test-hash",
-            RequestedSessionLifetime: TimeSpan.FromMinutes(45));
+            NetworkAddressHash: "network:test-hash");
     }
 
     private static LocalSignInService CreateService(
         SettleoraDbContext dbContext,
         ISignInAbusePolicyService policyService,
         IAuthCredentialWorkflowService credentialWorkflowService,
-        IAuthSessionRuntimeService sessionRuntimeService)
+        IAuthRefreshSessionRuntimeService refreshSessionRuntimeService)
     {
         return new LocalSignInService(
             dbContext,
             policyService,
             credentialWorkflowService,
-            sessionRuntimeService,
+            refreshSessionRuntimeService,
             new EfLocalSignInAuditWriter(dbContext),
             new FixedTimeProvider(SignInTimestamp));
     }
@@ -501,9 +525,9 @@ public sealed class LocalSignInServiceTests
             new FixedTimeProvider(SignInTimestamp));
     }
 
-    private static AuthSessionRuntimeService CreateSessionRuntimeService(SettleoraDbContext dbContext)
+    private static AuthRefreshSessionRuntimeService CreateRefreshSessionRuntimeService(SettleoraDbContext dbContext)
     {
-        return new AuthSessionRuntimeService(
+        return new AuthRefreshSessionRuntimeService(
             dbContext,
             new EfAuthSessionAuditWriter(dbContext),
             new FixedTimeProvider(SignInTimestamp),
@@ -607,7 +631,9 @@ public sealed class LocalSignInServiceTests
         Assert.DoesNotContain(SubmittedPassword, value);
         Assert.DoesNotContain(SourceKey, value);
         Assert.DoesNotContain(RawSessionTokenFragment, value);
+        Assert.DoesNotContain(RawRefreshCredentialFragment, value);
         Assert.DoesNotContain(SessionTokenHashFragment, value);
+        Assert.DoesNotContain(RefreshTokenHashFragment, value);
         Assert.DoesNotContain(VerifierFragment, value);
         Assert.DoesNotContain("visible-device-label", value);
         Assert.DoesNotContain("visible-user-agent-summary", value);
@@ -680,6 +706,7 @@ public sealed class LocalSignInServiceTests
     private static void AssertNoSensitiveAuditText(
         AuthAuditEvent auditEvent,
         string? rawSessionToken = null,
+        string? rawRefreshCredential = null,
         string? sessionTokenHash = null,
         string? identifierKey = null)
     {
@@ -690,6 +717,11 @@ public sealed class LocalSignInServiceTests
         if (rawSessionToken is not null)
         {
             Assert.DoesNotContain(rawSessionToken, auditEvent.SafeMetadataJson!);
+        }
+
+        if (rawRefreshCredential is not null)
+        {
+            Assert.DoesNotContain(rawRefreshCredential, auditEvent.SafeMetadataJson!);
         }
 
         if (sessionTokenHash is not null)
@@ -712,7 +744,9 @@ public sealed class LocalSignInServiceTests
         Assert.DoesNotContain(SubmittedPassword, value);
         Assert.DoesNotContain(WrongPassword, value);
         Assert.DoesNotContain(RawSessionTokenFragment, value);
+        Assert.DoesNotContain(RawRefreshCredentialFragment, value);
         Assert.DoesNotContain(SessionTokenHashFragment, value);
+        Assert.DoesNotContain(RefreshTokenHashFragment, value);
         Assert.DoesNotContain(VerifierFragment, value);
         Assert.DoesNotContain("visible-device-label", value);
         Assert.DoesNotContain("visible-user-agent-summary", value);
@@ -776,40 +810,32 @@ public sealed class LocalSignInServiceTests
         }
     }
 
-    private sealed class FakeSessionRuntimeService : IAuthSessionRuntimeService
+    private sealed class FakeRefreshSessionRuntimeService : IAuthRefreshSessionRuntimeService
     {
-        public AuthSessionCreationResult NextCreationResult { get; init; } =
-            AuthSessionCreationResult.Created(
+        public AuthRefreshSessionCreationResult NextCreationResult { get; init; } =
+            AuthRefreshSessionCreationResult.Created(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
                 Guid.NewGuid(),
                 "fake-raw-session-token",
-                SignInTimestamp.AddHours(1));
+                "fake-raw-refresh-credential",
+                SignInTimestamp.AddMinutes(15),
+                SignInTimestamp.AddDays(7),
+                SignInTimestamp.AddDays(30),
+                SignInTimestamp.AddDays(30));
 
         public int CreateCallCount { get; private set; }
 
-        public Task<AuthSessionCreationResult> CreateSessionAsync(
-            AuthSessionCreationRequest request,
+        public Task<AuthRefreshSessionCreationResult> CreateRefreshSessionAsync(
+            AuthRefreshSessionCreationRequest request,
             CancellationToken cancellationToken = default)
         {
             CreateCallCount++;
             return Task.FromResult(NextCreationResult);
         }
 
-        public Task<AuthSessionValidationResult> ValidateSessionAsync(
-            string? rawSessionToken,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<AuthSessionRevocationResult> RevokeSessionAsync(
-            AuthSessionRevocationRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<AuthAccountSessionRevocationResult> RevokeActiveSessionsForAccountAsync(
-            AuthAccountSessionRevocationRequest request,
+        public Task<AuthRefreshSessionRotationResult> RotateRefreshCredentialAsync(
+            AuthRefreshSessionRotationRequest request,
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();

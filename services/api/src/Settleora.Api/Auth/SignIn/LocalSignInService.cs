@@ -25,7 +25,7 @@ internal sealed class LocalSignInService : ILocalSignInService
     private readonly SettleoraDbContext dbContext;
     private readonly ISignInAbusePolicyService abusePolicyService;
     private readonly IAuthCredentialWorkflowService credentialWorkflowService;
-    private readonly IAuthSessionRuntimeService sessionRuntimeService;
+    private readonly IAuthRefreshSessionRuntimeService refreshSessionRuntimeService;
     private readonly ILocalSignInAuditWriter auditWriter;
     private readonly TimeProvider timeProvider;
 
@@ -33,14 +33,14 @@ internal sealed class LocalSignInService : ILocalSignInService
         SettleoraDbContext dbContext,
         ISignInAbusePolicyService abusePolicyService,
         IAuthCredentialWorkflowService credentialWorkflowService,
-        IAuthSessionRuntimeService sessionRuntimeService,
+        IAuthRefreshSessionRuntimeService refreshSessionRuntimeService,
         ILocalSignInAuditWriter auditWriter,
         TimeProvider timeProvider)
     {
         this.dbContext = dbContext;
         this.abusePolicyService = abusePolicyService;
         this.credentialWorkflowService = credentialWorkflowService;
-        this.sessionRuntimeService = sessionRuntimeService;
+        this.refreshSessionRuntimeService = refreshSessionRuntimeService;
         this.auditWriter = auditWriter;
         this.timeProvider = timeProvider;
     }
@@ -110,18 +110,20 @@ internal sealed class LocalSignInService : ILocalSignInService
             return LocalSignInResult.Failure(LocalSignInStatus.InvalidCredentials);
         }
 
-        var sessionResult = await sessionRuntimeService.CreateSessionAsync(
-            new AuthSessionCreationRequest(
+        var sessionResult = await refreshSessionRuntimeService.CreateRefreshSessionAsync(
+            new AuthRefreshSessionCreationRequest(
                 authAccount.Id,
                 request.DeviceLabel,
                 request.UserAgentSummary,
-                request.NetworkAddressHash,
-                request.RequestedSessionLifetime),
+                request.NetworkAddressHash),
             cancellationToken);
         if (!sessionResult.Succeeded
             || sessionResult.AuthSessionId is null
-            || sessionResult.RawSessionToken is null
-            || sessionResult.SessionExpiresAtUtc is null)
+            || sessionResult.RawAccessSessionToken is null
+            || sessionResult.AccessSessionExpiresAtUtc is null
+            || sessionResult.RawRefreshCredential is null
+            || sessionResult.RefreshCredentialIdleExpiresAtUtc is null
+            || sessionResult.RefreshCredentialAbsoluteExpiresAtUtc is null)
         {
             RecordAttempt(requestContext, SignInAttemptOutcome.Failed);
             await WriteAuditAndSaveAsync(
@@ -145,11 +147,12 @@ internal sealed class LocalSignInService : ILocalSignInService
             policyResult.Status,
             cancellationToken);
         return LocalSignInResult.SignedIn(
-            authAccount.Id,
-            authAccount.UserProfileId,
             sessionResult.AuthSessionId.Value,
-            sessionResult.RawSessionToken,
-            sessionResult.SessionExpiresAtUtc.Value);
+            sessionResult.RawAccessSessionToken,
+            sessionResult.AccessSessionExpiresAtUtc.Value,
+            sessionResult.RawRefreshCredential,
+            sessionResult.RefreshCredentialIdleExpiresAtUtc.Value,
+            sessionResult.RefreshCredentialAbsoluteExpiresAtUtc.Value);
     }
 
     private async Task<AuthIdentity?> ResolveLocalIdentityAsync(

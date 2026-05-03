@@ -37,7 +37,7 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 
 The first internal service boundary now exists under the API auth layer.
 
-- `ISignInAbusePolicyService` exposes endpoint-independent pre-verification checking and post-result recording for future sign-in code.
+- `ISignInAbusePolicyService` exposes endpoint-independent pre-verification checking and post-result recording for local sign-in code.
 - The in-memory implementation is a single-node dev/self-hosted limiter. It uses only .NET BCL types, process-local state, `TimeProvider`, short and longer windows, temporary throttling, retention pruning, and bounded bucket counts.
 - The service evaluates source, normalized identifier, combined source plus identifier, and global buckets before credential lookup or password verification.
 - The service records failed, throttled, and policy-blocked attempts into the layered buckets. Successful attempts clear the matching identifier and combined counters, while source and global counters remain in place.
@@ -54,8 +54,8 @@ The internal local sign-in orchestration boundary now exists under the API auth 
 - The service trims and lower-cases submitted identifiers with invariant culture, rejects blank or overlong identifiers, and looks up local identities with `ProviderType = local`, `ProviderName = local`, and `ProviderSubject = normalized identifier`.
 - It derives abuse-policy identifier keys as `local-id-sha256:<base64url-sha256(normalizedIdentifier)>` and requires caller-provided source keys to already be safe, bounded, and coarsened.
 - It calls `ISignInAbusePolicyService.CheckPreVerification` before local identity/account lookup and password verification, and records succeeded, failed, or throttled attempts with bounded policy outcomes.
-- It verifies local passwords only through `IAuthCredentialWorkflowService.VerifyLocalPasswordAsync` and creates sessions only through `IAuthSessionRuntimeService.CreateSessionAsync`.
-- Its results use bounded internal statuses such as signed-in, invalid credentials, throttled, and session-creation failed. Success returns the raw session token only through the result object and result strings do not include raw identifiers, normalized identifiers, passwords, source keys, token material, hashes, verifiers, or credential details.
+- It verifies local passwords only through `IAuthCredentialWorkflowService.VerifyLocalPasswordAsync` and creates refresh-capable access sessions only through `IAuthRefreshSessionRuntimeService.CreateRefreshSessionAsync`.
+- Its results use bounded internal statuses such as signed-in, invalid credentials, throttled, and session-creation failed. Success returns the raw access-session token and raw refresh-like credential only through the result object, and result strings do not include raw identifiers, normalized identifiers, passwords, source keys, token material, hashes, verifiers, or credential details.
 
 Sign-in-specific `auth_audit_events` are now written inside the local sign-in service boundary with bounded workflow, status, and policy-status categories only. Existing credential and session runtime services still write their bounded credential/session audit events during verification and session creation. Persistent or distributed limiter storage remains deferred to a later reviewed branch.
 
@@ -63,12 +63,12 @@ Sign-in-specific `auth_audit_events` are now written inside the local sign-in se
 
 The implemented public endpoint is `POST /api/v1/auth/sign-in`.
 
-- It accepts JSON only with `identifier`, `password`, optional `deviceLabel`, and optional bounded `requestedSessionLifetimeMinutes`.
+- It accepts JSON only with `identifier`, `password`, and optional `deviceLabel`.
 - It derives a conservative fixed single-node source bucket internally and does not accept source keys from clients.
 - It does not parse forwarded proxy headers, store full IP addresses, or pass full user-agent strings in this first endpoint slice.
 - It calls `ILocalSignInService.SignInAsync(...)` and does not reimplement identity lookup, credential verification, session creation, or abuse-policy logic in the endpoint.
 - It maps ordinary failures to a generic `401 application/problem+json` and throttled failures to a generic `429 application/problem+json`.
-- On success, it returns only auth account ID, user profile ID, session ID, raw opaque session token, and session expiry. The raw token is returned only in that success response.
+- On success, it returns only `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`. Raw credential material is returned only in that success response.
 
 ## Threat Model
 

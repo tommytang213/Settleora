@@ -9,10 +9,10 @@ info:
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
     and web clients will be produced from this file later, and generated output
     must not be manually edited. This contract currently covers scaffold health
-    checks, local sign-in, public refresh, current-session sign-out,
+    checks, refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
     revocation, and the minimal current-user auth read boundary; it is not the
-    feature contract for registration, refresh integration into sign-in,
+    feature contract for registration, generated clients, auth middleware,
     session management beyond current-session sign-out, current-account
     sign-out-all/list/revocation, and public refresh, expenses, settlement,
     sync, OCR upload, users, or database behavior.
@@ -157,7 +157,7 @@ paths:
   /api/v1/auth/sign-in:
     post:
       summary: Local sign-in
-      description: Authenticates a local account with an identifier and password, returning an opaque session token only on success.
+      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus initial refresh-like credential only once on success.
       operationId: signInLocal
       security: []
       requestBody:
@@ -168,7 +168,7 @@ paths:
               $ref: "#/components/schemas/LocalSignInRequest"
       responses:
         "200":
-          description: Local sign-in succeeded and returned a new session token.
+          description: Local sign-in succeeded and returned new credential material once.
           content:
             application/json:
               schema:
@@ -396,46 +396,17 @@ components:
           type: string
           maxLength: 120
           description: Optional display label for the newly created session.
-        requestedSessionLifetimeMinutes:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 43200
-          description: Optional requested session lifetime, capped by the API.
     LocalSignInResponse:
       type: object
-      description: Minimal local sign-in success response. The raw session token is returned only once.
+      description: Minimal refresh-capable local sign-in success response. Raw credential material is returned only once.
       required:
-        - authAccountId
-        - userProfileId
         - session
+        - refreshCredential
       properties:
-        authAccountId:
-          type: string
-          format: uuid
-        userProfileId:
-          type: string
-          format: uuid
         session:
-          $ref: "#/components/schemas/LocalSignInSession"
-    LocalSignInSession:
-      type: object
-      description: Newly created opaque session returned from local sign-in.
-      required:
-        - id
-        - token
-        - expiresAtUtc
-      properties:
-        id:
-          type: string
-          format: uuid
-        token:
-          type: string
-          minLength: 1
-          description: Opaque raw session token returned once on sign-in success.
-        expiresAtUtc:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/RefreshSessionAccessSession"
+        refreshCredential:
+          $ref: "#/components/schemas/RefreshSessionCredential"
     RefreshSessionRequest:
       type: object
       description: Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.

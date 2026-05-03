@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.PasswordHashing;
+using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Auth.SignIn;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
@@ -18,12 +19,14 @@ namespace Settleora.Api.Tests;
 public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string SignInPath = "/api/v1/auth/sign-in";
+    private const string RefreshPath = "/api/v1/auth/refresh";
     private const string CurrentUserPath = "/api/v1/auth/current-user";
     private const string SubmittedIdentifier = "  LOCAL.User@Example.COM  ";
     private const string NormalizedIdentifier = "local.user@example.com";
     private const string MissingIdentifier = "missing.user@example.com";
     private const string SubmittedPassword = "visible-local-sign-in-password";
     private const string WrongPassword = "visible-wrong-local-sign-in-password";
+    private const string RawRefreshCredentialFragment = "visible-refresh-credential";
     private const string SourceKey = "src:local-single-node";
     private const string VerifierFragment = "visible-password-verifier";
 
@@ -165,6 +168,38 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         await AssertSignInFailedProblemAsync(missingIdentityResponse, MissingIdentifier);
     }
 
+    [Fact]
+    public async Task MissingLocalPasswordCredentialReturnsSameUniformFailureAsWrongPassword()
+    {
+        var wrongPasswordContext = CreateFactory();
+        using var wrongPasswordFactory = wrongPasswordContext.Factory;
+        var wrongPasswordAccount = await SeedLocalSignInAccountAsync(wrongPasswordFactory);
+        await SeedCredentialAsync(wrongPasswordFactory, wrongPasswordAccount.AuthAccountId);
+        using var wrongPasswordClient = wrongPasswordFactory.CreateClient();
+
+        var missingCredentialContext = CreateFactory();
+        using var missingCredentialFactory = missingCredentialContext.Factory;
+        await SeedLocalSignInAccountAsync(missingCredentialFactory);
+        using var missingCredentialClient = missingCredentialFactory.CreateClient();
+
+        using var wrongPasswordResponse = await wrongPasswordClient.PostAsync(
+            SignInPath,
+            CreateSignInContent(password: WrongPassword));
+        using var missingCredentialResponse = await missingCredentialClient.PostAsync(
+            SignInPath,
+            CreateSignInContent());
+
+        var wrongPasswordProblem = await ReadProblemSnapshotAsync(wrongPasswordResponse);
+        var missingCredentialProblem = await ReadProblemSnapshotAsync(missingCredentialResponse);
+        Assert.Equal(wrongPasswordProblem, missingCredentialProblem);
+        await AssertSignInFailedProblemAsync(
+            missingCredentialResponse,
+            SubmittedIdentifier.Trim(),
+            NormalizedIdentifier,
+            SubmittedPassword,
+            "credential");
+    }
+
     [Theory]
     [InlineData("disabled")]
     [InlineData("deleted")]
@@ -223,7 +258,38 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
-    public async Task ValidSignInReturnsMinimalSessionResponse()
+    public async Task RefreshSessionCreationFailureReturnsGenericSignInFailure()
+    {
+        var fakeRefreshSessionRuntimeService = new FakeRefreshSessionRuntimeService(
+            AuthRefreshSessionCreationResult.Failure(AuthRefreshSessionCreationStatus.PersistenceFailed));
+        var testContext = CreateFactory(fakeRefreshSessionRuntimeService);
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var wrongPasswordResponse = await client.PostAsync(
+            SignInPath,
+            CreateSignInContent(password: WrongPassword));
+        using var response = await client.PostAsync(SignInPath, CreateSignInContent());
+
+        var wrongPasswordProblem = await ReadProblemSnapshotAsync(wrongPasswordResponse);
+        var sessionFailureProblem = await ReadProblemSnapshotAsync(response);
+        Assert.Equal(wrongPasswordProblem, sessionFailureProblem);
+        Assert.Equal(1, fakeRefreshSessionRuntimeService.CreateCallCount);
+        await AssertSignInFailedProblemAsync(
+            response,
+            SubmittedIdentifier.Trim(),
+            NormalizedIdentifier,
+            SubmittedPassword,
+            "session",
+            "family",
+            "credential",
+            "persistence");
+    }
+
+    [Fact]
+    public async Task ValidSignInReturnsRefreshCapableCredentialEnvelope()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -240,17 +306,32 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         using var payload = await JsonDocument.ParseAsync(responseStream);
         var root = payload.RootElement;
 
-        Assert.Equal(3, root.EnumerateObject().Count());
-        Assert.Equal(seededAccount.AuthAccountId, root.GetProperty("authAccountId").GetGuid());
-        Assert.Equal(seededAccount.UserProfileId, root.GetProperty("userProfileId").GetGuid());
+        Assert.Equal(2, root.EnumerateObject().Count());
+        Assert.False(root.TryGetProperty("authAccountId", out _));
+        Assert.False(root.TryGetProperty("userProfileId", out _));
 
         var session = root.GetProperty("session");
         Assert.Equal(3, session.EnumerateObject().Count());
-        Assert.NotEqual(Guid.Empty, session.GetProperty("id").GetGuid());
+        var sessionId = session.GetProperty("id").GetGuid();
+        Assert.NotEqual(Guid.Empty, sessionId);
         Assert.False(string.IsNullOrWhiteSpace(session.GetProperty("token").GetString()));
         Assert.Equal(
-            InitialTimestamp.AddMinutes(45),
+            InitialTimestamp.AddMinutes(15),
             session.GetProperty("expiresAtUtc").GetDateTimeOffset());
+
+        var refreshCredential = root.GetProperty("refreshCredential");
+        Assert.Equal(3, refreshCredential.EnumerateObject().Count());
+        Assert.False(string.IsNullOrWhiteSpace(refreshCredential.GetProperty("token").GetString()));
+        Assert.Equal(
+            InitialTimestamp.AddDays(7),
+            refreshCredential.GetProperty("idleExpiresAtUtc").GetDateTimeOffset());
+        Assert.Equal(
+            InitialTimestamp.AddDays(30),
+            refreshCredential.GetProperty("absoluteExpiresAtUtc").GetDateTimeOffset());
+
+        var sessionRow = await ReadSessionAsync(testFactory, sessionId);
+        Assert.Equal(AuthSessionStatuses.Active, sessionRow.Status);
+        Assert.Equal(InitialTimestamp.AddMinutes(15), sessionRow.ExpiresAtUtc);
     }
 
     [Fact]
@@ -267,25 +348,135 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         using var payload = JsonDocument.Parse(content);
         var sessionId = payload.RootElement.GetProperty("session").GetProperty("id").GetGuid();
         var rawToken = payload.RootElement.GetProperty("session").GetProperty("token").GetString();
+        var rawRefreshCredential = payload.RootElement
+            .GetProperty("refreshCredential")
+            .GetProperty("token")
+            .GetString();
         var sessionTokenHash = await ReadSessionTokenHashAsync(testFactory, sessionId);
+        var refreshCredentialHash = await ReadRefreshCredentialHashAsync(testFactory, sessionId);
         var lowerContent = content.ToLowerInvariant();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.False(string.IsNullOrWhiteSpace(rawToken));
+        Assert.False(string.IsNullOrWhiteSpace(rawRefreshCredential));
         Assert.DoesNotContain(sessionTokenHash, content);
+        Assert.DoesNotContain(refreshCredentialHash, content);
         Assert.DoesNotContain("tokenhash", lowerContent);
         Assert.DoesNotContain("password", lowerContent);
         Assert.DoesNotContain("verifier", lowerContent);
-        Assert.DoesNotContain("credential", lowerContent);
+        Assert.DoesNotContain("credentialid", lowerContent);
+        Assert.DoesNotContain("credentialstatus", lowerContent);
         Assert.DoesNotContain("audit", lowerContent);
         Assert.DoesNotContain("source", lowerContent);
         Assert.DoesNotContain("policy", lowerContent);
         Assert.DoesNotContain("provider", lowerContent);
+        Assert.DoesNotContain("payload", lowerContent);
         Assert.DoesNotContain("metadata", lowerContent);
         Assert.DoesNotContain("status", lowerContent);
+        Assert.DoesNotContain("family", lowerContent);
+        Assert.DoesNotContain("replay", lowerContent);
+        Assert.DoesNotContain("revocation", lowerContent);
+        Assert.DoesNotContain("storage", lowerContent);
+        Assert.DoesNotContain("path", lowerContent);
         Assert.DoesNotContain(VerifierFragment, content);
         Assert.DoesNotContain(SourceKey, content);
         Assert.DoesNotContain(SubmittedPassword, content);
+        Assert.DoesNotContain(seededAccount.AuthAccountId.ToString(), content);
+        Assert.DoesNotContain(seededAccount.UserProfileId.ToString(), content);
+    }
+
+    [Fact]
+    public async Task ValidSignInPersistsSessionFamilyAndRefreshCredentialHashesOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(SignInPath, CreateSignInContent());
+        var content = await response.Content.ReadAsStringAsync();
+        using var payload = JsonDocument.Parse(content);
+        var sessionId = payload.RootElement.GetProperty("session").GetProperty("id").GetGuid();
+        var rawAccessToken = payload.RootElement.GetProperty("session").GetProperty("token").GetString();
+        var rawRefreshCredential = payload.RootElement.GetProperty("refreshCredential").GetProperty("token").GetString();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(string.IsNullOrWhiteSpace(rawAccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(rawRefreshCredential));
+
+        var persistedRows = await ReadPersistedSignInCredentialRowsAsync(testFactory, sessionId);
+        Assert.StartsWith("sha256:", persistedRows.Session.SessionTokenHash, StringComparison.Ordinal);
+        Assert.NotEqual(rawAccessToken, persistedRows.Session.SessionTokenHash);
+        Assert.DoesNotContain(rawAccessToken!, persistedRows.Session.SessionTokenHash);
+        Assert.Null(persistedRows.Session.RefreshTokenHash);
+        Assert.Equal(seededAccount.AuthAccountId, persistedRows.SessionFamily.AuthAccountId);
+        Assert.Equal(AuthSessionFamilyStatuses.Active, persistedRows.SessionFamily.Status);
+        Assert.StartsWith("refresh-sha256:", persistedRows.RefreshCredential.RefreshTokenHash, StringComparison.Ordinal);
+        Assert.NotEqual(rawRefreshCredential, persistedRows.RefreshCredential.RefreshTokenHash);
+        Assert.DoesNotContain(rawRefreshCredential!, persistedRows.RefreshCredential.RefreshTokenHash);
+        Assert.Equal(AuthRefreshCredentialStatuses.Active, persistedRows.RefreshCredential.Status);
+    }
+
+    [Fact]
+    public async Task ReturnedRefreshCredentialCanRotateOnceAndOldCredentialCannotBeReused()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var signInResponse = await client.PostAsync(SignInPath, CreateSignInContent());
+        var signInContent = await signInResponse.Content.ReadAsStringAsync();
+        using var signInPayload = JsonDocument.Parse(signInContent);
+        var oldRefreshCredential = signInPayload.RootElement
+            .GetProperty("refreshCredential")
+            .GetProperty("token")
+            .GetString();
+        Assert.False(string.IsNullOrWhiteSpace(oldRefreshCredential));
+
+        using var refreshResponse = await client.PostAsync(
+            RefreshPath,
+            CreateRefreshContent(oldRefreshCredential));
+        var refreshContent = await refreshResponse.Content.ReadAsStringAsync();
+        using var refreshPayload = JsonDocument.Parse(refreshContent);
+        var replacementRefreshCredential = refreshPayload.RootElement
+            .GetProperty("refreshCredential")
+            .GetProperty("token")
+            .GetString();
+
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+        Assert.False(string.IsNullOrWhiteSpace(replacementRefreshCredential));
+        Assert.NotEqual(oldRefreshCredential, replacementRefreshCredential);
+        Assert.DoesNotContain(oldRefreshCredential!, refreshContent);
+
+        using var replayResponse = await client.PostAsync(
+            RefreshPath,
+            CreateRefreshContent(oldRefreshCredential));
+        await AssertRefreshFailedProblemAsync(replayResponse, oldRefreshCredential!);
+    }
+
+    [Fact]
+    public async Task RequestedSessionLifetimeMinutesIsIgnoredAndCannotLengthenRefreshAccessSession()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            SignInPath,
+            CreateSignInContent(requestedSessionLifetimeMinutes: 43_200));
+        var content = await response.Content.ReadAsStringAsync();
+        using var payload = JsonDocument.Parse(content);
+        var session = payload.RootElement.GetProperty("session");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            InitialTimestamp.AddMinutes(15),
+            session.GetProperty("expiresAtUtc").GetDateTimeOffset());
     }
 
     [Fact]
@@ -320,7 +511,34 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         Assert.Equal("USD", root.GetProperty("userProfile").GetProperty("defaultCurrency").GetString());
     }
 
-    private FactoryTestContext CreateFactory()
+    [Fact]
+    public void OpenApiContractUsesRefreshCapableLocalSignInSchema()
+    {
+        var openApiPath = FindRepoFile("packages/contracts/openapi/settleora.v1.yaml");
+        var openApi = File.ReadAllText(openApiPath);
+        var requestSchema = ExtractOpenApiSchemaBlock(openApi, "LocalSignInRequest:");
+        var responseSchema = ExtractOpenApiSchemaBlock(openApi, "LocalSignInResponse:");
+
+        Assert.Contains("/api/v1/auth/sign-in:", openApi);
+        Assert.Contains("operationId: signInLocal", openApi);
+        Assert.Contains("security: []", ExtractOpenApiPathBlock(openApi, "/api/v1/auth/sign-in:"));
+        Assert.Contains("identifier:", requestSchema);
+        Assert.Contains("password:", requestSchema);
+        Assert.Contains("deviceLabel:", requestSchema);
+        Assert.DoesNotContain("requestedSessionLifetimeMinutes", requestSchema);
+        Assert.DoesNotContain("requestedSessionLifetimeMinutes", openApi);
+        Assert.Contains("session:", responseSchema);
+        Assert.Contains("refreshCredential:", responseSchema);
+        Assert.Contains("#/components/schemas/RefreshSessionAccessSession", responseSchema);
+        Assert.Contains("#/components/schemas/RefreshSessionCredential", responseSchema);
+        Assert.DoesNotContain("authAccountId", responseSchema);
+        Assert.DoesNotContain("userProfileId", responseSchema);
+        Assert.Contains("/api/v1/auth/refresh:", openApi);
+        Assert.Contains("RefreshSessionResponse:", openApi);
+    }
+
+    private FactoryTestContext CreateFactory(
+        IAuthRefreshSessionRuntimeService? refreshSessionRuntimeService = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new EndpointTestTimeProvider(InitialTimestamp);
@@ -342,6 +560,12 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
 
                 services.RemoveAll<IPasswordHashingService>();
                 services.AddSingleton<IPasswordHashingService, FakePasswordHashingService>();
+
+                if (refreshSessionRuntimeService is not null)
+                {
+                    services.RemoveAll<IAuthRefreshSessionRuntimeService>();
+                    services.AddSingleton(refreshSessionRuntimeService);
+                }
             });
         });
 
@@ -448,16 +672,77 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
             .SingleAsync();
     }
 
+    private static async Task<string> ReadRefreshCredentialHashAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid authSessionId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthRefreshCredential>()
+            .Where(credential => credential.AuthSessionId == authSessionId)
+            .Select(credential => credential.RefreshTokenHash)
+            .SingleAsync();
+    }
+
+    private static async Task<AuthSession> ReadSessionAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid authSessionId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthSession>()
+            .AsNoTracking()
+            .SingleAsync(session => session.Id == authSessionId);
+    }
+
+    private static async Task<PersistedSignInCredentialRows> ReadPersistedSignInCredentialRowsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid authSessionId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        var session = await dbContext.Set<AuthSession>()
+            .AsNoTracking()
+            .SingleAsync(session => session.Id == authSessionId);
+        var refreshCredential = await dbContext.Set<AuthRefreshCredential>()
+            .AsNoTracking()
+            .SingleAsync(credential => credential.AuthSessionId == authSessionId);
+        var sessionFamily = await dbContext.Set<AuthSessionFamily>()
+            .AsNoTracking()
+            .SingleAsync(family => family.Id == refreshCredential.AuthSessionFamilyId);
+
+        return new PersistedSignInCredentialRows(session, sessionFamily, refreshCredential);
+    }
+
     private static StringContent CreateSignInContent(
         string? identifier = SubmittedIdentifier,
-        string? password = SubmittedPassword)
+        string? password = SubmittedPassword,
+        int? requestedSessionLifetimeMinutes = null)
+    {
+        var value = new Dictionary<string, object?>
+        {
+            ["identifier"] = identifier,
+            ["password"] = password,
+            ["deviceLabel"] = "Local sign-in endpoint test device"
+        };
+
+        if (requestedSessionLifetimeMinutes is not null)
+        {
+            value["requestedSessionLifetimeMinutes"] = requestedSessionLifetimeMinutes;
+        }
+
+        return CreateJsonContent(value);
+    }
+
+    private static StringContent CreateRefreshContent(string? refreshCredential)
     {
         return CreateJsonContent(new
         {
-            identifier,
-            password,
-            deviceLabel = "Local sign-in endpoint test device",
-            requestedSessionLifetimeMinutes = 45
+            refreshCredential,
+            deviceLabel = "Refresh from sign-in endpoint test device"
         });
     }
 
@@ -467,6 +752,52 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
             JsonSerializer.Serialize(value),
             Encoding.UTF8,
             "application/json");
+    }
+
+    private static string FindRepoFile(string relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find {relativePath} from {AppContext.BaseDirectory}.");
+    }
+
+    private static string ExtractOpenApiPathBlock(string openApi, string pathHeader)
+    {
+        var start = openApi.IndexOf(pathHeader, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Could not find OpenAPI path block {pathHeader}.");
+
+        var nextPath = openApi.IndexOf("\n  /", start + pathHeader.Length, StringComparison.Ordinal);
+        return nextPath < 0
+            ? openApi[start..]
+            : openApi[start..nextPath];
+    }
+
+    private static string ExtractOpenApiSchemaBlock(string openApi, string schemaHeader)
+    {
+        var start = openApi.IndexOf($"    {schemaHeader}", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Could not find OpenAPI schema block {schemaHeader}.");
+
+        var nextSchema = openApi.IndexOf("\n    ", start + schemaHeader.Length + 4, StringComparison.Ordinal);
+        while (nextSchema >= 0
+            && openApi.Length > nextSchema + 5
+            && openApi[nextSchema + 5] is ' ')
+        {
+            nextSchema = openApi.IndexOf("\n    ", nextSchema + 1, StringComparison.Ordinal);
+        }
+
+        return nextSchema < 0
+            ? openApi[start..]
+            : openApi[start..nextSchema];
     }
 
     private static async Task AssertSignInFailedProblemAsync(
@@ -502,6 +833,24 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         Assert.Equal(429, payload.RootElement.GetProperty("status").GetInt32());
         Assert.Equal(
             "Too many sign-in attempts. Try again later.",
+            payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertRefreshFailedProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content, unexpectedResponseText);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Refresh failed", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(401, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "Unable to refresh with the submitted information.",
             payload.RootElement.GetProperty("detail").GetString());
     }
 
@@ -551,6 +900,11 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         Guid AuthAccountId,
         Guid UserProfileId);
 
+    private sealed record PersistedSignInCredentialRows(
+        AuthSession Session,
+        AuthSessionFamily SessionFamily,
+        AuthRefreshCredential RefreshCredential);
+
     private sealed record ProblemSnapshot(
         HttpStatusCode HttpStatusCode,
         string? MediaType,
@@ -570,6 +924,33 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class FakeRefreshSessionRuntimeService : IAuthRefreshSessionRuntimeService
+    {
+        private readonly AuthRefreshSessionCreationResult creationResult;
+
+        public FakeRefreshSessionRuntimeService(AuthRefreshSessionCreationResult creationResult)
+        {
+            this.creationResult = creationResult;
+        }
+
+        public int CreateCallCount { get; private set; }
+
+        public Task<AuthRefreshSessionCreationResult> CreateRefreshSessionAsync(
+            AuthRefreshSessionCreationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCallCount++;
+            return Task.FromResult(creationResult);
+        }
+
+        public Task<AuthRefreshSessionRotationResult> RotateRefreshCredentialAsync(
+            AuthRefreshSessionRotationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 

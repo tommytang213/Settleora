@@ -10,7 +10,6 @@ internal static class LocalSignInEndpoints
     private const string TooManyAttemptsDetail = "Too many sign-in attempts. Try again later.";
     private const string LocalSingleNodeSourceKey = "src:local-single-node";
     private const int DeviceLabelMaxLength = 120;
-    private const int MaxRequestedSessionLifetimeMinutes = 43_200;
 
     public static WebApplication MapLocalSignInEndpoints(this WebApplication app)
     {
@@ -69,41 +68,13 @@ internal static class LocalSignInEndpoints
     {
         signInRequest = default!;
 
-        if (!TryMapRequestedSessionLifetime(
-                endpointRequest.RequestedSessionLifetimeMinutes,
-                out var requestedSessionLifetime))
-        {
-            return false;
-        }
-
         signInRequest = new LocalSignInRequest(
             endpointRequest.Identifier,
             endpointRequest.Password,
             DeriveSafeSourceKey(),
             DeviceLabel: BoundOptionalField(endpointRequest.DeviceLabel, DeviceLabelMaxLength),
             UserAgentSummary: null,
-            NetworkAddressHash: null,
-            RequestedSessionLifetime: requestedSessionLifetime);
-        return true;
-    }
-
-    private static bool TryMapRequestedSessionLifetime(
-        int? requestedSessionLifetimeMinutes,
-        out TimeSpan? requestedSessionLifetime)
-    {
-        requestedSessionLifetime = null;
-        if (requestedSessionLifetimeMinutes is null)
-        {
-            return true;
-        }
-
-        var minutes = requestedSessionLifetimeMinutes.Value;
-        if (minutes is < 1 or > MaxRequestedSessionLifetimeMinutes)
-        {
-            return false;
-        }
-
-        requestedSessionLifetime = TimeSpan.FromMinutes(minutes);
+            NetworkAddressHash: null);
         return true;
     }
 
@@ -112,22 +83,25 @@ internal static class LocalSignInEndpoints
         out LocalSignInResponse response)
     {
         response = default!;
-        if (result.AuthAccountId is not { } authAccountId
-            || result.UserProfileId is not { } userProfileId
-            || result.AuthSessionId is not { } authSessionId
+        if (result.AuthSessionId is not { } authSessionId
             || result.RawSessionToken is null
-            || result.SessionExpiresAtUtc is not { } sessionExpiresAtUtc)
+            || result.SessionExpiresAtUtc is not { } sessionExpiresAtUtc
+            || result.RawRefreshCredential is null
+            || result.RefreshCredentialIdleExpiresAtUtc is not { } refreshCredentialIdleExpiresAtUtc
+            || result.RefreshCredentialAbsoluteExpiresAtUtc is not { } refreshCredentialAbsoluteExpiresAtUtc)
         {
             return false;
         }
 
         response = new LocalSignInResponse(
-            authAccountId,
-            userProfileId,
             new LocalSignInSessionResponse(
                 authSessionId,
                 result.RawSessionToken,
-                sessionExpiresAtUtc));
+                sessionExpiresAtUtc),
+            new LocalSignInRefreshCredentialResponse(
+                result.RawRefreshCredential,
+                refreshCredentialIdleExpiresAtUtc,
+                refreshCredentialAbsoluteExpiresAtUtc));
         return true;
     }
 

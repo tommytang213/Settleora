@@ -2,20 +2,20 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, and internal refresh session runtime foundation described below; remaining auth runtime work still requires separate reviewed branches before refresh-capable local sign-in integration, session management beyond current-session sign-out/sign-out-all/list/revocation, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, and internal refresh session runtime foundation described below; remaining auth runtime work still requires separate reviewed branches before generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
-- Schema foundations exist for user profiles, groups, memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, and auth audit events.
+- Schema foundations exist for user profiles, groups, memberships, auth accounts, auth identities, system role assignments, local password credentials, auth sessions, auth session families, auth refresh credentials, and auth audit events.
 - `auth_accounts` links one server-side auth account root to one `UserProfile`.
 - `auth_identities` stores provider links without raw provider tokens.
 - `local_password_credentials` stores password verifier metadata and no plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets.
-- `auth_sessions` stores metadata and token hashes only. It is a foundation for future session lookup, expiry, revocation, and replay detection.
+- `auth_sessions` stores metadata and token hashes only. It supports session lookup, expiry, and revocation without raw bearer token storage.
 - `auth_audit_events` stores bounded auth audit metadata and must not contain raw secrets, raw tokens, password material, verifier strings, MFA secrets, passkey private material, full provider payloads, or unnecessary PII.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
-- An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, session creation, and safe sign-in-specific audit writes.
-- `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
+- An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, refresh-capable session creation, and safe sign-in-specific audit writes.
+- `POST /api/v1/auth/sign-in` now exists as a refresh-capable public local sign-in endpoint.
 - `POST /api/v1/auth/refresh` now exists as the first public refresh endpoint for rotating a submitted refresh-like credential.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - `POST /api/v1/auth/sign-out` now exists as a focused public endpoint for revoking only the current validated bearer session.
@@ -23,7 +23,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
 - `DELETE /api/v1/auth/sessions/{sessionId}` now exists as a focused public endpoint for revoking one session owned by the authenticated auth account.
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
-- No public registration, refresh-capable local sign-in integration, arbitrary or admin session-revocation, authorization middleware, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- No public registration, arbitrary or admin session-revocation, authorization middleware, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -110,22 +110,23 @@ This slice deliberately does not add login, registration, token issuance, refres
 
 The implemented slice adds `POST /api/v1/auth/sign-in`.
 
-- It accepts JSON only with `identifier`, `password`, optional `deviceLabel`, and optional bounded `requestedSessionLifetimeMinutes`.
+- It accepts JSON only with `identifier`, `password`, and optional `deviceLabel`.
 - It derives a conservative fixed single-node source bucket internally and does not accept caller-provided source keys.
 - It does not parse forwarded proxy headers, store full IP addresses, or pass full user-agent strings in this first endpoint slice.
 - It calls `ILocalSignInService.SignInAsync(...)` and keeps endpoint code out of identity lookup, password verification, session persistence, and abuse-policy counter logic.
 - The internal service writes bounded sign-in audit events for success, invalid credentials, throttling, and session-creation failure without exposing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
-- It returns a minimal success response with `authAccountId`, `userProfileId`, `session.id`, `session.token`, and `session.expiresAtUtc`.
-- It returns the raw opaque session token only in the success response and does not return token hashes, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, or diagnostics.
+- It creates refresh-capable access sessions through `IAuthRefreshSessionRuntimeService.CreateRefreshSessionAsync(...)` after local credential verification and sign-in abuse policy checks pass.
+- It returns a minimal success response with only `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`.
+- It returns the raw access-session token and raw refresh-like credential only in the success response and does not return `authAccountId`, `userProfileId`, token hashes, refresh credential IDs, session family IDs, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, policy internals, or diagnostics.
 - It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
 
-This slice deliberately did not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes. A later slice added the public refresh endpoint without changing the local sign-in response shape.
+This slice deliberately did not add registration, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes. Separate slices added the public refresh endpoint, sign-out, sign-out-all, session list, and session revocation endpoints.
 
 ## Refresh-Capable Sign-In Contract Decision
 
-The next local sign-in implementation should issue refresh-capable sessions by default. After successful local credential verification and sign-in abuse policy checks, the sign-in flow should create an access session, session family, and initial refresh-like credential through `IAuthRefreshSessionRuntimeService.CreateRefreshSessionAsync(...)`. That keeps initial issuance aligned with the existing refresh rotation storage, expiry, replay, and audit model.
+Local sign-in now issues refresh-capable sessions by default. After successful local credential verification and sign-in abuse policy checks, the sign-in flow creates an access session, session family, and initial refresh-like credential through `IAuthRefreshSessionRuntimeService.CreateRefreshSessionAsync(...)`. That keeps initial issuance aligned with the existing refresh rotation storage, expiry, replay, and audit model.
 
-The future sign-in success response should be:
+The sign-in success response is:
 
 ```json
 {
@@ -142,17 +143,17 @@ The future sign-in success response should be:
 }
 ```
 
-This shape intentionally matches the public refresh success envelope: `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`. Raw credential material is returned only once. The response must not include refresh credential IDs, session family IDs, token hashes, audit metadata, credential status, revocation reason, replay state, provider payloads, diagnostics, storage paths, or policy internals.
+This shape intentionally matches the public refresh success envelope: `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`. Raw credential material is returned only once. The response does not include refresh credential IDs, session family IDs, token hashes, audit metadata, credential status, revocation reason, replay state, provider payloads, diagnostics, storage paths, or policy internals.
 
-The refresh-capable sign-in response should not include `authAccountId` or `userProfileId`. Clients should call `GET /api/v1/auth/current-user` after sign-in with the returned access-session token to initialize actor, profile, session, and role state. That keeps credential issuance separate from profile bootstrap and ensures account/profile visibility comes from the same validated bearer-session boundary used by the rest of the auth runtime.
+The refresh-capable sign-in response does not include `authAccountId` or `userProfileId`. Clients should call `GET /api/v1/auth/current-user` after sign-in with the returned access-session token to initialize actor, profile, session, and role state. That keeps credential issuance separate from profile bootstrap and ensures account/profile visibility comes from the same validated bearer-session boundary used by the rest of the auth runtime.
 
-The future public `LocalSignInRequest` should remove `requestedSessionLifetimeMinutes` before generated clients exist. Public clients should not choose long access-session lifetimes once sign-in returns refresh-like credentials. If a later compatibility review keeps the field temporarily, it must have strict no-refresh-only semantics and must not lengthen refresh-mode access sessions.
+The public `LocalSignInRequest` no longer includes `requestedSessionLifetimeMinutes`. Unknown legacy input is ignored by the endpoint JSON reader and cannot lengthen refresh-mode access sessions.
 
-Refresh-capable sign-in-created access sessions should use `Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime`. They should not use the old no-refresh `CurrentAccessSessionDefaultLifetime` unless a separate legacy no-refresh sign-in path is explicitly reviewed and kept.
+Refresh-capable sign-in-created access sessions use `Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime`. They do not use the old no-refresh `CurrentAccessSessionDefaultLifetime`.
 
 Ordinary sign-in failures should continue to map to one generic public `401` sign-in failure response without revealing missing account, missing identity, wrong password, disabled/deleted account, disabled credential, revoked credential, session-family creation, refresh eligibility, or policy-denied state. Throttled attempts may continue to map to one generic public `429` too-many-attempts response without exposing counters, bucket keys, or retry policy internals.
 
-The implementation slice for this decision should update endpoint code, focused endpoint tests, the OpenAPI `LocalSignInRequest` and `LocalSignInResponse` schemas, and the relevant docs together. It should not edit generated clients unless a separate reviewed client-generation slice explicitly approves that work.
+The implementation slice updated endpoint code, focused endpoint tests, the OpenAPI `LocalSignInRequest` and `LocalSignInResponse` schemas, and the relevant docs together. It did not edit generated clients; client generation still requires a separate reviewed slice.
 
 ## Implemented Public Refresh Endpoint
 
@@ -168,7 +169,7 @@ The implemented slice adds `POST /api/v1/auth/refresh`.
 - It maps persistence failures to a generic `500` problem response.
 - It does not expose auth account IDs, user profile IDs, session-family IDs, refresh credential IDs, token hashes, audit metadata, credential status, revocation reasons, replay status, account state, provider payloads, diagnostics, storage paths, or policy internals.
 
-This slice deliberately does not add generated clients, mobile/web/admin UI behavior, auth middleware/global authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, refresh-capable local sign-in integration, public sign-in response-shape changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
+This slice deliberately does not add generated clients, mobile/web/admin UI behavior, auth middleware/global authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Session Sign-Out Endpoint
 
@@ -296,19 +297,18 @@ The implemented internal refresh runtime service boundary:
 - Conservatively marks or revokes linked session families and active family access sessions/refresh credentials for replay, expiry, and account-unavailable conditions.
 - Writes bounded safe audit metadata for refresh creation, rotation, failure, replay detection, and family revocation without raw tokens, token hashes, password material, provider payloads, secrets, or unnecessary PII.
 - Uses a relational transaction and conditional old-credential consume update for PostgreSQL-facing rotation so simultaneous rotations cannot both leave active replacements for the same consumed credential.
-- The original internal-runtime slice kept public refresh endpoints and OpenAPI refresh paths/schemas out of scope; the later public refresh slice added only that endpoint/contract layer while generated clients, middleware, UI integration, migrations, package changes, Docker/CI changes, current public sign-in response-shape changes, and password hashing behavior changes remain out of scope.
+- The original internal-runtime slice kept public refresh endpoints and OpenAPI refresh paths/schemas out of scope; the later public refresh slice added only that endpoint/contract layer. The refresh-capable local sign-in slice then updated sign-in runtime behavior, OpenAPI sign-in schemas, and focused tests while generated clients, middleware, UI integration, migrations, package changes, Docker/CI changes, and password hashing behavior changes remain out of scope.
 
 ## Non-goals
 
 This document does not authorize:
 
-- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, public local sign-in, and the refresh-capable local sign-in design decision above.
+- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and refresh-capable public local sign-in behavior above.
 - Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
 - Additional OpenAPI auth paths beyond local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
 - Generated clients.
-- Additional login endpoint implementation.
+- Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
-- Runtime implementation of refresh-capable local sign-in integration.
 - Session middleware implementation.
 - Authorization handlers.
 - UI integration.
