@@ -8,7 +8,7 @@ This document defines Settleora's database foundation direction for API-owned Po
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
 - EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
-- Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in/current-account session endpoint boundaries exist. No public refresh endpoint, session middleware, authorization, user/group business endpoints, or EF Core business workflows exist yet.
+- Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist. No user/group business endpoints or EF Core business workflows exist yet.
 - No business tables for expenses, settlement, files, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
@@ -59,7 +59,7 @@ The current schema foundation is intentionally limited to:
 - `auth_refresh_credentials`: refresh-like credential history linked to `auth_session_families`, optionally linked to `auth_sessions`, storing unique refresh credential hashes and bounded rotation/revocation/expiry metadata with no raw refresh tokens.
 - `auth_audit_events`: bounded auth audit event metadata with optional actor and subject auth-account links, without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 
-Refresh-token runtime behavior, additional credential persistence workflows, session middleware, authorization, invitations, friends, and user/group business endpoints are not implemented by this schema foundation.
+The schema foundation by itself does not authorize runtime behavior; the existing auth/session runtime and business authorization service foundations are separate API layers. Invitations, friends, user/group business endpoints, and EF Core business workflows are not implemented yet.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 

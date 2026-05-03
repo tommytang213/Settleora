@@ -15,6 +15,7 @@ internal static class SettleoraAuthServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
         services.TryAddScoped<ICurrentActorAccessor, HttpContextCurrentActorAccessor>();
+        services.TryAddScoped<IBusinessAuthorizationService, BusinessAuthorizationService>();
 
         services.AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, SettleoraSessionAuthenticationHandler>(

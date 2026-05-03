@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional generated-client changes, migrations, package changes, Docker changes, business authorization handlers, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional generated-client changes, migrations, package changes, Docker changes, public business endpoint authorization behavior, or worker behavior are added.
 
 ## Current State
 
@@ -25,10 +25,11 @@ It started as a design gate. The current repository now includes the explicitly 
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
 - `SettleoraSession` now exists as the first server-side bearer authentication scheme. It validates opaque access-session credentials only through `IAuthSessionRuntimeService.ValidateSessionAsync`, produces bounded actor and system-role claims, and returns the same safe unauthenticated problem response for missing, malformed, unavailable, expired, revoked, inactive, disabled-account, deleted-account, or otherwise invalid sessions.
 - `ICurrentActorAccessor` and `AuthenticatedActor` now expose server-derived auth account, user profile, auth session, expiry, and role context to endpoint/domain code after middleware validation. They do not consume client-submitted profile IDs.
+- `IBusinessAuthorizationService` now provides the first internal server-side business authorization boundary for future profile/group endpoint checks. It allows own-profile access, active-member group access, group owner-only membership/settings management decisions, and system-role detection without exposing new public API behavior.
 - Authorization policy foundations now exist as `Settleora.AuthenticatedUser`, `Settleora.SystemRole.Owner`, `Settleora.SystemRole.Admin`, and `Settleora.SystemRole.User`.
 - `GET /api/v1/auth/current-user`, `POST /api/v1/auth/sign-out`, `POST /api/v1/auth/sign-out-all`, `GET /api/v1/auth/sessions`, and `DELETE /api/v1/auth/sessions/{sessionId}` now use the middleware handoff instead of manually parsing bearer tokens in each endpoint.
 - Generated web and Dart client foundations exist from the OpenAPI contract.
-- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, business authorization handlers, or business endpoints exist yet.
+- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -109,7 +110,7 @@ The implemented current-user endpoint is `GET /api/v1/auth/current-user`.
 - It maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, missing-profile, and deleted-profile cases to one uniform `401` problem response.
 - It does not expose unrelated users, groups, memberships, invitations, audit history, credential rows, session token hashes, raw tokens, password verifier fields, provider payloads, storage paths, or diagnostics.
 
-This endpoint still does not add login, registration, token issuance, refresh rotation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add login, registration, token issuance, refresh rotation, generated clients, UI/mobile/web/admin behavior, public business endpoint authorization behavior, migrations, package changes, or Docker/CI behavior changes.
 
 ## Implemented Auth Middleware And Authorization Handoff
 
@@ -139,7 +140,7 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 - It returns the raw access-session token and raw refresh-like credential only in the success response and does not return `authAccountId`, `userProfileId`, token hashes, refresh credential IDs, session family IDs, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, policy internals, or diagnostics.
 - It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
 
-This endpoint still does not add registration, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes. Separate slices added the public refresh endpoint, sign-out, sign-out-all, session list, session revocation endpoints, and middleware handoff foundation.
+This endpoint still does not add registration, generated clients, UI/mobile/web/admin behavior, public business endpoint authorization behavior, migrations, package changes, or Docker/CI behavior changes. Separate slices added the public refresh endpoint, sign-out, sign-out-all, session list, session revocation endpoints, and middleware handoff foundation.
 
 ## Refresh-Capable Sign-In Contract Decision
 
@@ -188,7 +189,7 @@ The implemented slice adds `POST /api/v1/auth/refresh`.
 - It maps persistence failures to a generic `500` problem response.
 - It does not expose auth account IDs, user profile IDs, session-family IDs, refresh credential IDs, token hashes, audit metadata, credential status, revocation reasons, replay status, account state, provider payloads, diagnostics, storage paths, or policy internals.
 
-This endpoint still does not add generated clients, mobile/web/admin UI behavior, business authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
+This endpoint still does not add generated clients, mobile/web/admin UI behavior, public business endpoint authorization behavior, migrations/schema changes, package changes, Docker/CI behavior changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Session Sign-Out Endpoint
 
@@ -200,7 +201,7 @@ The implemented slice adds `POST /api/v1/auth/sign-out`.
 - It returns `204 No Content` on revocation success and also treats a rare already-revoked race after validation as idempotent success.
 - It does not require a request body and does not expose raw tokens, session token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
 
-This endpoint still does not add registration, refresh rotation, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, public business endpoint authorization behavior, migrations, package changes, or Docker/CI behavior changes.
 
 ## Implemented Current-Account Sign-Out-All Endpoint
 
@@ -216,7 +217,7 @@ The implemented slice adds `POST /api/v1/auth/sign-out-all`.
 - It does not accept account IDs, session IDs, user/profile IDs, request body filters, or admin override fields.
 - It does not expose raw tokens, session token hashes, refresh token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, ownership hints, or storage paths.
 
-This endpoint still does not add registration, refresh-token generation, refresh rotation, refresh replay detection, arbitrary/admin session revocation, business authorization handlers, generated client changes, UI/mobile/web/admin behavior, EF migrations/schema changes, package changes, Docker/CI behavior changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
+This endpoint still does not add registration, refresh-token generation, refresh rotation, refresh replay detection, arbitrary/admin session revocation, public business endpoint authorization behavior, generated client changes, UI/mobile/web/admin behavior, EF migrations/schema changes, package changes, Docker/CI behavior changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Account Session List Endpoint
 
@@ -229,7 +230,7 @@ The implemented slice adds `GET /api/v1/auth/sessions`.
 - It marks the current validated session with `isCurrent: true`.
 - It does not accept account IDs, session IDs, or a request body, and does not expose raw tokens, session token hashes, refresh token hashes, network address hashes, user-agent summaries, revocation reasons, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
 
-This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, public business endpoint authorization behavior, migrations, package changes, or Docker/CI behavior changes.
 
 ## Implemented Current-Account Session Revocation Endpoint
 
@@ -243,7 +244,7 @@ The implemented slice adds `DELETE /api/v1/auth/sessions/{sessionId}`.
 - The endpoint allows revoking the current session itself. That path uses the same `user_session_revoke` reason and leaves the submitted bearer token unusable afterward.
 - It does not expose raw tokens, session token hashes, refresh token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, ownership hints, or storage paths.
 
-This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, public business endpoint authorization behavior, migrations, package changes, or Docker/CI behavior changes.
 
 ## Authorization Handoff
 
@@ -258,6 +259,20 @@ Future endpoint authorization should consume authenticated actor context produce
 - Workers may publish job results or events, but the API must validate actor, subject, and policy context before worker output affects core server state.
 
 Possessing a `UserProfile` ID, group ID, role-looking string, generated client method, or cached membership row is not enough to access protected data.
+
+## Implemented Business Authorization Foundation
+
+The implemented internal business authorization service is `IBusinessAuthorizationService`.
+
+- It consumes `ICurrentActorAccessor` and `SettleoraDbContext`; clients, generated clients, route parameters, hidden UI controls, and cached state are not actor proof.
+- Profile access is currently limited to the current actor's own non-deleted `UserProfile`.
+- Group access is currently limited to the current actor's active membership in a non-deleted `UserGroup`.
+- Group owner-only decisions are available for future membership/settings management endpoints; active group members can access basic group participation but cannot perform owner-only actions.
+- System `owner`, `admin`, and `user` role detection is available for future admin flows, but system roles do not silently bypass group membership or group owner checks.
+- Missing actor, missing profile, missing group, removed membership, unrelated group, and insufficient group role cases fail closed through bounded result categories only.
+- Result strings and categories must not include raw tokens, token hashes, password material, provider payloads, storage paths, or unrelated record data.
+
+Future endpoints must call this server-side boundary directly or consume a domain service that enforces it before returning or mutating protected profile, group, or business records. Generated clients and UI state still do not authorize access. Workers must not bypass API authorization or mutate auth/profile/group/business tables directly.
 
 ## Audit And Privacy
 
@@ -329,7 +344,7 @@ This document does not authorize:
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
 - Additional auth middleware behavior beyond the `SettleoraSession` scheme.
-- Business authorization handlers beyond the authenticated-user and system-role policy foundation.
+- Public business endpoints or endpoint-specific business authorization behavior beyond the internal business authorization service foundation.
 - UI integration.
 - Mobile, web, or admin changes.
 - Worker auth behavior.
@@ -344,6 +359,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add business endpoint authorization policy design and handlers after the current actor boundary is proven.
+1. Consume the business authorization foundation from the first guarded profile/group endpoints in a separate reviewed branch.
 2. Add UI integration over the generated client foundations only in separate reviewed slices.
 3. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.
