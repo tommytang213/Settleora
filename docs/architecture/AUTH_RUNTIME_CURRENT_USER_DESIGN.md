@@ -121,6 +121,39 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 
 This slice deliberately did not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes. A later slice added the public refresh endpoint without changing the local sign-in response shape.
 
+## Refresh-Capable Sign-In Contract Decision
+
+The next local sign-in implementation should issue refresh-capable sessions by default. After successful local credential verification and sign-in abuse policy checks, the sign-in flow should create an access session, session family, and initial refresh-like credential through `IAuthRefreshSessionRuntimeService.CreateRefreshSessionAsync(...)`. That keeps initial issuance aligned with the existing refresh rotation storage, expiry, replay, and audit model.
+
+The future sign-in success response should be:
+
+```json
+{
+  "session": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "token": "raw-access-session-token-returned-once",
+    "expiresAtUtc": "2026-05-03T00:15:00Z"
+  },
+  "refreshCredential": {
+    "token": "raw-refresh-like-credential-returned-once",
+    "idleExpiresAtUtc": "2026-05-10T00:00:00Z",
+    "absoluteExpiresAtUtc": "2026-06-02T00:00:00Z"
+  }
+}
+```
+
+This shape intentionally matches the public refresh success envelope: `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`. Raw credential material is returned only once. The response must not include refresh credential IDs, session family IDs, token hashes, audit metadata, credential status, revocation reason, replay state, provider payloads, diagnostics, storage paths, or policy internals.
+
+The refresh-capable sign-in response should not include `authAccountId` or `userProfileId`. Clients should call `GET /api/v1/auth/current-user` after sign-in with the returned access-session token to initialize actor, profile, session, and role state. That keeps credential issuance separate from profile bootstrap and ensures account/profile visibility comes from the same validated bearer-session boundary used by the rest of the auth runtime.
+
+The future public `LocalSignInRequest` should remove `requestedSessionLifetimeMinutes` before generated clients exist. Public clients should not choose long access-session lifetimes once sign-in returns refresh-like credentials. If a later compatibility review keeps the field temporarily, it must have strict no-refresh-only semantics and must not lengthen refresh-mode access sessions.
+
+Refresh-capable sign-in-created access sessions should use `Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime`. They should not use the old no-refresh `CurrentAccessSessionDefaultLifetime` unless a separate legacy no-refresh sign-in path is explicitly reviewed and kept.
+
+Ordinary sign-in failures should continue to map to one generic public `401` sign-in failure response without revealing missing account, missing identity, wrong password, disabled/deleted account, disabled credential, revoked credential, session-family creation, refresh eligibility, or policy-denied state. Throttled attempts may continue to map to one generic public `429` too-many-attempts response without exposing counters, bucket keys, or retry policy internals.
+
+The implementation slice for this decision should update endpoint code, focused endpoint tests, the OpenAPI `LocalSignInRequest` and `LocalSignInResponse` schemas, and the relevant docs together. It should not edit generated clients unless a separate reviewed client-generation slice explicitly approves that work.
+
 ## Implemented Public Refresh Endpoint
 
 The implemented slice adds `POST /api/v1/auth/refresh`.
@@ -269,13 +302,13 @@ The implemented internal refresh runtime service boundary:
 
 This document does not authorize:
 
-- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
+- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, public local sign-in, and the refresh-capable local sign-in design decision above.
 - Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
 - Additional OpenAPI auth paths beyond local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
 - Generated clients.
 - Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
-- Refresh-capable local sign-in integration.
+- Runtime implementation of refresh-capable local sign-in integration.
 - Session middleware implementation.
 - Authorization handlers.
 - UI integration.
@@ -292,5 +325,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add refresh-capable local sign-in integration only after initial refresh credential issuance is separately reviewed.
-2. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+1. Implement refresh-capable local sign-in using the request/response and lifetime decision above.
+2. Update the public sign-in OpenAPI schema before generated clients exist, then generate clients only in a separate reviewed slice.
+3. Add auth middleware and authorization handoff after endpoint-level behavior is proven.

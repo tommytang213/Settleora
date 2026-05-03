@@ -54,6 +54,8 @@ Safe session lifetime configuration uses duration values only:
 
 The current no-refresh sign-in/session runtime uses only `CurrentAccessSessionDefaultLifetime` and `CurrentAccessSessionMaxLifetime`. The internal refresh session runtime and public refresh endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. These values still do not add generated clients, middleware, UI behavior, or refresh-capable local sign-in integration.
 
+Design note: the reviewed refresh-capable sign-in direction is documented in `docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md` and `docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md`. The next local sign-in implementation should issue refresh-capable sessions by default, return only `session` plus `refreshCredential` credential material once, remove public `requestedSessionLifetimeMinutes` before generated clients exist, use `RefreshAccessSessionDefaultLifetime` for sign-in-created access sessions, and let clients call `GET /api/v1/auth/current-user` to initialize actor/profile/role state. This README note does not change current endpoint behavior or the OpenAPI contract.
+
 The PostgreSQL, RabbitMQ, and storage readiness checks run only when `GET /health/ready` is requested; API startup does not connect to PostgreSQL or RabbitMQ, touch storage, or run migrations. The `/health` and `/health/ready` endpoints do not expose configuration details, storage roots, or physical paths.
 
 Migration apply validation is available from the repo root:

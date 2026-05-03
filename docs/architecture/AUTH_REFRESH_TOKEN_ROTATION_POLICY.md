@@ -2,7 +2,7 @@
 
 This document defines Settleora's policy for refresh-like credentials and session continuity. It exists so internal refresh-token generation, rotation, replay detection, session-family revocation, the public refresh endpoint, and future refresh-adjacent work stay aligned with reviewed security behavior.
 
-The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, and the first public refresh endpoint plus OpenAPI contract. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or refresh-capable local sign-in integration.
+The current repository now includes the reviewed persistence foundation for session families and refresh credential history described here, an internal refresh session runtime service foundation, the first public refresh endpoint plus OpenAPI contract, and the design decision for future refresh-capable local sign-in. This document still does not authorize generated clients, middleware, authorization handlers, package changes, Docker behavior changes, UI behavior, or refresh-capable local sign-in runtime implementation.
 
 ## Purpose
 
@@ -49,7 +49,7 @@ The current refresh/session-family schema foundation supports:
 
 The internal refresh session runtime can create a refresh-capable access session, session family, and initial refresh-like credential for an existing active auth account. It can rotate a submitted raw refresh-like credential, consume the old credential, create a replacement access session and refresh-like credential in the same family, classify expired/revoked/rotated/replayed/inactive/account-unavailable/persistence failures through internal statuses, and conservatively mark or revoke linked families and active family credentials/sessions when replay, expiry, or account-unavailable conditions require it. The service stores only deterministic credential hashes and writes bounded safe audit metadata.
 
-`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, refresh-capable local sign-in integration, middleware, authorization handlers, and UI flows remain separate future slices.
+`POST /api/v1/auth/refresh` now exposes the first public refresh endpoint. It authenticates only the submitted refresh-like credential through the internal refresh runtime, returns a new raw access-session token and replacement refresh-like credential only once on success, and maps ordinary refresh failures to one generic public `401` problem response. Generated auth client support, refresh-capable local sign-in implementation, middleware, authorization handlers, and UI flows remain separate future slices. The local sign-in decision below resolves the initial credential issuance model before that public contract is changed.
 
 ## Terminology
 
@@ -79,6 +79,39 @@ Reasons:
 The public refresh endpoint authenticates the submitted refresh-like credential through the auth runtime boundary, rotates it on success, and returns a new raw access-session credential and new raw refresh-like credential only once.
 
 If a future review chooses cookies, JWTs, proof-of-possession tokens, device-bound credentials, or external identity-provider refresh tokens, that choice must be reviewed separately and must still preserve the storage, revocation, replay, audit, and privacy rules in this document.
+
+## Initial Refresh-Capable Local Sign-In Decision
+
+Now that the public refresh endpoint and internal refresh runtime exist, local sign-in should issue refresh-capable sessions by default in the next implementation slice. Local sign-in is the start of a session family: after local credential verification and sign-in abuse policy checks pass, the API should create the access session, session family, and initial refresh-like credential through the internal refresh session runtime boundary rather than creating a long-lived no-refresh access session.
+
+The future public sign-in success response should use the same minimal credential envelope as public refresh:
+
+```json
+{
+  "session": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "token": "raw-access-session-token-returned-once",
+    "expiresAtUtc": "2026-05-03T00:15:00Z"
+  },
+  "refreshCredential": {
+    "token": "raw-refresh-like-credential-returned-once",
+    "idleExpiresAtUtc": "2026-05-10T00:00:00Z",
+    "absoluteExpiresAtUtc": "2026-06-02T00:00:00Z"
+  }
+}
+```
+
+The sign-in response should return `session.id`, `session.token`, `session.expiresAtUtc`, `refreshCredential.token`, `refreshCredential.idleExpiresAtUtc`, and `refreshCredential.absoluteExpiresAtUtc`. It should not return refresh credential IDs, session family IDs, token hashes, audit metadata, credential status, revocation reason, replay state, provider payloads, diagnostics, storage paths, or policy internals.
+
+The sign-in response should not return `authAccountId` or `userProfileId` once the refresh-capable contract is adopted. Clients should call `GET /api/v1/auth/current-user` with the returned access-session credential to initialize authenticated actor, profile, session, and role state. That keeps sign-in focused on one-time credential issuance and keeps profile/role bootstrapping behind the existing bearer-session validation boundary.
+
+`requestedSessionLifetimeMinutes` should be removed from the public `LocalSignInRequest` before generated clients exist. Public clients should not be able to request longer access-session lifetimes once sign-in returns a refresh-like credential. A deprecated compatibility field should be avoided unless a later review proves removal is too disruptive; if kept temporarily, it must have strict no-refresh-only semantics and must not lengthen refresh-mode access sessions.
+
+Refresh-capable sign-in access sessions should use `Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime`, not the current 8-hour no-refresh access-session default. Refresh idle and absolute expiry should come from the same typed `Settleora:Auth:Sessions` refresh policy already used by the internal refresh runtime and public refresh endpoint.
+
+Ordinary sign-in failures should keep the uniform public sign-in failure response and must not reveal whether the account, identity, credential, session family, or policy state exists. Throttled attempts may keep the existing generic public too-many-attempts response. Public failure bodies must not disclose credential-verification state, account state, refresh eligibility, family creation state, expiry policy, or policy counters.
+
+This design does not change the current OpenAPI contract or endpoint behavior. The later implementation slice should update the public sign-in endpoint, endpoint tests, OpenAPI request/response schemas, and documentation together, then defer generated clients to a separate reviewed client-generation slice unless that slice explicitly approves them.
 
 ## Storage Rules
 
@@ -173,7 +206,7 @@ Settleora:Auth:Sessions:RefreshAbsoluteLifetime=30.00:00:00
 Settleora:Auth:Sessions:ClockSkewAllowance=00:02:00
 ```
 
-The existing no-refresh sign-in/session runtime uses the current access-session default and max. The internal refresh session runtime and public refresh endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. These configuration values still do not add generated clients, middleware, UI behavior, or refresh-capable local sign-in integration.
+The existing no-refresh sign-in/session runtime uses the current access-session default and max. The internal refresh session runtime and public refresh endpoint use the refresh-mode access-session lifetime, refresh idle timeout, refresh absolute lifetime, and clock-skew allowance for refresh-like credential creation and rotation. Once refresh-capable local sign-in is implemented, sign-in-created access sessions should also use the refresh-mode access-session lifetime and should not accept a public client override for a longer access-session lifetime. These configuration values still do not add generated clients, middleware, UI behavior, or refresh-capable local sign-in runtime implementation.
 
 Idle timeout and absolute timeout are different:
 
@@ -357,12 +390,13 @@ This document does not authorize:
 - JWT, cookie, proof-of-possession, external-provider refresh-token, or secret-provider implementation choices.
 - Admin session-management endpoints.
 - Password reset, recovery, MFA, passkey, or provider-token storage behavior.
-- Refresh-capable local sign-in integration that issues an initial refresh-like credential.
+- Runtime implementation of refresh-capable local sign-in that issues an initial refresh-like credential.
 
 ## Next Implementation Candidates
 
 Future branches should stay small and reviewable:
 
-1. Add refresh-capable local sign-in integration only after reviewing the initial credential issuance response shape.
-2. Add generated clients and UI integration only after the OpenAPI contract is reviewed.
-3. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.
+1. Implement refresh-capable local sign-in using the initial credential issuance response shape defined above.
+2. Update the public sign-in OpenAPI request and response schemas in that implementation slice before generated clients exist.
+3. Add generated clients and UI integration only after the updated OpenAPI contract is reviewed.
+4. Add distributed deployment hardening, keyed hash secret rotation, retention cleanup, and admin revocation only in separate reviewed slices.
