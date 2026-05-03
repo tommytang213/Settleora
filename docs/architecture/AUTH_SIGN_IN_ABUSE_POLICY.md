@@ -1,8 +1,8 @@
 # Auth Sign-In Abuse Policy
 
-This document defines Settleora's local sign-in abuse policy before any public login, sign-in, or token issuance endpoint exists.
+This document defines Settleora's local sign-in abuse policy for the public local sign-in endpoint and the internal sign-in orchestration boundary.
 
-It began as a design gate and now also records the implemented internal policy and local sign-in orchestration boundaries. It does not authorize endpoint implementation, OpenAPI auth paths, generated clients, UI behavior, migrations, package changes, Docker changes, or public sign-in behavior by itself.
+It began as a design gate and now also records the implemented internal policy, local sign-in orchestration boundary, and first public local sign-in endpoint. It does not authorize generated clients, UI behavior, migrations, package changes, Docker changes, registration, sign-out, refresh-token runtime, session list/revocation, or additional auth endpoints by itself.
 
 ## Purpose
 
@@ -26,9 +26,10 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - The internal password hashing service exists for Argon2id password verifier creation and verification.
 - The internal credential workflow service exists for EF-backed local password credential creation, password verification, safe credential audit writes, and rehash after successful verification.
 - The internal session runtime service exists for opaque session creation, validation, revocation, token hashing, and bounded session audit writes.
+- `POST /api/v1/auth/sign-in` exists and exposes the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` exists and validates an existing opaque session token into a minimal current actor/profile/session/role response.
 - An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and session creation.
-- Public login, sign-in, registration, token issuance, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
+- Public registration, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
 ## Implemented Internal Policy Boundary
@@ -42,7 +43,7 @@ The first internal service boundary now exists under the API auth layer.
 - Bucket keys must be caller-provided safe, bounded values such as normalized hashes or coarse source buckets. The service rejects blank, oversized, or unsafe keys and its result strings do not include raw identifier or source keys.
 - The implementation does not query accounts, identities, credentials, sessions, or audit rows, so it cannot reveal whether an account exists.
 
-This boundary deliberately remains internal-only. It does not add public login/sign-in behavior, OpenAPI paths, generated clients, migrations, packages, Docker changes, distributed limiter storage, password reset, MFA, passkeys, token issuance, sign-out, session list/revocation, or auth middleware.
+This policy service boundary deliberately remains internal-only. It does not by itself add generated clients, migrations, packages, Docker changes, distributed limiter storage, password reset, MFA, passkeys, sign-out, session list/revocation, or auth middleware.
 
 ## Implemented Internal Sign-In Orchestration Boundary
 
@@ -56,6 +57,17 @@ The internal local sign-in orchestration boundary now exists under the API auth 
 - Its results use bounded internal statuses such as signed-in, invalid credentials, throttled, and session-creation failed. Success returns the raw session token only through the result object and result strings do not include raw identifiers, normalized identifiers, passwords, source keys, token material, hashes, verifiers, or credential details.
 
 Sign-in-specific `auth_audit_events` are deferred to a later reviewed branch so audit metadata and public endpoint response behavior can be designed together. Existing credential and session runtime services still write their bounded credential/session audit events during verification and session creation.
+
+## Implemented Public Sign-In Endpoint
+
+The implemented public endpoint is `POST /api/v1/auth/sign-in`.
+
+- It accepts JSON only with `identifier`, `password`, optional `deviceLabel`, and optional bounded `requestedSessionLifetimeMinutes`.
+- It derives a conservative fixed single-node source bucket internally and does not accept source keys from clients.
+- It does not parse forwarded proxy headers, store full IP addresses, or pass full user-agent strings in this first endpoint slice.
+- It calls `ILocalSignInService.SignInAsync(...)` and does not reimplement identity lookup, credential verification, session creation, or abuse-policy logic in the endpoint.
+- It maps ordinary failures to a generic `401 application/problem+json` and throttled failures to a generic `429 application/problem+json`.
+- On success, it returns only auth account ID, user profile ID, session ID, raw opaque session token, and session expiry. The raw token is returned only in that success response.
 
 ## Threat Model
 
@@ -240,10 +252,10 @@ Session creation must happen after password verification and policy approval. Cr
 
 This branch does not authorize:
 
-- Additional runtime implementation beyond the internal policy and local sign-in orchestration boundaries described above.
-- Endpoint code.
-- Login or sign-in OpenAPI paths.
-- Token issuance.
+- Additional runtime implementation beyond the internal policy, local sign-in orchestration, current-user, and public local sign-in boundaries described above.
+- Additional auth endpoint code.
+- Additional login or sign-in OpenAPI paths.
+- Refresh-token issuance.
 - Session middleware.
 - Generated clients.
 - UI, mobile, web, or admin changes.
@@ -259,8 +271,7 @@ This branch does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add the sign-in endpoint and OpenAPI path only after this internal orchestration boundary and the public response shape are reviewed together.
-2. Wire safe sign-in audit events to the policy decisions in a future sign-in audit branch.
-3. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
-4. Add password reset and account recovery design separately.
-5. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.
+1. Wire safe sign-in audit events to the policy decisions in a future sign-in audit branch.
+2. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
+3. Add password reset and account recovery design separately.
+4. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.

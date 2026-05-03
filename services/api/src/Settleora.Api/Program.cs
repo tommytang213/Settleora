@@ -26,6 +26,7 @@ builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck
 var app = builder.Build();
 
 app.MapHealthEndpoints();
+app.MapLocalSignInEndpoints();
 app.MapCurrentUserEndpoints();
 
 app.Run();

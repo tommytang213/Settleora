@@ -9,9 +9,10 @@ info:
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
     and web clients will be produced from this file later, and generated output
     must not be manually edited. This contract currently covers scaffold health
-    checks and the minimal current-user auth read boundary; it is not the
-    feature contract for login, registration, token issuance, expenses,
-    settlement, sync, OCR upload, users, or database behavior.
+    checks, local sign-in, and the minimal current-user auth read boundary; it
+    is not the feature contract for registration, sign-out, refresh-token
+    rotation, session management, expenses, settlement, sync, OCR upload, users,
+    or database behavior.
 servers:
   - url: /
 paths:
@@ -150,6 +151,43 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/sign-in:
+    post:
+      summary: Local sign-in
+      description: Authenticates a local account with an identifier and password, returning an opaque session token only on success.
+      operationId: signInLocal
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalSignInRequest"
+      responses:
+        "200":
+          description: Local sign-in succeeded and returned a new session token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalSignInResponse"
+        "401":
+          description: Sign-in failed without revealing account, credential, or policy state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many sign-in attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/auth/current-user:
     get:
       summary: Current authenticated user
@@ -183,6 +221,69 @@ components:
       scheme: bearer
       bearerFormat: opaque-session-token
   schemas:
+    LocalSignInRequest:
+      type: object
+      description: Local-account sign-in request. Source, network, and policy bucket details are derived server-side.
+      additionalProperties: false
+      required:
+        - identifier
+        - password
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Submitted local account identifier.
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 4096
+          description: Submitted local account password. The API never stores this plaintext value.
+        deviceLabel:
+          type: string
+          maxLength: 120
+          description: Optional display label for the newly created session.
+        requestedSessionLifetimeMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 43200
+          description: Optional requested session lifetime, capped by the API.
+    LocalSignInResponse:
+      type: object
+      description: Minimal local sign-in success response. The raw session token is returned only once.
+      required:
+        - authAccountId
+        - userProfileId
+        - session
+      properties:
+        authAccountId:
+          type: string
+          format: uuid
+        userProfileId:
+          type: string
+          format: uuid
+        session:
+          $ref: "#/components/schemas/LocalSignInSession"
+    LocalSignInSession:
+      type: object
+      description: Newly created opaque session returned from local sign-in.
+      required:
+        - id
+        - token
+        - expiresAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          minLength: 1
+          description: Opaque raw session token returned once on sign-in success.
+        expiresAtUtc:
+          type: string
+          format: date-time
     CurrentUserResponse:
       type: object
       description: Minimal current authenticated actor, profile, session, and system-role summary.

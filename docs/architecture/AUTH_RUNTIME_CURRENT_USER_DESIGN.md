@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff.
 
-It started as a design gate. The current repository now includes the explicitly scoped current-user read endpoint described below; remaining auth runtime work still requires separate reviewed branches before login, registration, token issuance, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped local sign-in endpoint and current-user read endpoint described below; remaining auth runtime work still requires separate reviewed branches before registration, sign-out, refresh-token runtime, session management, generated clients, middleware, UI integration, migrations, package changes, Docker changes, or worker behavior are added.
 
 ## Current State
 
@@ -15,8 +15,9 @@ It started as a design gate. The current repository now includes the explicitly 
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
 - An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, and session creation.
+- `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
-- No public registration, login, sign-out, session-list, session-revocation, authorization middleware, token issuance, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- No public registration, sign-out, session-list, session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -33,13 +34,11 @@ Future implementation should keep runtime auth decisions behind cohesive API/dom
 
 ## Sign-In Boundary
 
-Future local sign-in may accept an identifier and password only at a separately approved endpoint. Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts remain future proposals until that branch explicitly reviews them.
+The implemented local sign-in endpoint accepts identifier and password input at `POST /api/v1/auth/sign-in`, calls the internal local sign-in orchestration service, maps ordinary failures to a generic `401`, and maps throttled failures to a generic `429` without exposing account, identity, credential, or policy state.
 
-Future sign-in endpoint work is also gated by [AUTH_SIGN_IN_ABUSE_POLICY.md](AUTH_SIGN_IN_ABUSE_POLICY.md), which defines account enumeration resistance, rate limiting, lockout/throttling, credential-stuffing defense, audit categories, and operational diagnostics boundaries before public login or token issuance exists.
+Local sign-in endpoint work is governed by [AUTH_SIGN_IN_ABUSE_POLICY.md](AUTH_SIGN_IN_ABUSE_POLICY.md), which defines account enumeration resistance, rate limiting, lockout/throttling, credential-stuffing defense, audit categories, and operational diagnostics boundaries.
 
-The internal local sign-in orchestration service now prepares this flow without adding a public endpoint. Future endpoint code should call that service, then map ordinary failures to a generic `401` and throttled failures to a generic `429` without exposing account, identity, credential, or policy state.
-
-A future local sign-in flow should:
+The local sign-in flow should:
 
 - Accept only the minimum identifier and password input needed for the selected sign-in policy.
 - Normalize and resolve the local identity safely through an API/domain auth service.
@@ -100,6 +99,20 @@ The implemented slice adds `GET /api/v1/auth/current-user`.
 - It does not expose unrelated users, groups, memberships, invitations, audit history, credential rows, session token hashes, raw tokens, password verifier fields, provider payloads, storage paths, or diagnostics.
 
 This slice deliberately does not add login, registration, token issuance, refresh rotation, sign-out, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+
+## Implemented Local Sign-In Endpoint
+
+The implemented slice adds `POST /api/v1/auth/sign-in`.
+
+- It accepts JSON only with `identifier`, `password`, optional `deviceLabel`, and optional bounded `requestedSessionLifetimeMinutes`.
+- It derives a conservative fixed single-node source bucket internally and does not accept caller-provided source keys.
+- It does not parse forwarded proxy headers, store full IP addresses, or pass full user-agent strings in this first endpoint slice.
+- It calls `ILocalSignInService.SignInAsync(...)` and keeps endpoint code out of identity lookup, password verification, session persistence, and abuse-policy counter logic.
+- It returns a minimal success response with `authAccountId`, `userProfileId`, `session.id`, `session.token`, and `session.expiresAtUtc`.
+- It returns the raw opaque session token only in the success response and does not return token hashes, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, or diagnostics.
+- It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
+
+This slice deliberately does not add registration, sign-out, refresh rotation, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Authorization Handoff
 
@@ -163,13 +176,13 @@ The implemented internal service boundary:
 
 This document does not authorize:
 
-- Additional runtime implementation beyond the current-user read and internal local sign-in orchestration boundaries.
-- Additional endpoint code beyond the current-user read boundary.
-- Additional OpenAPI auth paths.
+- Additional runtime implementation beyond the current-user read and public local sign-in boundaries.
+- Additional endpoint code beyond the current-user read and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond local sign-in and current-user.
 - Generated clients.
-- Login endpoint implementation.
+- Additional login endpoint implementation.
 - Additional current-user behavior beyond the implemented read endpoint.
-- Token issuance implementation.
+- Refresh-token issuance implementation.
 - Session middleware implementation.
 - Authorization handlers.
 - UI integration.
@@ -186,8 +199,7 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add local sign-in endpoint and OpenAPI path only after this internal service boundary and the public response behavior are reviewed together.
-2. Connect future sign-in runtime outcomes to safe audit writes without exposing account existence or raw request metadata.
-3. Add sign-out and per-session revocation after the session service boundary is in place.
-4. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
-5. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+1. Connect future sign-in runtime outcomes to safe audit writes without exposing account existence or raw request metadata.
+2. Add sign-out and per-session revocation after the session service boundary is in place.
+3. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+4. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
