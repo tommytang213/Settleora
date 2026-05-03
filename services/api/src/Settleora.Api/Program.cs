@@ -1,3 +1,4 @@
+using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.CurrentUser;
 using Settleora.Api.Auth.PasswordHashing;
@@ -15,6 +16,7 @@ builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
+builder.Services.AddSettleoraAuth();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
@@ -24,6 +26,9 @@ builder.Services.AddSingleton<IRabbitMqReadinessCheck, RabbitMqReadinessCheck>()
 builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck>();
 
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapHealthEndpoints();
 app.MapLocalSignInEndpoints();

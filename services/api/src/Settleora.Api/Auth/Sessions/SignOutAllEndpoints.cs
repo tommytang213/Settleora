@@ -1,3 +1,5 @@
+using Settleora.Api.Auth.Authorization;
+
 namespace Settleora.Api.Auth.Sessions;
 
 internal static class SignOutAllEndpoints
@@ -10,35 +12,25 @@ internal static class SignOutAllEndpoints
 
     public static WebApplication MapSignOutAllEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/sign-out-all", SignOutAllAsync);
+        app.MapPost("/api/v1/auth/sign-out-all", SignOutAllAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
     private static async Task<IResult> SignOutAllAsync(
-        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
         IAuthSessionRuntimeService sessionRuntimeService,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
-        if (rawSessionToken is null)
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
 
-        var validationResult = await sessionRuntimeService.ValidateSessionAsync(
-            rawSessionToken,
-            cancellationToken);
-        if (!validationResult.Succeeded || validationResult.Actor is null)
-        {
-            return validationResult.Status is AuthSessionValidationStatus.PersistenceFailed
-                ? SignOutAllFailed()
-                : Unauthenticated();
-        }
-
         var revocationResult = await sessionRuntimeService.RevokeActiveSessionsForAccountAsync(
             new AuthAccountSessionRevocationRequest(
-                validationResult.Actor.AuthAccountId,
+                actor.AuthAccountId,
                 UserSignOutAllRevocationReason),
             cancellationToken);
 

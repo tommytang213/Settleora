@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before middleware, UI integration, additional generated-client changes, migrations, package changes, Docker changes, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional generated-client changes, migrations, package changes, Docker changes, business authorization handlers, or worker behavior are added.
 
 ## Current State
 
@@ -23,8 +23,12 @@ It started as a design gate. The current repository now includes the explicitly 
 - `GET /api/v1/auth/sessions` now exists as a focused public endpoint for listing safe active-session metadata owned by the authenticated auth account.
 - `DELETE /api/v1/auth/sessions/{sessionId}` now exists as a focused public endpoint for revoking one session owned by the authenticated auth account.
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
+- `SettleoraSession` now exists as the first server-side bearer authentication scheme. It validates opaque access-session credentials only through `IAuthSessionRuntimeService.ValidateSessionAsync`, produces bounded actor and system-role claims, and returns the same safe unauthenticated problem response for missing, malformed, unavailable, expired, revoked, inactive, disabled-account, deleted-account, or otherwise invalid sessions.
+- `ICurrentActorAccessor` and `AuthenticatedActor` now expose server-derived auth account, user profile, auth session, expiry, and role context to endpoint/domain code after middleware validation. They do not consume client-submitted profile IDs.
+- Authorization policy foundations now exist as `Settleora.AuthenticatedUser`, `Settleora.SystemRole.Owner`, `Settleora.SystemRole.Admin`, and `Settleora.SystemRole.User`.
+- `GET /api/v1/auth/current-user`, `POST /api/v1/auth/sign-out`, `POST /api/v1/auth/sign-out-all`, `GET /api/v1/auth/sessions`, and `DELETE /api/v1/auth/sessions/{sessionId}` now use the middleware handoff instead of manually parsing bearer tokens in each endpoint.
 - Generated web and Dart client foundations exist from the OpenAPI contract.
-- No public registration, arbitrary or admin session-revocation, authorization middleware, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, business authorization handlers, or business endpoints exist yet.
 
 ## Runtime Authority Model
 
@@ -96,16 +100,30 @@ The current-user boundary is a read boundary for the authenticated actor. It is 
 
 ## Implemented Current-User Endpoint
 
-The implemented slice adds `GET /api/v1/auth/current-user`.
+The implemented current-user endpoint is `GET /api/v1/auth/current-user`.
 
-- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
-- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` and relies on the internal session runtime to reject missing, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions.
-- After validation succeeds, it resolves the linked non-deleted `UserProfile` server-side and loads `system_role_assignments` for the authenticated auth account.
+- It is protected by the `Settleora.AuthenticatedUser` policy and the `SettleoraSession` scheme.
+- The middleware accepts `Authorization: Bearer <opaque-session-token>`, parses the bearer value through the existing bearer-token reader, and calls `IAuthSessionRuntimeService.ValidateSessionAsync`.
+- After middleware validation succeeds, the endpoint resolves the linked non-deleted `UserProfile` server-side and returns system roles from bounded role claims generated from `system_role_assignments`.
 - It returns only `authAccountId`, `userProfile.id`, `userProfile.displayName`, `userProfile.defaultCurrency`, `session.id`, `session.expiresAtUtc`, and `roles`.
 - It maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, missing-profile, and deleted-profile cases to one uniform `401` problem response.
 - It does not expose unrelated users, groups, memberships, invitations, audit history, credential rows, session token hashes, raw tokens, password verifier fields, provider payloads, storage paths, or diagnostics.
 
-This slice deliberately does not add login, registration, token issuance, refresh rotation, sign-out, session list/revocation endpoints, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add login, registration, token issuance, refresh rotation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+
+## Implemented Auth Middleware And Authorization Handoff
+
+The implemented middleware foundation adds the `SettleoraSession` authentication scheme and the first stable authorization policies.
+
+- `SettleoraSession` runs only when endpoint authorization asks for it; sign-in, refresh, health, readiness, and unmatched routes remain anonymous and do not validate bearer headers by default.
+- The scheme reads `Authorization: Bearer <opaque-session-token>` using the existing bearer-token reader and delegates session validity only to `IAuthSessionRuntimeService.ValidateSessionAsync`.
+- Successful authentication creates only bounded claims for auth account ID, user profile ID, auth session ID, session expiry, and supported system roles.
+- Supported role claims come from `system_role_assignments` and are limited to `owner`, `admin`, and `user`.
+- The scheme and actor accessor do not expose or store raw bearer tokens, token hashes, password material, refresh credential material, provider payloads, storage paths, or policy internals in claims or errors.
+- `ICurrentActorAccessor` resolves `AuthenticatedActor` from `HttpContext.User` after middleware validation. It does not accept client-submitted profile IDs or route data as actor proof.
+- `Settleora.AuthenticatedUser` requires a successfully authenticated Settleora session actor.
+- `Settleora.SystemRole.Owner`, `Settleora.SystemRole.Admin`, and `Settleora.SystemRole.User` require the matching generated system role claim.
+- Existing authenticated auth endpoints now consume the current actor handoff, while their public OpenAPI contract and response shapes remain unchanged.
 
 ## Implemented Local Sign-In Endpoint
 
@@ -121,7 +139,7 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 - It returns the raw access-session token and raw refresh-like credential only in the success response and does not return `authAccountId`, `userProfileId`, token hashes, refresh credential IDs, session family IDs, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, policy internals, or diagnostics.
 - It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
 
-This slice deliberately did not add registration, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes. Separate slices added the public refresh endpoint, sign-out, sign-out-all, session list, and session revocation endpoints.
+This endpoint still does not add registration, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes. Separate slices added the public refresh endpoint, sign-out, sign-out-all, session list, session revocation endpoints, and middleware handoff foundation.
 
 ## Refresh-Capable Sign-In Contract Decision
 
@@ -170,27 +188,27 @@ The implemented slice adds `POST /api/v1/auth/refresh`.
 - It maps persistence failures to a generic `500` problem response.
 - It does not expose auth account IDs, user profile IDs, session-family IDs, refresh credential IDs, token hashes, audit metadata, credential status, revocation reasons, replay status, account state, provider payloads, diagnostics, storage paths, or policy internals.
 
-This slice deliberately does not add generated clients, mobile/web/admin UI behavior, auth middleware/global authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
+This endpoint still does not add generated clients, mobile/web/admin UI behavior, business authorization handlers, migrations/schema changes, package changes, Docker/CI behavior changes, password hashing changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Session Sign-Out Endpoint
 
 The implemented slice adds `POST /api/v1/auth/sign-out`.
 
-- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
-- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user.
-- After validation succeeds, it calls `IAuthSessionRuntimeService.RevokeSessionAsync` for the same `AuthAccountId` and `AuthSessionId` with the bounded reason `user_sign_out`.
+- It is protected by the `Settleora.AuthenticatedUser` policy and the `SettleoraSession` scheme.
+- Middleware validation maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user.
+- After validation succeeds, the endpoint uses `ICurrentActorAccessor` and calls `IAuthSessionRuntimeService.RevokeSessionAsync` for the same `AuthAccountId` and `AuthSessionId` with the bounded reason `user_sign_out`.
 - It returns `204 No Content` on revocation success and also treats a rare already-revoked race after validation as idempotent success.
 - It does not require a request body and does not expose raw tokens, session token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
 
-This slice deliberately does not add registration, refresh rotation, session list, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Implemented Current-Account Sign-Out-All Endpoint
 
 The implemented slice adds `POST /api/v1/auth/sign-out-all`.
 
-- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
-- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid current sessions to the same uniform `401` problem response used by current-user, current-session sign-out, session list, and per-session revocation.
-- After validation succeeds, it calls `IAuthSessionRuntimeService.RevokeActiveSessionsForAccountAsync` with the validated `AuthAccountId` and bounded reason `user_sign_out_all`.
+- It is protected by the `Settleora.AuthenticatedUser` policy and the `SettleoraSession` scheme.
+- Middleware validation maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid current sessions to the same uniform `401` problem response used by current-user, current-session sign-out, session list, and per-session revocation.
+- After validation succeeds, the endpoint uses `ICurrentActorAccessor` and calls `IAuthSessionRuntimeService.RevokeActiveSessionsForAccountAsync` with the current actor's `AuthAccountId` and bounded reason `user_sign_out_all`.
 - The internal session runtime boundary owns the account filter and only revokes active sessions for that authenticated account.
 - It revokes the submitted current session and all other active sessions for the same auth account.
 - It returns `204 No Content` on success and does not return a count or response body.
@@ -198,34 +216,34 @@ The implemented slice adds `POST /api/v1/auth/sign-out-all`.
 - It does not accept account IDs, session IDs, user/profile IDs, request body filters, or admin override fields.
 - It does not expose raw tokens, session token hashes, refresh token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, ownership hints, or storage paths.
 
-This slice deliberately does not add registration, refresh-token generation, refresh rotation, refresh replay detection, arbitrary/admin session revocation, auth middleware/global authorization handlers, generated client changes, UI/mobile/web/admin behavior, EF migrations/schema changes, package changes, Docker/CI behavior changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
+This endpoint still does not add registration, refresh-token generation, refresh rotation, refresh replay detection, arbitrary/admin session revocation, business authorization handlers, generated client changes, UI/mobile/web/admin behavior, EF migrations/schema changes, package changes, Docker/CI behavior changes, worker behavior, password reset/recovery, MFA/passkeys, or persistent/distributed limiter storage.
 
 ## Implemented Current-Account Session List Endpoint
 
 The implemented slice adds `GET /api/v1/auth/sessions`.
 
-- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
-- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user, sign-out, and sign-out-all.
-- After validation succeeds, it queries only `auth_sessions` rows where `AuthAccountId` matches the validated actor.
+- It is protected by the `Settleora.AuthenticatedUser` policy and the `SettleoraSession` scheme.
+- Middleware validation maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid sessions to the same uniform `401` problem response used by current-user, sign-out, and sign-out-all.
+- After validation succeeds, the endpoint uses `ICurrentActorAccessor` and queries only `auth_sessions` rows where `AuthAccountId` matches the current actor.
 - It returns a capped list of active, non-revoked, non-expired sessions with only `id`, `isCurrent`, `status`, `issuedAtUtc`, `expiresAtUtc`, `lastSeenAtUtc`, and `deviceLabel`.
 - It marks the current validated session with `isCurrent: true`.
 - It does not accept account IDs, session IDs, or a request body, and does not expose raw tokens, session token hashes, refresh token hashes, network address hashes, user-agent summaries, revocation reasons, credential state, audit metadata, provider payloads, diagnostics, or storage paths.
 
-This slice deliberately does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Implemented Current-Account Session Revocation Endpoint
 
 The implemented slice adds `DELETE /api/v1/auth/sessions/{sessionId}`.
 
-- It accepts `Authorization: Bearer <opaque-session-token>` and parses the bearer value inside the endpoint boundary rather than adding global auth middleware.
+- It is protected by the `Settleora.AuthenticatedUser` policy and the `SettleoraSession` scheme.
 - It uses the route constraint `{sessionId:guid}`, so invalid session IDs do not hit the endpoint handler.
-- It calls `IAuthSessionRuntimeService.ValidateSessionAsync` first and maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid current sessions to the same uniform `401` problem response used by current-user, sign-out, sign-out-all, and session list.
-- After validation succeeds, it calls `IAuthSessionRuntimeService.RevokeSessionAsync` with the validated `AuthAccountId`, requested `sessionId`, and bounded reason `user_session_revoke`.
+- Middleware validation maps missing, malformed, wrong, expired, revoked, inactive, disabled-account, deleted-account, or policy-invalid current sessions to the same uniform `401` problem response used by current-user, sign-out, sign-out-all, and session list.
+- After validation succeeds, the endpoint uses `ICurrentActorAccessor` and calls `IAuthSessionRuntimeService.RevokeSessionAsync` with the current actor's `AuthAccountId`, requested `sessionId`, and bounded reason `user_session_revoke`.
 - It returns `204 No Content` only when revocation succeeds. Missing, not-owned, already revoked, or inactive target sessions return a safe `404` problem response without revealing ownership or target state.
 - The endpoint allows revoking the current session itself. That path uses the same `user_session_revoke` reason and leaves the submitted bearer token unusable afterward.
 - It does not expose raw tokens, session token hashes, refresh token hashes, account/profile details, credential state, audit metadata, provider payloads, diagnostics, ownership hints, or storage paths.
 
-This slice deliberately does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, authorization middleware, authorization handlers, migrations, package changes, or Docker/CI behavior changes.
+This endpoint still does not add registration, refresh rotation, arbitrary/admin session revocation, generated clients, UI/mobile/web/admin behavior, business authorization handlers, migrations, package changes, or Docker/CI behavior changes.
 
 ## Authorization Handoff
 
@@ -310,8 +328,8 @@ This document does not authorize:
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
-- Session middleware implementation.
-- Authorization handlers.
+- Additional auth middleware behavior beyond the `SettleoraSession` scheme.
+- Business authorization handlers beyond the authenticated-user and system-role policy foundation.
 - UI integration.
 - Mobile, web, or admin changes.
 - Worker auth behavior.
@@ -326,6 +344,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Add auth middleware and authorization handoff after endpoint-level behavior is proven.
+1. Add business endpoint authorization policy design and handlers after the current actor boundary is proven.
 2. Add UI integration over the generated client foundations only in separate reviewed slices.
 3. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.

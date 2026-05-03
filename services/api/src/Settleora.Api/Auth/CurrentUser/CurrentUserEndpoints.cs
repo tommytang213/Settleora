@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Sessions;
-using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
@@ -13,39 +13,27 @@ internal static class CurrentUserEndpoints
 
     public static WebApplication MapCurrentUserEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/auth/current-user", GetCurrentUserAsync);
+        app.MapGet("/api/v1/auth/current-user", GetCurrentUserAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
     private static async Task<IResult> GetCurrentUserAsync(
-        HttpRequest request,
-        IAuthSessionRuntimeService sessionRuntimeService,
+        ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
-        if (rawSessionToken is null)
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
 
-        var validationResult = await sessionRuntimeService.ValidateSessionAsync(
-            rawSessionToken,
-            cancellationToken);
-        if (!validationResult.Succeeded || validationResult.Actor is null)
-        {
-            return Unauthenticated();
-        }
-
-        return await BuildCurrentUserResponseAsync(
-            validationResult.Actor,
-            dbContext,
-            cancellationToken);
+        return await BuildCurrentUserResponseAsync(actor, dbContext, cancellationToken);
     }
 
     private static async Task<IResult> BuildCurrentUserResponseAsync(
-        AuthenticatedSessionActor actor,
+        AuthenticatedActor actor,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -61,13 +49,6 @@ internal static class CurrentUserEndpoints
             return Unauthenticated();
         }
 
-        var roles = await dbContext.Set<SystemRoleAssignment>()
-            .AsNoTracking()
-            .Where(roleAssignment => roleAssignment.AuthAccountId == actor.AuthAccountId)
-            .Select(roleAssignment => roleAssignment.Role)
-            .ToListAsync(cancellationToken);
-        roles.Sort(CompareSystemRoles);
-
         return Results.Ok(new CurrentUserResponse(
             actor.AuthAccountId,
             new CurrentUserProfileResponse(
@@ -77,7 +58,7 @@ internal static class CurrentUserEndpoints
             new CurrentUserSessionResponse(
                 actor.AuthSessionId,
                 actor.SessionExpiresAtUtc),
-            roles));
+            actor.SystemRoles));
     }
 
     private static IResult Unauthenticated()
@@ -88,22 +69,4 @@ internal static class CurrentUserEndpoints
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    private static int CompareSystemRoles(string left, string right)
-    {
-        var sortIndexComparison = GetSystemRoleSortIndex(left).CompareTo(GetSystemRoleSortIndex(right));
-        return sortIndexComparison != 0
-            ? sortIndexComparison
-            : StringComparer.Ordinal.Compare(left, right);
-    }
-
-    private static int GetSystemRoleSortIndex(string role)
-    {
-        return role switch
-        {
-            SystemRoles.Owner => 0,
-            SystemRoles.Admin => 1,
-            SystemRoles.User => 2,
-            _ => int.MaxValue
-        };
-    }
 }

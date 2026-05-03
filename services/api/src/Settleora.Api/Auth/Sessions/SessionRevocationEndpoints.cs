@@ -1,3 +1,5 @@
+using Settleora.Api.Auth.Authorization;
+
 namespace Settleora.Api.Auth.Sessions;
 
 internal static class SessionRevocationEndpoints
@@ -12,32 +14,23 @@ internal static class SessionRevocationEndpoints
 
     public static WebApplication MapSessionRevocationEndpoints(this WebApplication app)
     {
-        app.MapDelete("/api/v1/auth/sessions/{sessionId:guid}", RevokeSessionAsync);
+        app.MapDelete("/api/v1/auth/sessions/{sessionId:guid}", RevokeSessionAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
     private static async Task<IResult> RevokeSessionAsync(
         Guid sessionId,
-        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
         IAuthSessionRuntimeService sessionRuntimeService,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
-        if (rawSessionToken is null)
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
 
-        var validationResult = await sessionRuntimeService.ValidateSessionAsync(
-            rawSessionToken,
-            cancellationToken);
-        if (!validationResult.Succeeded || validationResult.Actor is null)
-        {
-            return Unauthenticated();
-        }
-
-        var actor = validationResult.Actor;
         var revocationResult = await sessionRuntimeService.RevokeSessionAsync(
             new AuthSessionRevocationRequest(
                 actor.AuthAccountId,

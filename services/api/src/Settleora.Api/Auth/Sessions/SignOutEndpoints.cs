@@ -1,3 +1,5 @@
+using Settleora.Api.Auth.Authorization;
+
 namespace Settleora.Api.Auth.Sessions;
 
 internal static class SignOutEndpoints
@@ -10,31 +12,22 @@ internal static class SignOutEndpoints
 
     public static WebApplication MapSignOutEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/sign-out", SignOutAsync);
+        app.MapPost("/api/v1/auth/sign-out", SignOutAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
     private static async Task<IResult> SignOutAsync(
-        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
         IAuthSessionRuntimeService sessionRuntimeService,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
-        if (rawSessionToken is null)
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
 
-        var validationResult = await sessionRuntimeService.ValidateSessionAsync(
-            rawSessionToken,
-            cancellationToken);
-        if (!validationResult.Succeeded || validationResult.Actor is null)
-        {
-            return Unauthenticated();
-        }
-
-        var actor = validationResult.Actor;
         var revocationResult = await sessionRuntimeService.RevokeSessionAsync(
             new AuthSessionRevocationRequest(
                 actor.AuthAccountId,

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Persistence;
 
@@ -12,33 +13,23 @@ internal static class SessionListEndpoints
 
     public static WebApplication MapSessionListEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/auth/sessions", GetSessionsAsync);
+        app.MapGet("/api/v1/auth/sessions", GetSessionsAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
     private static async Task<IResult> GetSessionsAsync(
-        HttpRequest request,
-        IAuthSessionRuntimeService sessionRuntimeService,
+        ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var rawSessionToken = SessionBearerTokenReader.TryGetBearerToken(request);
-        if (rawSessionToken is null)
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
 
-        var validationResult = await sessionRuntimeService.ValidateSessionAsync(
-            rawSessionToken,
-            cancellationToken);
-        if (!validationResult.Succeeded || validationResult.Actor is null)
-        {
-            return Unauthenticated();
-        }
-
-        var actor = validationResult.Actor;
         var occurredAtUtc = timeProvider.GetUtcNow();
         var sessions = await dbContext.Set<AuthSession>()
             .AsNoTracking()
