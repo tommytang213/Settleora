@@ -157,6 +157,20 @@ Access-session credentials should be short-lived. A secure baseline for the futu
 
 Self-hosted deployments may make these values configurable, but the committed defaults should stay conservative. Longer "remember this device" behavior should be a separate policy choice with explicit UI, audit, and revocation semantics.
 
+The API now exposes these lifetime values through typed configuration at `Settleora:Auth:Sessions`:
+
+```text
+Settleora:Auth:Sessions:CurrentAccessSessionDefaultLifetime=08:00:00
+Settleora:Auth:Sessions:CurrentAccessSessionMaxLifetime=30.00:00:00
+Settleora:Auth:Sessions:RefreshAccessSessionDefaultLifetime=00:15:00
+Settleora:Auth:Sessions:RefreshAccessSessionMaxLifetime=00:30:00
+Settleora:Auth:Sessions:RefreshIdleTimeout=7.00:00:00
+Settleora:Auth:Sessions:RefreshAbsoluteLifetime=30.00:00:00
+Settleora:Auth:Sessions:ClockSkewAllowance=00:02:00
+```
+
+Only the current access-session default and max are used by the existing no-refresh sign-in/session runtime. The refresh-mode access-session, idle timeout, absolute lifetime, and clock-skew values are policy configuration for future refresh runtime work; they do not implement refresh credential generation, rotation, replay detection, family revocation, endpoint behavior, OpenAPI paths, generated clients, middleware, or UI behavior.
+
 Idle timeout and absolute timeout are different:
 
 - Idle timeout limits how long an unused refresh-like credential remains valid after last successful refresh.

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.PasswordHashing;
 using Settleora.Api.Auth.Sessions;
@@ -505,7 +506,8 @@ public sealed class LocalSignInServiceTests
         return new AuthSessionRuntimeService(
             dbContext,
             new EfAuthSessionAuditWriter(dbContext),
-            new FixedTimeProvider(SignInTimestamp));
+            new FixedTimeProvider(SignInTimestamp),
+            Options.Create(new AuthSessionPolicyOptions()));
     }
 
     private static SettleoraDbContext CreateDbContext()

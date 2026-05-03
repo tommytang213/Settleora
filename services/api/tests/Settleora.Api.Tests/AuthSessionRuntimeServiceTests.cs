@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
@@ -69,6 +71,75 @@ public sealed class AuthSessionRuntimeServiceTests
             AuthSessionCreationStatus.Created.ToString());
         Assert.DoesNotContain(result.RawSessionToken!, auditEvent.SafeMetadataJson!);
         Assert.DoesNotContain(session.SessionTokenHash, auditEvent.SafeMetadataJson!);
+    }
+
+    [Fact]
+    public async Task CreateSessionWithMissingRequestedLifetimeUsesConfiguredCurrentDefault()
+    {
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(dbContext);
+        var options = new AuthSessionPolicyOptions
+        {
+            CurrentAccessSessionDefaultLifetime = TimeSpan.FromHours(6),
+            CurrentAccessSessionMaxLifetime = TimeSpan.FromDays(3)
+        };
+        var service = CreateService(dbContext, InitialTimestamp, options);
+
+        var result = await service.CreateSessionAsync(new AuthSessionCreationRequest(authAccountId));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(InitialTimestamp.AddHours(6), result.SessionExpiresAtUtc);
+
+        var session = await dbContext.Set<AuthSession>().SingleAsync();
+        Assert.Equal(InitialTimestamp.AddHours(6), session.ExpiresAtUtc);
+    }
+
+    [Theory]
+    [InlineData(-5)]
+    [InlineData(0)]
+    public async Task CreateSessionWithInvalidRequestedLifetimeUsesConfiguredCurrentDefault(int requestedMinutes)
+    {
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(dbContext);
+        var options = new AuthSessionPolicyOptions
+        {
+            CurrentAccessSessionDefaultLifetime = TimeSpan.FromHours(5),
+            CurrentAccessSessionMaxLifetime = TimeSpan.FromDays(3)
+        };
+        var service = CreateService(dbContext, InitialTimestamp, options);
+
+        var result = await service.CreateSessionAsync(new AuthSessionCreationRequest(
+            authAccountId,
+            RequestedLifetime: TimeSpan.FromMinutes(requestedMinutes)));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(InitialTimestamp.AddHours(5), result.SessionExpiresAtUtc);
+
+        var session = await dbContext.Set<AuthSession>().SingleAsync();
+        Assert.Equal(InitialTimestamp.AddHours(5), session.ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task CreateSessionWithRequestedLifetimeAboveConfiguredMaximumIsCapped()
+    {
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(dbContext);
+        var options = new AuthSessionPolicyOptions
+        {
+            CurrentAccessSessionDefaultLifetime = TimeSpan.FromHours(5),
+            CurrentAccessSessionMaxLifetime = TimeSpan.FromHours(12)
+        };
+        var service = CreateService(dbContext, InitialTimestamp, options);
+
+        var result = await service.CreateSessionAsync(new AuthSessionCreationRequest(
+            authAccountId,
+            RequestedLifetime: TimeSpan.FromHours(20)));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(InitialTimestamp.AddHours(12), result.SessionExpiresAtUtc);
+
+        var session = await dbContext.Set<AuthSession>().SingleAsync();
+        Assert.Equal(InitialTimestamp.AddHours(12), session.ExpiresAtUtc);
     }
 
     [Theory]
@@ -458,7 +529,7 @@ public sealed class AuthSessionRuntimeServiceTests
         {
             options.UseInMemoryDatabase(Guid.NewGuid().ToString());
         });
-        services.AddAuthSessionRuntime();
+        services.AddAuthSessionRuntime(new ConfigurationBuilder().Build());
 
         using var serviceProvider = services.BuildServiceProvider();
         using var scope = serviceProvider.CreateScope();
@@ -466,20 +537,24 @@ public sealed class AuthSessionRuntimeServiceTests
         var runtimeService = scope.ServiceProvider.GetRequiredService<IAuthSessionRuntimeService>();
         var auditWriter = scope.ServiceProvider.GetRequiredService<IAuthSessionAuditWriter>();
         var timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
+        var sessionPolicyOptions = scope.ServiceProvider.GetRequiredService<IOptions<AuthSessionPolicyOptions>>();
 
         Assert.IsType<AuthSessionRuntimeService>(runtimeService);
         Assert.IsType<EfAuthSessionAuditWriter>(auditWriter);
         Assert.Same(TimeProvider.System, timeProvider);
+        Assert.Equal(TimeSpan.FromHours(8), sessionPolicyOptions.Value.CurrentAccessSessionDefaultLifetime);
     }
 
     private static AuthSessionRuntimeService CreateService(
         SettleoraDbContext dbContext,
-        DateTimeOffset utcNow)
+        DateTimeOffset utcNow,
+        AuthSessionPolicyOptions? sessionPolicyOptions = null)
     {
         return new AuthSessionRuntimeService(
             dbContext,
             new EfAuthSessionAuditWriter(dbContext),
-            new FixedTimeProvider(utcNow));
+            new FixedTimeProvider(utcNow),
+            Options.Create(sessionPolicyOptions ?? new AuthSessionPolicyOptions()));
     }
 
     private static SettleoraDbContext CreateDbContext()

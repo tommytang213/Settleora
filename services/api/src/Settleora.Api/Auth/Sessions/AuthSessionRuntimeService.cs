@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Persistence;
 
@@ -21,21 +22,21 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
     private const int RevocationReasonMaxLength = 120;
     private const string DefaultRevocationReason = "unspecified";
 
-    private static readonly TimeSpan DefaultSessionLifetime = TimeSpan.FromHours(8);
-    private static readonly TimeSpan MaxSessionLifetime = TimeSpan.FromDays(30);
-
     private readonly SettleoraDbContext dbContext;
     private readonly IAuthSessionAuditWriter auditWriter;
     private readonly TimeProvider timeProvider;
+    private readonly AuthSessionPolicyOptions sessionPolicyOptions;
 
     public AuthSessionRuntimeService(
         SettleoraDbContext dbContext,
         IAuthSessionAuditWriter auditWriter,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IOptions<AuthSessionPolicyOptions> sessionPolicyOptions)
     {
         this.dbContext = dbContext;
         this.auditWriter = auditWriter;
         this.timeProvider = timeProvider;
+        this.sessionPolicyOptions = sessionPolicyOptions.Value;
     }
 
     public async Task<AuthSessionCreationResult> CreateSessionAsync(
@@ -64,7 +65,8 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
 
         var rawSessionToken = GenerateOpaqueToken();
         var sessionTokenHash = HashToken(rawSessionToken);
-        var expiresAtUtc = occurredAtUtc.Add(ChooseSessionLifetime(request.RequestedLifetime));
+        var expiresAtUtc = occurredAtUtc.Add(
+            sessionPolicyOptions.ChooseCurrentAccessSessionLifetime(request.RequestedLifetime));
         var session = new AuthSession
         {
             Id = Guid.NewGuid(),
@@ -381,18 +383,6 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
         }
 
         return null;
-    }
-
-    private static TimeSpan ChooseSessionLifetime(TimeSpan? requestedLifetime)
-    {
-        if (requestedLifetime is null
-            || requestedLifetime <= TimeSpan.Zero
-            || requestedLifetime > MaxSessionLifetime)
-        {
-            return DefaultSessionLifetime;
-        }
-
-        return requestedLifetime.Value;
     }
 
     private static string GenerateOpaqueToken()

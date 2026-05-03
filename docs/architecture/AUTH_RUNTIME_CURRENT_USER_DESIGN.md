@@ -226,6 +226,7 @@ The implemented internal service boundary:
 
 - Adds an internal session runtime service for existing active `AuthAccount` rows.
 - Creates opaque server-side session tokens with .NET BCL cryptographic randomness, stores only deterministic session token hashes in `auth_sessions`, and returns raw session token material only in the creation result.
+- Uses typed `Settleora:Auth:Sessions` current access-session policy values instead of hard-coded service constants, preserving the default no-refresh sign-in lifetime at 8 hours and the configured max at 30 days.
 - Validates submitted raw session tokens through hash lookup, rejects missing, expired, revoked, inactive, disabled, or deleted account state with bounded internal statuses, and resolves authenticated actor context to the linked `UserProfile`.
 - Updates `last_seen_at_utc` and `updated_at_utc` only after successful validation.
 - Revokes sessions by session ID and owning auth account context without requiring raw token material.

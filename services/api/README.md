@@ -8,7 +8,7 @@ Current implementation:
 - `GET /health/ready` checks PostgreSQL, RabbitMQ, and local storage readiness with configured dependency settings and returns no connection details or physical paths.
 - Integration tests cover the health and readiness endpoints.
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
-- Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, storage, and password hashing policy.
+- Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, storage, password hashing policy, and auth session lifetime policy.
 - EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
 - An internal password hashing service boundary can create and verify Argon2id password verifiers.
 - Internal credential and session runtime service boundaries can create/verify local password credentials and create/validate/revoke auth sessions for existing active auth accounts.
@@ -28,6 +28,29 @@ Configuration sections:
 - `Settleora:RabbitMq`
 - `Settleora:Storage`
 - `Settleora:Auth:PasswordHashing`
+- `Settleora:Auth:Sessions`
+
+Safe session lifetime configuration uses duration values only:
+
+```json
+{
+  "Settleora": {
+    "Auth": {
+      "Sessions": {
+        "CurrentAccessSessionDefaultLifetime": "08:00:00",
+        "CurrentAccessSessionMaxLifetime": "30.00:00:00",
+        "RefreshAccessSessionDefaultLifetime": "00:15:00",
+        "RefreshAccessSessionMaxLifetime": "00:30:00",
+        "RefreshIdleTimeout": "7.00:00:00",
+        "RefreshAbsoluteLifetime": "30.00:00:00",
+        "ClockSkewAllowance": "00:02:00"
+      }
+    }
+  }
+}
+```
+
+The current no-refresh sign-in/session runtime uses only `CurrentAccessSessionDefaultLifetime` and `CurrentAccessSessionMaxLifetime`. The refresh-mode values are typed policy foundation for future refresh runtime and do not add refresh credential generation, rotation, replay detection, endpoints, OpenAPI paths, generated clients, middleware, or UI behavior.
 
 The PostgreSQL, RabbitMQ, and storage readiness checks run only when `GET /health/ready` is requested; API startup does not connect to PostgreSQL or RabbitMQ, touch storage, or run migrations. The `/health` and `/health/ready` endpoints do not expose configuration details, storage roots, or physical paths.
 

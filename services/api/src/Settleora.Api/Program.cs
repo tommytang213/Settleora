@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSettleoraPersistence(builder.Configuration);
 builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
-builder.Services.AddAuthSessionRuntime();
+builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
