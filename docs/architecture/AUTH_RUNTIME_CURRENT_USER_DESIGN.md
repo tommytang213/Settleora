@@ -14,7 +14,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - `auth_audit_events` stores bounded auth audit metadata and must not contain raw secrets, raw tokens, password material, verifier strings, MFA secrets, passkey private material, full provider payloads, or unnecessary PII.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
-- An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, and session creation.
+- An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, session creation, and safe sign-in-specific audit writes.
 - `POST /api/v1/auth/sign-in` now exists as the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
 - No public registration, sign-out, session-list, session-revocation, authorization middleware, refresh-token runtime, generated auth clients, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
@@ -108,6 +108,7 @@ The implemented slice adds `POST /api/v1/auth/sign-in`.
 - It derives a conservative fixed single-node source bucket internally and does not accept caller-provided source keys.
 - It does not parse forwarded proxy headers, store full IP addresses, or pass full user-agent strings in this first endpoint slice.
 - It calls `ILocalSignInService.SignInAsync(...)` and keeps endpoint code out of identity lookup, password verification, session persistence, and abuse-policy counter logic.
+- The internal service writes bounded sign-in audit events for success, invalid credentials, throttling, and session-creation failure without exposing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
 - It returns a minimal success response with `authAccountId`, `userProfileId`, `session.id`, `session.token`, and `session.expiresAtUtc`.
 - It returns the raw opaque session token only in the success response and does not return token hashes, credential status, password metadata, verifier data, audit metadata, provider payloads, storage paths, or diagnostics.
 - It maps missing account, missing identity, wrong password, disabled/deleted account, invalid request, policy denial, and session creation failure to a uniform public sign-in failure response. Throttled attempts use a uniform public too-many-attempts response.
@@ -199,7 +200,6 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Connect future sign-in runtime outcomes to safe audit writes without exposing account existence or raw request metadata.
-2. Add sign-out and per-session revocation after the session service boundary is in place.
-3. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
-4. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.
+1. Add sign-out and per-session revocation after the session service boundary is in place.
+2. Add user-visible session list and account-wide revocation later, with privacy retention rules and response shapes reviewed separately.
+3. Add refresh-token generation, refresh rotation, and replay detection only after token lifetime and replay policy are reviewed.

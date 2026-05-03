@@ -29,6 +29,7 @@ Exact endpoint paths, request schemas, response schemas, and OpenAPI contracts r
 - `POST /api/v1/auth/sign-in` exists and exposes the first public local sign-in endpoint.
 - `GET /api/v1/auth/current-user` exists and validates an existing opaque session token into a minimal current actor/profile/session/role response.
 - An internal local sign-in orchestration service exists for endpoint-independent identifier normalization, local identity/account lookup, abuse-policy checks and attempt recording, credential verification, and session creation.
+- The local sign-in runtime writes safe sign-in-specific `auth_audit_events` for success, invalid credentials, pre-verification throttling, and session-creation failure without storing submitted identifiers, normalized identifiers, identifier keys, source keys, passwords, token material, verifier material, or policy counters.
 - Public registration, refresh-token runtime, sign-out, and session list/revocation endpoints do not exist.
 - Global auth middleware, authorization handlers, generated auth clients, and UI/mobile/web/admin auth flows do not exist.
 
@@ -56,7 +57,7 @@ The internal local sign-in orchestration boundary now exists under the API auth 
 - It verifies local passwords only through `IAuthCredentialWorkflowService.VerifyLocalPasswordAsync` and creates sessions only through `IAuthSessionRuntimeService.CreateSessionAsync`.
 - Its results use bounded internal statuses such as signed-in, invalid credentials, throttled, and session-creation failed. Success returns the raw session token only through the result object and result strings do not include raw identifiers, normalized identifiers, passwords, source keys, token material, hashes, verifiers, or credential details.
 
-Sign-in-specific `auth_audit_events` are deferred to a later reviewed branch so audit metadata and public endpoint response behavior can be designed together. Existing credential and session runtime services still write their bounded credential/session audit events during verification and session creation.
+Sign-in-specific `auth_audit_events` are now written inside the local sign-in service boundary with bounded workflow, status, and policy-status categories only. Existing credential and session runtime services still write their bounded credential/session audit events during verification and session creation. Persistent or distributed limiter storage remains deferred to a later reviewed branch.
 
 ## Implemented Public Sign-In Endpoint
 
@@ -166,16 +167,16 @@ Required behavior:
 
 ## Audit Boundaries
 
-Future sign-in runtime must emit safe auth audit events for security-impactful outcomes.
+Sign-in runtime emits safe auth audit events for security-impactful outcomes.
 
-Recommended event categories:
+Implemented event categories:
 
 - `sign_in.succeeded`
 - `sign_in.failed`
 - `sign_in.throttled`
-- `sign_in.blocked_by_policy`
-- `credential.verification_denied`
-- `sign_in.suspicious_repeated_attempts`
+- `sign_in.session_creation_failed`
+
+Future reviewed policy work may add additional categories such as `sign_in.blocked_by_policy`, credential-verification denial summaries, or suspicious repeated-attempt categories.
 
 These names are examples, not approved enum values or schema changes.
 
@@ -271,7 +272,6 @@ This branch does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Wire safe sign-in audit events to the policy decisions in a future sign-in audit branch.
-2. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
-3. Add password reset and account recovery design separately.
-4. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.
+1. Add a persistent or distributed limiter provider later if multi-replica deployments need it.
+2. Add password reset and account recovery design separately.
+3. Add MFA and passkey sign-in policy separately after local password sign-in behavior is proven.

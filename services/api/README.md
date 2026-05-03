@@ -12,7 +12,7 @@ Current implementation:
 - EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
 - An internal password hashing service boundary can create and verify Argon2id password verifiers.
 - Internal credential and session runtime service boundaries can create/verify local password credentials and create/validate/revoke auth sessions for existing active auth accounts.
-- An internal local sign-in orchestration service can normalize local identifiers, check and record sign-in abuse policy results, verify local password credentials, and create sessions.
+- An internal local sign-in orchestration service can normalize local identifiers, check and record sign-in abuse policy results, verify local password credentials, create sessions, and write bounded sign-in audit events.
 - `POST /api/v1/auth/sign-in` exposes the first public local sign-in endpoint. It maps ordinary failures to a generic `401`, throttled attempts to a generic `429`, and returns the raw opaque session token only once on success.
 - `GET /api/v1/auth/current-user` validates an existing opaque bearer session token through the internal session runtime boundary and returns a minimal current actor, linked profile, session, and system-role summary.
 

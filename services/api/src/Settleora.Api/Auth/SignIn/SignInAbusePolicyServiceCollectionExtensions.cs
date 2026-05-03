@@ -8,6 +8,7 @@ internal static class SignInAbusePolicyServiceCollectionExtensions
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(_ => SignInAbusePolicyOptions.Default);
+        services.TryAddScoped<ILocalSignInAuditWriter, EfLocalSignInAuditWriter>();
         services.AddSingleton<ISignInAbusePolicyService, InMemorySignInAbusePolicyService>();
         services.AddScoped<ILocalSignInService, LocalSignInService>();
 

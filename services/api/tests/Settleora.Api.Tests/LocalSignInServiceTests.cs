@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Settleora.Api.Auth.Credentials;
@@ -21,6 +22,10 @@ public sealed class LocalSignInServiceTests
     private const string RawSessionTokenFragment = "visible-session-token";
     private const string SessionTokenHashFragment = "visible-session-token-hash";
     private const string VerifierFragment = "visible-password-verifier";
+    private const string SignInSucceededAction = "sign_in.succeeded";
+    private const string SignInFailedAction = "sign_in.failed";
+    private const string SignInThrottledAction = "sign_in.throttled";
+    private const string SignInSessionCreationFailedAction = "sign_in.session_creation_failed";
 
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 3, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset SignInTimestamp = new(2026, 5, 3, 10, 15, 0, TimeSpan.Zero);
@@ -56,6 +61,22 @@ public sealed class LocalSignInServiceTests
         Assert.StartsWith("local-id-sha256:", attempt.IdentifierKey, StringComparison.Ordinal);
         Assert.DoesNotContain(NormalizedIdentifier, attempt.IdentifierKey);
         Assert.Equal(SourceKey, attempt.SourceKey);
+
+        var session = await dbContext.Set<AuthSession>().SingleAsync();
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInSucceededAction,
+            AuthAuditOutcomes.Success,
+            expectedActorAuthAccountId: seededAccount.AuthAccountId,
+            expectedSubjectAuthAccountId: seededAccount.AuthAccountId,
+            SignInTimestamp,
+            LocalSignInStatus.SignedIn,
+            SignInAbusePreCheckStatus.Allowed);
+        AssertNoSensitiveAuditText(
+            auditEvent,
+            result.RawSessionToken,
+            session.SessionTokenHash,
+            attempt.IdentifierKey);
     }
 
     [Fact]
@@ -127,6 +148,18 @@ public sealed class LocalSignInServiceTests
         Assert.Null(result.RawSessionToken);
         Assert.Empty(await dbContext.Set<AuthSession>().ToListAsync());
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Failed);
+
+        var attempt = Assert.Single(policyService.Attempts);
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInFailedAction,
+            AuthAuditOutcomes.Failure,
+            expectedActorAuthAccountId: null,
+            expectedSubjectAuthAccountId: seededAccount.AuthAccountId,
+            SignInTimestamp,
+            LocalSignInStatus.InvalidCredentials,
+            SignInAbusePreCheckStatus.Allowed);
+        AssertNoSensitiveAuditText(auditEvent, identifierKey: attempt.IdentifierKey);
     }
 
     [Fact]
@@ -145,6 +178,18 @@ public sealed class LocalSignInServiceTests
         Assert.Equal(0, credentialService.VerifyCallCount);
         Assert.Equal(0, sessionService.CreateCallCount);
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Failed);
+
+        var attempt = Assert.Single(policyService.Attempts);
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInFailedAction,
+            AuthAuditOutcomes.Failure,
+            expectedActorAuthAccountId: null,
+            expectedSubjectAuthAccountId: null,
+            SignInTimestamp,
+            LocalSignInStatus.InvalidCredentials,
+            SignInAbusePreCheckStatus.Allowed);
+        AssertNoSensitiveAuditText(auditEvent, identifierKey: attempt.IdentifierKey);
     }
 
     [Fact]
@@ -175,7 +220,7 @@ public sealed class LocalSignInServiceTests
         string accountState)
     {
         using var dbContext = CreateDbContext();
-        await SeedLocalIdentityAsync(
+        var seededAccount = await SeedLocalIdentityAsync(
             dbContext,
             accountStatus: accountState == "disabled" ? AuthAccountStatuses.Disabled : AuthAccountStatuses.Active,
             accountDisabledAtUtc: accountState == "disabled" ? InitialTimestamp : null,
@@ -194,6 +239,18 @@ public sealed class LocalSignInServiceTests
         Assert.Equal(LocalSignInStatus.InvalidCredentials, result.Status);
         Assert.Equal(0, credentialService.VerifyCallCount);
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Failed);
+
+        var attempt = Assert.Single(policyService.Attempts);
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInFailedAction,
+            AuthAuditOutcomes.Failure,
+            expectedActorAuthAccountId: null,
+            expectedSubjectAuthAccountId: seededAccount.AuthAccountId,
+            SignInTimestamp,
+            LocalSignInStatus.InvalidCredentials,
+            SignInAbusePreCheckStatus.Allowed);
+        AssertNoSensitiveAuditText(auditEvent, identifierKey: attempt.IdentifierKey);
     }
 
     [Theory]
@@ -250,6 +307,18 @@ public sealed class LocalSignInServiceTests
         Assert.Equal(0, credentialService.VerifyCallCount);
         Assert.Equal(0, sessionService.CreateCallCount);
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Throttled);
+
+        var attempt = Assert.Single(policyService.Attempts);
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInThrottledAction,
+            AuthAuditOutcomes.BlockedByPolicy,
+            expectedActorAuthAccountId: null,
+            expectedSubjectAuthAccountId: null,
+            SignInTimestamp,
+            LocalSignInStatus.Throttled,
+            SignInAbusePreCheckStatus.ThrottledByIdentifier);
+        AssertNoSensitiveAuditText(auditEvent, identifierKey: attempt.IdentifierKey);
     }
 
     [Fact]
@@ -273,6 +342,18 @@ public sealed class LocalSignInServiceTests
         Assert.Equal(seededAccount.AuthAccountId, credentialService.LastAuthAccountId);
         AssertNoSensitiveText(result.ToString());
         AssertSingleAttempt(policyService, SignInAttemptOutcome.Failed);
+
+        var attempt = Assert.Single(policyService.Attempts);
+        var auditEvent = await AssertSingleSignInAuditEventAsync(
+            dbContext,
+            SignInSessionCreationFailedAction,
+            AuthAuditOutcomes.Failure,
+            expectedActorAuthAccountId: null,
+            expectedSubjectAuthAccountId: seededAccount.AuthAccountId,
+            SignInTimestamp,
+            LocalSignInStatus.SessionCreationFailed,
+            SignInAbusePreCheckStatus.Allowed);
+        AssertNoSensitiveAuditText(auditEvent, identifierKey: attempt.IdentifierKey);
     }
 
     [Theory]
@@ -372,8 +453,10 @@ public sealed class LocalSignInServiceTests
         using var scope = serviceProvider.CreateScope();
 
         var service = scope.ServiceProvider.GetRequiredService<ILocalSignInService>();
+        var auditWriter = scope.ServiceProvider.GetRequiredService<ILocalSignInAuditWriter>();
 
         Assert.IsType<LocalSignInService>(service);
+        Assert.IsType<EfLocalSignInAuditWriter>(auditWriter);
     }
 
     private static LocalSignInRequest CreateRequest(
@@ -401,7 +484,9 @@ public sealed class LocalSignInServiceTests
             dbContext,
             policyService,
             credentialWorkflowService,
-            sessionRuntimeService);
+            sessionRuntimeService,
+            new EfLocalSignInAuditWriter(dbContext),
+            new FixedTimeProvider(SignInTimestamp));
     }
 
     private static AuthCredentialWorkflowService CreateCredentialWorkflowService(
@@ -519,6 +604,111 @@ public sealed class LocalSignInServiceTests
         Assert.DoesNotContain(NormalizedIdentifier, value);
         Assert.DoesNotContain(SubmittedPassword, value);
         Assert.DoesNotContain(SourceKey, value);
+        Assert.DoesNotContain(RawSessionTokenFragment, value);
+        Assert.DoesNotContain(SessionTokenHashFragment, value);
+        Assert.DoesNotContain(VerifierFragment, value);
+        Assert.DoesNotContain("visible-device-label", value);
+        Assert.DoesNotContain("visible-user-agent-summary", value);
+        Assert.DoesNotContain("visible-network-address-hash", value);
+    }
+
+    private static async Task<AuthAuditEvent> AssertSingleSignInAuditEventAsync(
+        SettleoraDbContext dbContext,
+        string expectedAction,
+        string expectedOutcome,
+        Guid? expectedActorAuthAccountId,
+        Guid? expectedSubjectAuthAccountId,
+        DateTimeOffset expectedOccurredAtUtc,
+        LocalSignInStatus expectedStatusCategory,
+        SignInAbusePreCheckStatus expectedPolicyStatus)
+    {
+        var auditEvent = await dbContext.Set<AuthAuditEvent>()
+            .Where(auditEvent => auditEvent.Action.StartsWith("sign_in."))
+            .SingleAsync();
+
+        Assert.Equal(expectedActorAuthAccountId, auditEvent.ActorAuthAccountId);
+        Assert.Equal(expectedSubjectAuthAccountId, auditEvent.SubjectAuthAccountId);
+        Assert.Equal(expectedAction, auditEvent.Action);
+        Assert.Equal(expectedOutcome, auditEvent.Outcome);
+        Assert.Equal(expectedOccurredAtUtc, auditEvent.OccurredAtUtc);
+        Assert.Null(auditEvent.CorrelationId);
+        Assert.Null(auditEvent.RequestId);
+        AssertSafeSignInAuditMetadata(
+            auditEvent.SafeMetadataJson,
+            expectedStatusCategory,
+            expectedPolicyStatus);
+
+        return auditEvent;
+    }
+
+    private static void AssertSafeSignInAuditMetadata(
+        string? safeMetadataJson,
+        LocalSignInStatus expectedStatusCategory,
+        SignInAbusePreCheckStatus expectedPolicyStatus)
+    {
+        Assert.NotNull(safeMetadataJson);
+        Assert.True(safeMetadataJson!.Length <= 4096);
+
+        using var metadata = JsonDocument.Parse(safeMetadataJson);
+        var propertyNames = metadata.RootElement
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .Order()
+            .ToArray();
+
+        Assert.Equal(["policyStatus", "statusCategory", "workflowName"], propertyNames);
+        Assert.Equal(
+            "local_sign_in",
+            metadata.RootElement.GetProperty("workflowName").GetString());
+        Assert.Equal(
+            expectedStatusCategory.ToString(),
+            metadata.RootElement.GetProperty("statusCategory").GetString());
+        Assert.Equal(
+            expectedPolicyStatus.ToString(),
+            metadata.RootElement.GetProperty("policyStatus").GetString());
+
+        foreach (var property in metadata.RootElement.EnumerateObject())
+        {
+            var value = property.Value.GetString();
+            Assert.NotNull(value);
+            Assert.InRange(value!.Length, 1, 120);
+        }
+    }
+
+    private static void AssertNoSensitiveAuditText(
+        AuthAuditEvent auditEvent,
+        string? rawSessionToken = null,
+        string? sessionTokenHash = null,
+        string? identifierKey = null)
+    {
+        AssertNoSensitiveAuditValue(auditEvent.Action);
+        AssertNoSensitiveAuditValue(auditEvent.Outcome);
+        AssertNoSensitiveAuditValue(auditEvent.SafeMetadataJson!);
+
+        if (rawSessionToken is not null)
+        {
+            Assert.DoesNotContain(rawSessionToken, auditEvent.SafeMetadataJson!);
+        }
+
+        if (sessionTokenHash is not null)
+        {
+            Assert.DoesNotContain(sessionTokenHash, auditEvent.SafeMetadataJson!);
+        }
+
+        if (identifierKey is not null)
+        {
+            Assert.DoesNotContain(identifierKey, auditEvent.SafeMetadataJson!);
+        }
+    }
+
+    private static void AssertNoSensitiveAuditValue(string value)
+    {
+        Assert.DoesNotContain(SubmittedIdentifier.Trim(), value);
+        Assert.DoesNotContain(NormalizedIdentifier, value);
+        Assert.DoesNotContain("local-id-sha256:", value);
+        Assert.DoesNotContain(SourceKey, value);
+        Assert.DoesNotContain(SubmittedPassword, value);
+        Assert.DoesNotContain(WrongPassword, value);
         Assert.DoesNotContain(RawSessionTokenFragment, value);
         Assert.DoesNotContain(SessionTokenHashFragment, value);
         Assert.DoesNotContain(VerifierFragment, value);

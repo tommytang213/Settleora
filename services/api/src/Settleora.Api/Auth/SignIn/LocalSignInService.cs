@@ -12,6 +12,11 @@ internal sealed class LocalSignInService : ILocalSignInService
 {
     internal const string LocalProviderName = "local";
 
+    private const string LocalSignInWorkflowName = "local_sign_in";
+    private const string SignInSucceededAction = "sign_in.succeeded";
+    private const string SignInFailedAction = "sign_in.failed";
+    private const string SignInThrottledAction = "sign_in.throttled";
+    private const string SignInSessionCreationFailedAction = "sign_in.session_creation_failed";
     private const int IdentifierMaxLength = 320;
     private const int SubmittedPasswordMaxLength = 4096;
     private const int SafeKeyMaxLength = 128;
@@ -21,17 +26,23 @@ internal sealed class LocalSignInService : ILocalSignInService
     private readonly ISignInAbusePolicyService abusePolicyService;
     private readonly IAuthCredentialWorkflowService credentialWorkflowService;
     private readonly IAuthSessionRuntimeService sessionRuntimeService;
+    private readonly ILocalSignInAuditWriter auditWriter;
+    private readonly TimeProvider timeProvider;
 
     public LocalSignInService(
         SettleoraDbContext dbContext,
         ISignInAbusePolicyService abusePolicyService,
         IAuthCredentialWorkflowService credentialWorkflowService,
-        IAuthSessionRuntimeService sessionRuntimeService)
+        IAuthSessionRuntimeService sessionRuntimeService,
+        ILocalSignInAuditWriter auditWriter,
+        TimeProvider timeProvider)
     {
         this.dbContext = dbContext;
         this.abusePolicyService = abusePolicyService;
         this.credentialWorkflowService = credentialWorkflowService;
         this.sessionRuntimeService = sessionRuntimeService;
+        this.auditWriter = auditWriter;
+        this.timeProvider = timeProvider;
     }
 
     public async Task<LocalSignInResult> SignInAsync(
@@ -52,6 +63,14 @@ internal sealed class LocalSignInService : ILocalSignInService
         if (!policyResult.IsAllowed)
         {
             RecordAttempt(requestContext, SignInAttemptOutcome.Throttled);
+            await WriteAuditAndSaveAsync(
+                SignInThrottledAction,
+                AuthAuditOutcomes.BlockedByPolicy,
+                actorAuthAccountId: null,
+                subjectAuthAccountId: null,
+                LocalSignInStatus.Throttled,
+                policyResult.Status,
+                cancellationToken);
             return LocalSignInResult.Throttled(policyResult.Status);
         }
 
@@ -61,6 +80,14 @@ internal sealed class LocalSignInService : ILocalSignInService
         if (!IsIdentityAccountAvailable(identity))
         {
             RecordAttempt(requestContext, SignInAttemptOutcome.Failed);
+            await WriteAuditAndSaveAsync(
+                SignInFailedAction,
+                AuthAuditOutcomes.Failure,
+                actorAuthAccountId: null,
+                identity?.AuthAccountId,
+                LocalSignInStatus.InvalidCredentials,
+                policyResult.Status,
+                cancellationToken);
             return LocalSignInResult.Failure(LocalSignInStatus.InvalidCredentials);
         }
 
@@ -72,6 +99,14 @@ internal sealed class LocalSignInService : ILocalSignInService
         if (!credentialResult.Succeeded)
         {
             RecordAttempt(requestContext, SignInAttemptOutcome.Failed);
+            await WriteAuditAndSaveAsync(
+                SignInFailedAction,
+                AuthAuditOutcomes.Failure,
+                actorAuthAccountId: null,
+                authAccount.Id,
+                LocalSignInStatus.InvalidCredentials,
+                policyResult.Status,
+                cancellationToken);
             return LocalSignInResult.Failure(LocalSignInStatus.InvalidCredentials);
         }
 
@@ -89,10 +124,26 @@ internal sealed class LocalSignInService : ILocalSignInService
             || sessionResult.SessionExpiresAtUtc is null)
         {
             RecordAttempt(requestContext, SignInAttemptOutcome.Failed);
+            await WriteAuditAndSaveAsync(
+                SignInSessionCreationFailedAction,
+                AuthAuditOutcomes.Failure,
+                actorAuthAccountId: null,
+                authAccount.Id,
+                LocalSignInStatus.SessionCreationFailed,
+                policyResult.Status,
+                cancellationToken);
             return LocalSignInResult.Failure(LocalSignInStatus.SessionCreationFailed);
         }
 
         RecordAttempt(requestContext, SignInAttemptOutcome.Succeeded);
+        await WriteAuditAndSaveAsync(
+            SignInSucceededAction,
+            AuthAuditOutcomes.Success,
+            authAccount.Id,
+            authAccount.Id,
+            LocalSignInStatus.SignedIn,
+            policyResult.Status,
+            cancellationToken);
         return LocalSignInResult.SignedIn(
             authAccount.Id,
             authAccount.UserProfileId,
@@ -133,6 +184,29 @@ internal sealed class LocalSignInService : ILocalSignInService
             requestContext.IdentifierKey,
             requestContext.SourceKey,
             outcome));
+    }
+
+    private async ValueTask WriteAuditAndSaveAsync(
+        string action,
+        string outcome,
+        Guid? actorAuthAccountId,
+        Guid? subjectAuthAccountId,
+        LocalSignInStatus statusCategory,
+        SignInAbusePreCheckStatus policyStatus,
+        CancellationToken cancellationToken)
+    {
+        await auditWriter.WriteAsync(
+            new LocalSignInAuditEvent(
+                action,
+                outcome,
+                actorAuthAccountId,
+                subjectAuthAccountId,
+                LocalSignInWorkflowName,
+                statusCategory,
+                policyStatus,
+                timeProvider.GetUtcNow()),
+            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static bool TryBuildRequestContext(
