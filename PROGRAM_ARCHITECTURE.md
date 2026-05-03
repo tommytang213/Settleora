@@ -36,6 +36,14 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - File reads and writes must pass authorization checks in the API.
 - Receipt/proof access should use stable file IDs, scoped access checks, and provider-managed object keys.
 
+## Privacy Mode Rules
+
+- Privacy mode and private vault architecture are defined in [docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md).
+- Standard Secure Mode is the default Day 1 privacy mode.
+- Recoverable Private Vault may protect selected sensitive fields/files, but it must not make clients authoritative for money, settlement states, authorization, audit, shared accounting truth, or server-mode validation.
+- Strict Private Vault remains future-compatible architecture only unless a later implementation task explicitly approves it.
+- Core business truth remains API/domain-authoritative even when selected sensitive content is vault-protected.
+
 ## Money Rules
 
 - All money calculations use decimal-safe types only.

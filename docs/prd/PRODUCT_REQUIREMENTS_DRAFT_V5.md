@@ -141,6 +141,8 @@ Users can:
 ## 7. Receipt Storage
 ### 7.1 Server Mode
 - server stores encrypted receipt images
+- default privacy mode is Standard Secure Mode
+- selected sensitive receipt content may use Recoverable Private Vault where policy and implementation support it
 - shared participants can view image before confirming
 - original image retained by default
 - thumbnail generated
@@ -391,7 +393,12 @@ Support:
 MVP uses:
 - server-side encryption at rest for collaborative/server-side records
 - encrypted receipt storage
+- Standard Secure Mode by default
+- Recoverable Private Vault direction for selected sensitive data such as receipt images, payment details, private notes, OCR raw text where stored, statement data when added, and settlement proof files
+- future-compatible Strict Private Vault architecture, without treating it as MVP implementation by default
 - not full zero-knowledge for all collaborative content in MVP
+
+Core financial truth remains API/domain-authoritative in MVP. Privacy vault behavior must not make clients authoritative for money, settlement states, authorization, audit, or shared accounting truth.
 
 ### 19.4 Local Security
 Local mode should support:
@@ -436,6 +443,7 @@ Support:
 - local to server bulk import
 - local to server selective import
 - server mode disconnect/export-to-local with warning
+- future Recoverable Private Vault to Strict Private Vault migration with clear recovery-key, trusted-device, and older-backup warnings
 
 ### 20.5 Sync
 - immediate on change

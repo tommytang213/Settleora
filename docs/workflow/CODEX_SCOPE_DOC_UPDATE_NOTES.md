@@ -36,6 +36,14 @@ docs/architecture/AI_INSIGHTS_ARCHITECTURE.md
 docs/workflow/CODEX_SCOPE_DOC_UPDATE_NOTES.md
 ```
 
+Later privacy architecture addendum:
+
+```text
+docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md
+```
+
+It was added after the Day 1/2/3 scope-doc batch to define Standard Secure Mode, Recoverable Private Vault, future-compatible Strict Private Vault, and recoverable-to-strict migration boundaries.
+
 ## Constraints
 
 - Do not change implementation code.
