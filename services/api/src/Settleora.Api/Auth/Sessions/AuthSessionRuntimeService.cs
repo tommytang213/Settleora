@@ -277,6 +277,73 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
         return AuthSessionRevocationResult.Revoked(session.Id);
     }
 
+    public async Task<AuthAccountSessionRevocationResult> RevokeActiveSessionsForAccountAsync(
+        AuthAccountSessionRevocationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        var account = await dbContext.Set<AuthAccount>()
+            .SingleOrDefaultAsync(account => account.Id == request.AuthAccountId, cancellationToken);
+
+        if (!IsAccountAvailable(account))
+        {
+            var result = AuthAccountSessionRevocationResult.Failure(
+                AuthAccountSessionRevocationStatus.AccountUnavailable);
+            await WriteAuditAndSaveAsync(
+                SessionRevokedAction,
+                AuthAuditOutcomes.Denied,
+                account?.Id,
+                account?.Id,
+                result.Status.ToString(),
+                occurredAtUtc,
+                cancellationToken);
+            return result;
+        }
+
+        var activeSessions = await dbContext.Set<AuthSession>()
+            .Where(session => session.AuthAccountId == request.AuthAccountId
+                && session.Status == AuthSessionStatuses.Active
+                && session.RevokedAtUtc == null
+                && session.ExpiresAtUtc > occurredAtUtc)
+            .ToListAsync(cancellationToken);
+
+        var revocationReason = NormalizeOptionalField(
+            request.RevocationReason,
+            RevocationReasonMaxLength) ?? DefaultRevocationReason;
+
+        foreach (var session in activeSessions)
+        {
+            session.Status = AuthSessionStatuses.Revoked;
+            session.RevokedAtUtc = occurredAtUtc;
+            session.RevocationReason = revocationReason;
+            session.UpdatedAtUtc = occurredAtUtc;
+        }
+
+        await WriteAuditAsync(
+            SessionRevokedAction,
+            AuthAuditOutcomes.Revoked,
+            request.AuthAccountId,
+            request.AuthAccountId,
+            AuthAccountSessionRevocationStatus.Revoked.ToString(),
+            occurredAtUtc,
+            cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return AuthAccountSessionRevocationResult.Failure(
+                AuthAccountSessionRevocationStatus.PersistenceFailed);
+        }
+
+        return AuthAccountSessionRevocationResult.Revoked();
+    }
+
     private static bool IsAccountAvailable(AuthAccount? account)
     {
         return account is

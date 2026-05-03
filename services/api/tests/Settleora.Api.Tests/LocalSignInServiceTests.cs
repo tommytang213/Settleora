@@ -805,6 +805,13 @@ public sealed class LocalSignInServiceTests
         {
             throw new NotSupportedException();
         }
+
+        public Task<AuthAccountSessionRevocationResult> RevokeActiveSessionsForAccountAsync(
+            AuthAccountSessionRevocationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class FakePasswordHashingService : IPasswordHashingService

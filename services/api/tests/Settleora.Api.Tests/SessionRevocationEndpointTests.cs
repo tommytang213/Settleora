@@ -790,5 +790,12 @@ public sealed class SessionRevocationEndpointTests : IClassFixture<WebApplicatio
             RevocationRequests.Add(request);
             return Task.FromResult(revocationResult);
         }
+
+        public Task<AuthAccountSessionRevocationResult> RevokeActiveSessionsForAccountAsync(
+            AuthAccountSessionRevocationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

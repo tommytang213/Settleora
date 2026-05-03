@@ -330,6 +330,88 @@ public sealed class AuthSessionRuntimeServiceTests
     }
 
     [Fact]
+    public async Task RevokeActiveSessionsForAccountRevokesOnlyActiveOwnedSessionsAndWritesSafeAuditMetadata()
+    {
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(dbContext);
+        var otherAuthAccountId = await SeedAuthAccountAsync(dbContext);
+        var currentSession = await CreateSessionForValidationAsync(dbContext, authAccountId);
+        var otherOwnedSession = await CreateSessionForValidationAsync(dbContext, authAccountId);
+        var expiredOwnedSession = await CreateSessionForValidationAsync(
+            dbContext,
+            authAccountId,
+            TimeSpan.FromMinutes(5));
+        var otherAccountSession = await CreateSessionForValidationAsync(dbContext, otherAuthAccountId);
+        var service = CreateService(dbContext, RevocationTimestamp);
+
+        var result = await service.RevokeActiveSessionsForAccountAsync(
+            new AuthAccountSessionRevocationRequest(authAccountId, "user_sign_out_all"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(AuthAccountSessionRevocationStatus.Revoked, result.Status);
+
+        var current = await dbContext.Set<AuthSession>().SingleAsync(
+            session => session.Id == currentSession.AuthSessionId);
+        var otherOwned = await dbContext.Set<AuthSession>().SingleAsync(
+            session => session.Id == otherOwnedSession.AuthSessionId);
+        var expiredOwned = await dbContext.Set<AuthSession>().SingleAsync(
+            session => session.Id == expiredOwnedSession.AuthSessionId);
+        var otherAccount = await dbContext.Set<AuthSession>().SingleAsync(
+            session => session.Id == otherAccountSession.AuthSessionId);
+
+        Assert.Equal(AuthSessionStatuses.Revoked, current.Status);
+        Assert.Equal(RevocationTimestamp, current.RevokedAtUtc);
+        Assert.Equal("user_sign_out_all", current.RevocationReason);
+        Assert.Equal(AuthSessionStatuses.Revoked, otherOwned.Status);
+        Assert.Equal(RevocationTimestamp, otherOwned.RevokedAtUtc);
+        Assert.Equal("user_sign_out_all", otherOwned.RevocationReason);
+        Assert.Equal(AuthSessionStatuses.Active, expiredOwned.Status);
+        Assert.Null(expiredOwned.RevokedAtUtc);
+        Assert.Null(expiredOwned.RevocationReason);
+        Assert.Equal(AuthSessionStatuses.Active, otherAccount.Status);
+        Assert.Null(otherAccount.RevokedAtUtc);
+        Assert.Null(otherAccount.RevocationReason);
+
+        var auditEvent = await AssertSingleAuditEventAsync(
+            dbContext,
+            "session.revoked",
+            AuthAuditOutcomes.Revoked,
+            expectedActorAuthAccountId: authAccountId,
+            expectedSubjectAuthAccountId: authAccountId,
+            RevocationTimestamp,
+            AuthAccountSessionRevocationStatus.Revoked.ToString());
+        Assert.DoesNotContain(currentSession.RawSessionToken!, auditEvent.SafeMetadataJson!);
+        Assert.DoesNotContain(current.SessionTokenHash, auditEvent.SafeMetadataJson!);
+    }
+
+    [Fact]
+    public async Task RevokeActiveSessionsForUnavailableAccountFailsWithoutCreatingSessionMutation()
+    {
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(
+            dbContext,
+            status: AuthAccountStatuses.Disabled,
+            disabledAtUtc: InitialTimestamp);
+        var service = CreateService(dbContext, RevocationTimestamp);
+
+        var result = await service.RevokeActiveSessionsForAccountAsync(
+            new AuthAccountSessionRevocationRequest(authAccountId, "user_sign_out_all"));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AuthAccountSessionRevocationStatus.AccountUnavailable, result.Status);
+        Assert.Empty(await dbContext.Set<AuthSession>().ToListAsync());
+
+        await AssertSingleAuditEventAsync(
+            dbContext,
+            "session.revoked",
+            AuthAuditOutcomes.Denied,
+            expectedActorAuthAccountId: authAccountId,
+            expectedSubjectAuthAccountId: authAccountId,
+            RevocationTimestamp,
+            AuthAccountSessionRevocationStatus.AccountUnavailable.ToString());
+    }
+
+    [Fact]
     public async Task RevokeAlreadyRevokedSessionReturnsSafeStatusWithoutMutatingSession()
     {
         using var dbContext = CreateDbContext();

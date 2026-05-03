@@ -13,4 +13,8 @@ internal interface IAuthSessionRuntimeService
     Task<AuthSessionRevocationResult> RevokeSessionAsync(
         AuthSessionRevocationRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<AuthAccountSessionRevocationResult> RevokeActiveSessionsForAccountAsync(
+        AuthAccountSessionRevocationRequest request,
+        CancellationToken cancellationToken = default);
 }
