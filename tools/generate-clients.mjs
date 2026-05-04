@@ -472,31 +472,71 @@ function generateDartClass(name, schema) {
     schema: propertySchema,
     required: required.has(propertyName),
     type: dartType(propertySchema, { nullable: !required.has(propertyName) }),
-    nullable: false
+    nullable: false,
+    optionalNullable: !required.has(propertyName) && schemaAcceptsNull(propertySchema)
   }));
 
   for (const property of properties) {
     property.nullable = property.type.endsWith("?");
+    property.hasFieldName = `_has${toPascalCase(property.fieldName)}`;
+    property.unsetFieldName = `_unset${toPascalCase(property.fieldName)}`;
   }
 
   const lines = [`class ${name} {`];
-  lines.push(`  const ${name}({`);
+  for (const property of properties.filter((candidate) => candidate.optionalNullable)) {
+    lines.push(`  static const Object ${property.unsetFieldName} = Object();`);
+  }
+
+  if (properties.some((candidate) => candidate.optionalNullable)) {
+    lines.push("");
+  }
+
+  const constructorPrefix = properties.some((candidate) => candidate.optionalNullable) ? "" : "const ";
+  lines.push(`  ${constructorPrefix}${name}({`);
   for (const property of properties) {
+    if (property.optionalNullable) {
+      lines.push(`    Object? ${property.fieldName} = ${property.unsetFieldName},`);
+      continue;
+    }
+
     const requiredPrefix = property.required ? "required " : "";
     lines.push(`    ${requiredPrefix}this.${property.fieldName},`);
   }
-  lines.push("  });");
+  const optionalNullableProperties = properties.filter((candidate) => candidate.optionalNullable);
+  if (optionalNullableProperties.length === 0) {
+    lines.push("  });");
+  } else {
+    lines.push("  })");
+    optionalNullableProperties.forEach((property, index) => {
+      const separator = index === optionalNullableProperties.length - 1 ? ";" : ",";
+      const prefix = index === 0 ? "      : " : "        ";
+      lines.push(
+        `${prefix}${property.fieldName} = identical(${property.fieldName}, ${property.unsetFieldName}) ? null : ${property.fieldName} as ${property.type},`);
+      lines.push(
+        `        ${property.hasFieldName} = !identical(${property.fieldName}, ${property.unsetFieldName})${separator}`);
+    });
+  }
   lines.push("");
 
   for (const property of properties) {
     lines.push(...dartDescription(property.schema.description, "  "));
     lines.push(`  final ${property.type} ${property.fieldName};`);
+    if (property.optionalNullable) {
+      lines.push(`  final bool ${property.hasFieldName};`);
+    }
   }
 
   lines.push("");
   lines.push(`  factory ${name}.fromJson(JsonObject json) {`);
   lines.push(`    return ${name}(`);
   for (const property of properties) {
+    if (property.optionalNullable) {
+      lines.push(`      ${property.fieldName}: json.containsKey(${JSON.stringify(property.jsonName)})`);
+      lines.push(`          ? ${dartFromJsonExpression(property.schema, `json[${JSON.stringify(property.jsonName)}]`, false)}`);
+      lines.push(`          : ${property.unsetFieldName},`);
+      continue;
+    }
+
     lines.push(`      ${property.fieldName}: ${dartFromJsonExpression(property.schema, `json[${JSON.stringify(property.jsonName)}]`, !property.required)},`);
   }
   lines.push("    );");
@@ -518,6 +558,8 @@ function generateDartClass(name, schema) {
     const valueExpression = dartToJsonExpression(property.schema, propertyExpression);
     if (property.required) {
       lines.push(`      ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
+    } else if (property.optionalNullable) {
+      lines.push(`      if (${property.hasFieldName}) ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
     } else {
       lines.push(`      if (${propertyExpression} != null) ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
     }
@@ -840,6 +882,26 @@ function refName(ref) {
 
 function schemaIsObject(schema) {
   return Boolean(schema && (schema.type === "object" || schema.properties));
+}
+
+function schemaAcceptsNull(schema) {
+  if (!schema) {
+    return false;
+  }
+
+  if (schema.$ref) {
+    return schemaAcceptsNull(schemas[refName(schema.$ref)]);
+  }
+
+  if (schema.type === "null") {
+    return true;
+  }
+
+  if (Array.isArray(schema.type)) {
+    return schema.type.includes("null");
+  }
+
+  return (schema.oneOf ?? []).some(schemaAcceptsNull);
 }
 
 function toPascalCase(value) {

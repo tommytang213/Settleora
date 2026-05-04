@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, and generated web/Dart client foundations from OpenAPI. It still has no registration, user/group API endpoints, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations from OpenAPI. It still has no registration, group/admin user-management endpoints, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -22,7 +22,7 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
 - `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
-- No registration, public credential management endpoints, invitations, friends, or user/group business API endpoints exist yet.
+- No registration, public credential management endpoints, invitations, friends, group endpoints, admin user-management endpoints, or user business API endpoints beyond self-profile read/update exist yet.
 - The internal business authorization service can answer fail-closed future profile/group access decisions from the server-derived current actor; it does not expose public API behavior.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 

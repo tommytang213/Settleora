@@ -267,6 +267,82 @@ class CurrentUserSession {
   }
 }
 
+/// Safe self-profile response for the authenticated actor.
+class SelfUserProfileResponse {
+  const SelfUserProfileResponse({
+    required this.id,
+    required this.displayName,
+    required this.defaultCurrency,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final String displayName;
+  final CurrencyCode? defaultCurrency;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory SelfUserProfileResponse.fromJson(JsonObject json) {
+    return SelfUserProfileResponse(
+      id: json["id"] as String,
+      displayName: json["displayName"] as String,
+      defaultCurrency: json["defaultCurrency"] == null ? null : json["defaultCurrency"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final defaultCurrencyJsonValue = defaultCurrency;
+
+    return {
+      "id": id,
+      "displayName": displayName,
+      "defaultCurrency": defaultCurrencyJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe self-profile update. Profile identity is derived from the authenticated actor, not from client input.
+class UpdateSelfUserProfileRequest {
+  static const Object _unsetDefaultCurrency = Object();
+
+  UpdateSelfUserProfileRequest({
+    this.displayName,
+    Object? defaultCurrency = _unsetDefaultCurrency,
+  })
+      : defaultCurrency = identical(defaultCurrency, _unsetDefaultCurrency) ? null : defaultCurrency as CurrencyCode?,
+        _hasDefaultCurrency = !identical(defaultCurrency, _unsetDefaultCurrency);
+
+  /// Display name after server-side trimming. Blank or whitespace-only values are rejected.
+  final String? displayName;
+  /// Optional default currency. Explicit null clears the value.
+  final CurrencyCode? defaultCurrency;
+  final bool _hasDefaultCurrency;
+
+  factory UpdateSelfUserProfileRequest.fromJson(JsonObject json) {
+    return UpdateSelfUserProfileRequest(
+      displayName: json["displayName"] == null ? null : json["displayName"] as String,
+      defaultCurrency: json.containsKey("defaultCurrency")
+          ? json["defaultCurrency"] == null ? null : json["defaultCurrency"] as String
+          : _unsetDefaultCurrency,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayNameJsonValue = displayName;
+    final defaultCurrencyJsonValue = defaultCurrency;
+
+    return {
+      if (displayNameJsonValue != null) "displayName": displayNameJsonValue,
+      if (_hasDefaultCurrency) "defaultCurrency": defaultCurrencyJsonValue,
+    };
+  }
+}
+
 /// Safe active session metadata for the authenticated account. The list is capped by the API.
 class SessionListResponse {
   const SessionListResponse({

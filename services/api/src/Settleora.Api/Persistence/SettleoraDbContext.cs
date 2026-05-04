@@ -7,8 +7,6 @@ namespace Settleora.Api.Persistence;
 
 public sealed class SettleoraDbContext : DbContext
 {
-    private const int UserDisplayNameMaxLength = 160;
-    private const int UserDefaultCurrencyMaxLength = 3;
     private const int GroupNameMaxLength = 160;
     private const int MembershipRoleMaxLength = 16;
     private const int MembershipStatusMaxLength = 16;
@@ -80,12 +78,12 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.Property(userProfile => userProfile.DisplayName)
             .HasColumnName("display_name")
-            .HasMaxLength(UserDisplayNameMaxLength)
+            .HasMaxLength(UserProfileConstraints.DisplayNameMaxLength)
             .IsRequired();
 
         entity.Property(userProfile => userProfile.DefaultCurrency)
             .HasColumnName("default_currency")
-            .HasMaxLength(UserDefaultCurrencyMaxLength);
+            .HasMaxLength(UserProfileConstraints.DefaultCurrencyMaxLength);
 
         entity.Property(userProfile => userProfile.CreatedAtUtc)
             .HasColumnName("created_at_utc")

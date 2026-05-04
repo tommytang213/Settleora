@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional generated-client changes, migrations, package changes, Docker changes, public business endpoint authorization behavior, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional migrations, package changes, Docker changes, broader public business endpoint authorization behavior, or worker behavior are added.
 
 ## Current State
 
@@ -29,7 +29,8 @@ It started as a design gate. The current repository now includes the explicitly 
 - Authorization policy foundations now exist as `Settleora.AuthenticatedUser`, `Settleora.SystemRole.Owner`, `Settleora.SystemRole.Admin`, and `Settleora.SystemRole.User`.
 - `GET /api/v1/auth/current-user`, `POST /api/v1/auth/sign-out`, `POST /api/v1/auth/sign-out-all`, `GET /api/v1/auth/sessions`, and `DELETE /api/v1/auth/sessions/{sessionId}` now use the middleware handoff instead of manually parsing bearer tokens in each endpoint.
 - Generated web and Dart client foundations exist from the OpenAPI contract.
-- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, or business endpoints exist yet.
+- `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` now consume the current actor plus `IBusinessAuthorizationService` to return and update only the authenticated actor's own safe profile fields.
+- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, group endpoints, payment details, or business endpoints beyond self-profile read/update exist yet.
 
 ## Runtime Authority Model
 
@@ -274,6 +275,8 @@ The implemented internal business authorization service is `IBusinessAuthorizati
 
 Future endpoints must call this server-side boundary directly or consume a domain service that enforces it before returning or mutating protected profile, group, or business records. Generated clients and UI state still do not authorize access. Workers must not bypass API authorization or mutate auth/profile/group/business tables directly.
 
+The first public consumer is the self-profile slice: `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile`. These endpoints require `Settleora.AuthenticatedUser`, derive the profile ID from `ICurrentActorAccessor`, do not accept client-submitted profile IDs, map missing/deleted/not-allowed profiles to a safe `404`, and expose no auth account, credential, session, token, group membership, audit, provider, storage, or unrelated-user data.
+
 ## Audit And Privacy
 
 Runtime auth must emit safe audit events for security-impactful actions. Event names below are examples, not approved enum values.
@@ -344,7 +347,7 @@ This document does not authorize:
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
 - Additional auth middleware behavior beyond the `SettleoraSession` scheme.
-- Public business endpoints or endpoint-specific business authorization behavior beyond the internal business authorization service foundation.
+- Public business endpoints or endpoint-specific business authorization behavior beyond the self-profile read/update slice.
 - UI integration.
 - Mobile, web, or admin changes.
 - Worker auth behavior.

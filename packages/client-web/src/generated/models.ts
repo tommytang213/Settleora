@@ -103,6 +103,31 @@ export interface CurrentUserSession {
 }
 
 /**
+ * Safe self-profile response for the authenticated actor.
+ */
+export interface SelfUserProfileResponse {
+  id: string;
+  displayName: string;
+  defaultCurrency: CurrencyCode | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
+ * Safe self-profile update. Profile identity is derived from the authenticated actor, not from client input.
+ */
+export interface UpdateSelfUserProfileRequest {
+  /**
+   * Display name after server-side trimming. Blank or whitespace-only values are rejected.
+   */
+  displayName?: string;
+  /**
+   * Optional default currency. Explicit null clears the value.
+   */
+  defaultCurrency?: CurrencyCode | null;
+}
+
+/**
  * Safe active session metadata for the authenticated account. The list is capped by the API.
  */
 export interface SessionListResponse {

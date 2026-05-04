@@ -8,6 +8,7 @@ using Settleora.Api.Configuration;
 using Settleora.Api.Health;
 using Settleora.Api.Persistence;
 using Settleora.Api.Storage;
+using Settleora.Api.Users.SelfProfile;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +35,7 @@ app.MapHealthEndpoints();
 app.MapLocalSignInEndpoints();
 app.MapRefreshSessionEndpoints();
 app.MapCurrentUserEndpoints();
+app.MapSelfUserProfileEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

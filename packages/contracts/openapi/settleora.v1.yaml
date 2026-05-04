@@ -7,15 +7,16 @@ info:
     identifier: Apache-2.0
   description: >
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
-    and web clients will be produced from this file later, and generated output
+    and web clients are produced from this file, and generated output
     must not be manually edited. This contract currently covers scaffold health
     checks, refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
-    revocation, and the minimal current-user auth read boundary; it is not the
-    feature contract for registration, generated clients, auth middleware,
-    session management beyond current-session sign-out, current-account
-    sign-out-all/list/revocation, and public refresh, expenses, settlement,
-    sync, OCR upload, users, or database behavior.
+    revocation, the minimal current-user auth read boundary, and guarded
+    self-profile read/update endpoints; it is not the feature contract for
+    registration, auth middleware, session management beyond
+    current-session sign-out, current-account sign-out-all/list/revocation, and
+    public refresh, general user management, group endpoints, expenses,
+    settlement, sync, OCR upload, or database behavior.
 servers:
   - url: /
 paths:
@@ -366,6 +367,81 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/users/me/profile:
+    get:
+      summary: Self user profile
+      description: Returns the authenticated actor's own active profile through the server-side business authorization boundary.
+      operationId: getSelfUserProfile
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Authenticated user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfUserProfileResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update self user profile
+      description: Updates safe fields on the authenticated actor's own active profile through the server-side business authorization boundary.
+      operationId: updateSelfUserProfile
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSelfUserProfileRequest"
+      responses:
+        "200":
+          description: Updated authenticated user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfUserProfileResponse"
+        "400":
+          description: The submitted profile update is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
 components:
   securitySchemes:
     SessionBearerAuth:
@@ -524,6 +600,49 @@ components:
         expiresAtUtc:
           type: string
           format: date-time
+    SelfUserProfileResponse:
+      type: object
+      description: Safe self-profile response for the authenticated actor.
+      required:
+        - id
+        - displayName
+        - defaultCurrency
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    UpdateSelfUserProfileRequest:
+      type: object
+      description: Safe self-profile update. Profile identity is derived from the authenticated actor, not from client input.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Display name after server-side trimming. Blank or whitespace-only values are rejected.
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+          description: Optional default currency. Explicit null clears the value.
     SessionListResponse:
       type: object
       description: Safe active session metadata for the authenticated account. The list is capped by the API.
