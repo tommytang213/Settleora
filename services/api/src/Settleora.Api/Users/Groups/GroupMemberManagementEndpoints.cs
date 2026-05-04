@@ -21,6 +21,9 @@ internal static class GroupMemberManagementEndpoints
     private const string GroupMemberConflictDetail = "The submitted group membership change conflicts with current group membership state.";
     private const string GroupMemberWriteFailedTitle = "Group member write failed";
     private const string GroupMemberWriteFailedDetail = "Unable to complete group member write.";
+    private const string GroupMemberAddedAction = "group_member.added";
+    private const string GroupMemberRoleUpdatedAction = "group_member.role_updated";
+    private const string GroupMemberRemovedAction = "group_member.removed";
 
     public static WebApplication MapGroupMemberManagementEndpoints(this WebApplication app)
     {
@@ -80,11 +83,12 @@ internal static class GroupMemberManagementEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IGroupMembershipAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
@@ -103,21 +107,20 @@ internal static class GroupMemberManagementEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var targetProfile = await LoadActiveProfileWithAccountAsync(
+        var target = await LoadActiveProfileWithAccountAsync(
             dbContext,
             readResult.UserProfileId.Value,
             cancellationToken);
-        if (targetProfile is null)
+        if (target is null)
         {
             return GroupMemberUnavailable();
         }
 
-        var membershipExists = await dbContext.Set<GroupMembership>()
-            .AsNoTracking()
-            .AnyAsync(
-                membership => membership.GroupId == groupId
-                    && membership.UserProfileId == readResult.UserProfileId.Value,
-                cancellationToken);
+        var membershipExists = await MembershipExistsAsync(
+            dbContext,
+            groupId,
+            readResult.UserProfileId.Value,
+            cancellationToken);
         if (membershipExists)
         {
             return GroupMemberConflict();
@@ -135,6 +138,19 @@ internal static class GroupMemberManagementEndpoints
         };
 
         dbContext.Set<GroupMembership>().Add(membership);
+        await auditWriter.WriteAsync(
+            new GroupMembershipAuditEvent(
+                GroupMemberAddedAction,
+                actor.AuthAccountId,
+                target.AuthAccountId,
+                groupId,
+                readResult.UserProfileId.Value,
+                PreviousRole: null,
+                NewRole: readResult.Role,
+                PreviousStatus: null,
+                NewStatus: null,
+                OccurredAtUtc: occurredAtUtc),
+            cancellationToken);
 
         try
         {
@@ -143,12 +159,18 @@ internal static class GroupMemberManagementEndpoints
         catch (DbUpdateException)
         {
             dbContext.ChangeTracker.Clear();
-            return GroupMemberConflict();
+            return await MembershipExistsAsync(
+                dbContext,
+                groupId,
+                readResult.UserProfileId.Value,
+                cancellationToken)
+                ? GroupMemberConflict()
+                : GroupMemberWriteFailed();
         }
 
         return Results.Created(
             $"/api/v1/groups/{groupId:D}/members/{membership.UserProfileId:D}",
-            MapResponse(membership, targetProfile));
+            MapResponse(membership, target.UserProfile));
     }
 
     private static async Task<IResult> UpdateMemberAsync(
@@ -157,11 +179,12 @@ internal static class GroupMemberManagementEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IGroupMembershipAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
@@ -198,8 +221,28 @@ internal static class GroupMemberManagementEndpoints
             return GroupMemberConflict();
         }
 
+        var previousRole = membership.Role;
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        var subjectAuthAccountId = await ResolveActiveAuthAccountIdAsync(
+            dbContext,
+            userProfileId,
+            cancellationToken);
+
         membership.Role = readResult.Role;
-        membership.UpdatedAtUtc = timeProvider.GetUtcNow();
+        membership.UpdatedAtUtc = occurredAtUtc;
+        await auditWriter.WriteAsync(
+            new GroupMembershipAuditEvent(
+                GroupMemberRoleUpdatedAction,
+                actor.AuthAccountId,
+                subjectAuthAccountId,
+                groupId,
+                userProfileId,
+                previousRole,
+                readResult.Role,
+                PreviousStatus: null,
+                NewStatus: null,
+                OccurredAtUtc: occurredAtUtc),
+            cancellationToken);
 
         try
         {
@@ -219,11 +262,12 @@ internal static class GroupMemberManagementEndpoints
         Guid userProfileId,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IGroupMembershipAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
@@ -253,8 +297,28 @@ internal static class GroupMemberManagementEndpoints
             return GroupMemberConflict();
         }
 
+        var previousStatus = membership.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        var subjectAuthAccountId = await ResolveActiveAuthAccountIdAsync(
+            dbContext,
+            userProfileId,
+            cancellationToken);
+
         membership.Status = GroupMembershipStatuses.Removed;
-        membership.UpdatedAtUtc = timeProvider.GetUtcNow();
+        membership.UpdatedAtUtc = occurredAtUtc;
+        await auditWriter.WriteAsync(
+            new GroupMembershipAuditEvent(
+                GroupMemberRemovedAction,
+                actor.AuthAccountId,
+                subjectAuthAccountId,
+                groupId,
+                userProfileId,
+                PreviousRole: null,
+                NewRole: null,
+                PreviousStatus: previousStatus,
+                NewStatus: GroupMembershipStatuses.Removed,
+                OccurredAtUtc: occurredAtUtc),
+            cancellationToken);
 
         try
         {
@@ -414,7 +478,7 @@ internal static class GroupMemberManagementEndpoints
         return role;
     }
 
-    private static async Task<UserProfile?> LoadActiveProfileWithAccountAsync(
+    private static async Task<ActiveProfileWithAccount?> LoadActiveProfileWithAccountAsync(
         SettleoraDbContext dbContext,
         Guid userProfileId,
         CancellationToken cancellationToken)
@@ -425,8 +489,39 @@ internal static class GroupMemberManagementEndpoints
                 && account.Status == AuthAccountStatuses.Active
                 && account.DeletedAtUtc == null
                 && account.UserProfile.DeletedAtUtc == null)
-            .Select(account => account.UserProfile)
+            .Select(account => new ActiveProfileWithAccount(
+                account.Id,
+                account.UserProfile))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static Task<Guid?> ResolveActiveAuthAccountIdAsync(
+        SettleoraDbContext dbContext,
+        Guid userProfileId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.Set<AuthAccount>()
+            .AsNoTracking()
+            .Where(account => account.UserProfileId == userProfileId
+                && account.Status == AuthAccountStatuses.Active
+                && account.DeletedAtUtc == null
+                && account.UserProfile.DeletedAtUtc == null)
+            .Select(account => (Guid?)account.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static Task<bool> MembershipExistsAsync(
+        SettleoraDbContext dbContext,
+        Guid groupId,
+        Guid userProfileId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.Set<GroupMembership>()
+            .AsNoTracking()
+            .AnyAsync(
+                membership => membership.GroupId == groupId
+                    && membership.UserProfileId == userProfileId,
+                cancellationToken);
     }
 
     private static async Task<GroupMembership?> LoadActiveMembershipAsync(
@@ -576,4 +671,8 @@ internal static class GroupMemberManagementEndpoints
             return new GroupMemberRequestReadResult(null, null, errors);
         }
     }
+
+    private sealed record ActiveProfileWithAccount(
+        Guid AuthAccountId,
+        UserProfile UserProfile);
 }

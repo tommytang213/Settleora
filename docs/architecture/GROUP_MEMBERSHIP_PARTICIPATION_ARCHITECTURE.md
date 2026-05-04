@@ -4,7 +4,7 @@
 
 This document defines Day 2 group membership behavior for guest members, inactive/default-excluded members, and historical access.
 
-The current Day 1 foundation runtime is narrower than this Day 2 architecture: group create/list/read/update endpoints support registered users with `active` `owner` or `member` memberships only, and group member management is limited to existing registered users. Creating a group creates an active owner membership for the authenticated creator. Active group owners can add existing active users with auth accounts, update `owner`/`member` roles, and mark memberships `removed` without hard deletion. Active group members can list active memberships. Invitation flow, guest placeholders, default-excluded/left status runtime behavior, group presets, notification behavior, billing participation rules, and UI behavior are still future work.
+The current Day 1 foundation runtime is narrower than this Day 2 architecture: group create/list/read/update endpoints support registered users with `active` `owner` or `member` memberships only, and group member management is limited to existing registered users. Creating a group creates an active owner membership for the authenticated creator. Active group owners can add existing active users with auth accounts, update `owner`/`member` roles, and mark memberships `removed` without hard deletion. Successful group member add, role update, and removal writes bounded, secret-free auth audit events. Active group members can list active memberships. Invitation flow, guest placeholders, default-excluded/left status runtime behavior, group presets, notification behavior, billing participation rules, audit UI, admin audit viewing, audit export, audit retention cleanup, failure-audit coverage, and UI behavior are still future work.
 
 ## Member types
 
@@ -108,7 +108,9 @@ Suggested behavior:
 
 ## Audit
 
-Audit events should cover:
+Current Day 1 group member management emits `group_member.added`, `group_member.role_updated`, and `group_member.removed` only after successful existing-registered-user membership changes. Metadata is bounded to `workflowName`, `groupId`, `targetUserProfileId`, and applicable role/status transition categories, with actor and subject auth account IDs stored in the auth audit row. It must not include raw tokens, token hashes, password material, local identifiers or emails, provider payloads, request bodies, storage paths, unrelated profile or group data, or full network/user-agent detail.
+
+Future Day 2 audit work should cover:
 
 ```text
 member_status_changed
@@ -119,6 +121,8 @@ member_included_in_bill_after_default_excluded
 guest_member_created
 guest_member_claimed
 ```
+
+Current audit scope does not include an audit UI, admin audit viewer, retention cleanup, export, notifications, or failure audit for every denied/invalid membership request.
 
 ## Non-goals
 

@@ -290,11 +290,11 @@ The implemented internal business authorization service is `IBusinessAuthorizati
 
 Current and future endpoints must call this server-side boundary directly or consume a domain service that enforces it before returning or mutating protected profile, group, or business records. Generated clients and UI state still do not authorize access. Workers must not bypass API authorization or mutate auth/profile/group/business tables directly.
 
-The first public consumers are the self-profile and group foundation slices. `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` require `Settleora.AuthenticatedUser`, derive the profile ID from `ICurrentActorAccessor`, do not accept client-submitted profile IDs, map missing/deleted/not-allowed profiles to a safe `404`, and expose no auth account, credential, session, token, group membership, audit, provider, storage, or unrelated-user data. `POST /api/v1/groups`, `GET /api/v1/groups`, `GET /api/v1/groups/{groupId}`, and `PATCH /api/v1/groups/{groupId}` require `Settleora.AuthenticatedUser`, derive the acting profile server-side, call `IBusinessAuthorizationService`, list/read only active memberships, create an active owner membership for the creator, and allow group-name updates only for active group owners. `GET /api/v1/groups/{groupId}/members` requires active group membership and returns only active registered members. `POST /api/v1/groups/{groupId}/members`, `PATCH /api/v1/groups/{groupId}/members/{userProfileId}`, and `DELETE /api/v1/groups/{groupId}/members/{userProfileId}` require active group owner permission, add only existing active users with auth accounts, update only group role, and mark removals with status `removed` rather than hard deletion. Last active owner demotion/removal returns `409 Conflict`. These group endpoints do not implement invitations, guest placeholders, default-excluded/left runtime behavior, group presets, delete/archive/restore, billing participation, notifications, expenses, bills, settlements, OCR, or UI behavior. `GET /api/v1/admin/users`, `GET /api/v1/admin/users/{userProfileId}`, and `POST /api/v1/admin/users/local` require `Settleora.SystemRole.OwnerOrAdmin`, derive the actor server-side, assign only the system `user` role to created local users, and return safe summaries without identifier, credential, session, token, provider payload, audit metadata, or storage-path material. They do not implement public self-registration, invitations, role assignment/update, disable/delete/reset password flows, or admin session revocation.
+The first public consumers are the self-profile and group foundation slices. `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` require `Settleora.AuthenticatedUser`, derive the profile ID from `ICurrentActorAccessor`, do not accept client-submitted profile IDs, map missing/deleted/not-allowed profiles to a safe `404`, and expose no auth account, credential, session, token, group membership, audit, provider, storage, or unrelated-user data. `POST /api/v1/groups`, `GET /api/v1/groups`, `GET /api/v1/groups/{groupId}`, and `PATCH /api/v1/groups/{groupId}` require `Settleora.AuthenticatedUser`, derive the acting profile server-side, call `IBusinessAuthorizationService`, list/read only active memberships, create an active owner membership for the creator, and allow group-name updates only for active group owners. `GET /api/v1/groups/{groupId}/members` requires active group membership and returns only active registered members. `POST /api/v1/groups/{groupId}/members`, `PATCH /api/v1/groups/{groupId}/members/{userProfileId}`, and `DELETE /api/v1/groups/{groupId}/members/{userProfileId}` require active group owner permission, add only existing active users with auth accounts, update only group role, and mark removals with status `removed` rather than hard deletion. Successful add, role update, and removal writes `auth_audit_events` actions `group_member.added`, `group_member.role_updated`, and `group_member.removed` with bounded, secret-free metadata. Last active owner demotion/removal returns `409 Conflict`. These group endpoints do not implement invitations, guest placeholders, default-excluded/left runtime behavior, group presets, delete/archive/restore, billing participation, notifications, audit UI, admin audit viewing, audit export, audit retention cleanup, failure-audit coverage for denied or invalid membership requests, expenses, bills, settlements, OCR, or UI behavior. `GET /api/v1/admin/users`, `GET /api/v1/admin/users/{userProfileId}`, and `POST /api/v1/admin/users/local` require `Settleora.SystemRole.OwnerOrAdmin`, derive the actor server-side, assign only the system `user` role to created local users, and return safe summaries without identifier, credential, session, token, provider payload, audit metadata, or storage-path material. They do not implement public self-registration, invitations, role assignment/update, disable/delete/reset password flows, or admin session revocation.
 
 ## Audit And Privacy
 
-Runtime auth must emit safe audit events for security-impactful actions. Event names below are examples, not approved enum values.
+Runtime auth must emit safe audit events for security-impactful actions. Implemented group membership event names are fixed in the current API; other event names below remain directional examples.
 
 Recommended event categories:
 
@@ -303,9 +303,12 @@ Recommended event categories:
 - Sign-out.
 - Refresh, rotation, replay failure, or suspected token compromise.
 - Session revocation by user, admin, policy, account disablement, credential rotation, or suspected compromise.
+- Group membership add, role update, and removal success events for guarded owner-only membership management.
 - Current-user access if future policy requires read auditing.
 - New-device or unfamiliar-device detection later.
 - Disabled, deleted, revoked, expired, or policy-denied session use where safe and useful for investigation.
+
+Current group membership audit emits `group_member.added`, `group_member.role_updated`, and `group_member.removed`. Metadata is bounded to `workflowName`, `groupId`, `targetUserProfileId`, and applicable previous/new role or status categories. It does not include raw tokens, token hashes, password material, local identifiers or emails, provider payloads, request bodies, storage paths, unrelated profile/group data, or full network/user-agent detail.
 
 Audit metadata should identify actor, subject, session, action, outcome, timestamp, correlation ID, safe reason category, and bounded device or network context where policy allows.
 
@@ -371,13 +374,14 @@ This document does not authorize:
 - Package changes.
 - Docker behavior changes.
 - Additional runtime behavior changes.
+- Audit UI, admin audit viewing, audit export, audit retention cleanup, notifications, or broad failure-audit behavior outside reviewed slices.
 - Production secret, signing-key, token-library, cookie, or crypto-package choices.
 
 ## Next Implementation Candidates
 
 Future branches should stay small and reviewable:
 
-1. Review and merge the guarded group member management foundation.
-2. Add group invitation, guest-placeholder, default-excluded/left, and billing participation policy only in separate reviewed slices.
+1. Add group invitation, guest-placeholder, default-excluded/left, and billing participation policy only in separate reviewed slices.
+2. Add audit UI, admin audit viewing, export, retention cleanup, notifications, and broader failure-audit policy only in separate reviewed slices.
 3. Add UI integration over the generated client foundations only in separate reviewed slices.
-4. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.
+4. Add admin revocation, distributed hardening, and business endpoint planning only in separate reviewed slices.

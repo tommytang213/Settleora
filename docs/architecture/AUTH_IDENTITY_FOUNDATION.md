@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, guarded group member management for existing registered users, guarded admin local-user list/read/create foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation flow, guest placeholders, broader admin user-management, role assignment/update endpoints, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, guarded group member management for existing registered users with successful add/role-update/remove audit events, guarded admin local-user list/read/create foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation flow, guest placeholders, broader admin user-management, role assignment/update endpoints, audit UI, admin audit viewer, audit export, audit retention cleanup, notification behavior, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -24,7 +24,7 @@ It is an architecture gate for current and future user/group endpoint work. It d
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - First-owner local bootstrap can create the initial local owner account only when no auth account exists. It is not general public registration, returns no session or password material, and clients must sign in normally after bootstrap.
 - Guarded admin local-user foundation endpoints can list/read safe user summaries and create normal local users after bootstrap for authenticated system owners/admins. Created users receive only the system `user` role and must sign in through the existing local sign-in endpoint. This is not public self-registration, invitations, or owner/admin role assignment.
-- Guarded group member management endpoints now let active group owners add existing active registered users with auth accounts, update group roles, and mark active memberships `removed` without hard deletion. Active group members can list active memberships. This is not invitations, guest placeholders, default-excluded/left runtime behavior, notifications, billing participation, or UI behavior.
+- Guarded group member management endpoints now let active group owners add existing active registered users with auth accounts, update group roles, and mark active memberships `removed` without hard deletion. Successful add, role update, and removal writes bounded auth audit events with secret-free metadata. Active group members can list active memberships. This is not invitations, guest placeholders, default-excluded/left runtime behavior, notifications, billing participation, audit UI, admin audit viewing, audit export, audit retention cleanup, failure-audit coverage for denied or invalid membership requests, or UI behavior.
 - No general registration, public credential management endpoints, invitations, friends, broader admin user-management endpoints, or user business API endpoints beyond self-profile read/update, group create/list/read/update, and group member management exist yet.
 - The internal business authorization service can answer fail-closed profile/group access decisions from the server-derived current actor and is now consumed by self-profile, group foundation, and group member management endpoints.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
@@ -113,7 +113,7 @@ The current group membership schema defines group-level role and status only:
 - Group role: `owner` or `member`.
 - Group status: `active` or `removed`.
 
-The current group foundation endpoints use only active memberships. Creating a group creates an active `owner` membership for the authenticated creator. The current group member management endpoints are limited to existing registered users: active group owners can add active users with auth accounts, update `owner`/`member` roles, and mark active memberships `removed` without hard deletion. Invitation flow, guest members, default-excluded/left status runtime behavior, group presets, billing participation defaults, notifications, and UI behavior are still separate future slices.
+The current group foundation endpoints use only active memberships. Creating a group creates an active `owner` membership for the authenticated creator. The current group member management endpoints are limited to existing registered users: active group owners can add active users with auth accounts, update `owner`/`member` roles, and mark active memberships `removed` without hard deletion. Successful membership add, role update, and removal emits `group_member.added`, `group_member.role_updated`, and `group_member.removed` auth audit events with bounded metadata. Invitation flow, guest members, default-excluded/left status runtime behavior, group presets, billing participation defaults, notifications, audit UI/export/retention behavior, and UI behavior are still separate future slices.
 
 These group-level values are separate from system `owner`, `admin`, and `user` product roles. A group `owner` is not automatically a system owner or admin. A system admin is not automatically a member of every group unless future policy explicitly grants and audits that access.
 
@@ -121,7 +121,7 @@ Future endpoint work must check the correct role boundary for the operation bein
 
 ## Audit Requirements
 
-Future auth and identity work must emit audit records for security-impactful actions, including:
+Current and future auth and identity work must emit audit records for security-impactful actions, including:
 
 - Sign-in success and failure events where safe to record.
 - Sign-out and session revocation.
@@ -130,10 +130,10 @@ Future auth and identity work must emit audit records for security-impactful act
 - Password, passkey, MFA, and auth-provider changes.
 - Product role assignment and removal.
 - Permission and security-policy changes.
-- Group membership additions, removals, role changes, and status changes.
+- Group membership additions, removals, role changes, and status changes. The current implemented group-member success actions are `group_member.added`, `group_member.role_updated`, and `group_member.removed`.
 - Invitation lifecycle events when invitations are implemented.
 
-Audit records should identify actor, action, subject, timestamp, outcome, and correlation IDs where practical. They must avoid raw secrets, raw tokens, password material, unnecessary PII, and sensitive provider payloads.
+Audit records should identify actor, action, subject, timestamp, outcome, and correlation IDs where practical. Group membership metadata is bounded to workflow name, group ID, target user profile ID, and applicable role/status transition categories. Audit records must avoid raw secrets, raw tokens, password material, local identifiers or emails, request bodies, storage paths, unnecessary PII, and sensitive provider payloads.
 
 ## Local Mode And Server Mode
 
@@ -162,7 +162,7 @@ This document does not authorize:
 - UI behavior.
 - Runtime behavior changes.
 - Plaintext password storage, raw token storage, passkey storage, or MFA storage.
-- Invitation, friend, guest/default-excluded/left member runtime behavior, broader admin user-management, or role assignment endpoint implementation.
+- Invitation, friend, guest/default-excluded/left member runtime behavior, broader admin user-management, role assignment endpoint implementation, audit UI, admin audit viewing, audit export, retention cleanup, notifications, or broad failure-audit behavior.
 
 ## Next Implementation Candidates
 
@@ -170,6 +170,6 @@ Future work should remain small and reviewable. Good next candidates are:
 
 - Runtime auth/session boundaries only after credential and session policy are reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
-- Invitation, guest/default-excluded/left member behavior, and broader admin user-management endpoints only after the current group, group member management, and admin local-user foundations are reviewed and the next policy checks are designed.
+- Invitation, guest/default-excluded/left member behavior, and broader admin user-management endpoints only after the current group, group member management, membership audit, and admin local-user foundations are reviewed and the next policy checks are designed.
 
 Each candidate should define its own explicit non-goals, validation, migration expectations, and OpenAPI/generated-client impact before implementation starts.

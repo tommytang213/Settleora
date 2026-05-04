@@ -1,6 +1,6 @@
 # Auth Credentials, Sessions, And Audit Design
 
-This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, refresh session runtime service boundaries, first-owner local bootstrap, guarded admin local-user creation, refresh-capable local sign-in, the public refresh endpoint/OpenAPI contract, and generated web/Dart client foundations from OpenAPI. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize additional generated-client changes beyond reviewed OpenAPI slices, UI behavior, general public credential endpoints, session middleware, authorization middleware, or additional public auth runtime behavior beyond the implemented auth endpoints.
+This document defines the schema direction for credential storage, sessions, refresh-like credential history, session-family state, and auth audit records. The current repository includes a schema foundation for local password credentials, server-side sessions, refresh/session-family persistence, and auth audit events, plus internal password hashing, credential workflow, session runtime, refresh session runtime service boundaries, first-owner local bootstrap, guarded admin local-user creation, refresh-capable local sign-in, the public refresh endpoint/OpenAPI contract, guarded group member-management success audit events, and generated web/Dart client foundations from OpenAPI. Password hashing policy is defined separately in [PASSWORD_HASHING_POLICY.md](PASSWORD_HASHING_POLICY.md), credential workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md), and refresh rotation policy is defined in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md). It does not authorize additional generated-client changes beyond reviewed OpenAPI slices, UI behavior, general public credential endpoints, session middleware, authorization middleware, or additional public auth runtime behavior beyond the implemented auth endpoints.
 
 ## Current State
 
@@ -14,10 +14,11 @@ This document defines the schema direction for credential storage, sessions, ref
 - `auth_sessions` stores server-authoritative session metadata and token hashes; it does not store raw session IDs, raw bearer tokens, or raw refresh tokens.
 - `auth_session_families` stores account-scoped refresh/session continuity lineage status, absolute expiry, rotation, and revocation metadata without raw credential material.
 - `auth_refresh_credentials` stores unique refresh credential hashes, status, issued/idle/absolute expiry, consumed/revoked timestamps, optional session linkage, and optional replacement linkage without raw refresh tokens.
-- `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events.
+- `auth_audit_events` stores bounded, safe auth audit metadata; it does not store raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads. The internal credential workflow writes bounded creation and verification audit events, and guarded group member management writes success events for member add, role update, and removal.
 - No passkey, MFA, reset-token, recovery-code, invitation, friend, or business authorization tables exist yet.
 - First-owner local bootstrap can create the initial local password credential only through the internal credential workflow and only while no auth account exists. Guarded admin local-user creation can create later normal local users through the same credential workflow for authenticated system owners/admins. Neither path returns credential material, and neither path is general public registration.
 - Admin local-user creation writes a bounded safe auth audit event for the admin-created account plus the existing credential workflow audit event. Audit metadata must remain free of submitted identifiers, plaintext passwords, verifier strings, password hash metadata, raw tokens, provider payloads, storage paths, and unnecessary PII.
+- Group membership add, role update, and removal success events write `group_member.added`, `group_member.role_updated`, and `group_member.removed` with actor/subject auth account IDs when safely resolvable and bounded metadata for `workflowName`, `groupId`, `targetUserProfileId`, and applicable role/status transitions. They do not add failure audit coverage, audit UI, admin audit viewing, export, retention cleanup, notifications, OpenAPI changes, or generated-client changes.
 - Internal refresh credential generation, rotation, replay classification, and linked family revocation behavior now exists behind the refresh runtime service boundary. `POST /api/v1/auth/sign-in` now creates refresh-capable session families and initial refresh-like credentials through that boundary, and `POST /api/v1/auth/refresh` rotates submitted refresh-like credentials without adding raw refresh-token storage or new schema. Generated web and Dart client foundations exist from the OpenAPI contract. No authorization middleware, general registration flow, arbitrary/admin session flow, or UI behavior exists yet.
 
 ## Credential Storage Boundaries
@@ -95,6 +96,7 @@ Events should include:
 - Identity link and unlink.
 - Account disablement, re-enablement, deletion, and recovery.
 - Credential creation, rotation, revocation, reset, and policy-driven rehash.
+- Group membership additions, role changes, removals, and future status transitions.
 - Future passkey and MFA enrollment, verification, removal, recovery, and failed challenge events.
 
 Audit records should include:
@@ -117,6 +119,9 @@ Audit records must not store:
 - Passkey private material.
 - MFA secrets.
 - Full sensitive provider payloads.
+- Request bodies.
+- Local account identifiers or emails unless a future reviewed policy explicitly allows a bounded form.
+- Storage paths.
 - Unbounded user-agent or IP history.
 
 Audit writes should happen in API/domain auth boundaries. Clients may display audit history later, but clients must not be the source of truth for audit records.
@@ -150,11 +155,11 @@ This schema foundation does not authorize:
 - Additional session implementation beyond the current reviewed sign-in/refresh/current-user/sign-out/session-list/session-revocation boundaries.
 - Passkey implementation.
 - MFA implementation.
-- General auth audit implementation outside the internal credential workflow.
+- Audit UI, admin audit viewing, audit export, retention cleanup, notifications, or broad failure-audit behavior outside reviewed slices.
 - Additional OpenAPI changes beyond the reviewed auth endpoint contracts.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
-- Runtime behavior changes.
+- Additional runtime behavior changes beyond current reviewed auth and group membership audit boundaries.
 
 ## Next Implementation Candidates
 

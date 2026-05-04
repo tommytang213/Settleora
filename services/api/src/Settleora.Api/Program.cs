@@ -23,6 +23,7 @@ builder.Services.AddLocalOwnerBootstrap();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
 builder.Services.AddSettleoraAuth();
+builder.Services.AddGroupMembershipAudit();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(

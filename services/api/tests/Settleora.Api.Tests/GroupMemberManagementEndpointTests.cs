@@ -20,6 +20,9 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
     private const string GroupsPath = "/api/v1/groups";
     private const string WrongRawToken = "visible-wrong-group-member-session-token";
     private const string HiddenIdentifier = "hidden.member@example.test";
+    private const string GroupMemberAddedAction = "group_member.added";
+    private const string GroupMemberRoleUpdatedAction = "group_member.role_updated";
+    private const string GroupMemberRemovedAction = "group_member.removed";
 
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 5, 9, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset ValidationTimestamp = new(2026, 5, 5, 9, 15, 0, TimeSpan.Zero);
@@ -163,6 +166,21 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         var membership = await ReadMembershipAsync(testFactory, groupId, target.UserProfileId);
         Assert.Equal(role, membership.Role);
         Assert.Equal(GroupMembershipStatuses.Active, membership.Status);
+
+        var auditEvent = await AssertSingleGroupMembershipAuditEventAsync(
+            testFactory,
+            GroupMemberAddedAction,
+            ownerSession.AuthAccountId,
+            target.AuthAccountId,
+            WriteTimestamp);
+        AssertGroupMembershipAuditMetadata(
+            auditEvent,
+            groupId,
+            target.UserProfileId,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["newRole"] = role
+            });
     }
 
     [Fact]
@@ -236,6 +254,7 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
 
         await AssertGroupMemberConflictProblemAsync(response);
         Assert.Equal(1, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -265,6 +284,7 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         await AssertGroupMemberConflictProblemAsync(response);
         var membership = await ReadMembershipAsync(testFactory, groupId, target.UserProfileId);
         Assert.Equal(GroupMembershipStatuses.Removed, membership.Status);
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -286,6 +306,7 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
 
         await AssertInvalidGroupMemberRequestProblemAsync(response);
         Assert.Equal(0, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -315,6 +336,7 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
 
         await AssertGroupMemberPermissionDeniedProblemAsync(response);
         Assert.Equal(0, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -351,6 +373,22 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         var membership = await ReadMembershipAsync(testFactory, groupId, target.UserProfileId);
         Assert.Equal(GroupMembershipRoles.Owner, membership.Role);
         Assert.Equal(WriteTimestamp, membership.UpdatedAtUtc);
+
+        var auditEvent = await AssertSingleGroupMembershipAuditEventAsync(
+            testFactory,
+            GroupMemberRoleUpdatedAction,
+            ownerSession.AuthAccountId,
+            target.AuthAccountId,
+            WriteTimestamp);
+        AssertGroupMembershipAuditMetadata(
+            auditEvent,
+            groupId,
+            target.UserProfileId,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["previousRole"] = GroupMembershipRoles.Member,
+                ["newRole"] = GroupMembershipRoles.Owner
+            });
     }
 
     [Fact]
@@ -403,6 +441,7 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         await AssertGroupMemberConflictProblemAsync(response);
         var membership = await ReadMembershipAsync(testFactory, groupId, ownerSession.UserProfileId);
         Assert.Equal(GroupMembershipRoles.Owner, membership.Role);
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -434,6 +473,22 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         Assert.Equal(GroupMembershipStatuses.Removed, membership.Status);
         Assert.Equal(WriteTimestamp, membership.UpdatedAtUtc);
         Assert.Equal(1, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+
+        var auditEvent = await AssertSingleGroupMembershipAuditEventAsync(
+            testFactory,
+            GroupMemberRemovedAction,
+            ownerSession.AuthAccountId,
+            target.AuthAccountId,
+            WriteTimestamp);
+        AssertGroupMembershipAuditMetadata(
+            auditEvent,
+            groupId,
+            target.UserProfileId,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["previousStatus"] = GroupMembershipStatuses.Active,
+                ["newStatus"] = GroupMembershipStatuses.Removed
+            });
     }
 
     [Fact]
@@ -454,6 +509,61 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         await AssertGroupMemberConflictProblemAsync(response);
         var membership = await ReadMembershipAsync(testFactory, groupId, ownerSession.UserProfileId);
         Assert.Equal(GroupMembershipStatuses.Active, membership.Status);
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
+    public async Task GroupMembershipAuditMetadataExcludesSecretsIdentifiersRequestBodiesAndUnrelatedProfileData()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var target = await SeedAccountAsync(
+            testFactory,
+            "Sensitive Target Display",
+            InitialTimestamp.AddMinutes(1),
+            providerSubject: HiddenIdentifier);
+        var unrelated = await SeedAccountAsync(testFactory, "Unrelated Profile Data", InitialTimestamp.AddMinutes(2));
+        var groupId = await SeedGroupWithOwnerAsync(testFactory, ownerSession.UserProfileId);
+        var sessionTokenHash = await ReadSessionTokenHashAsync(testFactory, ownerSession.AuthSessionId);
+        var requestBody = CreateAddMemberContent(target.UserProfileId, GroupMembershipRoles.Member);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            MembersPath(groupId),
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var auditEvent = await AssertSingleGroupMembershipAuditEventAsync(
+            testFactory,
+            GroupMemberAddedAction,
+            ownerSession.AuthAccountId,
+            target.AuthAccountId,
+            WriteTimestamp);
+        AssertGroupMembershipAuditMetadata(
+            auditEvent,
+            groupId,
+            target.UserProfileId,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["newRole"] = GroupMembershipRoles.Member
+            });
+        AssertSafeGroupMembershipAuditContent(
+            auditEvent,
+            ownerSession.RawSessionToken,
+            sessionTokenHash,
+            HiddenIdentifier,
+            "Sensitive Target Display",
+            "Unrelated Profile Data",
+            unrelated.AuthAccountId.ToString("D"),
+            unrelated.UserProfileId.ToString("D"),
+            ownerSession.AuthAccountId.ToString("D"),
+            target.AuthAccountId.ToString("D"),
+            requestBody);
     }
 
     [Fact]
@@ -831,6 +941,125 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
             .Where(session => session.Id == authSessionId)
             .Select(session => session.SessionTokenHash)
             .SingleAsync();
+    }
+
+    private static async Task<AuthAuditEvent> AssertSingleGroupMembershipAuditEventAsync(
+        WebApplicationFactory<Program> testFactory,
+        string expectedAction,
+        Guid expectedActorAuthAccountId,
+        Guid? expectedSubjectAuthAccountId,
+        DateTimeOffset expectedOccurredAtUtc)
+    {
+        var auditEvent = Assert.Single(await ReadGroupMembershipAuditEventsAsync(testFactory));
+
+        Assert.Equal(expectedActorAuthAccountId, auditEvent.ActorAuthAccountId);
+        Assert.Equal(expectedSubjectAuthAccountId, auditEvent.SubjectAuthAccountId);
+        Assert.Equal(expectedAction, auditEvent.Action);
+        Assert.Equal(AuthAuditOutcomes.Success, auditEvent.Outcome);
+        Assert.Equal(expectedOccurredAtUtc, auditEvent.OccurredAtUtc);
+        Assert.Null(auditEvent.CorrelationId);
+        Assert.Null(auditEvent.RequestId);
+
+        return auditEvent;
+    }
+
+    private static async Task AssertNoGroupMembershipAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        Assert.Empty(await ReadGroupMembershipAuditEventsAsync(testFactory));
+    }
+
+    private static async Task<IReadOnlyList<AuthAuditEvent>> ReadGroupMembershipAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthAuditEvent>()
+            .AsNoTracking()
+            .Where(auditEvent => auditEvent.Action == GroupMemberAddedAction
+                || auditEvent.Action == GroupMemberRoleUpdatedAction
+                || auditEvent.Action == GroupMemberRemovedAction)
+            .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
+            .ThenBy(auditEvent => auditEvent.Action)
+            .ToArrayAsync();
+    }
+
+    private static void AssertGroupMembershipAuditMetadata(
+        AuthAuditEvent auditEvent,
+        Guid expectedGroupId,
+        Guid expectedTargetUserProfileId,
+        IReadOnlyDictionary<string, string> expectedAdditionalValues)
+    {
+        Assert.NotNull(auditEvent.SafeMetadataJson);
+        Assert.True(auditEvent.SafeMetadataJson!.Length <= 4096);
+
+        using var metadata = JsonDocument.Parse(auditEvent.SafeMetadataJson);
+        var propertyNames = metadata.RootElement
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .OrderBy(propertyName => propertyName, StringComparer.Ordinal)
+            .ToArray();
+        var expectedPropertyNames = new[] { "workflowName", "groupId", "targetUserProfileId" }
+            .Concat(expectedAdditionalValues.Keys)
+            .OrderBy(propertyName => propertyName, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expectedPropertyNames, propertyNames);
+        Assert.Equal(
+            "group_member_management",
+            metadata.RootElement.GetProperty("workflowName").GetString());
+        Assert.Equal(
+            expectedGroupId.ToString("D"),
+            metadata.RootElement.GetProperty("groupId").GetString());
+        Assert.Equal(
+            expectedTargetUserProfileId.ToString("D"),
+            metadata.RootElement.GetProperty("targetUserProfileId").GetString());
+
+        foreach (var expectedValue in expectedAdditionalValues)
+        {
+            Assert.Equal(
+                expectedValue.Value,
+                metadata.RootElement.GetProperty(expectedValue.Key).GetString());
+        }
+
+        foreach (var property in metadata.RootElement.EnumerateObject())
+        {
+            var value = property.Value.GetString();
+            Assert.NotNull(value);
+            Assert.InRange(value!.Length, 1, 120);
+        }
+    }
+
+    private static void AssertSafeGroupMembershipAuditContent(
+        AuthAuditEvent auditEvent,
+        params string[] forbiddenValues)
+    {
+        var auditText = string.Join(
+            "\n",
+            auditEvent.Action,
+            auditEvent.Outcome,
+            auditEvent.SafeMetadataJson ?? string.Empty);
+        var lowerAuditText = auditText.ToLowerInvariant();
+
+        foreach (var forbiddenValue in forbiddenValues)
+        {
+            Assert.DoesNotContain(forbiddenValue, auditText);
+        }
+
+        Assert.DoesNotContain("token", lowerAuditText);
+        Assert.DoesNotContain("hash", lowerAuditText);
+        Assert.DoesNotContain("password", lowerAuditText);
+        Assert.DoesNotContain("credential", lowerAuditText);
+        Assert.DoesNotContain("verifier", lowerAuditText);
+        Assert.DoesNotContain("identifier", lowerAuditText);
+        Assert.DoesNotContain("email", lowerAuditText);
+        Assert.DoesNotContain("provider", lowerAuditText);
+        Assert.DoesNotContain("payload", lowerAuditText);
+        Assert.DoesNotContain("request", lowerAuditText);
+        Assert.DoesNotContain("body", lowerAuditText);
+        Assert.DoesNotContain("storage", lowerAuditText);
+        Assert.DoesNotContain("path", lowerAuditText);
     }
 
     private static string MembersPath(Guid groupId)
