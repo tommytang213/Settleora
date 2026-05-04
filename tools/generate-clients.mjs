@@ -471,8 +471,13 @@ function generateDartClass(name, schema) {
     fieldName: toCamelCase(propertyName),
     schema: propertySchema,
     required: required.has(propertyName),
-    type: dartType(propertySchema, { nullable: !required.has(propertyName) })
+    type: dartType(propertySchema, { nullable: !required.has(propertyName) }),
+    nullable: false
   }));
+
+  for (const property of properties) {
+    property.nullable = property.type.endsWith("?");
+  }
 
   const lines = [`class ${name} {`];
   lines.push(`  const ${name}({`);
@@ -498,14 +503,23 @@ function generateDartClass(name, schema) {
   lines.push("  }");
   lines.push("");
   lines.push("  JsonObject toJson() {");
+  for (const property of properties.filter((candidate) => candidate.nullable)) {
+    lines.push(`    final ${property.fieldName}JsonValue = ${property.fieldName};`);
+  }
+
+  if (properties.some((property) => property.nullable)) {
+    lines.push("");
+  }
+
   lines.push("    return {");
 
   for (const property of properties) {
-    const valueExpression = dartToJsonExpression(property.schema, property.fieldName);
+    const propertyExpression = property.nullable ? `${property.fieldName}JsonValue` : property.fieldName;
+    const valueExpression = dartToJsonExpression(property.schema, propertyExpression);
     if (property.required) {
       lines.push(`      ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
     } else {
-      lines.push(`      if (${property.fieldName} != null) ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
+      lines.push(`      if (${propertyExpression} != null) ${JSON.stringify(property.jsonName)}: ${valueExpression},`);
     }
   }
 

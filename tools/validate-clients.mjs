@@ -30,6 +30,8 @@ if (changes.length > 0) {
   process.exit(1);
 }
 
+await validateGeneratedDartNullSafety();
+
 console.log("Generated client validation passed.");
 
 async function snapshotTargets(targets) {
@@ -87,6 +89,102 @@ function diffSnapshots(before, after) {
 
 function normalizePath(file) {
   return relative(process.cwd(), file).replaceAll("\\", "/");
+}
+
+async function validateGeneratedDartNullSafety() {
+  const modelsPath = "packages/client-dart/generated/models.dart";
+  const content = await readFile(modelsPath, "utf8");
+  const unsafeCalls = [];
+
+  for (const dartClass of collectDartClasses(content)) {
+    const nullableFields = collectNullableDartFields(dartClass.body);
+
+    for (const fieldName of nullableFields) {
+      const unsafeMemberCall = new RegExp(`\\b${escapeRegExp(fieldName)}\\s*\\.\\s*(?:toUtc|toJson|map)\\s*\\(`, "g");
+      let match;
+      while ((match = unsafeMemberCall.exec(dartClass.body)) !== null) {
+        const lineNumber = lineNumberAt(content, dartClass.bodyStartIndex + match.index);
+        unsafeCalls.push(`${modelsPath}:${lineNumber} direct method call on nullable field \`${fieldName}\` in ${dartClass.name}`);
+      }
+    }
+  }
+
+  if (unsafeCalls.length === 0) {
+    return;
+  }
+
+  console.error("Generated Dart client has unsafe nullable field serialization.");
+  console.error("Nullable class fields must be promoted through a local variable, null-aware call, or non-null assertion before method calls.");
+  for (const unsafeCall of unsafeCalls) {
+    console.error(`- ${unsafeCall}`);
+  }
+
+  process.exit(1);
+}
+
+function collectDartClasses(content) {
+  const classes = [];
+  const classStart = /\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s*{/g;
+  let match;
+
+  while ((match = classStart.exec(content)) !== null) {
+    const [, name] = match;
+    const openBraceIndex = content.indexOf("{", match.index);
+    const closeBraceIndex = findMatchingBrace(content, openBraceIndex);
+
+    if (closeBraceIndex === -1) {
+      continue;
+    }
+
+    classes.push({
+      name,
+      body: content.slice(openBraceIndex + 1, closeBraceIndex),
+      bodyStartIndex: openBraceIndex + 1
+    });
+    classStart.lastIndex = closeBraceIndex + 1;
+  }
+
+  return classes;
+}
+
+function findMatchingBrace(content, openBraceIndex) {
+  let depth = 0;
+
+  for (let index = openBraceIndex; index < content.length; index += 1) {
+    if (content[index] === "{") {
+      depth += 1;
+    } else if (content[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function collectNullableDartFields(content) {
+  const nullableFields = new Set();
+  const fieldDeclaration = /^\s*final\s+(.+?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;$/gm;
+  let match;
+
+  while ((match = fieldDeclaration.exec(content)) !== null) {
+    const [, type, fieldName] = match;
+    if (type.includes("?")) {
+      nullableFields.add(fieldName);
+    }
+  }
+
+  return nullableFields;
+}
+
+function lineNumberAt(content, index) {
+  return content.slice(0, index).split("\n").length;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatError(error) {

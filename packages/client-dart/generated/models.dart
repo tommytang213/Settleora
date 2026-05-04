@@ -29,10 +29,12 @@ class LocalSignInRequest {
   }
 
   JsonObject toJson() {
+    final deviceLabelJsonValue = deviceLabel;
+
     return {
       "identifier": identifier,
       "password": password,
-      if (deviceLabel != null) "deviceLabel": deviceLabel,
+      if (deviceLabelJsonValue != null) "deviceLabel": deviceLabelJsonValue,
     };
   }
 }
@@ -82,9 +84,11 @@ class RefreshSessionRequest {
   }
 
   JsonObject toJson() {
+    final deviceLabelJsonValue = deviceLabel;
+
     return {
       "refreshCredential": refreshCredential,
-      if (deviceLabel != null) "deviceLabel": deviceLabel,
+      if (deviceLabelJsonValue != null) "deviceLabel": deviceLabelJsonValue,
     };
   }
 }
@@ -228,10 +232,12 @@ class CurrentUserProfile {
   }
 
   JsonObject toJson() {
+    final defaultCurrencyJsonValue = defaultCurrency;
+
     return {
       "id": id,
       "displayName": displayName,
-      "defaultCurrency": defaultCurrency,
+      "defaultCurrency": defaultCurrencyJsonValue,
     };
   }
 }
@@ -315,14 +321,17 @@ class SessionSummary {
   }
 
   JsonObject toJson() {
+    final lastSeenAtUtcJsonValue = lastSeenAtUtc;
+    final deviceLabelJsonValue = deviceLabel;
+
     return {
       "id": id,
       "isCurrent": isCurrent,
       "status": status,
       "issuedAtUtc": issuedAtUtc.toUtc().toIso8601String(),
       "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
-      "lastSeenAtUtc": lastSeenAtUtc == null ? null : lastSeenAtUtc.toUtc().toIso8601String(),
-      "deviceLabel": deviceLabel,
+      "lastSeenAtUtc": lastSeenAtUtcJsonValue == null ? null : lastSeenAtUtcJsonValue.toUtc().toIso8601String(),
+      "deviceLabel": deviceLabelJsonValue,
     };
   }
 }
@@ -400,10 +409,13 @@ class StorageObjectRef {
   }
 
   JsonObject toJson() {
+    final contentTypeJsonValue = contentType;
+    final sizeBytesJsonValue = sizeBytes;
+
     return {
       "id": id,
-      if (contentType != null) "contentType": contentType,
-      if (sizeBytes != null) "sizeBytes": sizeBytes,
+      if (contentTypeJsonValue != null) "contentType": contentTypeJsonValue,
+      if (sizeBytesJsonValue != null) "sizeBytes": sizeBytesJsonValue,
     };
   }
 }
@@ -435,12 +447,18 @@ class ProblemDetails {
   }
 
   JsonObject toJson() {
+    final typeJsonValue = type;
+    final titleJsonValue = title;
+    final statusJsonValue = status;
+    final detailJsonValue = detail;
+    final instanceJsonValue = instance;
+
     return {
-      if (type != null) "type": type,
-      if (title != null) "title": title,
-      if (status != null) "status": status,
-      if (detail != null) "detail": detail,
-      if (instance != null) "instance": instance,
+      if (typeJsonValue != null) "type": typeJsonValue,
+      if (titleJsonValue != null) "title": titleJsonValue,
+      if (statusJsonValue != null) "status": statusJsonValue,
+      if (detailJsonValue != null) "detail": detailJsonValue,
+      if (instanceJsonValue != null) "instance": instanceJsonValue,
     };
   }
 }
