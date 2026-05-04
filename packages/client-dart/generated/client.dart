@@ -200,6 +200,49 @@ class SettleoraApiClient {
     return GroupResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<GroupMemberListResponse> listGroupMembers(String groupId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/members',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupMemberListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupMemberResponse> addGroupMember(String groupId, AddGroupMemberRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/members',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupMemberResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupMemberResponse> updateGroupMember(String groupId, String userProfileId, UpdateGroupMemberRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/members/${Uri.encodeComponent(userProfileId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupMemberResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removeGroupMember(String groupId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/members/${Uri.encodeComponent(userProfileId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<SelfUserProfileResponse> getSelfUserProfile({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

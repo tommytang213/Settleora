@@ -586,7 +586,118 @@ class GroupResponse {
   }
 }
 
-/// Group-scoped role for the current authenticated actor.
+/// Adds an existing active registered user profile to a group. Role defaults to member when omitted; clients cannot submit actor IDs, auth account IDs, owner IDs, or authorization context.
+class AddGroupMemberRequest {
+  const AddGroupMemberRequest({
+    required this.userProfileId,
+    this.role,
+  });
+
+  /// Existing active user profile with an active auth account.
+  final String userProfileId;
+  final GroupRole? role;
+
+  factory AddGroupMemberRequest.fromJson(JsonObject json) {
+    return AddGroupMemberRequest(
+      userProfileId: json["userProfileId"] as String,
+      role: json["role"] == null ? null : json["role"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final roleJsonValue = role;
+
+    return {
+      "userProfileId": userProfileId,
+      if (roleJsonValue != null) "role": roleJsonValue,
+    };
+  }
+}
+
+/// Updates the group role for an existing active group membership. The route userProfileId identifies the member; body userProfileId fields are rejected.
+class UpdateGroupMemberRequest {
+  const UpdateGroupMemberRequest({
+    required this.role,
+  });
+
+  final GroupRole role;
+
+  factory UpdateGroupMemberRequest.fromJson(JsonObject json) {
+    return UpdateGroupMemberRequest(
+      role: json["role"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "role": role,
+    };
+  }
+}
+
+/// Active registered group members visible to the authenticated actor.
+class GroupMemberListResponse {
+  const GroupMemberListResponse({
+    required this.members,
+  });
+
+  final List<GroupMemberResponse> members;
+
+  factory GroupMemberListResponse.fromJson(JsonObject json) {
+    return GroupMemberListResponse(
+      members: (json["members"] as List<dynamic>).map((item) => GroupMemberResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "members": members.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe group member summary. It excludes auth account IDs, identifiers, credentials, sessions, token material, provider payloads, audit metadata, storage paths, removed memberships, and unrelated users.
+class GroupMemberResponse {
+  const GroupMemberResponse({
+    required this.userProfileId,
+    required this.displayName,
+    required this.role,
+    required this.status,
+    required this.joinedAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String userProfileId;
+  final String displayName;
+  final GroupRole role;
+  final GroupMembershipStatus status;
+  final DateTime joinedAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory GroupMemberResponse.fromJson(JsonObject json) {
+    return GroupMemberResponse(
+      userProfileId: json["userProfileId"] as String,
+      displayName: json["displayName"] as String,
+      role: json["role"] as String,
+      status: json["status"] as String,
+      joinedAtUtc: DateTime.parse(json["joinedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "displayName": displayName,
+      "role": role,
+      "status": status,
+      "joinedAtUtc": joinedAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Group-scoped role.
 typedef GroupRole = String;
 class GroupRoleValues {
   const GroupRoleValues._();
@@ -595,7 +706,7 @@ class GroupRoleValues {
   static const Set<GroupRole> values = {owner, member};
 }
 
-/// Group membership status for the current authenticated actor.
+/// Group membership status.
 typedef GroupMembershipStatus = String;
 class GroupMembershipStatusValues {
   const GroupMembershipStatusValues._();

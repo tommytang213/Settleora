@@ -4,7 +4,7 @@
 
 This document defines Day 2 group membership behavior for guest members, inactive/default-excluded members, and historical access.
 
-The current Day 1 foundation runtime is narrower: group create/list/read/update endpoints support registered users with `active` `owner` or `member` memberships only. Creating a group creates an active owner membership for the authenticated creator. Invitation flow, member management, guest placeholders, default-excluded/left status runtime behavior, group presets, and bill participation rules are still future work.
+The current Day 1 foundation runtime is narrower than this Day 2 architecture: group create/list/read/update endpoints support registered users with `active` `owner` or `member` memberships only, and group member management is limited to existing registered users. Creating a group creates an active owner membership for the authenticated creator. Active group owners can add existing active users with auth accounts, update `owner`/`member` roles, and mark memberships `removed` without hard deletion. Active group members can list active memberships. Invitation flow, guest placeholders, default-excluded/left status runtime behavior, group presets, notification behavior, billing participation rules, and UI behavior are still future work.
 
 ## Member types
 

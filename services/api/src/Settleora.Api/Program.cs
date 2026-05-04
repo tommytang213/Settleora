@@ -42,6 +42,7 @@ app.MapLocalSignInEndpoints();
 app.MapRefreshSessionEndpoints();
 app.MapCurrentUserEndpoints();
 app.MapGroupFoundationEndpoints();
+app.MapGroupMemberManagementEndpoints();
 app.MapSelfUserProfileEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();

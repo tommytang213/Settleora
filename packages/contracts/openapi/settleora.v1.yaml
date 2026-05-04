@@ -13,13 +13,13 @@ info:
     refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
     revocation, the minimal current-user auth read boundary, and guarded
-    self-profile read/update endpoints plus the first guarded group
-    create/list/read/update foundation endpoints plus guarded admin local-user
+    self-profile read/update endpoints plus guarded group create/list/read/update
+    and group member-management foundations plus guarded admin local-user
     list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
-    public refresh, broader user management, role assignment, group invitations/member
-    management, expenses, settlement, sync, OCR upload, UI behavior, or database behavior.
+    public refresh, broader user management, role assignment, group invitations,
+    guest members, expenses, settlement, sync, OCR upload, UI behavior, or database behavior.
 servers:
   - url: /
 paths:
@@ -756,6 +756,246 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/members:
+    get:
+      summary: List group members
+      description: Lists active registered members for a non-deleted group only when the authenticated actor has active group membership. Removed memberships, auth account IDs, identifiers, credentials, sessions, token material, provider payloads, audit metadata, storage paths, and unrelated users are excluded.
+      operationId: listGroupMembers
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose active members should be listed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active group members visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      summary: Add group member
+      description: Adds an existing active registered user profile to a group only when the authenticated actor is an active group owner. This foundation does not create invitations, guest placeholders, auth accounts, or billing participation defaults.
+      operationId: addGroupMember
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose membership should be changed.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMemberRequest"
+      responses:
+        "201":
+          description: Existing registered user was added as an active group member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberResponse"
+        "400":
+          description: The submitted group member request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor has active group membership but is not allowed to manage group members.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or target registered user is missing, deleted, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Active or removed membership already exists for the target user.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/members/{userProfileId}:
+    patch:
+      summary: Update group member role
+      description: Updates an active group member's group role only when the authenticated actor is an active group owner. The API rejects last-owner demotion with 409 Conflict.
+      operationId: updateGroupMember
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose membership should be changed.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: User profile ID for the active group membership to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGroupMemberRequest"
+      responses:
+        "200":
+          description: Updated active group member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberResponse"
+        "400":
+          description: The submitted group member request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor has active group membership but is not allowed to manage group members.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or target active membership is missing, deleted, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The requested role change would remove the last active owner.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group member update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Remove group member
+      description: Marks an active group member as removed only when the authenticated actor is an active group owner. Membership rows are not hard-deleted. The API rejects last-owner removal with 409 Conflict.
+      operationId: removeGroupMember
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose membership should be changed.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: User profile ID for the active group membership to remove.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Active group member was marked removed.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor has active group membership but is not allowed to manage group members.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or target active membership is missing, deleted, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The requested removal would remove the last active owner.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group member removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/users/me/profile:
     get:
       summary: Self user profile
@@ -1193,15 +1433,75 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    AddGroupMemberRequest:
+      type: object
+      description: Adds an existing active registered user profile to a group. Role defaults to member when omitted; clients cannot submit actor IDs, auth account IDs, owner IDs, or authorization context.
+      additionalProperties: false
+      required:
+        - userProfileId
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+          description: Existing active user profile with an active auth account.
+        role:
+          $ref: "#/components/schemas/GroupRole"
+    UpdateGroupMemberRequest:
+      type: object
+      description: Updates the group role for an existing active group membership. The route userProfileId identifies the member; body userProfileId fields are rejected.
+      additionalProperties: false
+      required:
+        - role
+      properties:
+        role:
+          $ref: "#/components/schemas/GroupRole"
+    GroupMemberListResponse:
+      type: object
+      description: Active registered group members visible to the authenticated actor.
+      required:
+        - members
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupMemberResponse"
+    GroupMemberResponse:
+      type: object
+      description: Safe group member summary. It excludes auth account IDs, identifiers, credentials, sessions, token material, provider payloads, audit metadata, storage paths, removed memberships, and unrelated users.
+      required:
+        - userProfileId
+        - displayName
+        - role
+        - status
+        - joinedAtUtc
+        - updatedAtUtc
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        role:
+          $ref: "#/components/schemas/GroupRole"
+        status:
+          $ref: "#/components/schemas/GroupMembershipStatus"
+        joinedAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
     GroupRole:
       type: string
-      description: Group-scoped role for the current authenticated actor.
+      description: Group-scoped role.
       enum:
         - owner
         - member
     GroupMembershipStatus:
       type: string
-      description: Group membership status for the current authenticated actor.
+      description: Group membership status.
       enum:
         - active
         - removed

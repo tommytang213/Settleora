@@ -225,12 +225,49 @@ export interface GroupResponse {
 }
 
 /**
- * Group-scoped role for the current authenticated actor.
+ * Adds an existing active registered user profile to a group. Role defaults to member when omitted; clients cannot submit actor IDs, auth account IDs, owner IDs, or authorization context.
+ */
+export interface AddGroupMemberRequest {
+  /**
+   * Existing active user profile with an active auth account.
+   */
+  userProfileId: string;
+  role?: GroupRole;
+}
+
+/**
+ * Updates the group role for an existing active group membership. The route userProfileId identifies the member; body userProfileId fields are rejected.
+ */
+export interface UpdateGroupMemberRequest {
+  role: GroupRole;
+}
+
+/**
+ * Active registered group members visible to the authenticated actor.
+ */
+export interface GroupMemberListResponse {
+  members: GroupMemberResponse[];
+}
+
+/**
+ * Safe group member summary. It excludes auth account IDs, identifiers, credentials, sessions, token material, provider payloads, audit metadata, storage paths, removed memberships, and unrelated users.
+ */
+export interface GroupMemberResponse {
+  userProfileId: string;
+  displayName: string;
+  role: GroupRole;
+  status: GroupMembershipStatus;
+  joinedAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
+ * Group-scoped role.
  */
 export type GroupRole = "owner" | "member";
 
 /**
- * Group membership status for the current authenticated actor.
+ * Group membership status.
  */
 export type GroupMembershipStatus = "active" | "removed";
 
