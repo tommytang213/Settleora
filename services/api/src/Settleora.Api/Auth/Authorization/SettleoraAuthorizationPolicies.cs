@@ -8,6 +8,7 @@ internal static class SettleoraAuthorizationPolicies
     public const string SystemRoleOwner = "Settleora.SystemRole.Owner";
     public const string SystemRoleAdmin = "Settleora.SystemRole.Admin";
     public const string SystemRoleUser = "Settleora.SystemRole.User";
+    public const string SystemRoleOwnerOrAdmin = "Settleora.SystemRole.OwnerOrAdmin";
 
     public static bool IsSupportedSystemRole(string role)
     {

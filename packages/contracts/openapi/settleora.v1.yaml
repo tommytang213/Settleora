@@ -14,11 +14,12 @@ info:
     current-account sign-out-all, current-account session list and per-session
     revocation, the minimal current-user auth read boundary, and guarded
     self-profile read/update endpoints plus the first guarded group
-    create/list/read/update foundation endpoints; it is not the feature contract for
-    general public registration, auth middleware, session management beyond
+    create/list/read/update foundation endpoints plus guarded admin local-user
+    list/read/create foundations; it is not the feature contract for
+    general public registration, invitations, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
-    public refresh, general user management, group invitations/member
-    management, expenses, settlement, sync, OCR upload, or database behavior.
+    public refresh, broader user management, role assignment, group invitations/member
+    management, expenses, settlement, sync, OCR upload, UI behavior, or database behavior.
 servers:
   - url: /
 paths:
@@ -427,6 +428,140 @@ paths:
                 $ref: "#/components/schemas/CurrentUserResponse"
         "401":
           description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/users:
+    get:
+      summary: List admin users
+      description: Lists safe user summaries for non-deleted profiles/accounts. Requires an authenticated SettleoraSession with system owner or admin role; ordinary users are forbidden. This is not public registration or invitation management.
+      operationId: listAdminUsers
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe admin user summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/users/local:
+    post:
+      summary: Create admin local user
+      description: Creates a normal local-account user through an authenticated owner/admin path. The API derives the actor server-side, assigns only the system user role, and returns no session tokens, password material, credential metadata, provider payloads, audit metadata, storage paths, or invitation state. This is not public self-registration.
+      operationId: createAdminLocalUser
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLocalUserRequest"
+      responses:
+        "201":
+          description: Local user was created with the default system user role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserSummaryResponse"
+        "400":
+          description: The submitted local-user creation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: A local user cannot be created with the submitted information.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Local user creation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/users/{userProfileId}:
+    get:
+      summary: Get admin user
+      description: Returns one safe user summary for a non-deleted profile/account. Requires an authenticated SettleoraSession with system owner or admin role; ordinary users are forbidden.
+      operationId: getAdminUser
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: userProfileId
+          in: path
+          required: true
+          description: User profile ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe admin user summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserSummaryResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: User profile or auth account is missing, deleted, or unavailable.
           content:
             application/problem+json:
               schema:
@@ -908,6 +1043,93 @@ components:
           type: string
           format: uuid
         expiresAtUtc:
+          type: string
+          format: date-time
+    CreateLocalUserRequest:
+      type: object
+      description: Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
+      additionalProperties: false
+      required:
+        - identifier
+        - password
+        - displayName
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Submitted local account identifier, normalized server-side consistently with local sign-in and first-owner bootstrap.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 4096
+          description: Submitted local account password. The API never stores this plaintext value.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Initial user profile display name after server-side trimming.
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+          description: Optional initial default currency. Explicit null is accepted.
+    AdminUserListResponse:
+      type: object
+      description: Safe admin user list response for owner/admin user-management foundations.
+      required:
+        - users
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUserSummaryResponse"
+    AdminUserSummaryResponse:
+      type: object
+      description: Safe admin user summary. It excludes identifiers, password material, credential metadata, session/token material, refresh credential material, provider payloads, audit metadata, storage paths, and unrelated records.
+      required:
+        - userProfileId
+        - authAccountId
+        - displayName
+        - defaultCurrency
+        - accountStatus
+        - roles
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        authAccountId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        accountStatus:
+          type: string
+          enum:
+            - active
+            - disabled
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - owner
+              - admin
+              - user
+          uniqueItems: true
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
           type: string
           format: date-time
     CreateGroupRequest:

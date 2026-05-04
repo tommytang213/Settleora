@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation, group member-management, admin user-management endpoints, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, guarded admin local-user list/read/create foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation, group member-management, broader admin user-management, role assignment/update endpoints, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -23,7 +23,8 @@ It is an architecture gate for current and future user/group endpoint work. It d
 - `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - First-owner local bootstrap can create the initial local owner account only when no auth account exists. It is not general public registration, returns no session or password material, and clients must sign in normally after bootstrap.
-- No general registration, public credential management endpoints, invitations, friends, group member-management endpoints, admin user-management endpoints, or user business API endpoints beyond self-profile read/update and group create/list/read/update exist yet.
+- Guarded admin local-user foundation endpoints can list/read safe user summaries and create normal local users after bootstrap for authenticated system owners/admins. Created users receive only the system `user` role and must sign in through the existing local sign-in endpoint. This is not public self-registration, invitations, or owner/admin role assignment.
+- No general registration, public credential management endpoints, invitations, friends, group member-management endpoints, broader admin user-management endpoints, or user business API endpoints beyond self-profile read/update and group create/list/read/update exist yet.
 - The internal business authorization service can answer fail-closed profile/group access decisions from the server-derived current actor and is now consumed by self-profile and group foundation endpoints.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
@@ -51,7 +52,7 @@ The auth foundation must support these directions:
 
 Future implementation should use provider abstractions so auth method choices remain deployment policy, not hardcoded product behavior. Secure defaults should be least privilege, with invite-only mode, public self-registration, local-account enablement, OIDC-only mode, passkey policy, and MFA policy treated as explicit configuration or persisted policy decisions.
 
-Fresh self-hosted deployments may use the reviewed first-owner local bootstrap endpoint to create the initial local account only while `auth_accounts` is empty. After that, account creation remains closed until invitation, admin-created account, or self-registration policy is designed and implemented separately.
+Fresh self-hosted deployments may use the reviewed first-owner local bootstrap endpoint to create the initial local account only while `auth_accounts` is empty. After that, account creation is limited to the reviewed owner/admin local-user foundation until invitation or self-registration policy is designed and implemented separately.
 
 ## Account To Profile Mapping
 
@@ -154,13 +155,13 @@ This document does not authorize:
 
 - Login/current-user auth implementation.
 - Session middleware or runtime session validation.
-- Additional API endpoints beyond the current auth/session, self-profile, and group foundation slices.
-- Additional OpenAPI changes beyond the current auth/session, self-profile, and group foundation contract.
+- Additional API endpoints beyond the current auth/session, self-profile, group foundation, and admin local-user foundation slices.
+- Additional OpenAPI changes beyond the current auth/session, self-profile, group foundation, and admin local-user foundation contract.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.
 - Plaintext password storage, raw token storage, passkey storage, or MFA storage.
-- Invitation, friend, group member-management, or admin user-management endpoint implementation.
+- Invitation, friend, group member-management, broader admin user-management, or role assignment endpoint implementation.
 
 ## Next Implementation Candidates
 
@@ -168,6 +169,6 @@ Future work should remain small and reviewable. Good next candidates are:
 
 - Runtime auth/session boundaries only after credential and session policy are reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
-- Group member-management, invitation, and admin user-management endpoints only after the current group foundation is reviewed and the next policy checks are designed.
+- Group member-management, invitation, and broader admin user-management endpoints only after the current group and admin local-user foundations are reviewed and the next policy checks are designed.
 
 Each candidate should define its own explicit non-goals, validation, migration expectations, and OpenAPI/generated-client impact before implementation starts.

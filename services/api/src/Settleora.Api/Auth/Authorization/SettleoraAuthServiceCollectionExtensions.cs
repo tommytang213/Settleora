@@ -36,6 +36,9 @@ internal static class SettleoraAuthServiceCollectionExtensions
                 SettleoraAuthorizationPolicies.SystemRoleAdmin,
                 CreateSystemRolePolicy(SystemRoles.Admin));
             options.AddPolicy(
+                SettleoraAuthorizationPolicies.SystemRoleOwnerOrAdmin,
+                CreateOwnerOrAdminPolicy());
+            options.AddPolicy(
                 SettleoraAuthorizationPolicies.SystemRoleUser,
                 CreateSystemRolePolicy(SystemRoles.User));
         });
@@ -57,6 +60,15 @@ internal static class SettleoraAuthServiceCollectionExtensions
                 SettleoraSessionAuthenticationDefaults.AuthenticationScheme)
             .RequireAuthenticatedUser()
             .RequireRole(role)
+            .Build();
+    }
+
+    private static AuthorizationPolicy CreateOwnerOrAdminPolicy()
+    {
+        return new AuthorizationPolicyBuilder(
+                SettleoraSessionAuthenticationDefaults.AuthenticationScheme)
+            .RequireAuthenticatedUser()
+            .RequireRole(SystemRoles.Owner, SystemRoles.Admin)
             .Build();
     }
 }

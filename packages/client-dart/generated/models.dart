@@ -360,6 +360,124 @@ class CurrentUserSession {
   }
 }
 
+/// Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
+class CreateLocalUserRequest {
+  static const Object _unsetDefaultCurrency = Object();
+
+  CreateLocalUserRequest({
+    required this.identifier,
+    required this.password,
+    required this.displayName,
+    Object? defaultCurrency = _unsetDefaultCurrency,
+  })
+      : defaultCurrency = identical(defaultCurrency, _unsetDefaultCurrency) ? null : defaultCurrency as CurrencyCode?,
+        _hasDefaultCurrency = !identical(defaultCurrency, _unsetDefaultCurrency);
+
+  /// Submitted local account identifier, normalized server-side consistently with local sign-in and first-owner bootstrap.
+  final String identifier;
+  /// Submitted local account password. The API never stores this plaintext value.
+  final String password;
+  /// Initial user profile display name after server-side trimming.
+  final String displayName;
+  /// Optional initial default currency. Explicit null is accepted.
+  final CurrencyCode? defaultCurrency;
+  final bool _hasDefaultCurrency;
+
+  factory CreateLocalUserRequest.fromJson(JsonObject json) {
+    return CreateLocalUserRequest(
+      identifier: json["identifier"] as String,
+      password: json["password"] as String,
+      displayName: json["displayName"] as String,
+      defaultCurrency: json.containsKey("defaultCurrency")
+          ? json["defaultCurrency"] == null ? null : json["defaultCurrency"] as String
+          : _unsetDefaultCurrency,
+    );
+  }
+
+  JsonObject toJson() {
+    final defaultCurrencyJsonValue = defaultCurrency;
+
+    return {
+      "identifier": identifier,
+      "password": password,
+      "displayName": displayName,
+      if (_hasDefaultCurrency) "defaultCurrency": defaultCurrencyJsonValue,
+    };
+  }
+}
+
+/// Safe admin user list response for owner/admin user-management foundations.
+class AdminUserListResponse {
+  const AdminUserListResponse({
+    required this.users,
+  });
+
+  final List<AdminUserSummaryResponse> users;
+
+  factory AdminUserListResponse.fromJson(JsonObject json) {
+    return AdminUserListResponse(
+      users: (json["users"] as List<dynamic>).map((item) => AdminUserSummaryResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "users": users.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe admin user summary. It excludes identifiers, password material, credential metadata, session/token material, refresh credential material, provider payloads, audit metadata, storage paths, and unrelated records.
+class AdminUserSummaryResponse {
+  const AdminUserSummaryResponse({
+    required this.userProfileId,
+    required this.authAccountId,
+    required this.displayName,
+    required this.defaultCurrency,
+    required this.accountStatus,
+    required this.roles,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String userProfileId;
+  final String authAccountId;
+  final String displayName;
+  final CurrencyCode? defaultCurrency;
+  final String accountStatus;
+  final List<String> roles;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory AdminUserSummaryResponse.fromJson(JsonObject json) {
+    return AdminUserSummaryResponse(
+      userProfileId: json["userProfileId"] as String,
+      authAccountId: json["authAccountId"] as String,
+      displayName: json["displayName"] as String,
+      defaultCurrency: json["defaultCurrency"] == null ? null : json["defaultCurrency"] as String,
+      accountStatus: json["accountStatus"] as String,
+      roles: (json["roles"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final defaultCurrencyJsonValue = defaultCurrency;
+
+    return {
+      "userProfileId": userProfileId,
+      "authAccountId": authAccountId,
+      "displayName": displayName,
+      "defaultCurrency": defaultCurrencyJsonValue,
+      "accountStatus": accountStatus,
+      "roles": roles,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Group creation request. Creator and owner membership are derived from the authenticated actor.
 class CreateGroupRequest {
   const CreateGroupRequest({

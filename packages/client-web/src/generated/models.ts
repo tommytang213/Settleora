@@ -143,6 +143,49 @@ export interface CurrentUserSession {
 }
 
 /**
+ * Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
+ */
+export interface CreateLocalUserRequest {
+  /**
+   * Submitted local account identifier, normalized server-side consistently with local sign-in and first-owner bootstrap.
+   */
+  identifier: string;
+  /**
+   * Submitted local account password. The API never stores this plaintext value.
+   */
+  password: string;
+  /**
+   * Initial user profile display name after server-side trimming.
+   */
+  displayName: string;
+  /**
+   * Optional initial default currency. Explicit null is accepted.
+   */
+  defaultCurrency?: CurrencyCode | null;
+}
+
+/**
+ * Safe admin user list response for owner/admin user-management foundations.
+ */
+export interface AdminUserListResponse {
+  users: AdminUserSummaryResponse[];
+}
+
+/**
+ * Safe admin user summary. It excludes identifiers, password material, credential metadata, session/token material, refresh credential material, provider payloads, audit metadata, storage paths, and unrelated records.
+ */
+export interface AdminUserSummaryResponse {
+  userProfileId: string;
+  authAccountId: string;
+  displayName: string;
+  defaultCurrency: CurrencyCode | null;
+  accountStatus: "active" | "disabled";
+  roles: ("owner" | "admin" | "user")[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * Group creation request. Creator and owner membership are derived from the authenticated actor.
  */
 export interface CreateGroupRequest {

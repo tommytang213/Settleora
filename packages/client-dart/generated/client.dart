@@ -31,6 +31,39 @@ class SettleoraApiClient {
   final Map<String, String> defaultHeaders;
   final HttpClient _httpClient;
 
+  Future<AdminUserListResponse> listAdminUsers({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/admin/users",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminUserListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminUserSummaryResponse> createAdminLocalUser(CreateLocalUserRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/admin/users/local",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminUserSummaryResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminUserSummaryResponse> getAdminUser(String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/admin/users/${Uri.encodeComponent(userProfileId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminUserSummaryResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<BootstrapLocalOwnerResponse> bootstrapLocalOwner(BootstrapLocalOwnerRequest body, {Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

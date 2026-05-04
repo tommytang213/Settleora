@@ -1,4 +1,5 @@
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Auth.AdminUsers;
 using Settleora.Api.Auth.Bootstrap;
 using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.CurrentUser;
@@ -17,6 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSettleoraPersistence(builder.Configuration);
 builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
+builder.Services.AddAdminLocalUsers();
 builder.Services.AddLocalOwnerBootstrap();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
@@ -45,6 +47,7 @@ app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();
 app.MapSessionRevocationEndpoints();
+app.MapAdminUserEndpoints();
 
 app.Run();
 

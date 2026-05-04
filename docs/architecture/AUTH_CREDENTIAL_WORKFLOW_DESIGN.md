@@ -2,7 +2,7 @@
 
 This document designs Settleora's next local-account credential boundary: creating local password credentials and verifying submitted passwords against `local_password_credentials` by using the internal `IPasswordHashingService`.
 
-It defines the internal service boundary now implemented for EF-backed local password credential creation and verification. The current first-owner local bootstrap endpoint is the only setup-time public consumer of credential creation and remains unavailable after any auth account exists. This document does not authorize general public runtime workflows, additional account-creation endpoints, token/session issuance, additional OpenAPI auth paths, additional generated-client changes, UI behavior, migrations, or package changes.
+It defines the internal service boundary now implemented for EF-backed local password credential creation and verification. The current first-owner local bootstrap endpoint is the setup-time public consumer of credential creation and remains unavailable after any auth account exists. The guarded admin local-user foundation is the first authenticated owner/admin consumer for creating normal local users after bootstrap. This document does not authorize general public runtime workflows, broader account-creation endpoints, token/session issuance, additional OpenAPI auth paths beyond reviewed slices, additional generated-client changes beyond reviewed slices, UI behavior, migrations, or package changes.
 
 ## Current State
 
@@ -16,7 +16,7 @@ It defines the internal service boundary now implemented for EF-backed local pas
 - An internal credential workflow service can create EF-backed local password credentials for existing active auth accounts.
 - Internal password verification is wired to EF rows and can update `last_verified_at_utc` plus rehash after successful verification when required.
 - Credential creation and verification workflows write EF-backed `auth_audit_events` rows with bounded safe metadata for workflow name and status category.
-- A setup-only first-owner local bootstrap endpoint can call credential creation for the initial local account while no auth account exists. No general registration, password reset, current-user mutation, token issuance from bootstrap, Flutter, web, or worker account-creation behavior exists.
+- A setup-only first-owner local bootstrap endpoint can call credential creation for the initial local account while no auth account exists. A guarded admin local-user endpoint can call credential creation for later normal local users only when the authenticated actor has system owner/admin role; created users receive only the system `user` role. No general registration, password reset, current-user mutation, token issuance from bootstrap or admin creation, invitation acceptance, Flutter, web, or worker account-creation behavior exists.
 
 ## Authority Boundaries
 

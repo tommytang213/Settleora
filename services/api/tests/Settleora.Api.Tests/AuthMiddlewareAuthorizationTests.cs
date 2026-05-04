@@ -98,6 +98,10 @@ public sealed class AuthMiddlewareAuthorizationTests : IClassFixture<WebApplicat
         Assert.True((await authorizationService.AuthorizeAsync(
             httpContext.User,
             resource: null,
+            SettleoraAuthorizationPolicies.SystemRoleOwnerOrAdmin)).Succeeded);
+        Assert.True((await authorizationService.AuthorizeAsync(
+            httpContext.User,
+            resource: null,
             SettleoraAuthorizationPolicies.SystemRoleUser)).Succeeded);
 
         var allClaimValues = httpContext.User.Claims.Select(claim => claim.Value).ToArray();
