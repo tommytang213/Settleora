@@ -1,0 +1,8 @@
+* text=auto
+.gitattributes text eol=lf
+
+# Keep generated clients and repo tooling stable across Windows/Linux validation.
+packages/client-web/src/generated/** text eol=lf
+packages/client-dart/generated/** text eol=lf
+tools/*.mjs text eol=lf
+packages/contracts/openapi/*.yaml text eol=lf

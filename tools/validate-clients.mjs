@@ -66,8 +66,12 @@ async function listFiles(directory) {
 
 async function hashFile(file) {
   const hash = createHash("sha256");
-  hash.update(await readFile(file));
+  hash.update(normalizeTextLineEndings(await readFile(file, "utf8")));
   return hash.digest("hex");
+}
+
+function normalizeTextLineEndings(content) {
+  return content.replace(/\r\n?/g, "\n");
 }
 
 function diffSnapshots(before, after) {
