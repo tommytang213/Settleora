@@ -9,11 +9,12 @@ info:
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
     and web clients are produced from this file, and generated output
     must not be manually edited. This contract currently covers scaffold health
-    checks, refresh-capable local sign-in, public refresh, current-session sign-out,
+    checks, first-owner local bootstrap status/creation for fresh deployments,
+    refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
     revocation, the minimal current-user auth read boundary, and guarded
     self-profile read/update endpoints; it is not the feature contract for
-    registration, auth middleware, session management beyond
+    general public registration, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
     public refresh, general user management, group endpoints, expenses,
     settlement, sync, OCR upload, or database behavior.
@@ -149,6 +150,74 @@ paths:
                           - ok
                           - failed
                         example: failed
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/bootstrap/status:
+    get:
+      summary: Bootstrap status
+      description: Returns only whether first-owner local bootstrap is required because no auth account exists.
+      operationId: getAuthBootstrapStatus
+      security: []
+      responses:
+        "200":
+          description: Bounded bootstrap setup status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BootstrapStatusResponse"
+        "400":
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/bootstrap/local-owner:
+    post:
+      summary: Bootstrap first local owner
+      description: Creates the first local owner account only while no auth account exists. This is not general public registration; clients must sign in normally after bootstrap succeeds.
+      operationId: bootstrapLocalOwner
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BootstrapLocalOwnerRequest"
+      responses:
+        "200":
+          description: Local owner bootstrap succeeded without returning credential or token material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BootstrapLocalOwnerResponse"
+        "400":
+          description: The submitted bootstrap request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bootstrap is unavailable because an auth account already exists.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bootstrap could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         default:
           description: Problem response.
           content:
@@ -449,6 +518,62 @@ components:
       scheme: bearer
       bearerFormat: opaque-session-token
   schemas:
+    BootstrapStatusResponse:
+      type: object
+      description: Bounded setup status for first-owner local bootstrap.
+      required:
+        - bootstrapRequired
+      properties:
+        bootstrapRequired:
+          type: boolean
+          description: True only when no auth account exists.
+    BootstrapLocalOwnerRequest:
+      type: object
+      description: First-owner local bootstrap request for a fresh deployment. This is not general public registration.
+      additionalProperties: false
+      required:
+        - identifier
+        - password
+        - displayName
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Submitted local account identifier, normalized server-side consistently with local sign-in.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 4096
+          description: Submitted local account password. The API never stores this plaintext value.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Initial user profile display name after server-side trimming.
+        defaultCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+          description: Optional initial default currency. Explicit null is accepted.
+    BootstrapLocalOwnerResponse:
+      type: object
+      description: Safe first-owner bootstrap response. It excludes session tokens, password material, credential metadata, provider payloads, audit metadata, storage paths, and unrelated records.
+      required:
+        - userProfile
+        - roles
+      properties:
+        userProfile:
+          $ref: "#/components/schemas/SelfUserProfileResponse"
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - owner
+              - admin
+              - user
     LocalSignInRequest:
       type: object
       description: Local-account sign-in request. Source, network, and policy bucket details are derived server-side.

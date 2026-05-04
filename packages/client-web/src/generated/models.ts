@@ -4,6 +4,46 @@
 // </auto-generated>
 
 /**
+ * Bounded setup status for first-owner local bootstrap.
+ */
+export interface BootstrapStatusResponse {
+  /**
+   * True only when no auth account exists.
+   */
+  bootstrapRequired: boolean;
+}
+
+/**
+ * First-owner local bootstrap request for a fresh deployment. This is not general public registration.
+ */
+export interface BootstrapLocalOwnerRequest {
+  /**
+   * Submitted local account identifier, normalized server-side consistently with local sign-in.
+   */
+  identifier: string;
+  /**
+   * Submitted local account password. The API never stores this plaintext value.
+   */
+  password: string;
+  /**
+   * Initial user profile display name after server-side trimming.
+   */
+  displayName: string;
+  /**
+   * Optional initial default currency. Explicit null is accepted.
+   */
+  defaultCurrency?: CurrencyCode | null;
+}
+
+/**
+ * Safe first-owner bootstrap response. It excludes session tokens, password material, credential metadata, provider payloads, audit metadata, storage paths, and unrelated records.
+ */
+export interface BootstrapLocalOwnerResponse {
+  userProfile: SelfUserProfileResponse;
+  roles: ("owner" | "admin" | "user")[];
+}
+
+/**
  * Local-account sign-in request. Source, network, and policy bucket details are derived server-side.
  */
 export interface LocalSignInRequest {

@@ -31,6 +31,26 @@ class SettleoraApiClient {
   final Map<String, String> defaultHeaders;
   final HttpClient _httpClient;
 
+  Future<BootstrapLocalOwnerResponse> bootstrapLocalOwner(BootstrapLocalOwnerRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/bootstrap/local-owner",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return BootstrapLocalOwnerResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BootstrapStatusResponse> getAuthBootstrapStatus({Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/bootstrap/status",
+      body: null,
+      headers: headers,
+    );
+    return BootstrapStatusResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<CurrentUserResponse> getCurrentUser({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

@@ -17,7 +17,6 @@ internal sealed class LocalSignInService : ILocalSignInService
     private const string SignInFailedAction = "sign_in.failed";
     private const string SignInThrottledAction = "sign_in.throttled";
     private const string SignInSessionCreationFailedAction = "sign_in.session_creation_failed";
-    private const int IdentifierMaxLength = 320;
     private const int SubmittedPasswordMaxLength = 4096;
     private const int SafeKeyMaxLength = 128;
     private const string IdentifierKeyPrefix = "local-id-sha256:";
@@ -218,7 +217,7 @@ internal sealed class LocalSignInService : ILocalSignInService
     {
         requestContext = default;
 
-        if (!TryNormalizeIdentifier(request.SubmittedIdentifier, out var normalizedIdentifier)
+        if (!LocalAccountIdentifier.TryNormalize(request.SubmittedIdentifier, out var normalizedIdentifier)
             || !IsSubmittedPasswordBounded(request.SubmittedPassword)
             || !TryNormalizeSafeKey(request.SourceKey, out var sourceKey))
         {
@@ -235,26 +234,6 @@ internal sealed class LocalSignInService : ILocalSignInService
     private static bool IsSubmittedPasswordBounded(string? submittedPassword)
     {
         return submittedPassword is { Length: > 0 and <= SubmittedPasswordMaxLength };
-    }
-
-    private static bool TryNormalizeIdentifier(
-        string? submittedIdentifier,
-        out string normalizedIdentifier)
-    {
-        normalizedIdentifier = string.Empty;
-        if (string.IsNullOrWhiteSpace(submittedIdentifier))
-        {
-            return false;
-        }
-
-        var trimmedIdentifier = submittedIdentifier.Trim();
-        if (trimmedIdentifier.Length is 0 or > IdentifierMaxLength)
-        {
-            return false;
-        }
-
-        normalizedIdentifier = trimmedIdentifier.ToLowerInvariant();
-        return true;
     }
 
     private static bool TryNormalizeSafeKey(string? submittedKey, out string safeKey)

@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional migrations, package changes, Docker changes, broader public business endpoint authorization behavior, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped first-owner local bootstrap endpoints, refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional migrations, package changes, Docker changes, broader public business endpoint authorization behavior, or worker behavior are added.
 
 ## Current State
 
@@ -15,6 +15,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation, verification, safe audit writes, and rehash after successful verification.
 - An internal sign-in abuse policy service boundary exists for endpoint-independent pre-verification throttling decisions and post-result in-memory attempt recording.
 - An internal local sign-in orchestration service boundary exists for endpoint-independent local identifier normalization, local identity/account resolution, abuse-policy checks and attempt recording, credential verification, refresh-capable session creation, and safe sign-in-specific audit writes.
+- `GET /api/v1/auth/bootstrap/status` and `POST /api/v1/auth/bootstrap/local-owner` now exist as anonymous setup-only endpoints for creating the first local owner when no auth account exists.
 - `POST /api/v1/auth/sign-in` now exists as a refresh-capable public local sign-in endpoint.
 - `POST /api/v1/auth/refresh` now exists as the first public refresh endpoint for rotating a submitted refresh-like credential.
 - `GET /api/v1/auth/current-user` now exists as the first public auth read endpoint for validating an existing opaque session token and returning a minimal current actor/profile/session/role summary.
@@ -30,7 +31,7 @@ It started as a design gate. The current repository now includes the explicitly 
 - `GET /api/v1/auth/current-user`, `POST /api/v1/auth/sign-out`, `POST /api/v1/auth/sign-out-all`, `GET /api/v1/auth/sessions`, and `DELETE /api/v1/auth/sessions/{sessionId}` now use the middleware handoff instead of manually parsing bearer tokens in each endpoint.
 - Generated web and Dart client foundations exist from the OpenAPI contract.
 - `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` now consume the current actor plus `IBusinessAuthorizationService` to return and update only the authenticated actor's own safe profile fields.
-- No public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, group endpoints, payment details, or business endpoints beyond self-profile read/update exist yet.
+- No general public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, group endpoints, payment details, or business endpoints beyond self-profile read/update exist yet.
 
 ## Runtime Authority Model
 
@@ -63,6 +64,19 @@ The local sign-in flow should:
 - Create a session or token only after credential verification succeeds and all policy checks pass.
 
 Credential verification alone is not sign-in. It must not authorize business actions or create current-user state until the runtime auth service has completed session issuance and policy checks.
+
+## Implemented First-Owner Local Bootstrap Endpoint
+
+The implemented bootstrap slice adds `GET /api/v1/auth/bootstrap/status` and `POST /api/v1/auth/bootstrap/local-owner`.
+
+- `GET /api/v1/auth/bootstrap/status` is anonymous and returns only `bootstrapRequired`, which is true only when no auth account exists.
+- `POST /api/v1/auth/bootstrap/local-owner` is anonymous but allowed only while no auth account exists. It creates a `UserProfile`, `AuthAccount`, local `AuthIdentity`, local password credential through `IAuthCredentialWorkflowService`, and system `owner`, `admin`, and `user` role assignments for the first account.
+- The bootstrap write re-checks account absence before persistence and uses a relational transaction with a PostgreSQL table lock for the `auth_accounts` bootstrap gate when running against PostgreSQL, so competing bootstrap requests cannot silently create multiple owners.
+- The request normalizes the local identifier consistently with local sign-in, trims display names, accepts only null or uppercase 3-letter default currency values, and applies a temporary bootstrap-only 12 character password minimum until full password policy UX exists.
+- The success response returns only a safe self-profile summary and roles. It does not return raw session tokens, refresh credentials, password material, password hash metadata, provider payloads, audit metadata, storage paths, or unrelated records.
+- Bootstrap does not create a signed-in session. Clients must call `POST /api/v1/auth/sign-in` after bootstrap succeeds.
+
+This endpoint is not general public registration, invitation acceptance, admin-created account management, password reset, OIDC linking, group membership creation, UI behavior, or worker behavior. After the first account exists, account creation remains unavailable until a separate invitation, admin-management, or self-registration policy is implemented.
 
 ## Session And Token Model
 
@@ -340,9 +354,9 @@ The implemented internal refresh runtime service boundary:
 
 This document does not authorize:
 
-- Additional public runtime behavior beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and refresh-capable public local sign-in behavior above.
-- Additional endpoint code beyond the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
-- Additional OpenAPI auth paths beyond local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
+- Additional public runtime behavior beyond first-owner local bootstrap, the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and refresh-capable public local sign-in behavior above.
+- Additional endpoint code beyond first-owner local bootstrap, the current-user read, current-account sign-out-all/session list/revocation, current-session sign-out, public refresh, and public local sign-in boundaries.
+- Additional OpenAPI auth paths beyond first-owner local bootstrap, local sign-in, public refresh, current-user, current-account sign-out-all/session list/revocation, and current-session sign-out.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.

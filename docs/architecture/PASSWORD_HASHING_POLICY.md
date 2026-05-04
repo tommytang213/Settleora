@@ -14,7 +14,7 @@ The policy is based on current OWASP Password Storage Cheat Sheet guidance and N
 - The schema includes `local_password_credentials`.
 - `local_password_credentials` is linked to `auth_accounts` and has fields for password hash material, algorithm name, algorithm version, algorithm parameters, status, timestamps, last verification time, revocation time, and `requires_rehash`.
 - Internal password hashing and credential workflow service boundaries exist for Argon2id verifier creation, EF-backed local password credential creation for existing auth accounts, verification, metadata, and rehash decisions.
-- Public credential creation endpoints, password rotation, reset, and recovery do not exist.
+- The setup-only first-owner local bootstrap endpoint can create the initial local password credential through the internal credential workflow while no auth account exists. General public credential creation endpoints, password rotation, reset, and recovery do not exist.
 - OpenAPI auth paths, generated web/Dart client foundations, local sign-in, refresh, current-user, and auth session runtime endpoints exist, but UI auth behavior does not.
 
 ## Algorithm Policy

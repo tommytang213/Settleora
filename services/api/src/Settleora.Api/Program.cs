@@ -1,4 +1,5 @@
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Auth.Bootstrap;
 using Settleora.Api.Auth.Credentials;
 using Settleora.Api.Auth.CurrentUser;
 using Settleora.Api.Auth.PasswordHashing;
@@ -15,6 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSettleoraPersistence(builder.Configuration);
 builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
+builder.Services.AddLocalOwnerBootstrap();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
 builder.Services.AddSettleoraAuth();
@@ -32,6 +34,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthEndpoints();
+app.MapLocalOwnerBootstrapEndpoints();
 app.MapLocalSignInEndpoints();
 app.MapRefreshSessionEndpoints();
 app.MapCurrentUserEndpoints();

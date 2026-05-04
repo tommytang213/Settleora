@@ -5,6 +5,99 @@
 
 typedef JsonObject = Map<String, dynamic>;
 
+/// Bounded setup status for first-owner local bootstrap.
+class BootstrapStatusResponse {
+  const BootstrapStatusResponse({
+    required this.bootstrapRequired,
+  });
+
+  /// True only when no auth account exists.
+  final bool bootstrapRequired;
+
+  factory BootstrapStatusResponse.fromJson(JsonObject json) {
+    return BootstrapStatusResponse(
+      bootstrapRequired: json["bootstrapRequired"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "bootstrapRequired": bootstrapRequired,
+    };
+  }
+}
+
+/// First-owner local bootstrap request for a fresh deployment. This is not general public registration.
+class BootstrapLocalOwnerRequest {
+  static const Object _unsetDefaultCurrency = Object();
+
+  BootstrapLocalOwnerRequest({
+    required this.identifier,
+    required this.password,
+    required this.displayName,
+    Object? defaultCurrency = _unsetDefaultCurrency,
+  })
+      : defaultCurrency = identical(defaultCurrency, _unsetDefaultCurrency) ? null : defaultCurrency as CurrencyCode?,
+        _hasDefaultCurrency = !identical(defaultCurrency, _unsetDefaultCurrency);
+
+  /// Submitted local account identifier, normalized server-side consistently with local sign-in.
+  final String identifier;
+  /// Submitted local account password. The API never stores this plaintext value.
+  final String password;
+  /// Initial user profile display name after server-side trimming.
+  final String displayName;
+  /// Optional initial default currency. Explicit null is accepted.
+  final CurrencyCode? defaultCurrency;
+  final bool _hasDefaultCurrency;
+
+  factory BootstrapLocalOwnerRequest.fromJson(JsonObject json) {
+    return BootstrapLocalOwnerRequest(
+      identifier: json["identifier"] as String,
+      password: json["password"] as String,
+      displayName: json["displayName"] as String,
+      defaultCurrency: json.containsKey("defaultCurrency")
+          ? json["defaultCurrency"] == null ? null : json["defaultCurrency"] as String
+          : _unsetDefaultCurrency,
+    );
+  }
+
+  JsonObject toJson() {
+    final defaultCurrencyJsonValue = defaultCurrency;
+
+    return {
+      "identifier": identifier,
+      "password": password,
+      "displayName": displayName,
+      if (_hasDefaultCurrency) "defaultCurrency": defaultCurrencyJsonValue,
+    };
+  }
+}
+
+/// Safe first-owner bootstrap response. It excludes session tokens, password material, credential metadata, provider payloads, audit metadata, storage paths, and unrelated records.
+class BootstrapLocalOwnerResponse {
+  const BootstrapLocalOwnerResponse({
+    required this.userProfile,
+    required this.roles,
+  });
+
+  final SelfUserProfileResponse userProfile;
+  final List<String> roles;
+
+  factory BootstrapLocalOwnerResponse.fromJson(JsonObject json) {
+    return BootstrapLocalOwnerResponse(
+      userProfile: SelfUserProfileResponse.fromJson(JsonObject.from(json["userProfile"] as Map)),
+      roles: (json["roles"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfile": userProfile.toJson(),
+      "roles": roles,
+    };
+  }
+}
+
 /// Local-account sign-in request. Source, network, and policy bucket details are derived server-side.
 class LocalSignInRequest {
   const LocalSignInRequest({
