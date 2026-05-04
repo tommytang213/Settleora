@@ -123,6 +123,50 @@ class SettleoraApiClient {
     );
   }
 
+  Future<GroupListResponse> listGroups({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/groups",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupResponse> createGroup(CreateGroupRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/groups",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupResponse> getGroup(String groupId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupResponse> updateGroup(String groupId, UpdateGroupRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SelfUserProfileResponse> getSelfUserProfile({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

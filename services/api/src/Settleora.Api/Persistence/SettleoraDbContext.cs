@@ -7,7 +7,6 @@ namespace Settleora.Api.Persistence;
 
 public sealed class SettleoraDbContext : DbContext
 {
-    private const int GroupNameMaxLength = 160;
     private const int MembershipRoleMaxLength = 16;
     private const int MembershipStatusMaxLength = 16;
     private const int AuthAccountStatusMaxLength = 16;
@@ -113,7 +112,7 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.Property(group => group.Name)
             .HasColumnName("name")
-            .HasMaxLength(GroupNameMaxLength)
+            .HasMaxLength(UserGroupConstraints.NameMaxLength)
             .IsRequired();
 
         entity.Property(group => group.CreatedByUserProfileId)

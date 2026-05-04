@@ -1,11 +1,11 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation, group/admin user-management endpoints, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation, group member-management, admin user-management endpoints, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
 
-It is an architecture gate for future user and group endpoint work. It describes boundaries and required design properties only.
+It is an architecture gate for current and future user/group endpoint work. It describes boundaries and required design properties for keeping auth identity separate from app-domain profile and group data.
 
 ## Current State
 
@@ -23,8 +23,8 @@ It is an architecture gate for future user and group endpoint work. It describes
 - `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - First-owner local bootstrap can create the initial local owner account only when no auth account exists. It is not general public registration, returns no session or password material, and clients must sign in normally after bootstrap.
-- No general registration, public credential management endpoints, invitations, friends, group endpoints, admin user-management endpoints, or user business API endpoints beyond self-profile read/update exist yet.
-- The internal business authorization service can answer fail-closed future profile/group access decisions from the server-derived current actor; it does not expose public API behavior.
+- No general registration, public credential management endpoints, invitations, friends, group member-management endpoints, admin user-management endpoints, or user business API endpoints beyond self-profile read/update and group create/list/read/update exist yet.
+- The internal business authorization service can answer fail-closed profile/group access decisions from the server-derived current actor and is now consumed by self-profile and group foundation endpoints.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts
@@ -94,7 +94,7 @@ Authorization must be enforced by the API through server-side policy checks.
 - Possessing a `UserProfile` ID is not enough to access that profile or related records.
 - Generated clients expose typed calls for reviewed auth endpoints, but generated client availability does not imply permission.
 - Authorization decisions should be centralized enough to avoid duplicating sensitive policy across handlers, clients, workers, or generated code.
-- Future user/group endpoints must consume the server-side business authorization boundary or a domain service that enforces it before returning or mutating protected records.
+- User/group endpoints must consume the server-side business authorization boundary or a domain service that enforces it before returning or mutating protected records. Generated clients and UI state do not authorize access.
 
 Workers must not bypass API authorization for core business database writes. If future worker outputs affect user data, the API must validate and apply those outputs through domain policy.
 
@@ -110,6 +110,8 @@ The current group membership schema defines group-level role and status only:
 
 - Group role: `owner` or `member`.
 - Group status: `active` or `removed`.
+
+The current group foundation endpoints use only active memberships. Creating a group creates an active `owner` membership for the authenticated creator. Invitation flow, member add/remove, role changes, guest members, default-excluded/left status runtime behavior, and group presets are still separate future slices.
 
 These group-level values are separate from system `owner`, `admin`, and `user` product roles. A group `owner` is not automatically a system owner or admin. A system admin is not automatically a member of every group unless future policy explicitly grants and audits that access.
 
@@ -152,13 +154,13 @@ This document does not authorize:
 
 - Login/current-user auth implementation.
 - Session middleware or runtime session validation.
-- API endpoints.
-- OpenAPI changes.
+- Additional API endpoints beyond the current auth/session, self-profile, and group foundation slices.
+- Additional OpenAPI changes beyond the current auth/session, self-profile, and group foundation contract.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.
 - Plaintext password storage, raw token storage, passkey storage, or MFA storage.
-- Invitation, friend, or group endpoint implementation.
+- Invitation, friend, group member-management, or admin user-management endpoint implementation.
 
 ## Next Implementation Candidates
 
@@ -166,6 +168,6 @@ Future work should remain small and reviewable. Good next candidates are:
 
 - Runtime auth/session boundaries only after credential and session policy are reviewed.
 - API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
-- Guarded user/group endpoints only after the auth boundary exists and server-side policy checks are designed.
+- Group member-management, invitation, and admin user-management endpoints only after the current group foundation is reviewed and the next policy checks are designed.
 
 Each candidate should define its own explicit non-goals, validation, migration expectations, and OpenAPI/generated-client impact before implementation starts.

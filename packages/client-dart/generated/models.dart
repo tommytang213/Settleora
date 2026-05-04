@@ -360,6 +360,132 @@ class CurrentUserSession {
   }
 }
 
+/// Group creation request. Creator and owner membership are derived from the authenticated actor.
+class CreateGroupRequest {
+  const CreateGroupRequest({
+    required this.name,
+  });
+
+  /// Group name after server-side trimming. Blank or whitespace-only values are rejected.
+  final String name;
+
+  factory CreateGroupRequest.fromJson(JsonObject json) {
+    return CreateGroupRequest(
+      name: json["name"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "name": name,
+    };
+  }
+}
+
+/// Group settings update. Only the name can be updated in this foundation endpoint.
+class UpdateGroupRequest {
+  const UpdateGroupRequest({
+    this.name,
+  });
+
+  /// Group name after server-side trimming. Blank or whitespace-only values are rejected.
+  final String? name;
+
+  factory UpdateGroupRequest.fromJson(JsonObject json) {
+    return UpdateGroupRequest(
+      name: json["name"] == null ? null : json["name"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final nameJsonValue = name;
+
+    return {
+      if (nameJsonValue != null) "name": nameJsonValue,
+    };
+  }
+}
+
+/// Groups where the authenticated actor has active membership. This foundation response is intentionally unpaginated for now.
+class GroupListResponse {
+  const GroupListResponse({
+    required this.groups,
+  });
+
+  final List<GroupResponse> groups;
+
+  factory GroupListResponse.fromJson(JsonObject json) {
+    return GroupListResponse(
+      groups: (json["groups"] as List<dynamic>).map((item) => GroupResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "groups": groups.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe group summary for the authenticated actor. It excludes creator profile IDs, unrelated members, auth/session/credential data, provider payloads, audit metadata, storage paths, and group policy internals.
+class GroupResponse {
+  const GroupResponse({
+    required this.id,
+    required this.name,
+    required this.currentUserRole,
+    required this.currentUserStatus,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final String name;
+  final GroupRole currentUserRole;
+  final GroupMembershipStatus currentUserStatus;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory GroupResponse.fromJson(JsonObject json) {
+    return GroupResponse(
+      id: json["id"] as String,
+      name: json["name"] as String,
+      currentUserRole: json["currentUserRole"] as String,
+      currentUserStatus: json["currentUserStatus"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "id": id,
+      "name": name,
+      "currentUserRole": currentUserRole,
+      "currentUserStatus": currentUserStatus,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Group-scoped role for the current authenticated actor.
+typedef GroupRole = String;
+class GroupRoleValues {
+  const GroupRoleValues._();
+  static const GroupRole owner = "owner";
+  static const GroupRole member = "member";
+  static const Set<GroupRole> values = {owner, member};
+}
+
+/// Group membership status for the current authenticated actor.
+typedef GroupMembershipStatus = String;
+class GroupMembershipStatusValues {
+  const GroupMembershipStatusValues._();
+  static const GroupMembershipStatus active = "active";
+  static const GroupMembershipStatus removed = "removed";
+  static const Set<GroupMembershipStatus> values = {active, removed};
+}
+
 /// Safe self-profile response for the authenticated actor.
 class SelfUserProfileResponse {
   const SelfUserProfileResponse({

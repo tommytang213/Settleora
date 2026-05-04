@@ -13,11 +13,12 @@ info:
     refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
     revocation, the minimal current-user auth read boundary, and guarded
-    self-profile read/update endpoints; it is not the feature contract for
+    self-profile read/update endpoints plus the first guarded group
+    create/list/read/update foundation endpoints; it is not the feature contract for
     general public registration, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
-    public refresh, general user management, group endpoints, expenses,
-    settlement, sync, OCR upload, or database behavior.
+    public refresh, general user management, group invitations/member
+    management, expenses, settlement, sync, OCR upload, or database behavior.
 servers:
   - url: /
 paths:
@@ -436,6 +437,190 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups:
+    post:
+      summary: Create group
+      description: Creates a group for the authenticated actor and creates an active owner membership for that actor. The creator profile is derived server-side; clients cannot submit owner or creator IDs.
+      operationId: createGroup
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Group created with an active owner membership for the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          description: The submitted group creation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group creation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: List current user's groups
+      description: Lists non-deleted groups where the authenticated actor has active membership. This is a foundation endpoint without pagination; future group list slices are expected to add pagination or filtering when needed.
+      operationId: listGroups
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Groups where the authenticated actor has active membership.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}:
+    get:
+      summary: Get group
+      description: Returns one non-deleted group only when the authenticated actor has active membership.
+      operationId: getGroup
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Group visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update group
+      description: Updates the group name only when the authenticated actor is an active owner of the group.
+      operationId: updateGroup
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGroupRequest"
+      responses:
+        "200":
+          description: Updated group visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          description: The submitted group update request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor has active group membership but is not allowed to update group settings.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/users/me/profile:
     get:
       summary: Self user profile
@@ -725,6 +910,79 @@ components:
         expiresAtUtc:
           type: string
           format: date-time
+    CreateGroupRequest:
+      type: object
+      description: Group creation request. Creator and owner membership are derived from the authenticated actor.
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Group name after server-side trimming. Blank or whitespace-only values are rejected.
+    UpdateGroupRequest:
+      type: object
+      description: Group settings update. Only the name can be updated in this foundation endpoint.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Group name after server-side trimming. Blank or whitespace-only values are rejected.
+    GroupListResponse:
+      type: object
+      description: Groups where the authenticated actor has active membership. This foundation response is intentionally unpaginated for now.
+      required:
+        - groups
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupResponse"
+    GroupResponse:
+      type: object
+      description: Safe group summary for the authenticated actor. It excludes creator profile IDs, unrelated members, auth/session/credential data, provider payloads, audit metadata, storage paths, and group policy internals.
+      required:
+        - id
+        - name
+        - currentUserRole
+        - currentUserStatus
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        currentUserRole:
+          $ref: "#/components/schemas/GroupRole"
+        currentUserStatus:
+          $ref: "#/components/schemas/GroupMembershipStatus"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    GroupRole:
+      type: string
+      description: Group-scoped role for the current authenticated actor.
+      enum:
+        - owner
+        - member
+    GroupMembershipStatus:
+      type: string
+      description: Group membership status for the current authenticated actor.
+      enum:
+        - active
+        - removed
     SelfUserProfileResponse:
       type: object
       description: Safe self-profile response for the authenticated actor.

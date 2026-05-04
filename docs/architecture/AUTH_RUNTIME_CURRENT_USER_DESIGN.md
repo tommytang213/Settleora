@@ -2,7 +2,7 @@
 
 This document defines the Settleora auth runtime boundary for local-account sign-in, server-side session creation and validation, token or refresh-token issuance boundaries, current-user behavior, authenticated actor resolution, auth audit integration, and authorization handoff. Refresh-like credential rotation, replay detection, expiry, and session-family revocation policy is defined separately in [AUTH_REFRESH_TOKEN_ROTATION_POLICY.md](AUTH_REFRESH_TOKEN_ROTATION_POLICY.md).
 
-It started as a design gate. The current repository now includes the explicitly scoped first-owner local bootstrap endpoints, refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, guarded self-profile read/update endpoints, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional migrations, package changes, Docker changes, broader public business endpoint authorization behavior, or worker behavior are added.
+It started as a design gate. The current repository now includes the explicitly scoped first-owner local bootstrap endpoints, refresh-capable local sign-in endpoint, public refresh endpoint, current-user read endpoint, current-session sign-out endpoint, current-account sign-out-all endpoint, current-account session list endpoint, current-account per-session revocation endpoint, internal refresh session runtime foundation, the `SettleoraSession` bearer middleware/current-actor/authorization policy foundation, the internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, and generated web/Dart client foundations described below; remaining auth runtime work still requires separate reviewed branches before UI integration, additional migrations, package changes, Docker changes, broader public business endpoint authorization behavior, or worker behavior are added.
 
 ## Current State
 
@@ -26,12 +26,12 @@ It started as a design gate. The current repository now includes the explicitly 
 - An internal refresh session runtime boundary now exists for creating refresh-capable session families and rotating refresh-like credentials while storing only deterministic hashes and writing bounded safe audit metadata.
 - `SettleoraSession` now exists as the first server-side bearer authentication scheme. It validates opaque access-session credentials only through `IAuthSessionRuntimeService.ValidateSessionAsync`, produces bounded actor and system-role claims, and returns the same safe unauthenticated problem response for missing, malformed, unavailable, expired, revoked, inactive, disabled-account, deleted-account, or otherwise invalid sessions.
 - `ICurrentActorAccessor` and `AuthenticatedActor` now expose server-derived auth account, user profile, auth session, expiry, and role context to endpoint/domain code after middleware validation. They do not consume client-submitted profile IDs.
-- `IBusinessAuthorizationService` now provides the first internal server-side business authorization boundary for future profile/group endpoint checks. It allows own-profile access, active-member group access, group owner-only membership/settings management decisions, and system-role detection without exposing new public API behavior.
+- `IBusinessAuthorizationService` now provides the first internal server-side business authorization boundary for profile/group endpoint checks. It allows own-profile access, active-member group access, group owner-only membership/settings management decisions, and system-role detection without treating clients or generated methods as authorization.
 - Authorization policy foundations now exist as `Settleora.AuthenticatedUser`, `Settleora.SystemRole.Owner`, `Settleora.SystemRole.Admin`, and `Settleora.SystemRole.User`.
 - `GET /api/v1/auth/current-user`, `POST /api/v1/auth/sign-out`, `POST /api/v1/auth/sign-out-all`, `GET /api/v1/auth/sessions`, and `DELETE /api/v1/auth/sessions/{sessionId}` now use the middleware handoff instead of manually parsing bearer tokens in each endpoint.
 - Generated web and Dart client foundations exist from the OpenAPI contract.
 - `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` now consume the current actor plus `IBusinessAuthorizationService` to return and update only the authenticated actor's own safe profile fields.
-- No general public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, group endpoints, payment details, or business endpoints beyond self-profile read/update exist yet.
+- No general public registration, arbitrary or admin session-revocation, Flutter auth flow, web auth flow, admin auth flow, worker auth behavior, group member-management/invitation flow, payment details, or business endpoints beyond self-profile read/update and group create/list/read/update exist yet.
 
 ## Runtime Authority Model
 
@@ -287,9 +287,9 @@ The implemented internal business authorization service is `IBusinessAuthorizati
 - Missing actor, missing profile, missing group, removed membership, unrelated group, and insufficient group role cases fail closed through bounded result categories only.
 - Result strings and categories must not include raw tokens, token hashes, password material, provider payloads, storage paths, or unrelated record data.
 
-Future endpoints must call this server-side boundary directly or consume a domain service that enforces it before returning or mutating protected profile, group, or business records. Generated clients and UI state still do not authorize access. Workers must not bypass API authorization or mutate auth/profile/group/business tables directly.
+Current and future endpoints must call this server-side boundary directly or consume a domain service that enforces it before returning or mutating protected profile, group, or business records. Generated clients and UI state still do not authorize access. Workers must not bypass API authorization or mutate auth/profile/group/business tables directly.
 
-The first public consumer is the self-profile slice: `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile`. These endpoints require `Settleora.AuthenticatedUser`, derive the profile ID from `ICurrentActorAccessor`, do not accept client-submitted profile IDs, map missing/deleted/not-allowed profiles to a safe `404`, and expose no auth account, credential, session, token, group membership, audit, provider, storage, or unrelated-user data.
+The first public consumers are the self-profile and group foundation slices. `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile` require `Settleora.AuthenticatedUser`, derive the profile ID from `ICurrentActorAccessor`, do not accept client-submitted profile IDs, map missing/deleted/not-allowed profiles to a safe `404`, and expose no auth account, credential, session, token, group membership, audit, provider, storage, or unrelated-user data. `POST /api/v1/groups`, `GET /api/v1/groups`, `GET /api/v1/groups/{groupId}`, and `PATCH /api/v1/groups/{groupId}` require `Settleora.AuthenticatedUser`, derive the acting profile server-side, call `IBusinessAuthorizationService`, list/read only active memberships, create an active owner membership for the creator, and allow group-name updates only for active group owners. They do not implement invitations, member management, guest/default-excluded/left runtime behavior, group presets, delete/archive/restore, expenses, bills, settlements, OCR, or UI behavior.
 
 ## Audit And Privacy
 
@@ -361,7 +361,7 @@ This document does not authorize:
 - Additional login endpoint implementation beyond the implemented local sign-in endpoint.
 - Additional current-user behavior beyond the implemented read endpoint.
 - Additional auth middleware behavior beyond the `SettleoraSession` scheme.
-- Public business endpoints or endpoint-specific business authorization behavior beyond the self-profile read/update slice.
+- Public business endpoints or endpoint-specific business authorization behavior beyond the self-profile read/update and group create/list/read/update foundation slices.
 - UI integration.
 - Mobile, web, or admin changes.
 - Worker auth behavior.
@@ -376,6 +376,7 @@ This document does not authorize:
 
 Future branches should stay small and reviewable:
 
-1. Consume the business authorization foundation from the first guarded profile/group endpoints in a separate reviewed branch.
-2. Add UI integration over the generated client foundations only in separate reviewed slices.
-3. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.
+1. Review and merge the guarded group foundation endpoints.
+2. Add group invitation/member-management policy and endpoints only in separate reviewed slices.
+3. Add UI integration over the generated client foundations only in separate reviewed slices.
+4. Add admin revocation, retention cleanup, distributed hardening, and business endpoint planning only in separate reviewed slices.

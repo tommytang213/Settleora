@@ -143,6 +143,55 @@ export interface CurrentUserSession {
 }
 
 /**
+ * Group creation request. Creator and owner membership are derived from the authenticated actor.
+ */
+export interface CreateGroupRequest {
+  /**
+   * Group name after server-side trimming. Blank or whitespace-only values are rejected.
+   */
+  name: string;
+}
+
+/**
+ * Group settings update. Only the name can be updated in this foundation endpoint.
+ */
+export interface UpdateGroupRequest {
+  /**
+   * Group name after server-side trimming. Blank or whitespace-only values are rejected.
+   */
+  name?: string;
+}
+
+/**
+ * Groups where the authenticated actor has active membership. This foundation response is intentionally unpaginated for now.
+ */
+export interface GroupListResponse {
+  groups: GroupResponse[];
+}
+
+/**
+ * Safe group summary for the authenticated actor. It excludes creator profile IDs, unrelated members, auth/session/credential data, provider payloads, audit metadata, storage paths, and group policy internals.
+ */
+export interface GroupResponse {
+  id: string;
+  name: string;
+  currentUserRole: GroupRole;
+  currentUserStatus: GroupMembershipStatus;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
+ * Group-scoped role for the current authenticated actor.
+ */
+export type GroupRole = "owner" | "member";
+
+/**
+ * Group membership status for the current authenticated actor.
+ */
+export type GroupMembershipStatus = "active" | "removed";
+
+/**
  * Safe self-profile response for the authenticated actor.
  */
 export interface SelfUserProfileResponse {
