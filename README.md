@@ -19,6 +19,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Password hashing policy](docs/architecture/PASSWORD_HASHING_POLICY.md)
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
+- [Storage file metadata architecture](docs/architecture/STORAGE_FILE_METADATA_ARCHITECTURE.md)
 - [Privacy vault architecture](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md)
 - [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Architecture docs index](docs/architecture/)
