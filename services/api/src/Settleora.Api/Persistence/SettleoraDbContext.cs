@@ -46,6 +46,7 @@ public sealed class SettleoraDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.Entity<UserProfile>(ConfigureUserProfile);
+        modelBuilder.Entity<UserPaymentProfile>(ConfigureUserPaymentProfile);
         modelBuilder.Entity<UserGroup>(ConfigureUserGroup);
         modelBuilder.Entity<GroupMembership>(ConfigureGroupMembership);
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
@@ -135,6 +136,72 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasOne(group => group.CreatedByUserProfile)
             .WithMany(userProfile => userProfile.CreatedGroups)
             .HasForeignKey(group => group.CreatedByUserProfileId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureUserPaymentProfile(EntityTypeBuilder<UserPaymentProfile> entity)
+    {
+        entity.ToTable("user_payment_profiles", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_user_payment_profiles_preferred_method_label_not_blank",
+                "preferred_method_label IS NULL OR length(btrim(preferred_method_label)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_payment_profiles_payment_handle_not_blank",
+                "payment_handle IS NULL OR length(btrim(payment_handle)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_payment_profiles_payment_note_not_blank",
+                "payment_note IS NULL OR length(btrim(payment_note)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_payment_profiles_visibility",
+                "visibility IN ('private', 'settlement_counterparties_only', 'group_members_when_shared')");
+        });
+
+        entity.HasKey(paymentProfile => paymentProfile.Id);
+
+        entity.Property(paymentProfile => paymentProfile.Id)
+            .HasColumnName("id");
+
+        entity.Property(paymentProfile => paymentProfile.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(paymentProfile => paymentProfile.PreferredMethodLabel)
+            .HasColumnName("preferred_method_label")
+            .HasMaxLength(UserPaymentProfileConstraints.PreferredMethodLabelMaxLength);
+
+        entity.Property(paymentProfile => paymentProfile.PaymentHandle)
+            .HasColumnName("payment_handle")
+            .HasMaxLength(UserPaymentProfileConstraints.PaymentHandleMaxLength);
+
+        entity.Property(paymentProfile => paymentProfile.PaymentNote)
+            .HasColumnName("payment_note")
+            .HasMaxLength(UserPaymentProfileConstraints.PaymentNoteMaxLength);
+
+        entity.Property(paymentProfile => paymentProfile.Visibility)
+            .HasColumnName("visibility")
+            .HasMaxLength(UserPaymentProfileConstraints.VisibilityMaxLength)
+            .IsRequired();
+
+        entity.Property(paymentProfile => paymentProfile.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(paymentProfile => paymentProfile.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(paymentProfile => paymentProfile.DeletedAtUtc)
+            .HasColumnName("deleted_at_utc");
+
+        entity.HasIndex(paymentProfile => paymentProfile.UserProfileId)
+            .IsUnique()
+            .HasDatabaseName("ux_user_payment_profiles_active_user_profile_id")
+            .HasFilter("deleted_at_utc IS NULL");
+
+        entity.HasOne(paymentProfile => paymentProfile.UserProfile)
+            .WithMany(userProfile => userProfile.PaymentProfiles)
+            .HasForeignKey(paymentProfile => paymentProfile.UserProfileId)
+            .HasConstraintName("fk_user_payment_profiles_user_profiles_user_profile_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

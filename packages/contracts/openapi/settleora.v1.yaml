@@ -996,6 +996,87 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/users/me/payment-details:
+    get:
+      summary: Self payment details
+      description: Returns the authenticated actor's own payment details through the server-side business authorization boundary. No counterparty, admin, QR, file, or storage fields are exposed in this foundation slice.
+      operationId: getSelfPaymentDetails
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Authenticated user's payment details, or a stable unconfigured object when no payment profile exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfPaymentDetailsResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update self payment details
+      description: Creates or updates the authenticated actor's own default payment profile through the server-side business authorization boundary. Profile identity is derived from the current session, and QR/payment image fields are intentionally absent until storage file metadata exists.
+      operationId: updateSelfPaymentDetails
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSelfPaymentDetailsRequest"
+      responses:
+        "200":
+          description: Configured authenticated user's payment details after create or update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfPaymentDetailsResponse"
+        "400":
+          description: The submitted payment details update is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Payment details update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/users/me/profile:
     get:
       summary: Self user profile
@@ -1505,6 +1586,90 @@ components:
       enum:
         - active
         - removed
+    PaymentDetailsVisibility:
+      type: string
+      description: Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
+      enum:
+        - private
+        - settlement_counterparties_only
+        - group_members_when_shared
+    SelfPaymentDetailsResponse:
+      type: object
+      description: Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+      required:
+        - isConfigured
+        - id
+        - preferredMethodLabel
+        - paymentHandle
+        - paymentNote
+        - visibility
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        isConfigured:
+          type: boolean
+          description: True only when an active payment profile row exists for the authenticated actor.
+        id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        preferredMethodLabel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+        paymentHandle:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 320
+            - type: "null"
+        paymentNote:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 1000
+            - type: "null"
+        visibility:
+          $ref: "#/components/schemas/PaymentDetailsVisibility"
+        createdAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    UpdateSelfPaymentDetailsRequest:
+      type: object
+      description: Safe self payment-details update. Missing text fields are preserved on update, explicit null clears them, whitespace-only text normalizes to null, and omitted visibility defaults only when creating a new payment profile.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        preferredMethodLabel:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional payment method label after server-side trimming.
+        paymentHandle:
+          oneOf:
+            - type: string
+              maxLength: 320
+            - type: "null"
+          description: Optional user-entered payment handle after server-side trimming.
+        paymentNote:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+          description: Optional user-entered payment note after server-side trimming.
+        visibility:
+          $ref: "#/components/schemas/PaymentDetailsVisibility"
     SelfUserProfileResponse:
       type: object
       description: Safe self-profile response for the authenticated actor.

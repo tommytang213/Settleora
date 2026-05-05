@@ -17,4 +17,6 @@ public sealed class UserProfile
     public ICollection<UserGroup> CreatedGroups { get; } = new List<UserGroup>();
 
     public ICollection<GroupMembership> GroupMemberships { get; } = new List<GroupMembership>();
+
+    public ICollection<UserPaymentProfile> PaymentProfiles { get; } = new List<UserPaymentProfile>();
 }

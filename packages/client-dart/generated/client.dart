@@ -243,6 +243,28 @@ class SettleoraApiClient {
     );
   }
 
+  Future<SelfPaymentDetailsResponse> getSelfPaymentDetails({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/users/me/payment-details",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SelfPaymentDetailsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<SelfPaymentDetailsResponse> updateSelfPaymentDetails(UpdateSelfPaymentDetailsRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      "/api/v1/users/me/payment-details",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SelfPaymentDetailsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SelfUserProfileResponse> getSelfUserProfile({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

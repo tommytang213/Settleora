@@ -11,6 +11,7 @@ using Settleora.Api.Health;
 using Settleora.Api.Persistence;
 using Settleora.Api.Storage;
 using Settleora.Api.Users.Groups;
+using Settleora.Api.Users.PaymentDetails;
 using Settleora.Api.Users.SelfProfile;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,6 +25,7 @@ builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddSignInAbusePolicy();
 builder.Services.AddSettleoraAuth();
 builder.Services.AddGroupMembershipAudit();
+builder.Services.AddPaymentDetailsAudit();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
@@ -45,6 +47,7 @@ app.MapCurrentUserEndpoints();
 app.MapGroupFoundationEndpoints();
 app.MapGroupMemberManagementEndpoints();
 app.MapSelfUserProfileEndpoints();
+app.MapSelfPaymentDetailsEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

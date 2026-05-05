@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Configuration;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.Persistence.Migrations;
 
 namespace Settleora.Api.Tests;
 
@@ -108,6 +111,56 @@ public sealed class UsersGroupsModelTests
     }
 
     [Fact]
+    public void UserPaymentProfileModelUsesSeparateBoundedTableAndOneActiveProfilePerUser()
+    {
+        using var dbContext = CreateDbContext();
+        var entity = FindEntityType<UserPaymentProfile>(dbContext);
+        var storeObject = StoreObjectIdentifier.Table("user_payment_profiles", null);
+
+        Assert.Equal("user_payment_profiles", entity.GetTableName());
+        Assert.Equal(["Id"], entity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
+        AssertColumn(entity, storeObject, "UserProfileId", "user_profile_id", isNullable: false);
+        AssertColumn(entity, storeObject, "PreferredMethodLabel", "preferred_method_label", isNullable: true, maxLength: 120);
+        AssertColumn(entity, storeObject, "PaymentHandle", "payment_handle", isNullable: true, maxLength: 320);
+        AssertColumn(entity, storeObject, "PaymentNote", "payment_note", isNullable: true, maxLength: 1000);
+        AssertColumn(entity, storeObject, "Visibility", "visibility", isNullable: false, maxLength: 40);
+        AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "DeletedAtUtc", "deleted_at_utc", isNullable: true);
+
+        var activeProfileIndex = Assert.Single(
+            entity.GetIndexes(),
+            index => index.GetDatabaseName() == "ux_user_payment_profiles_active_user_profile_id");
+        Assert.True(activeProfileIndex.IsUnique);
+        Assert.Equal(["UserProfileId"], activeProfileIndex.Properties.Select(property => property.Name));
+        Assert.Equal("deleted_at_utc IS NULL", activeProfileIndex.GetFilter());
+
+        var foreignKey = Assert.Single(entity.GetForeignKeys());
+        Assert.Equal(typeof(UserProfile), foreignKey.PrincipalEntityType.ClrType);
+        Assert.Equal(["UserProfileId"], foreignKey.Properties.Select(property => property.Name));
+        Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior);
+
+        AssertCheckConstraint(
+            entity,
+            "ck_user_payment_profiles_visibility",
+            "visibility IN ('private', 'settlement_counterparties_only', 'group_members_when_shared')");
+        AssertCheckConstraint(
+            entity,
+            "ck_user_payment_profiles_preferred_method_label_not_blank",
+            "preferred_method_label IS NULL OR length(btrim(preferred_method_label)) > 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_user_payment_profiles_payment_handle_not_blank",
+            "payment_handle IS NULL OR length(btrim(payment_handle)) > 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_user_payment_profiles_payment_note_not_blank",
+            "payment_note IS NULL OR length(btrim(payment_note)) > 0");
+    }
+
+    [Fact]
     public void UsersGroupsMigrationIsRegistered()
     {
         using var dbContext = CreateDbContext();
@@ -115,6 +168,52 @@ public sealed class UsersGroupsModelTests
         Assert.Contains(
             dbContext.Database.GetMigrations(),
             migration => migration.EndsWith("_AddUsersGroupsSchemaFoundation", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void UserPaymentProfilesMigrationIsRegisteredAndReviewable()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddUserPaymentProfilesFoundation", StringComparison.Ordinal));
+
+        var migration = new AddUserPaymentProfilesFoundation();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var createTable = Assert.Single(
+            migration.UpOperations.OfType<CreateTableOperation>(),
+            table => table.Name == "user_payment_profiles");
+        Assert.Equal(["id"], createTable.PrimaryKey!.Columns);
+        Assert.DoesNotContain(createTable.Columns, column => column.Name == "qr_file_id");
+        Assert.All(
+            createTable.Columns.Where(column => column.ClrType == typeof(string)),
+            column => Assert.NotNull(column.MaxLength));
+        Assert.Contains(
+            createTable.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == "user_profiles"
+                && foreignKey.Columns.SequenceEqual(["user_profile_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            createTable.CheckConstraints,
+            constraint => constraint.Name == "ck_user_payment_profiles_visibility"
+                && constraint.Sql == "visibility IN ('private', 'settlement_counterparties_only', 'group_members_when_shared')");
+
+        var activeIndex = Assert.Single(
+            migration.UpOperations.OfType<CreateIndexOperation>(),
+            index => index.Table == "user_payment_profiles"
+                && index.Name == "ux_user_payment_profiles_active_user_profile_id");
+        Assert.True(activeIndex.IsUnique);
+        Assert.Equal(["user_profile_id"], activeIndex.Columns);
+        Assert.Equal("deleted_at_utc IS NULL", activeIndex.Filter);
     }
 
     private static SettleoraDbContext CreateDbContext()

@@ -1,6 +1,6 @@
 # Auth Identity Foundation
 
-This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded group create/list/read/update foundation endpoints, guarded group member management for existing registered users with successful add/role-update/remove audit events, guarded admin local-user list/read/create foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation flow, guest placeholders, broader admin user-management, role assignment/update endpoints, audit UI, admin audit viewer, audit export, audit retention cleanup, notification behavior, or UI behavior.
+This document defines Settleora's authentication and identity foundation. The current repository includes schema-only identity, local password credential, session, refresh/session-family, and auth audit foundations, internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, and local sign-in orchestration service boundaries, plus first-owner local bootstrap for fresh deployments, scoped public local sign-in/refresh/current-user/current-account session endpoints, the `SettleoraSession` bearer middleware/current-actor/policy foundation, an internal business authorization service foundation, guarded self-profile read/update endpoints, guarded self payment-details read/update endpoints, guarded group create/list/read/update foundation endpoints, guarded group member management for existing registered users with successful add/role-update/remove audit events, guarded admin local-user list/read/create foundation endpoints, and generated web/Dart client foundations from OpenAPI. It still has no general public registration, invitation flow, guest placeholders, broader admin user-management, role assignment/update endpoints, audit UI, admin audit viewer, audit export, audit retention cleanup, notification behavior, or UI behavior.
 
 Detailed credential storage, session metadata, passkey/MFA direction, auth audit records, and retention boundaries are defined in [AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
 Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md).
@@ -9,10 +9,11 @@ It is an architecture gate for current and future user/group endpoint work. It d
 
 ## Current State
 
-- `UserProfile`, `UserGroup`, and `GroupMembership` domain models exist under the API users domain.
+- `UserProfile`, `UserPaymentProfile`, `UserGroup`, and `GroupMembership` domain models exist under the API users domain.
 - `AuthAccount`, `AuthIdentity`, and `SystemRoleAssignment` domain models exist under the API auth domain.
-- The current EF Core migrations create `user_profiles`, `user_groups`, `group_memberships`, `auth_accounts`, `auth_identities`, `system_role_assignments`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
+- The current EF Core migrations create `user_profiles`, `user_payment_profiles`, `user_groups`, `group_memberships`, `auth_accounts`, `auth_identities`, `system_role_assignments`, `local_password_credentials`, `auth_sessions`, `auth_session_families`, `auth_refresh_credentials`, and `auth_audit_events`.
 - `user_profiles` stores app-domain profile data: display name, optional default currency, timestamps, and a future soft-delete timestamp.
+- `user_payment_profiles` stores the authenticated user's one active default payment profile with bounded optional payment text fields, constrained visibility, timestamps, and a future soft-delete timestamp. It does not store QR/file metadata, storage paths, vault keys, or credential material.
 - `user_groups` stores shared group containers with a creator profile reference.
 - `group_memberships` stores profile-to-group membership rows with group-level `role` values of `owner` or `member`, and `status` values of `active` or `removed`.
 - `auth_accounts` links one server-side auth account root to exactly one `UserProfile`.
@@ -25,8 +26,8 @@ It is an architecture gate for current and future user/group endpoint work. It d
 - First-owner local bootstrap can create the initial local owner account only when no auth account exists. It is not general public registration, returns no session or password material, and clients must sign in normally after bootstrap.
 - Guarded admin local-user foundation endpoints can list/read safe user summaries and create normal local users after bootstrap for authenticated system owners/admins. Created users receive only the system `user` role and must sign in through the existing local sign-in endpoint. This is not public self-registration, invitations, or owner/admin role assignment.
 - Guarded group member management endpoints now let active group owners add existing active registered users with auth accounts, update group roles, and mark active memberships `removed` without hard deletion. Successful add, role update, and removal writes bounded auth audit events with secret-free metadata. Active group members can list active memberships. This is not invitations, guest placeholders, default-excluded/left runtime behavior, notifications, billing participation, audit UI, admin audit viewing, audit export, audit retention cleanup, failure-audit coverage for denied or invalid membership requests, or UI behavior.
-- No general registration, public credential management endpoints, invitations, friends, broader admin user-management endpoints, or user business API endpoints beyond self-profile read/update, group create/list/read/update, and group member management exist yet.
-- The internal business authorization service can answer fail-closed profile/group access decisions from the server-derived current actor and is now consumed by self-profile, group foundation, and group member management endpoints.
+- No general registration, public credential management endpoints, invitations, friends, broader admin user-management endpoints, or user business API endpoints beyond self-profile read/update, self payment-details read/update, group create/list/read/update, and group member management exist yet.
+- The internal business authorization service can answer fail-closed profile/group access decisions from the server-derived current actor and is now consumed by self-profile, self payment-details, group foundation, and group member management endpoints.
 - No invitation, friend, business permission, passkey, MFA, reset-token, or recovery-code tables exist yet.
 
 ## Identity Concepts
@@ -156,8 +157,8 @@ This document does not authorize:
 
 - Login/current-user auth implementation.
 - Session middleware or runtime session validation.
-- Additional API endpoints beyond the current auth/session, self-profile, group foundation, and admin local-user foundation slices.
-- Additional OpenAPI changes beyond the current auth/session, self-profile, group foundation, and admin local-user foundation contract.
+- Additional API endpoints beyond the current auth/session, self-profile, self payment-details, group foundation, and admin local-user foundation slices.
+- Additional OpenAPI changes beyond the current auth/session, self-profile, self payment-details, group foundation, and admin local-user foundation contract.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
 - Runtime behavior changes.

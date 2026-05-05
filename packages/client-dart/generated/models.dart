@@ -715,6 +715,133 @@ class GroupMembershipStatusValues {
   static const Set<GroupMembershipStatus> values = {active, removed};
 }
 
+/// Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
+typedef PaymentDetailsVisibility = String;
+class PaymentDetailsVisibilityValues {
+  const PaymentDetailsVisibilityValues._();
+  static const PaymentDetailsVisibility private = "private";
+  static const PaymentDetailsVisibility settlementCounterpartiesOnly = "settlement_counterparties_only";
+  static const PaymentDetailsVisibility groupMembersWhenShared = "group_members_when_shared";
+  static const Set<PaymentDetailsVisibility> values = {private, settlementCounterpartiesOnly, groupMembersWhenShared};
+}
+
+/// Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+class SelfPaymentDetailsResponse {
+  const SelfPaymentDetailsResponse({
+    required this.isConfigured,
+    required this.id,
+    required this.preferredMethodLabel,
+    required this.paymentHandle,
+    required this.paymentNote,
+    required this.visibility,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// True only when an active payment profile row exists for the authenticated actor.
+  final bool isConfigured;
+  final String? id;
+  final String? preferredMethodLabel;
+  final String? paymentHandle;
+  final String? paymentNote;
+  final PaymentDetailsVisibility visibility;
+  final DateTime? createdAtUtc;
+  final DateTime? updatedAtUtc;
+
+  factory SelfPaymentDetailsResponse.fromJson(JsonObject json) {
+    return SelfPaymentDetailsResponse(
+      isConfigured: json["isConfigured"] as bool,
+      id: json["id"] == null ? null : json["id"] as String,
+      preferredMethodLabel: json["preferredMethodLabel"] == null ? null : json["preferredMethodLabel"] as String,
+      paymentHandle: json["paymentHandle"] == null ? null : json["paymentHandle"] as String,
+      paymentNote: json["paymentNote"] == null ? null : json["paymentNote"] as String,
+      visibility: json["visibility"] as String,
+      createdAtUtc: json["createdAtUtc"] == null ? null : DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: json["updatedAtUtc"] == null ? null : DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final idJsonValue = id;
+    final preferredMethodLabelJsonValue = preferredMethodLabel;
+    final paymentHandleJsonValue = paymentHandle;
+    final paymentNoteJsonValue = paymentNote;
+    final createdAtUtcJsonValue = createdAtUtc;
+    final updatedAtUtcJsonValue = updatedAtUtc;
+
+    return {
+      "isConfigured": isConfigured,
+      "id": idJsonValue,
+      "preferredMethodLabel": preferredMethodLabelJsonValue,
+      "paymentHandle": paymentHandleJsonValue,
+      "paymentNote": paymentNoteJsonValue,
+      "visibility": visibility,
+      "createdAtUtc": createdAtUtcJsonValue == null ? null : createdAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtcJsonValue == null ? null : updatedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe self payment-details update. Missing text fields are preserved on update, explicit null clears them, whitespace-only text normalizes to null, and omitted visibility defaults only when creating a new payment profile.
+class UpdateSelfPaymentDetailsRequest {
+  static const Object _unsetPreferredMethodLabel = Object();
+  static const Object _unsetPaymentHandle = Object();
+  static const Object _unsetPaymentNote = Object();
+
+  UpdateSelfPaymentDetailsRequest({
+    Object? preferredMethodLabel = _unsetPreferredMethodLabel,
+    Object? paymentHandle = _unsetPaymentHandle,
+    Object? paymentNote = _unsetPaymentNote,
+    this.visibility,
+  })
+      : preferredMethodLabel = identical(preferredMethodLabel, _unsetPreferredMethodLabel) ? null : preferredMethodLabel as String?,
+        _hasPreferredMethodLabel = !identical(preferredMethodLabel, _unsetPreferredMethodLabel),
+        paymentHandle = identical(paymentHandle, _unsetPaymentHandle) ? null : paymentHandle as String?,
+        _hasPaymentHandle = !identical(paymentHandle, _unsetPaymentHandle),
+        paymentNote = identical(paymentNote, _unsetPaymentNote) ? null : paymentNote as String?,
+        _hasPaymentNote = !identical(paymentNote, _unsetPaymentNote);
+
+  /// Optional payment method label after server-side trimming.
+  final String? preferredMethodLabel;
+  final bool _hasPreferredMethodLabel;
+  /// Optional user-entered payment handle after server-side trimming.
+  final String? paymentHandle;
+  final bool _hasPaymentHandle;
+  /// Optional user-entered payment note after server-side trimming.
+  final String? paymentNote;
+  final bool _hasPaymentNote;
+  final PaymentDetailsVisibility? visibility;
+
+  factory UpdateSelfPaymentDetailsRequest.fromJson(JsonObject json) {
+    return UpdateSelfPaymentDetailsRequest(
+      preferredMethodLabel: json.containsKey("preferredMethodLabel")
+          ? json["preferredMethodLabel"] == null ? null : json["preferredMethodLabel"] as String
+          : _unsetPreferredMethodLabel,
+      paymentHandle: json.containsKey("paymentHandle")
+          ? json["paymentHandle"] == null ? null : json["paymentHandle"] as String
+          : _unsetPaymentHandle,
+      paymentNote: json.containsKey("paymentNote")
+          ? json["paymentNote"] == null ? null : json["paymentNote"] as String
+          : _unsetPaymentNote,
+      visibility: json["visibility"] == null ? null : json["visibility"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final preferredMethodLabelJsonValue = preferredMethodLabel;
+    final paymentHandleJsonValue = paymentHandle;
+    final paymentNoteJsonValue = paymentNote;
+    final visibilityJsonValue = visibility;
+
+    return {
+      if (_hasPreferredMethodLabel) "preferredMethodLabel": preferredMethodLabelJsonValue,
+      if (_hasPaymentHandle) "paymentHandle": paymentHandleJsonValue,
+      if (_hasPaymentNote) "paymentNote": paymentNoteJsonValue,
+      if (visibilityJsonValue != null) "visibility": visibilityJsonValue,
+    };
+  }
+}
+
 /// Safe self-profile response for the authenticated actor.
 class SelfUserProfileResponse {
   const SelfUserProfileResponse({

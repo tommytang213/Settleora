@@ -48,6 +48,7 @@ public sealed class PersistenceRegistrationTests : IClassFixture<WebApplicationF
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
 
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserProfile)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserPaymentProfile)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserGroup)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(GroupMembership)));
     }

@@ -7,7 +7,7 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- EF Core migrations define schema-only user profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
+- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
 - Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist. No user/group business endpoints or EF Core business workflows exist yet.
 - No business tables for expenses, settlement, files, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
@@ -48,6 +48,7 @@ dotnet ef migrations add <MigrationName> --project services/api/src/Settleora.Ap
 The current schema foundation is intentionally limited to:
 
 - `user_profiles`: API-owned user profile identity placeholders, including display name, optional default currency, timestamps, and future soft-delete timestamp.
+- `user_payment_profiles`: API-owned self payment-details foundation, including one active default payment profile per `UserProfile`, bounded optional payment text fields, constrained visibility, timestamps, and future soft-delete timestamp. This table intentionally has no QR/file metadata column until storage file metadata exists.
 - `user_groups`: API-owned shared group containers, including name, creator reference, timestamps, and future soft-delete timestamp.
 - `group_memberships`: user-to-group membership rows with composite key, minimal role/status values, and timestamps.
 - `auth_accounts`: server-side auth account roots linked one-to-one with `user_profiles`, with status timestamps and no credential material.
@@ -59,7 +60,7 @@ The current schema foundation is intentionally limited to:
 - `auth_refresh_credentials`: refresh-like credential history linked to `auth_session_families`, optionally linked to `auth_sessions`, storing unique refresh credential hashes and bounded rotation/revocation/expiry metadata with no raw refresh tokens.
 - `auth_audit_events`: bounded auth audit event metadata with optional actor and subject auth-account links, without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 
-The schema foundation by itself does not authorize runtime behavior; the existing auth/session runtime and business authorization service foundations are separate API layers. Invitations, friends, user/group business endpoints, and EF Core business workflows are not implemented yet.
+The schema foundation by itself does not authorize runtime behavior; the existing auth/session runtime, business authorization service, self-profile, self payment-details, group, group-member, and admin local-user foundations are separate API layers. Invitations, friends, broader business endpoints, and EF Core workflows for expenses, bills, settlements, files, OCR, sync, and reporting are not implemented yet.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 

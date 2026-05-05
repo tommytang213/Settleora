@@ -23,7 +23,7 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(11, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(12, dbContext.Model.GetEntityTypes().Count());
     }
 
     [Fact]

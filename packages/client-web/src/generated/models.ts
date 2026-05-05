@@ -272,6 +272,47 @@ export type GroupRole = "owner" | "member";
 export type GroupMembershipStatus = "active" | "removed";
 
 /**
+ * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
+ */
+export type PaymentDetailsVisibility = "private" | "settlement_counterparties_only" | "group_members_when_shared";
+
+/**
+ * Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+ */
+export interface SelfPaymentDetailsResponse {
+  /**
+   * True only when an active payment profile row exists for the authenticated actor.
+   */
+  isConfigured: boolean;
+  id: string | null;
+  preferredMethodLabel: string | null;
+  paymentHandle: string | null;
+  paymentNote: string | null;
+  visibility: PaymentDetailsVisibility;
+  createdAtUtc: string | null;
+  updatedAtUtc: string | null;
+}
+
+/**
+ * Safe self payment-details update. Missing text fields are preserved on update, explicit null clears them, whitespace-only text normalizes to null, and omitted visibility defaults only when creating a new payment profile.
+ */
+export interface UpdateSelfPaymentDetailsRequest {
+  /**
+   * Optional payment method label after server-side trimming.
+   */
+  preferredMethodLabel?: string | null;
+  /**
+   * Optional user-entered payment handle after server-side trimming.
+   */
+  paymentHandle?: string | null;
+  /**
+   * Optional user-entered payment note after server-side trimming.
+   */
+  paymentNote?: string | null;
+  visibility?: PaymentDetailsVisibility;
+}
+
+/**
  * Safe self-profile response for the authenticated actor.
  */
 export interface SelfUserProfileResponse {

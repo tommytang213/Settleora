@@ -2,28 +2,37 @@
 
 ## Purpose
 
-This document defines Settleora's Day 1 architecture direction for user payment details and payment-profile visibility before implementation.
+This document defines Settleora's Day 1 architecture direction for user payment details and payment-profile visibility, and records the current first self-profile implementation slice.
 
 Payment details are sensitive application data. They can identify how a settlement counterparty should pay a user, may include personal identifiers, may later reference QR/payment images, and must interact safely with storage authorization, privacy-vault direction, audit, API contracts, generated clients, and future UI behavior.
 
-This is a design gate only. It does not authorize implementation code, migrations, OpenAPI changes, generated client changes, UI behavior, storage/file metadata work, or settlement/payment-request behavior.
+This document began as a design gate. The current repository now includes the explicitly scoped self payment-details schema/API/OpenAPI/client foundation described below; storage/file metadata work, UI behavior, and settlement/payment-request counterparty behavior still require separate reviewed slices.
 
 ## Current State
 
 - `UserProfile` currently stores app-domain profile basics only: display name, optional default currency, timestamps, and soft-delete direction.
+- `UserPaymentProfile` now stores the authenticated user's one active default payment profile in the separate `user_payment_profiles` table.
+- `user_payment_profiles` stores `preferred_method_label`, `payment_handle`, `payment_note`, constrained `visibility`, timestamps, and `deleted_at_utc`.
+- The active payment-profile model enforces one active row per `UserProfile` with a filtered unique index where `deleted_at_utc IS NULL`.
+- Nullable payment text fields are bounded and are constrained against blank or whitespace-only persisted values.
+- Payment visibility is constrained to `private`, `settlement_counterparties_only`, and `group_members_when_shared`, with default app behavior of `settlement_counterparties_only`.
 - Guarded self-profile endpoints exist for the authenticated actor at `GET /api/v1/users/me/profile` and `PATCH /api/v1/users/me/profile`.
 - The self-profile endpoints currently read/update safe profile fields only: display name and default currency.
 - The self-profile endpoints derive the actor server-side through the auth/current-actor boundary and do not accept client-submitted profile IDs.
+- Guarded self payment-details endpoints now exist at `GET /api/v1/users/me/payment-details` and `PATCH /api/v1/users/me/payment-details`.
+- Self payment-details endpoints require `Settleora.AuthenticatedUser`, derive the actor through `ICurrentActorAccessor`, and call the server-side business authorization boundary before reading or mutating the active actor profile's payment details.
+- `GET /api/v1/users/me/payment-details` returns a stable unconfigured object with `isConfigured=false` and default visibility when no active payment profile exists yet.
+- `PATCH /api/v1/users/me/payment-details` supports create-or-update for the current actor only, trims nullable text, normalizes whitespace-only text to null, preserves omitted fields on update, and defaults visibility on create when omitted.
+- Successful payment-details create/update/visibility-change writes bounded safe `auth_audit_events` actions `payment_details.created`, `payment_details.updated`, and `payment_details.visibility_changed`.
+- Payment-details audit metadata is limited to workflow/category IDs, row-created state, field categories, payment profile ID, and visibility categories. It must not contain payment handles, payment notes, preferred method values, request bodies, tokens, storage paths, or vault internals.
 - Existing group foundation and group member management endpoints use server-side business authorization for group access, but expenses, bills, settlements, payment requests, and settlement-counterparty records do not exist yet.
-- No payment details schema exists.
-- No payment details endpoints exist.
-- No payment details OpenAPI contract or generated client surface exists.
+- Payment-details OpenAPI contract and generated web/Dart client surfaces exist for authenticated self read/update only.
 - No payment details UI behavior exists.
 - No QR/payment image upload, file metadata schema, or storage authorization surface exists.
 - No privacy-vault integration exists for payment details.
 - No settlement-counterparty lookup exists.
 
-The current scaffold explicitly treats payment details and payment QR storage as not implemented yet.
+The current scaffold explicitly treats counterparty payment-detail visibility, admin payment-detail viewing, payment QR storage, storage/file metadata, and vault runtime encryption as not implemented yet.
 
 ## Day 1 Product Goal
 
@@ -219,18 +228,16 @@ Self-read auditing can be policy-controlled. Counterparty reads may require audi
 
 ## API And OpenAPI Direction
 
-This branch does not modify OpenAPI. Future implementation should expose payment details through reviewed `/api/v1` contracts and then regenerate clients.
+The current self implementation exposes payment details through reviewed `/api/v1` contracts and regenerated clients.
 
-Likely future endpoint direction:
+Implemented self endpoint surface:
 
 ```text
 GET /api/v1/users/me/payment-details
-PUT /api/v1/users/me/payment-details
 PATCH /api/v1/users/me/payment-details
-DELETE /api/v1/users/me/payment-details
 ```
 
-The delete endpoint may be archive-style rather than destructive delete, depending on audit and settlement-history needs.
+Future update/delete behavior beyond PATCH may be archive-style rather than destructive delete, depending on audit and settlement-history needs.
 
 Future counterparty direction:
 
@@ -249,15 +256,16 @@ Safe response principles:
 - Responses must not expose auth account IDs, session IDs, token material, credential state, audit internals, storage internals, vault internals, or unrelated users.
 - Nullable fields should be represented clearly so clients can distinguish "not configured" from a missing response due to authorization failure only where the API contract intentionally allows that distinction.
 
-Suggested self response shape, for future review:
+Current self response shape:
 
 ```text
+is_configured
 id
 preferred_method_label
 payment_handle
 payment_note
 visibility
-qr_file_id
+created_at_utc
 updated_at_utc
 ```
 
@@ -335,7 +343,7 @@ OpenAPI/generated clients are updated only in implementation branches
 
 ## Next Implementation Candidate
 
-Add payment details schema plus self read/update API foundation:
+The first payment-details schema plus self read/update API foundation is implemented:
 
 - Create a separate payment-profile/payment-details table for one default active payment profile per user profile.
 - Add authenticated self read/update endpoints.
@@ -343,3 +351,9 @@ Add payment details schema plus self read/update API foundation:
 - Keep QR/payment image upload out of scope unless storage/file metadata foundations are ready.
 - Keep counterparty visibility endpoints out of scope until settlement/payment-request or equivalent relationship records exist.
 - Update OpenAPI and regenerate clients only in that implementation branch.
+
+Next implementation candidates remain separate:
+
+- Add storage/file metadata before adding `qr_file_id` or QR/payment image upload/download.
+- Add settlement/payment-request relationship records before adding counterparty payment-detail read endpoints.
+- Add privacy-vault runtime protection only after the vault foundation exists.
