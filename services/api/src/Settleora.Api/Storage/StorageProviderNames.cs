@@ -2,5 +2,5 @@ namespace Settleora.Api.Storage;
 
 internal static class StorageProviderNames
 {
-    public const string Local = "Local";
+    public const string Local = "local";
 }

@@ -30,6 +30,7 @@ builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
     builder.Configuration.GetSection(StorageOptions.SectionName));
+builder.Services.AddFileObjectStorage();
 builder.Services.AddSingleton<IDatabaseReadinessCheck, NpgsqlDatabaseReadinessCheck>();
 builder.Services.AddSingleton<IRabbitMqReadinessCheck, RabbitMqReadinessCheck>();
 builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck>();

@@ -6,7 +6,7 @@ This document defines Settleora's Day 1 architecture direction for user payment 
 
 Payment details are sensitive application data. They can identify how a settlement counterparty should pay a user, may include personal identifiers, may later reference QR/payment images, and must interact safely with storage authorization, privacy-vault direction, audit, API contracts, generated clients, and future UI behavior.
 
-This document began as a design gate. The current repository now includes the explicitly scoped self payment-details schema/API/OpenAPI/client foundation described below; storage/file metadata work, UI behavior, and settlement/payment-request counterparty behavior still require separate reviewed slices.
+This document began as a design gate. The current repository now includes the explicitly scoped self payment-details schema/API/OpenAPI/client foundation plus the separate file metadata/storage foundation described below; payment QR upload/linkage, UI behavior, and settlement/payment-request counterparty behavior still require separate reviewed slices.
 
 ## Current State
 
@@ -28,11 +28,11 @@ This document began as a design gate. The current repository now includes the ex
 - Existing group foundation and group member management endpoints use server-side business authorization for group access, but expenses, bills, settlements, payment requests, and settlement-counterparty records do not exist yet.
 - Payment-details OpenAPI contract and generated web/Dart client surfaces exist for authenticated self read/update only.
 - No payment details UI behavior exists.
-- No QR/payment image upload, file metadata schema, or storage authorization surface exists.
+- No QR/payment image upload, payment-profile file linkage, or storage authorization surface exists.
 - No privacy-vault integration exists for payment details.
 - No settlement-counterparty lookup exists.
 
-The current scaffold explicitly treats counterparty payment-detail visibility, admin payment-detail viewing, payment QR storage, storage/file metadata, and vault runtime encryption as not implemented yet.
+The current scaffold explicitly treats counterparty payment-detail visibility, admin payment-detail viewing, payment QR upload/download, payment-profile file linkage, and vault runtime encryption as not implemented yet.
 
 ## Day 1 Product Goal
 
@@ -171,7 +171,7 @@ Storage rules:
 - The payment details row should reference storage metadata through `qr_file_id` or equivalent stable file identifier.
 - QR/payment image lifecycle should support attach, replace, remove/archive, and future retention rules without hard-coding provider paths in payment-profile data.
 
-QR/payment image upload can be a later implementation slice if storage abstraction or file metadata foundations are not ready. The first payment-details API slice can support text fields and visibility while leaving `qr_file_id` null until storage/file metadata work is reviewed.
+QR/payment image upload remains a later implementation slice. The first payment-details API slice supports text fields and visibility while leaving `qr_file_id` null until a reviewed payment-details QR linkage/upload branch builds on the storage/file metadata foundation.
 
 QR/payment image download/display should be a separate authorized file read path, not an embedded raw file blob in ordinary payment-detail responses.
 
@@ -315,7 +315,7 @@ This design branch does not authorize:
 - Generated client changes.
 - UI behavior.
 - QR/payment image upload implementation.
-- Storage/file metadata implementation.
+- Payment QR upload/download and payment-profile file linkage implementation.
 - Settlement/payment-request implementation.
 - Counterparty payment-detail read endpoints.
 - Broad admin viewing of user payment details.
@@ -348,12 +348,12 @@ The first payment-details schema plus self read/update API foundation is impleme
 - Create a separate payment-profile/payment-details table for one default active payment profile per user profile.
 - Add authenticated self read/update endpoints.
 - Default visibility to `settlement_counterparties_only`.
-- Keep QR/payment image upload out of scope unless storage/file metadata foundations are ready.
+- Keep QR/payment image upload out of scope until a separate branch adds payment-profile file linkage and authorized upload/download behavior.
 - Keep counterparty visibility endpoints out of scope until settlement/payment-request or equivalent relationship records exist.
 - Update OpenAPI and regenerate clients only in that implementation branch.
 
 Next implementation candidates remain separate:
 
-- Add storage/file metadata before adding `qr_file_id` or QR/payment image upload/download.
+- Add `qr_file_id` and QR/payment image upload/download only after the storage/file metadata foundation is reviewed.
 - Add settlement/payment-request relationship records before adding counterparty payment-detail read endpoints.
 - Add privacy-vault runtime protection only after the vault foundation exists.

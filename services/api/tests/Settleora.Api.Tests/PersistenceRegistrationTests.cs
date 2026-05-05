@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Settleora.Api.Persistence;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 
 namespace Settleora.Api.Tests;
@@ -51,5 +52,6 @@ public sealed class PersistenceRegistrationTests : IClassFixture<WebApplicationF
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserPaymentProfile)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(UserGroup)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(GroupMembership)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
     }
 }

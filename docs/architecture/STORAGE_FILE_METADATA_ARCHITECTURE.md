@@ -2,25 +2,28 @@
 
 ## Purpose
 
-This document defines Settleora's Day 1 architecture direction for storage abstraction, file metadata, upload/download authorization, and sensitive file lifecycle before implementation.
+This document defines Settleora's Day 1 architecture direction for storage abstraction, file metadata, upload/download authorization, and sensitive file lifecycle.
 
 Storage is a cross-cutting foundation for receipt images, OCR source files, settlement proof attachments, payment QR images, statement uploads, exports, and future vault-protected sensitive files. The goal is to avoid turning future upload/download endpoints into a generic public file server.
 
-This is a design-only gate. It does not authorize implementation code, migrations, OpenAPI changes, generated client changes, UI behavior, or storage provider implementation beyond the existing readiness check.
+This document began as a design gate. The current repository now includes the explicitly scoped file metadata schema and internal local storage provider foundation described below; public upload/download APIs, OpenAPI changes, generated client changes, UI behavior, subject-specific file workflows, and non-local providers still require separate reviewed slices.
 
 ## Current State
 
 - The API has typed `StorageOptions` under `Settleora:Storage` with `Provider` and `RootPath` values.
 - The API registers `IStorageReadinessCheck` with the local implementation `LocalStorageReadinessCheck`.
-- The current local storage readiness check only validates that the configured local root can be created and accessed when `Provider` is `Local`.
+- The current local storage readiness check only validates that the configured local root can be created and accessed when `Provider` is `local` or an equivalent case-insensitive local value.
 - `GET /health/ready` includes a storage readiness result, but it does not expose the configured root path, exception details, connection details, or physical paths.
-- Readiness validates configured local root availability. It does not implement file upload, download, authorization, lifecycle, encryption, metadata, or file content validation.
-- No file metadata table exists.
-- No application file read/write storage abstraction exists beyond readiness.
+- Readiness validates configured local root availability. It does not implement public file upload, download, authorization, lifecycle policy, encryption, or file content validation.
+- The `file_objects` table exists as the first PostgreSQL file metadata foundation.
+- `file_objects` stores owner and creator profile references, constrained purpose/status/encryption-mode values, content type, optional original filename, size, optional SHA-256 hash, local storage provider name, provider-internal object key, optional vault/retention metadata, timestamps, and soft-delete timestamp.
+- `storage_object_key` is provider-internal metadata and must not be returned by future public API response DTOs.
+- A provider-neutral internal `IFileObjectStorageProvider` exists with a local filesystem implementation for server-generated object keys and local read/write/delete operations.
+- The local provider uses `StorageOptions.RootPath`, rejects unsupported configured providers or blank roots, generates object keys from server-owned purpose/date/ID segments only, rejects unsafe object keys, resolves full paths, and proves resolved paths remain under the configured root.
 - No file upload/download API exists.
 - No OpenAPI file upload/download paths exist. The OpenAPI contract has only readiness references and an unused placeholder storage-object reference schema.
 - No generated client file API methods exist.
-- The payment-details foundation intentionally omits `qr_file_id` because real file metadata does not exist yet.
+- The payment-details foundation still intentionally omits `qr_file_id`; payment QR attachment to file metadata is a separate future slice.
 - The `user_payment_profiles` table has no QR/file metadata column, storage path, vault key, or object key.
 - Receipt/OCR/proof/statement/QR file flows are not implemented yet.
 
@@ -38,7 +41,7 @@ This is a design-only gate. It does not authorize implementation code, migration
 
 ## File Categories
 
-Future file metadata should treat purpose/category as a constrained value. Initial Day 1 candidates:
+File metadata treats purpose/category as a constrained value. Initial Day 1 values:
 
 ```text
 receipt_image
@@ -108,13 +111,13 @@ Authorization context: inherits from the associated business subject and purpose
 
 ## Metadata Schema Direction
 
-Future PostgreSQL schema should introduce a stable file metadata table such as:
+The current PostgreSQL foundation introduces a stable file metadata table:
 
 ```text
 file_objects
 ```
 
-Suggested fields:
+Current fields:
 
 ```text
 id
@@ -138,7 +141,7 @@ deleted_at_utc nullable
 
 `storage_object_key` is provider-internal and must never be returned directly by API responses. It should be treated like operational metadata, not user data. Clients receive `id` plus safe display metadata only.
 
-Suggested constrained statuses:
+Current constrained statuses:
 
 ```text
 pending
@@ -162,7 +165,9 @@ Additional future tables may be needed for subject associations, for example rec
 
 ## Storage Provider Abstraction
 
-Future API-side interfaces should be conceptualized as provider-neutral boundaries, not direct filesystem or object-store calls from endpoint handlers.
+API-side storage interfaces are provider-neutral boundaries, not direct filesystem or object-store calls from endpoint handlers.
+
+The current implementation includes an internal local provider that can create server-owned object keys and perform local read/write/delete under the configured root. Metadata lifecycle services, authorization-aware reads, subject associations, audit events, cleanup orchestration, and public upload/download endpoints remain future work.
 
 Possible service responsibilities:
 
@@ -214,7 +219,7 @@ Safety rules:
 
 - Root path comes from configuration, never from request input.
 - Object keys are generated by the server, never by clients.
-- Future path resolution must prevent path traversal by normalizing the full path and proving it remains under the configured root.
+- Path resolution must prevent path traversal by normalizing the full path and proving it remains under the configured root. The current local provider enforces this for internal object-key operations.
 - API responses must never expose absolute paths, relative storage paths, volume mount paths, or temporary local paths.
 - User-provided filenames are display metadata only and must not drive directory names or object keys.
 - Use a safe directory layout for snapshots/backups, such as server-generated purpose/date/hash partitions under one configured root.
@@ -422,19 +427,26 @@ This design branch does not authorize:
 - settlement proof upload
 - statement upload
 - OCR worker file processing
-- storage provider implementation beyond existing readiness
+- additional storage providers beyond the internal local filesystem foundation
 - vault runtime encryption
 - direct public/static file serving
 
-## Next Implementation Candidate
+## Current Implementation Slice
 
-The safer first implementation slice is:
+The first implementation slice is:
 
 ```text
 file metadata schema + internal storage abstraction foundation only,
 without public upload/download endpoints
 ```
 
-That slice should add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider path-safety tests, lifecycle result types, and internal service tests. It should not add public upload/download endpoints, payment QR upload, receipt upload, settlement proof upload, statement upload, OpenAPI file paths, generated file clients, UI behavior, or OCR worker file processing.
+That slice adds the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, and focused tests. It does not add public upload/download endpoints, payment QR upload, receipt upload, settlement proof upload, statement upload, OpenAPI file paths, generated file clients, UI behavior, OCR worker file processing, file read audit, or subject associations.
+
+Next implementation candidates should remain separate:
+
+- Add a small internal metadata lifecycle service and bounded file lifecycle audit events.
+- Add subject association tables for purpose-specific file workflows.
+- Add payment-details QR file linkage and upload only after the foundation is reviewed.
+- Add authorized file read/download behavior only with API-side authorization and safe response shaping.
 
 A purpose-specific payment QR upload slice can follow only after the metadata/storage foundation exists and payment-details visibility can reference stable file IDs safely.

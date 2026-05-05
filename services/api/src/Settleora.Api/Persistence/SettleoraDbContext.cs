@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Storage;
 
 namespace Settleora.Api.Persistence;
 
@@ -57,6 +59,158 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
         modelBuilder.Entity<AuthAuditEvent>(ConfigureAuthAuditEvent);
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
+        modelBuilder.Entity<FileObject>(ConfigureFileObject);
+    }
+
+    private static void ConfigureFileObject(EntityTypeBuilder<FileObject> entity)
+    {
+        entity.ToTable("file_objects", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_file_objects_purpose",
+                "purpose IN ('receipt_image', 'ocr_source', 'settlement_proof', 'payment_qr', 'statement_upload', 'export_file', 'supporting_attachment')");
+            table.HasCheckConstraint(
+                "ck_file_objects_status",
+                "status IN ('pending', 'active', 'quarantined', 'deleted', 'purged', 'upload_failed')");
+            table.HasCheckConstraint(
+                "ck_file_objects_encryption_mode",
+                "encryption_mode IN ('server_managed', 'recoverable_user_vault', 'strict_user_vault_future')");
+            table.HasCheckConstraint(
+                "ck_file_objects_storage_provider",
+                "storage_provider IN ('local')");
+            table.HasCheckConstraint(
+                "ck_file_objects_content_type_not_blank",
+                "length(btrim(content_type)) > 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_original_filename_not_blank",
+                "original_filename IS NULL OR length(btrim(original_filename)) > 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_storage_object_key_not_blank",
+                "length(btrim(storage_object_key)) > 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_vault_key_ref_not_blank",
+                "vault_key_ref IS NULL OR length(btrim(vault_key_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_retention_policy_not_blank",
+                "retention_policy IS NULL OR length(btrim(retention_policy)) > 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_size_bytes_non_negative",
+                "size_bytes >= 0");
+            table.HasCheckConstraint(
+                "ck_file_objects_sha256_hash_lower_hex",
+                "sha256_hash IS NULL OR sha256_hash ~ '^[a-f0-9]{64}$'");
+        });
+
+        entity.HasKey(fileObject => fileObject.Id);
+
+        entity.Property(fileObject => fileObject.Id)
+            .HasColumnName("id");
+
+        entity.Property(fileObject => fileObject.OwnerUserProfileId)
+            .HasColumnName("owner_user_profile_id");
+
+        entity.Property(fileObject => fileObject.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(fileObject => fileObject.Purpose)
+            .HasColumnName("purpose")
+            .HasMaxLength(FileObjectConstraints.PurposeMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.Status)
+            .HasColumnName("status")
+            .HasMaxLength(FileObjectConstraints.StatusMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.ContentType)
+            .HasColumnName("content_type")
+            .HasMaxLength(FileObjectConstraints.ContentTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.OriginalFilename)
+            .HasColumnName("original_filename")
+            .HasMaxLength(FileObjectConstraints.OriginalFilenameMaxLength);
+
+        entity.Property(fileObject => fileObject.SizeBytes)
+            .HasColumnName("size_bytes")
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.Sha256Hash)
+            .HasColumnName("sha256_hash")
+            .HasMaxLength(FileObjectConstraints.Sha256HashMaxLength);
+
+        entity.Property(fileObject => fileObject.StorageProvider)
+            .HasColumnName("storage_provider")
+            .HasMaxLength(FileObjectConstraints.StorageProviderMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.StorageObjectKey)
+            .HasColumnName("storage_object_key")
+            .HasMaxLength(FileObjectConstraints.StorageObjectKeyMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.EncryptionMode)
+            .HasColumnName("encryption_mode")
+            .HasMaxLength(FileObjectConstraints.EncryptionModeMaxLength)
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.VaultKeyRef)
+            .HasColumnName("vault_key_ref")
+            .HasMaxLength(FileObjectConstraints.VaultKeyRefMaxLength);
+
+        entity.Property(fileObject => fileObject.RetentionPolicy)
+            .HasColumnName("retention_policy")
+            .HasMaxLength(FileObjectConstraints.RetentionPolicyMaxLength);
+
+        entity.Property(fileObject => fileObject.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(fileObject => fileObject.DeletedAtUtc)
+            .HasColumnName("deleted_at_utc");
+
+        entity.HasIndex(fileObject => fileObject.OwnerUserProfileId)
+            .HasDatabaseName("ix_file_objects_owner_user_profile_id");
+
+        entity.HasIndex(fileObject => fileObject.CreatedByUserProfileId)
+            .HasDatabaseName("ix_file_objects_created_by_user_profile_id");
+
+        entity.HasIndex(fileObject => new
+            {
+                fileObject.Purpose,
+                fileObject.Status
+            })
+            .HasDatabaseName("ix_file_objects_purpose_status");
+
+        entity.HasIndex(fileObject => fileObject.CreatedAtUtc)
+            .HasDatabaseName("ix_file_objects_created_at_utc");
+
+        entity.HasIndex(fileObject => fileObject.DeletedAtUtc)
+            .HasDatabaseName("ix_file_objects_deleted_at_utc");
+
+        entity.HasIndex(fileObject => new
+            {
+                fileObject.StorageProvider,
+                fileObject.StorageObjectKey
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_file_objects_storage_provider_object_key");
+
+        entity.HasOne(fileObject => fileObject.OwnerUserProfile)
+            .WithMany(userProfile => userProfile.OwnedFileObjects)
+            .HasForeignKey(fileObject => fileObject.OwnerUserProfileId)
+            .HasConstraintName("fk_file_objects_owner_user_profiles_owner_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(fileObject => fileObject.CreatedByUserProfile)
+            .WithMany(userProfile => userProfile.CreatedFileObjects)
+            .HasForeignKey(fileObject => fileObject.CreatedByUserProfileId)
+            .HasConstraintName("fk_file_objects_created_by_user_profiles_created_by_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureUserProfile(EntityTypeBuilder<UserProfile> entity)

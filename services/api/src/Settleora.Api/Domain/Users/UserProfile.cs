@@ -1,3 +1,5 @@
+using Settleora.Api.Domain.Files;
+
 namespace Settleora.Api.Domain.Users;
 
 public sealed class UserProfile
@@ -19,4 +21,8 @@ public sealed class UserProfile
     public ICollection<GroupMembership> GroupMemberships { get; } = new List<GroupMembership>();
 
     public ICollection<UserPaymentProfile> PaymentProfiles { get; } = new List<UserPaymentProfile>();
+
+    public ICollection<FileObject> OwnedFileObjects { get; } = new List<FileObject>();
+
+    public ICollection<FileObject> CreatedFileObjects { get; } = new List<FileObject>();
 }

@@ -7,9 +7,9 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
+- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
 - Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist. No user/group business endpoints or EF Core business workflows exist yet.
-- No business tables for expenses, settlement, files, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
+- No business tables for expenses, settlement workflows, file subject associations, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
 
@@ -48,7 +48,7 @@ dotnet ef migrations add <MigrationName> --project services/api/src/Settleora.Ap
 The current schema foundation is intentionally limited to:
 
 - `user_profiles`: API-owned user profile identity placeholders, including display name, optional default currency, timestamps, and future soft-delete timestamp.
-- `user_payment_profiles`: API-owned self payment-details foundation, including one active default payment profile per `UserProfile`, bounded optional payment text fields, constrained visibility, timestamps, and future soft-delete timestamp. This table intentionally has no QR/file metadata column until storage file metadata exists.
+- `user_payment_profiles`: API-owned self payment-details foundation, including one active default payment profile per `UserProfile`, bounded optional payment text fields, constrained visibility, timestamps, and future soft-delete timestamp. This table intentionally still has no QR/file metadata column; payment QR linkage is a separate future slice on top of file metadata.
 - `user_groups`: API-owned shared group containers, including name, creator reference, timestamps, and future soft-delete timestamp.
 - `group_memberships`: user-to-group membership rows with composite key, minimal role/status values, and timestamps.
 - `auth_accounts`: server-side auth account roots linked one-to-one with `user_profiles`, with status timestamps and no credential material.
@@ -59,8 +59,9 @@ The current schema foundation is intentionally limited to:
 - `auth_session_families`: account-scoped refresh/session continuity lineage state linked to `auth_accounts`, with bounded status, absolute expiry, rotation, and revocation metadata.
 - `auth_refresh_credentials`: refresh-like credential history linked to `auth_session_families`, optionally linked to `auth_sessions`, storing unique refresh credential hashes and bounded rotation/revocation/expiry metadata with no raw refresh tokens.
 - `auth_audit_events`: bounded auth audit event metadata with optional actor and subject auth-account links, without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
+- `file_objects`: API-owned file metadata foundation linked to owner and creator `user_profiles`, with constrained purpose/status/encryption-mode values, content type, optional display filename, size, optional SHA-256 hash, local storage provider metadata, provider-internal object key, optional vault/retention references, timestamps, and soft-delete timestamp. It is metadata only and does not add public file APIs or subject-specific file workflows.
 
-The schema foundation by itself does not authorize runtime behavior; the existing auth/session runtime, business authorization service, self-profile, self payment-details, group, group-member, and admin local-user foundations are separate API layers. Invitations, friends, broader business endpoints, and EF Core workflows for expenses, bills, settlements, files, OCR, sync, and reporting are not implemented yet.
+The schema foundation by itself does not authorize runtime behavior; the existing auth/session runtime, business authorization service, self-profile, self payment-details, group, group-member, admin local-user, and internal local file-object storage foundations are separate API layers. Invitations, friends, broader business endpoints, and EF Core workflows for expenses, bills, settlements, file subject workflows, OCR, sync, and reporting are not implemented yet.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 
@@ -68,7 +69,7 @@ Future business tables are deferred. Future schema design should separate concer
 - Business audit records outside auth.
 - Money, expenses, recurring bills, reimbursements, and reconciliation records.
 - Settlement workflows, balances, approvals, and status history.
-- File and storage metadata.
+- File subject associations and storage lifecycle records beyond the first `file_objects` metadata foundation.
 - OCR metadata, extraction results, confidence data, and review state.
 - Audit records.
 - Sync state, offline queues, and outbox or event publication state.
@@ -88,7 +89,7 @@ Schema boundaries should keep authoritative server state distinct from client ca
 - File metadata belongs in PostgreSQL.
 - File bytes must go through the storage abstraction.
 - API responses must not expose direct filesystem paths, object store paths, bucket internals, or provider-specific storage details.
-- Future metadata tables should use stable file identifiers, authorization-aware ownership references, content type, size, lifecycle state, and provider-neutral object references.
+- The `file_objects` metadata table uses stable file identifiers, authorization-aware ownership references, content type, size, lifecycle state, and provider-neutral object references.
 - File reads and writes must pass through API authorization checks.
 
 ## Worker Constraints
@@ -107,7 +108,7 @@ This document does not authorize:
 - Runtime behavior changes.
 - Authentication or authorization.
 - User/group business endpoints.
-- Expenses, bills, settlements, files, OCR, audit, sync, or additional identity/session persistence beyond the listed schema foundations.
+- Expenses, bills, settlements, public file workflows, OCR, audit, sync, or additional identity/session persistence beyond the listed schema foundations.
 - Business persistence workflows.
 
 ## Next Implementation Candidate
