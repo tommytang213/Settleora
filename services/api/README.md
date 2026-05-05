@@ -10,7 +10,7 @@ Current implementation:
 - `services/api/Dockerfile` packages this API scaffold for local compose usage.
 - Typed runtime configuration placeholders are bound for PostgreSQL, RabbitMQ, storage, password hashing policy, and auth session lifetime policy.
 - EF Core runtime registration, design-time tooling, and schema-only migrations exist for API-owned PostgreSQL persistence.
-- The first file metadata and internal storage foundation exists through the `file_objects` table plus an internal local file-object storage provider; it does not add public upload/download endpoints.
+- The first file metadata and internal storage foundation exists through the `file_objects` table plus an internal local file-object storage provider and metadata-only lifecycle service; it does not add public upload/download endpoints.
 - An internal password hashing service boundary can create and verify Argon2id password verifiers.
 - Internal credential and session runtime service boundaries can create/verify local password credentials and create/validate/revoke auth sessions for existing active auth accounts.
 - An internal refresh session runtime service boundary can create refresh-capable session families and rotate refresh-like credentials for existing active auth accounts while storing only deterministic credential hashes and bounded lineage/audit metadata.
@@ -76,6 +76,6 @@ The command starts PostgreSQL in a unique Docker Compose project, applies the cu
 
 The API is the only owner of core business database writes. Business rules, authorization, audit logging, money calculation, rounding, and policy application belong here or in shared backend/domain services.
 
-File metadata now lives in PostgreSQL through the `file_objects` foundation. Internal file bytes can go through the local file-object storage provider, and future API responses must not expose direct storage object keys or filesystem paths. No public upload/download endpoints, payment QR upload, receipt/proof/statement upload, OCR file processing, file subject association workflow, or public file metadata API exists yet.
+File metadata now lives in PostgreSQL through the `file_objects` foundation. Internal file bytes can go through the local file-object storage provider, and the internal lifecycle service can reserve pending metadata rows, mark upload completion/failure, mark deleted, and mark purged while writing bounded file lifecycle audit events. Future API responses must not expose direct storage object keys or filesystem paths. No public upload/download endpoints, payment QR upload, receipt/proof/statement upload, OCR file processing, file subject association workflow, or public file metadata API exists yet.
 
 In server-mode, the API is authoritative for accepting OCR-derived records. OCR-derived client data is provisional until validated and accepted by the API. No OCR endpoints exist yet.

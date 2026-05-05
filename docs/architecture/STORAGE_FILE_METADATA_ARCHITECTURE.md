@@ -20,6 +20,8 @@ This document began as a design gate. The current repository now includes the ex
 - `storage_object_key` is provider-internal metadata and must not be returned by future public API response DTOs.
 - A provider-neutral internal `IFileObjectStorageProvider` exists with a local filesystem implementation for server-generated object keys and local read/write/delete operations.
 - The local provider uses `StorageOptions.RootPath`, rejects unsupported configured providers or blank roots, generates object keys from server-owned purpose/date/ID segments only, rejects unsafe object keys, resolves full paths, and proves resolved paths remain under the configured root.
+- A metadata-only internal file object lifecycle service exists for pending creation, upload completion/failure, deleted, and purged status transitions.
+- The lifecycle service writes bounded `auth_audit_events` actions `file.upload_started`, `file.upload_completed`, `file.upload_failed`, `file.deleted`, and `file.purged` with safe metadata only.
 - No file upload/download API exists.
 - No OpenAPI file upload/download paths exist. The OpenAPI contract has only readiness references and an unused placeholder storage-object reference schema.
 - No generated client file API methods exist.
@@ -167,7 +169,7 @@ Additional future tables may be needed for subject associations, for example rec
 
 API-side storage interfaces are provider-neutral boundaries, not direct filesystem or object-store calls from endpoint handlers.
 
-The current implementation includes an internal local provider that can create server-owned object keys and perform local read/write/delete under the configured root. Metadata lifecycle services, authorization-aware reads, subject associations, audit events, cleanup orchestration, and public upload/download endpoints remain future work.
+The current implementation includes an internal local provider that can create server-owned object keys and perform local read/write/delete under the configured root. A small metadata-only lifecycle service now reserves pending rows and records status transitions with bounded audit events. Authorization-aware reads, subject associations, cleanup orchestration, and public upload/download endpoints remain future work.
 
 Possible service responsibilities:
 
@@ -433,18 +435,17 @@ This design branch does not authorize:
 
 ## Current Implementation Slice
 
-The first implementation slice is:
+The current implementation slices are:
 
 ```text
-file metadata schema + internal storage abstraction foundation only,
+file metadata schema + internal storage abstraction + metadata lifecycle/audit foundation only,
 without public upload/download endpoints
 ```
 
-That slice adds the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, and focused tests. It does not add public upload/download endpoints, payment QR upload, receipt upload, settlement proof upload, statement upload, OpenAPI file paths, generated file clients, UI behavior, OCR worker file processing, file read audit, or subject associations.
+Those slices add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, a metadata-only lifecycle service, bounded file lifecycle audit events, and focused tests. They do not add public upload/download endpoints, payment QR upload, receipt upload, settlement proof upload, statement upload, OpenAPI file paths, generated file clients, UI behavior, OCR worker file processing, file read audit, physical purge/delete orchestration, or subject associations.
 
 Next implementation candidates should remain separate:
 
-- Add a small internal metadata lifecycle service and bounded file lifecycle audit events.
 - Add subject association tables for purpose-specific file workflows.
 - Add payment-details QR file linkage and upload only after the foundation is reviewed.
 - Add authorized file read/download behavior only with API-side authorization and safe response shaping.
