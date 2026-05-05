@@ -310,6 +310,42 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
     }
 
     [Fact]
+    public async Task AddRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNames()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var target = await SeedAccountAsync(testFactory, "Target Member", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupWithOwnerAsync(testFactory, ownerSession.UserProfileId);
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            userProfileId = target.UserProfileId,
+            role = GroupMembershipRoles.Member,
+            password = "visible-group-member-password",
+            rawSessionToken = "visible-group-member-token",
+            providerPayload = "visible-provider-payload",
+            storagePath = "visible-storage-path"
+        });
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            MembersPath(groupId),
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidGroupMemberRequestProblemAsync(response);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("visible-group-member-password", content);
+        Assert.DoesNotContain("visible-group-member-token", content);
+        Assert.DoesNotContain("visible-provider-payload", content);
+        Assert.DoesNotContain("visible-storage-path", content);
+        Assert.Equal(0, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
     public async Task ActiveMemberCannotAddMember()
     {
         var testContext = CreateFactory();

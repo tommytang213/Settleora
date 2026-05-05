@@ -406,7 +406,7 @@ internal static class GroupMemberManagementEndpoints
                     case "userProfileId":
                         if (!requiresUserProfileId)
                         {
-                            errors[property.Name] = ["This field is not supported."];
+                            AddUnsupportedFieldError(errors);
                             break;
                         }
 
@@ -418,7 +418,7 @@ internal static class GroupMemberManagementEndpoints
                         role = ReadRole(property.Value, errors);
                         break;
                     default:
-                        errors[property.Name] = ["This field is not supported."];
+                        AddUnsupportedFieldError(errors);
                         break;
                 }
             }
@@ -442,6 +442,11 @@ internal static class GroupMemberManagementEndpoints
                 ? GroupMemberRequestReadResult.Valid(userProfileId, role!)
                 : GroupMemberRequestReadResult.Invalid(errors);
         }
+    }
+
+    private static void AddUnsupportedFieldError(Dictionary<string, string[]> errors)
+    {
+        errors["body"] = ["Unsupported fields are not allowed."];
     }
 
     private static Guid? ReadUserProfileId(
