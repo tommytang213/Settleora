@@ -25,10 +25,16 @@ This document began as a design gate. The current repository now includes the ex
 - `PATCH /api/v1/users/me/payment-details` supports create-or-update for the current actor only, trims nullable text, normalizes whitespace-only text to null, preserves omitted fields on update, and defaults visibility on create when omitted.
 - Successful payment-details create/update/visibility-change writes bounded safe `auth_audit_events` actions `payment_details.created`, `payment_details.updated`, and `payment_details.visibility_changed`.
 - Payment-details audit metadata is limited to workflow/category IDs, row-created state, field categories, payment profile ID, and visibility categories. It must not contain payment handles, payment notes, preferred method values, request bodies, tokens, storage paths, or vault internals.
+- The `file_objects` metadata foundation exists with purpose `payment_qr`, owner/creator profile references, lifecycle status, content metadata, provider-internal object key, encryption mode, optional vault metadata, timestamps, and soft-delete direction.
+- The internal local file-object storage provider exists for server-generated object keys and local read/write/delete operations under the configured storage root.
+- The internal metadata-only file lifecycle service exists for pending, active, upload-failed, deleted, and purged metadata transitions, with bounded `file.upload_started`, `file.upload_completed`, `file.upload_failed`, `file.deleted`, and `file.purged` audit events.
 - Existing group foundation and group member management endpoints use server-side business authorization for group access, but expenses, bills, settlements, payment requests, and settlement-counterparty records do not exist yet.
 - Payment-details OpenAPI contract and generated web/Dart client surfaces exist for authenticated self read/update only.
 - No payment details UI behavior exists.
-- No QR/payment image upload, payment-profile file linkage, or storage authorization surface exists.
+- Payment details still have no `qr_file_id` or equivalent file linkage column.
+- No public file upload/download endpoint exists.
+- No payment QR upload, attach, remove, or content-download endpoint exists.
+- No counterparty payment-detail or counterparty QR read endpoint exists.
 - No privacy-vault integration exists for payment details.
 - No settlement-counterparty lookup exists.
 
@@ -103,6 +109,11 @@ Implementation notes:
 - `payment_note` is optional free text for payment instructions that do not fit the label or handle.
 - `visibility` should be a constrained value with secure default behavior.
 - `qr_file_id` should reference future storage/file metadata by stable file ID, not a filesystem path or object-store key.
+- `qr_file_id` should be nullable so text-only payment details remain valid.
+- `qr_file_id` should reference only `file_objects.id` rows with purpose `payment_qr`.
+- The payment-profile to file-object foreign key should use restrict delete behavior so file metadata cannot disappear while a payment profile references it.
+- The initial self QR slice should require the linked file's owner and creator profile IDs to match the current authenticated actor.
+- Failed or quarantined QR uploads should not be linked from the payment profile; ordinary self reads should reference only active QR metadata when linkage exists.
 - `deleted_at_utc` should support archive/soft-delete behavior so payment-profile history can remain available for audit and settlement history rules where needed.
 - If optimistic concurrency is added to profile endpoints later, payment details should participate through a dedicated version field or common concurrency pattern in that implementation branch.
 
@@ -146,7 +157,11 @@ Required rules:
 - Payment details must never be anonymous.
 - Payment details must never be globally visible.
 - System owner/admin role must not imply broad payment-detail viewing by default.
+- Day 1 QR attach/replace/remove should be self-only: the authenticated actor is derived server-side, the profile authorization boundary must approve the actor's own profile, and the file owner/creator must match that actor.
+- A linked QR file must have purpose `payment_qr`; generic file objects, receipt images, statement uploads, settlement proofs, OCR source files, exports, and supporting attachments must not be attachable to payment details.
+- QR files must not become readable by group members merely because the owner and actor share a group.
 - Counterparty reads must require server-side proof of an authorized relationship.
+- Future counterparty QR reads require settlement, payment-request, or equivalent relationship records before content can be authorized.
 - Counterparty responses must be shaped separately from self responses so sensitive owner-only metadata is not leaked.
 - Authorization checks should live behind an API/domain service boundary or the existing business authorization boundary, not inline client logic.
 - Denied, missing, deleted, and not-visible states should avoid revealing whether unrelated users have payment details unless a later policy explicitly approves that distinction.
@@ -175,6 +190,41 @@ QR/payment image upload remains a later implementation slice. The first payment-
 
 QR/payment image download/display should be a separate authorized file read path, not an embedded raw file blob in ordinary payment-detail responses.
 
+## Payment QR File Linkage Direction
+
+The recommended next implementation candidate is a self-only payment QR linkage foundation that uses the existing file metadata, local storage provider, and lifecycle service without creating a generic file API.
+
+Recommended shape:
+
+- Add nullable `qr_file_id` or an equivalent stable file reference to `user_payment_profiles`.
+- Link only to `file_objects` rows with purpose `payment_qr`.
+- Keep QR attach, replace, remove, and self content read scoped to the authenticated owner first.
+- Use the file lifecycle service to create pending metadata, finalize active metadata after bytes are stored and validated, mark failed uploads as `upload_failed`, and mark removed or replaced QR files as deleted according to lifecycle policy.
+- Keep actual bytes behind the internal file-object storage provider.
+- Keep counterparty QR reads out of scope until settlement, payment request, or equivalent relationship records exist.
+
+Replace and remove behavior:
+
+- Attach should create or select a new active `payment_qr` file owned and created by the current actor, then set `user_payment_profiles.qr_file_id`.
+- Replace should attach the new active QR and clear the previous reference by marking the previous QR file deleted or detached according to the reviewed lifecycle policy.
+- Remove should clear the payment profile reference and mark the linked file deleted.
+- Failed upload should leave no payment profile reference to the failed file.
+- Where practical, payment profile linkage changes and file lifecycle transitions should be committed in one database transaction; storage writes remain outside perfect database transactionality and need compensating cleanup on failure.
+
+Suggested future self endpoints:
+
+```text
+POST /api/v1/users/me/payment-details/qr
+DELETE /api/v1/users/me/payment-details/qr
+GET /api/v1/users/me/payment-details/qr/content
+```
+
+A dedicated self QR content endpoint is the safer first shape because the payment-details authorization decision is specific and can stay close to the payment-profile boundary. A future authorized file content endpoint may still be added later, but only if it receives an already-resolved subject/purpose authorization decision and does not become a generic public file server.
+
+This direction does not authorize OpenAPI changes in this branch. Future responses should expose at most stable file IDs and safe display metadata; they must not expose storage paths, object keys, provider URLs, direct local file paths, vault keys, vault references, or provider internals.
+
+There should be no generic public file endpoint for this payment QR slice, no direct storage/provider URL response, and no counterparty QR read until relationship-backed payment-details authorization exists.
+
 ## Privacy Vault Interaction
 
 Payment handles, notes, and QR/payment images are sensitive personal/payment data.
@@ -186,6 +236,8 @@ They are eligible for Standard Secure Mode protection and future Recoverable Pri
 - Schema and API design should not block future `server_managed`, `recoverable_user_vault`, or `strict_user_vault_future` encryption-mode metadata.
 - Core financial truth, settlement states, authorization, audit, group membership, and payment relationship decisions remain API/domain-authoritative even when selected payment-detail content is vault-protected.
 - Vault protection must not make clients authoritative for who can view payment details.
+- QR file metadata remains server-authoritative even when future vault protection applies to file bytes or derived content.
+- Ordinary payment-details and file responses must not expose vault internals, key references, key envelopes, recovery envelopes, data keys, or provider secrets.
 
 The Day 1 schema can start with normal server-side protection if vault implementation is not ready. It should avoid choices that make later vault migration painful, such as embedding storage paths in profile fields, mixing payment details into auth identity rows, or making payment handles required for settlement correctness.
 
@@ -202,9 +254,14 @@ payment_details.created
 payment_details.updated
 payment_details.visibility_changed
 payment_details.qr_attached
+payment_details.qr_replaced
 payment_details.qr_removed
 payment_details.deleted_or_archived
 payment_details.viewed_by_counterparty
+file.upload_started
+file.upload_completed
+file.upload_failed
+file.deleted
 ```
 
 Audit records should identify the actor, subject payment profile or owner profile, action, outcome, timestamp, correlation ID, and bounded reason/category where useful.
@@ -215,11 +272,15 @@ Audit metadata must not include:
 - Full payment notes.
 - QR image contents.
 - Raw file bytes.
+- File thumbnails, previews, or derived QR content.
 - Storage paths.
 - Object-store keys.
 - Provider internals.
+- Original filenames unless a future policy explicitly approves bounded or redacted filename metadata.
+- Request bodies.
 - Raw tokens.
 - Password material.
+- Vault refs.
 - Vault keys or key envelopes.
 - Secret-provider details.
 - Unbounded request bodies.
@@ -239,6 +300,16 @@ PATCH /api/v1/users/me/payment-details
 
 Future update/delete behavior beyond PATCH may be archive-style rather than destructive delete, depending on audit and settlement-history needs.
 
+Future self QR direction:
+
+```text
+POST /api/v1/users/me/payment-details/qr
+DELETE /api/v1/users/me/payment-details/qr
+GET /api/v1/users/me/payment-details/qr/content
+```
+
+QR content download may start as a dedicated self endpoint so the API can enforce the profile/payment-details authorization boundary before opening file bytes. A future authorized file content endpoint can be considered later, but only after a subject-specific authorization layer proves the caller may read that purpose and subject.
+
 Future counterparty direction:
 
 ```text
@@ -254,6 +325,8 @@ Safe response principles:
 - Counterparty endpoints must return only fields permitted by the resolved visibility policy and relationship context.
 - QR/payment image response fields should expose stable file references only, not storage paths.
 - Responses must not expose auth account IDs, session IDs, token material, credential state, audit internals, storage internals, vault internals, or unrelated users.
+- Responses must not expose direct provider URLs or storage object keys.
+- Counterparty responses must not include QR file content or file IDs until relationship-backed authorization exists.
 - Nullable fields should be represented clearly so clients can distinguish "not configured" from a missing response due to authorization failure only where the API contract intentionally allows that distinction.
 
 Current self response shape:
@@ -297,6 +370,16 @@ Recommended direction:
 - Treat QR/payment image type, size, lifecycle state, and subject association through storage/file metadata policy when that foundation exists.
 - Return stable error codes separate from localized display text in future contracts.
 
+Payment QR content validation direction:
+
+- Allow only reviewed image MIME types initially, likely `image/png`, `image/jpeg`, and `image/webp`.
+- Consider HEIC/HEIF later only when server-side validation, serving headers, client support, and operational compatibility are reviewed.
+- Use a small purpose-specific max file size appropriate for QR images; a starting target around 2 MB is reasonable unless real client capture data proves otherwise.
+- Treat filename as display-only metadata, never as object-key, directory, path, or authorization input.
+- Validate content type by sniffing magic bytes where practical instead of trusting only client-supplied headers.
+- Do not allow SVG for Day 1 unless explicitly reviewed because scriptable/vector image formats carry disproportionate serving and sanitization risk.
+- Do not allow PDFs for payment QR unless explicitly reviewed; PDFs belong to separately designed receipt, proof, statement, or supporting-attachment policies.
+
 ## Admin And Support Boundaries
 
 System owner/admin roles are operational roles, not blanket access to user payment details.
@@ -313,15 +396,21 @@ This design branch does not authorize:
 - Migrations.
 - OpenAPI changes.
 - Generated client changes.
+- Public upload/download endpoints.
+- Generic file API.
 - UI behavior.
 - QR/payment image upload implementation.
 - Payment QR upload/download and payment-profile file linkage implementation.
 - Settlement/payment-request implementation.
 - Counterparty payment-detail read endpoints.
+- Counterparty QR read.
 - Broad admin viewing of user payment details.
 - Public or global payment-detail directory.
+- Receipt, proof, statement, OCR source, export, or supporting attachment upload implementation.
+- OCR worker file processing.
 - General registration, invitations, friends, expenses, bills, OCR, notifications, or worker behavior.
 - Privacy-vault runtime implementation.
+- Vault runtime encryption.
 - Secret, token, credential, password, passkey, MFA, or recovery-code storage in payment details.
 
 ## Day 1 Acceptance Direction
@@ -343,17 +432,16 @@ OpenAPI/generated clients are updated only in implementation branches
 
 ## Next Implementation Candidate
 
-The first payment-details schema plus self read/update API foundation is implemented:
+```text
+payment QR self-linkage foundation
+```
 
-- Create a separate payment-profile/payment-details table for one default active payment profile per user profile.
-- Add authenticated self read/update endpoints.
-- Default visibility to `settlement_counterparties_only`.
-- Keep QR/payment image upload out of scope until a separate branch adds payment-profile file linkage and authorized upload/download behavior.
-- Keep counterparty visibility endpoints out of scope until settlement/payment-request or equivalent relationship records exist.
-- Update OpenAPI and regenerate clients only in that implementation branch.
+Potential scope:
 
-Next implementation candidates remain separate:
-
-- Add `qr_file_id` and QR/payment image upload/download only after the storage/file metadata foundation is reviewed.
-- Add settlement/payment-request relationship records before adding counterparty payment-detail read endpoints.
-- Add privacy-vault runtime protection only after the vault foundation exists.
+- Add nullable QR file reference to the active self payment profile.
+- Add self-only QR attach, replace, remove, and content-read endpoints.
+- Update OpenAPI and generated clients in that implementation branch.
+- Use local storage-backed upload through the file lifecycle service.
+- Link only active `payment_qr` file objects owned and created by the current actor.
+- Keep counterparty read out of scope.
+- Keep generic file APIs out of scope.
