@@ -20,6 +20,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
 - [Privacy vault architecture](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md)
+- [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
