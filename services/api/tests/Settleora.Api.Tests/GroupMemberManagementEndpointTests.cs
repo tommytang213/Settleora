@@ -337,6 +337,10 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
 
         await AssertInvalidGroupMemberRequestProblemAsync(response);
         var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.DoesNotContain("rawSessionToken", content);
+        Assert.DoesNotContain("providerPayload", content);
+        Assert.DoesNotContain("storagePath", content);
         Assert.DoesNotContain("visible-group-member-password", content);
         Assert.DoesNotContain("visible-group-member-token", content);
         Assert.DoesNotContain("visible-provider-payload", content);

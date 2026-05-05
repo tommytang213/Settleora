@@ -172,7 +172,7 @@ internal static class AdminUserEndpoints
                         defaultCurrency = ReadDefaultCurrency(property.Value, errors);
                         break;
                     default:
-                        errors[property.Name] = ["This field is not supported."];
+                        AddUnsupportedFieldError(errors);
                         break;
                 }
             }
@@ -194,6 +194,11 @@ internal static class AdminUserEndpoints
                 displayName!,
                 hasDefaultCurrency ? defaultCurrency : null));
         }
+    }
+
+    private static void AddUnsupportedFieldError(Dictionary<string, string[]> errors)
+    {
+        errors["body"] = ["Unsupported fields are not allowed."];
     }
 
     private static string? ReadIdentifier(

@@ -148,6 +148,39 @@ public sealed class GroupFoundationEndpointTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
+    public async Task PostGroupRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            rawSessionToken = "visible-group-token",
+            providerPayload = "visible-group-provider-payload",
+            storagePath = "visible-group-storage-path"
+        });
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            GroupsPath,
+            seededSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidGroupRequestProblemAsync(response, content);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.DoesNotContain("rawSessionToken", content);
+        Assert.DoesNotContain("providerPayload", content);
+        Assert.DoesNotContain("storagePath", content);
+        Assert.DoesNotContain("visible-group-token", content);
+        Assert.DoesNotContain("visible-group-provider-payload", content);
+        Assert.DoesNotContain("visible-group-storage-path", content);
+        await AssertNoGroupsCreatedByAsync(testFactory, seededSession.UserProfileId);
+    }
+
+    [Fact]
     public async Task GetGroupListReturnsOnlyActiveMembershipsForCurrentActor()
     {
         var testContext = CreateFactory();
@@ -325,6 +358,46 @@ public sealed class GroupFoundationEndpointTests : IClassFixture<WebApplicationF
         using var response = await client.SendAsync(request);
 
         await AssertInvalidGroupRequestProblemAsync(response);
+        await AssertGroupUnchangedAsync(testFactory, groupId, "Original Group", InitialTimestamp);
+    }
+
+    [Fact]
+    public async Task PatchGroupRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            seededSession.UserProfileId,
+            "Original Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(seededSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            rawSessionToken = "visible-group-update-token",
+            providerPayload = "visible-group-update-provider-payload",
+            storagePath = "visible-group-update-storage-path"
+        });
+        using var request = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{GroupsPath}/{groupId:D}",
+            seededSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidGroupRequestProblemAsync(response, content);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.DoesNotContain("rawSessionToken", content);
+        Assert.DoesNotContain("providerPayload", content);
+        Assert.DoesNotContain("storagePath", content);
+        Assert.DoesNotContain("visible-group-update-token", content);
+        Assert.DoesNotContain("visible-group-update-provider-payload", content);
+        Assert.DoesNotContain("visible-group-update-storage-path", content);
         await AssertGroupUnchangedAsync(testFactory, groupId, "Original Group", InitialTimestamp);
     }
 
@@ -673,9 +746,11 @@ public sealed class GroupFoundationEndpointTests : IClassFixture<WebApplicationF
             root.GetProperty("updatedAtUtc").GetDateTimeOffset());
     }
 
-    private static async Task AssertInvalidGroupRequestProblemAsync(HttpResponseMessage response)
+    private static async Task AssertInvalidGroupRequestProblemAsync(
+        HttpResponseMessage response,
+        string? content = null)
     {
-        var content = await response.Content.ReadAsStringAsync();
+        content ??= await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);

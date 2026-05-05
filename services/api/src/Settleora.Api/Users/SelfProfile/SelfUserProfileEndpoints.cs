@@ -187,12 +187,12 @@ internal static class SelfUserProfileEndpoints
                         ReadDefaultCurrency(property.Value, patch, errors);
                         break;
                     default:
-                        errors[property.Name] = ["This field is not supported."];
+                        AddUnsupportedFieldError(errors);
                         break;
                 }
             }
 
-            if (recognizedFieldCount == 0)
+            if (recognizedFieldCount == 0 && !errors.ContainsKey("body"))
             {
                 errors["body"] = ["At least one supported profile field is required."];
             }
@@ -201,6 +201,11 @@ internal static class SelfUserProfileEndpoints
                 ? ProfilePatchReadResult.Valid(patch)
                 : ProfilePatchReadResult.Invalid(errors);
         }
+    }
+
+    private static void AddUnsupportedFieldError(Dictionary<string, string[]> errors)
+    {
+        errors["body"] = ["Unsupported fields are not allowed."];
     }
 
     private static void ReadDisplayName(

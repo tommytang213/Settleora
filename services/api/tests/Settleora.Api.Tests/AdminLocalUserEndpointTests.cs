@@ -446,6 +446,48 @@ public sealed class AdminLocalUserEndpointTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
+    public async Task CreateLocalUserRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(
+            testFactory,
+            testContext.TimeProvider,
+            [SystemRoles.Owner],
+            "Owner Actor",
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            identifier = SubmittedIdentifier,
+            password = SubmittedPassword,
+            displayName = DisplayName,
+            defaultCurrency = "HKD",
+            rawSessionToken = "visible-admin-user-token",
+            providerPayload = "visible-admin-provider-payload",
+            storagePath = "visible-admin-storage-path"
+        });
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            AdminLocalUsersPath,
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidAdminUserRequestProblemAsync(response, content);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.DoesNotContain("rawSessionToken", content);
+        Assert.DoesNotContain("providerPayload", content);
+        Assert.DoesNotContain("storagePath", content);
+        Assert.DoesNotContain("visible-admin-user-token", content);
+        Assert.DoesNotContain("visible-admin-provider-payload", content);
+        Assert.DoesNotContain("visible-admin-storage-path", content);
+        Assert.Equal(new RowCounts(1, 1, 0, 0, 1), await ReadRowCountsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task ExplicitNullDefaultCurrencyIsAccepted()
     {
         var testContext = CreateFactory();

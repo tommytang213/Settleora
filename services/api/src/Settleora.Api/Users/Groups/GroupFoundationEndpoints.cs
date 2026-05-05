@@ -312,12 +312,12 @@ internal static class GroupFoundationEndpoints
                         name = ReadGroupName(property.Value, errors);
                         break;
                     default:
-                        errors[property.Name] = ["This field is not supported."];
+                        AddUnsupportedFieldError(errors);
                         break;
                 }
             }
 
-            if (recognizedFieldCount == 0)
+            if (recognizedFieldCount == 0 && !errors.ContainsKey("body"))
             {
                 errors["body"] = [noRecognizedFieldMessage];
             }
@@ -330,6 +330,11 @@ internal static class GroupFoundationEndpoints
                 ? GroupRequestReadResult.Valid(name!)
                 : GroupRequestReadResult.Invalid(errors);
         }
+    }
+
+    private static void AddUnsupportedFieldError(Dictionary<string, string[]> errors)
+    {
+        errors["body"] = ["Unsupported fields are not allowed."];
     }
 
     private static string? ReadGroupName(

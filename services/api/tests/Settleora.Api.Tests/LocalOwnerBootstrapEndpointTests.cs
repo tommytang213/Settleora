@@ -342,6 +342,38 @@ public sealed class LocalOwnerBootstrapEndpointTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task BootstrapRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = testFactory.CreateClient();
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            identifier = SubmittedIdentifier,
+            password = SubmittedPassword,
+            displayName = DisplayName,
+            defaultCurrency = "HKD",
+            rawSessionToken = "visible-bootstrap-token",
+            providerPayload = "visible-bootstrap-provider-payload",
+            storagePath = "visible-bootstrap-storage-path"
+        });
+
+        using var response = await client.PostAsync(
+            LocalOwnerPath,
+            new StringContent(requestBody, Encoding.UTF8, "application/json"));
+
+        await AssertInvalidBootstrapProblemAsync(
+            response,
+            "rawSessionToken",
+            "providerPayload",
+            "storagePath",
+            "visible-bootstrap-token",
+            "visible-bootstrap-provider-payload",
+            "visible-bootstrap-storage-path");
+        await AssertNoBootstrapRowsAsync(testFactory);
+    }
+
+    [Fact]
     public async Task ExplicitNullDefaultCurrencyIsAccepted()
     {
         var testContext = CreateFactory();

@@ -234,6 +234,35 @@ public sealed class SelfUserProfileEndpointTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
+    public async Task PatchSelfProfileRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            rawSessionToken = "visible-profile-token",
+            providerPayload = "visible-profile-provider-payload",
+            storagePath = "visible-profile-storage-path"
+        });
+        using var request = CreatePatchRequest(seededSession.RawSessionToken, requestBody);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidProfileUpdateProblemAsync(response, content);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.DoesNotContain("rawSessionToken", content);
+        Assert.DoesNotContain("providerPayload", content);
+        Assert.DoesNotContain("storagePath", content);
+        Assert.DoesNotContain("visible-profile-token", content);
+        Assert.DoesNotContain("visible-profile-provider-payload", content);
+        Assert.DoesNotContain("visible-profile-storage-path", content);
+        await AssertProfileUnchangedAsync(testFactory, seededSession.UserProfileId);
+    }
+
+    [Fact]
     public async Task MissingOrInvalidSessionReturnsUniformUnauthenticatedProblem()
     {
         var testContext = CreateFactory();
