@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Persistence;
 
@@ -24,8 +25,9 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(13, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(19, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBill)));
     }
 
     [Fact]

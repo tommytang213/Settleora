@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
+using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Storage;
@@ -51,6 +52,12 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<UserPaymentProfile>(ConfigureUserPaymentProfile);
         modelBuilder.Entity<UserGroup>(ConfigureUserGroup);
         modelBuilder.Entity<GroupMembership>(ConfigureGroupMembership);
+        modelBuilder.Entity<ExpenseBill>(ConfigureExpenseBill);
+        modelBuilder.Entity<ExpenseBillItem>(ConfigureExpenseBillItem);
+        modelBuilder.Entity<ExpenseBillParticipant>(ConfigureExpenseBillParticipant);
+        modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
+        modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
+        modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
@@ -424,6 +431,510 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasOne(membership => membership.UserProfile)
             .WithMany(userProfile => userProfile.GroupMemberships)
             .HasForeignKey(membership => membership.UserProfileId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBill(EntityTypeBuilder<ExpenseBill> entity)
+    {
+        entity.ToTable("expense_bills", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bills_merchant_name_not_blank",
+                "merchant_name IS NULL OR length(btrim(merchant_name)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bills_status",
+                "status IN ('draft', 'pending_confirmation', 'confirmed', 'rejected', 'cancelled', 'finalized', 'archived')");
+            table.HasCheckConstraint(
+                "ck_expense_bills_total_amount_non_negative",
+                "total_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bills_total_amount_upper_bound",
+                "total_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bills_total_currency_uppercase_iso",
+                "total_currency ~ '^[A-Z]{3}$'");
+        });
+
+        entity.HasKey(bill => bill.Id);
+
+        entity.Property(bill => bill.Id)
+            .HasColumnName("id");
+
+        entity.Property(bill => bill.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(bill => bill.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(bill => bill.MerchantName)
+            .HasColumnName("merchant_name")
+            .HasMaxLength(ExpenseBillConstraints.MerchantNameMaxLength);
+
+        entity.Property(bill => bill.BillDate)
+            .HasColumnName("bill_date")
+            .HasColumnType("date")
+            .IsRequired();
+
+        entity.Property(bill => bill.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ExpenseBillConstraints.BillStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(bill => bill.TotalAmount)
+            .HasColumnName("total_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(bill => bill.TotalCurrency)
+            .HasColumnName("total_currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(bill => bill.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(bill => bill.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(bill => bill.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(bill => bill.CreatedByUserProfileId)
+            .HasDatabaseName("ix_expense_bills_created_by_user_profile_id");
+
+        entity.HasIndex(bill => bill.GroupId)
+            .HasDatabaseName("ix_expense_bills_group_id");
+
+        entity.HasIndex(bill => bill.Status)
+            .HasDatabaseName("ix_expense_bills_status");
+
+        entity.HasIndex(bill => bill.BillDate)
+            .HasDatabaseName("ix_expense_bills_bill_date");
+
+        entity.HasIndex(bill => bill.ArchivedAtUtc)
+            .HasDatabaseName("ix_expense_bills_archived_at_utc");
+
+        entity.HasOne(bill => bill.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(bill => bill.CreatedByUserProfileId)
+            .HasConstraintName("fk_expense_bills_user_profiles_created_by_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(bill => bill.Group)
+            .WithMany()
+            .HasForeignKey(bill => bill.GroupId)
+            .HasConstraintName("fk_expense_bills_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillItem(EntityTypeBuilder<ExpenseBillItem> entity)
+    {
+        entity.ToTable("expense_bill_items", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_name_not_blank",
+                "length(btrim(name)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_note_not_blank",
+                "note IS NULL OR length(btrim(note)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_quantity_positive",
+                "quantity IS NULL OR quantity > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_amount_non_negative",
+                "amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+        });
+
+        entity.HasKey(item => item.Id);
+
+        entity.Property(item => item.Id)
+            .HasColumnName("id");
+
+        entity.Property(item => item.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(item => item.Name)
+            .HasColumnName("name")
+            .HasMaxLength(ExpenseBillConstraints.ItemNameMaxLength)
+            .IsRequired();
+
+        entity.Property(item => item.Note)
+            .HasColumnName("note")
+            .HasMaxLength(ExpenseBillConstraints.NoteMaxLength);
+
+        entity.Property(item => item.Quantity)
+            .HasColumnName("quantity")
+            .HasPrecision(18, 4);
+
+        entity.Property(item => item.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(item => item.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(item => item.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        entity.Property(item => item.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(item => item.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(item => item.DeletedAtUtc)
+            .HasColumnName("deleted_at_utc");
+
+        entity.HasIndex(item => item.ExpenseBillId)
+            .HasDatabaseName("ix_expense_bill_items_expense_bill_id");
+
+        entity.HasIndex(item => new
+            {
+                item.ExpenseBillId,
+                item.SortOrder
+            })
+            .HasDatabaseName("ix_expense_bill_items_bill_sort_order");
+
+        entity.HasIndex(item => item.DeletedAtUtc)
+            .HasDatabaseName("ix_expense_bill_items_deleted_at_utc");
+
+        entity.HasOne(item => item.ExpenseBill)
+            .WithMany(bill => bill.Items)
+            .HasForeignKey(item => item.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_items_expense_bills_expense_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillParticipant(EntityTypeBuilder<ExpenseBillParticipant> entity)
+    {
+        entity.ToTable("expense_bill_participants", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_participants_status",
+                "status IN ('pending_acceptance', 'accepted', 'rejected', 'partially_settled', 'settled', 'waived', 'claimed_paid', 'confirmed_paid')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_participants_share_amount_non_negative",
+                "resolved_share_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_participants_share_amount_upper_bound",
+                "resolved_share_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_participants_share_currency_iso",
+                "resolved_share_currency ~ '^[A-Z]{3}$'");
+        });
+
+        entity.HasKey(participant => new
+        {
+            participant.ExpenseBillId,
+            participant.UserProfileId
+        });
+
+        entity.Property(participant => participant.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(participant => participant.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(participant => participant.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ExpenseBillConstraints.ParticipantStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(participant => participant.ResolvedShareAmount)
+            .HasColumnName("resolved_share_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(participant => participant.ResolvedShareCurrency)
+            .HasColumnName("resolved_share_currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(participant => participant.AcceptedAtUtc)
+            .HasColumnName("accepted_at_utc");
+
+        entity.Property(participant => participant.RejectedAtUtc)
+            .HasColumnName("rejected_at_utc");
+
+        entity.Property(participant => participant.SettledAtUtc)
+            .HasColumnName("settled_at_utc");
+
+        entity.Property(participant => participant.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(participant => participant.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(participant => participant.UserProfileId)
+            .HasDatabaseName("ix_expense_bill_participants_user_profile_id");
+
+        entity.HasOne(participant => participant.ExpenseBill)
+            .WithMany(bill => bill.Participants)
+            .HasForeignKey(participant => participant.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_participants_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(participant => participant.UserProfile)
+            .WithMany()
+            .HasForeignKey(participant => participant.UserProfileId)
+            .HasConstraintName("fk_expense_bill_participants_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillPayer(EntityTypeBuilder<ExpenseBillPayer> entity)
+    {
+        entity.ToTable("expense_bill_payers", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_payers_amount_non_negative",
+                "amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_payers_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_payers_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_payers_method_label_not_blank",
+                "payment_method_label_snapshot IS NULL OR length(btrim(payment_method_label_snapshot)) > 0");
+        });
+
+        entity.HasKey(payer => payer.Id);
+
+        entity.Property(payer => payer.Id)
+            .HasColumnName("id");
+
+        entity.Property(payer => payer.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(payer => payer.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(payer => payer.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(payer => payer.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(payer => payer.PaymentMethodLabelSnapshot)
+            .HasColumnName("payment_method_label_snapshot")
+            .HasMaxLength(ExpenseBillConstraints.PayerPaymentMethodLabelSnapshotMaxLength);
+
+        entity.Property(payer => payer.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(payer => payer.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(payer => payer.ExpenseBillId)
+            .HasDatabaseName("ix_expense_bill_payers_expense_bill_id");
+
+        entity.HasIndex(payer => payer.UserProfileId)
+            .HasDatabaseName("ix_expense_bill_payers_user_profile_id");
+
+        entity.HasIndex(payer => new
+            {
+                payer.ExpenseBillId,
+                payer.UserProfileId
+            })
+            .HasDatabaseName("ix_expense_bill_payers_bill_user_profile_id");
+
+        entity.HasOne(payer => payer.ExpenseBill)
+            .WithMany(bill => bill.Payers)
+            .HasForeignKey(payer => payer.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_payers_expense_bills_expense_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payer => payer.UserProfile)
+            .WithMany()
+            .HasForeignKey(payer => payer.UserProfileId)
+            .HasConstraintName("fk_expense_bill_payers_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillAdjustment(EntityTypeBuilder<ExpenseBillAdjustment> entity)
+    {
+        entity.ToTable("expense_bill_adjustments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_type",
+                "type IN ('tax', 'service_charge', 'discount', 'manual_adjustment', 'credit')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_direction",
+                "direction IN ('charge', 'credit')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_allocation_method",
+                "allocation_method IN ('equal', 'proportional_by_item_subtotal', 'manual')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_amount_non_negative",
+                "amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_currency_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_adjustments_reason_note_not_blank",
+                "reason_note IS NULL OR length(btrim(reason_note)) > 0");
+        });
+
+        entity.HasKey(adjustment => adjustment.Id);
+
+        entity.Property(adjustment => adjustment.Id)
+            .HasColumnName("id");
+
+        entity.Property(adjustment => adjustment.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(adjustment => adjustment.Type)
+            .HasColumnName("type")
+            .HasMaxLength(ExpenseBillConstraints.AdjustmentTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.Direction)
+            .HasColumnName("direction")
+            .HasMaxLength(ExpenseBillConstraints.AdjustmentDirectionMaxLength)
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.AllocationMethod)
+            .HasColumnName("allocation_method")
+            .HasMaxLength(ExpenseBillConstraints.AdjustmentAllocationMethodMaxLength)
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.ReasonNote)
+            .HasColumnName("reason_note")
+            .HasMaxLength(ExpenseBillConstraints.NoteMaxLength);
+
+        entity.Property(adjustment => adjustment.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(adjustment => adjustment.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(adjustment => adjustment.ExpenseBillId)
+            .HasDatabaseName("ix_expense_bill_adjustments_expense_bill_id");
+
+        entity.HasIndex(adjustment => new
+            {
+                adjustment.ExpenseBillId,
+                adjustment.SortOrder
+            })
+            .HasDatabaseName("ix_expense_bill_adjustments_bill_sort_order");
+
+        entity.HasOne(adjustment => adjustment.ExpenseBill)
+            .WithMany(bill => bill.Adjustments)
+            .HasForeignKey(adjustment => adjustment.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_adjustments_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillAttachment(EntityTypeBuilder<ExpenseBillAttachment> entity)
+    {
+        entity.ToTable("expense_bill_attachments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_attachments_purpose",
+                "purpose IN ('receipt', 'supporting_attachment')");
+        });
+
+        entity.HasKey(attachment => new
+        {
+            attachment.ExpenseBillId,
+            attachment.FileObjectId
+        });
+
+        entity.Property(attachment => attachment.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(attachment => attachment.FileObjectId)
+            .HasColumnName("file_object_id");
+
+        entity.Property(attachment => attachment.Purpose)
+            .HasColumnName("purpose")
+            .HasMaxLength(ExpenseBillConstraints.AttachmentPurposeMaxLength)
+            .IsRequired();
+
+        entity.Property(attachment => attachment.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(attachment => attachment.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(attachment => attachment.RemovedAtUtc)
+            .HasColumnName("removed_at_utc");
+
+        entity.HasIndex(attachment => attachment.FileObjectId)
+            .HasDatabaseName("ix_expense_bill_attachments_file_object_id");
+
+        entity.HasIndex(attachment => attachment.CreatedByUserProfileId)
+            .HasDatabaseName("ix_expense_bill_attachments_created_by_profile_id");
+
+        entity.HasOne(attachment => attachment.ExpenseBill)
+            .WithMany(bill => bill.Attachments)
+            .HasForeignKey(attachment => attachment.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_attachments_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attachment => attachment.FileObject)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.FileObjectId)
+            .HasConstraintName("fk_expense_bill_attachments_file_objects_file_object_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attachment => attachment.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.CreatedByUserProfileId)
+            .HasConstraintName("fk_expense_bill_attachments_user_profiles_created_by")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
