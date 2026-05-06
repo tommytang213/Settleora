@@ -8,7 +8,8 @@ This document defines Settleora's database foundation direction for API-owned Po
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
 - EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, and auth audit event tables.
-- Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist. No user/group business endpoints or EF Core business workflows exist yet.
+- Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist.
+- Guarded self-profile, self payment-details, self payment QR, group foundation, group member management, and admin local-user endpoints exist as narrow API layers on the current user/group/payment/file metadata foundations.
 - No business tables for expenses, settlement workflows, file subject associations, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
