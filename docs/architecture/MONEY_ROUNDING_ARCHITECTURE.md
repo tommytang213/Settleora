@@ -10,12 +10,18 @@ It is a design gate before implementing expenses, bills, settlements, balances, 
 
 The current repository state is:
 
+- Internal `CurrencyCode` exists in the API project.
+- Internal `MoneyAmount` exists in the API project.
+- Internal `SupportedCurrencyPolicy` exists in the API project. It is intentionally small today and is not a complete ISO-4217 registry.
+- Internal `MoneyRoundingService` exists in the API project.
+- Internal `MoneyAllocationService` exists in the API project.
+- Focused `MoneyFoundationTests` cover currency validation, decimal parsing, bounds, rounding, supported minor units, and allocation behavior.
 - No expense, bill, settlement, reimbursement, balance, forecasting, or statement reconciliation runtime exists yet.
-- No API/domain money type or service exists yet. Inspection found no implemented `MoneyAmount`, `CurrencyAmount`, `MoneyRoundingPolicy`, or `MoneyAllocationService` in the API project.
 - No money-specific business database schema exists yet. EF Core migrations currently define user/profile/group/auth/session/payment-details/file-metadata foundations, not expense, bill, settlement, balance, allocation, reimbursement, or money ledger tables.
+- No public endpoint uses the internal money foundation yet.
 - `user_profiles.default_currency` exists as an optional user preference with uppercase three-letter validation. It is not a complete money model and must not be treated as authoritative amount data.
 - Payment details and payment QR file linkage exist, but they are payment instructions and sensitive profile data. They are not authoritative monetary values, balances, settlement amounts, or payment records.
-- The OpenAPI contract currently includes placeholder `CurrencyCode`, `Money`, and `RoundingMode` schemas, and generated clients include corresponding placeholder model shapes. No implemented public endpoint uses a money amount schema yet.
+- The OpenAPI contract currently includes placeholder/shared `CurrencyCode`, `Money`, and `RoundingMode` schemas, and generated clients include corresponding placeholder/shared model shapes. No expense, bill, split, settlement, balance, reimbursement, or reconciliation feature paths are implemented yet.
 - `CURRENCY_EXCHANGE_ARCHITECTURE.md` defines broader Day 2 exchange-rate direction. It does not replace the Day 1 need for decimal-safe money values, rounding, allocation, validation, and persistence rules before expense/bill/settlement implementation.
 - `STATEMENT_RECONCILIATION_ARCHITECTURE.md` defines Day 2 statement import and matching direction. It depends on stable money and currency semantics but does not authorize expense or settlement mutation.
 
@@ -36,21 +42,23 @@ Settleora money behavior follows these hard rules:
 
 ## Implementation-Facing Concepts
 
-Future implementation should introduce small, boring domain concepts before adding expenses or settlements:
+The internal money foundation has introduced small, boring domain concepts before adding expenses or settlements:
 
 ```text
 MoneyAmount
 CurrencyCode
-MoneyRoundingPolicy
+SupportedCurrencyPolicy
+MoneyRoundingService
 MoneyAllocationService
 ```
 
-Suggested responsibilities:
+Current responsibilities:
 
-- `CurrencyCode` validates uppercase ISO-style three-letter currency identifiers and eventually connects to a supported-currency registry.
-- `MoneyAmount` carries a decimal-safe amount plus a required `CurrencyCode`.
-- `MoneyRoundingPolicy` defines currency minor units, allowed precision, rounding mode, bounds, and whether a business operation allows negative or zero values.
-- `MoneyAllocationService` resolves equal, percentage, ratio, and custom splits into persisted participant shares with deterministic residual handling.
+- `CurrencyCode` validates uppercase ISO-style three-letter currency identifiers.
+- `MoneyAmount` carries a decimal-safe amount plus a required `CurrencyCode` and validates decimal strings, bounds, sign policy, scale, and supported-currency requirements.
+- `SupportedCurrencyPolicy` defines the currently supported currency/minor-unit set. It is deliberately small and should evolve through reviewed policy changes rather than pretending to be a full ISO-4217 registry.
+- `MoneyRoundingService` centralizes rounding to storage scale and currency minor units.
+- `MoneyAllocationService` resolves equal, weighted, and custom splits with deterministic residual handling.
 
 Day 1 should use decimal amount plus ISO-style currency code as the public and persisted model:
 
@@ -336,7 +344,7 @@ Audit metadata boundaries:
 
 ## Testing Requirements
 
-Future implementation of the money foundation must include focused tests before expenses or settlements depend on it:
+The current internal money foundation includes focused `MoneyFoundationTests`. Future expense, bill, split, settlement, persistence, and API slices should keep extending these tests before broader financial runtime depends on new behavior:
 
 - Decimal parsing and precision tests.
 - Invalid decimal format tests.
@@ -381,17 +389,11 @@ This design branch does not authorize:
 
 ## Next Implementation Candidate
 
-```text
-money rounding foundation
-```
+Recommended next candidates, in order:
 
-Potential scope:
+1. Expense/bill/split/settlement architecture design gate.
+2. Expense/bill schema foundation.
+3. Internal bill calculation and split domain service tests using the money foundation.
+4. Minimal personal bill endpoints after schema/domain validation exists.
 
-- Add internal money value types and validation helpers.
-- Add currency code and supported-currency policy.
-- Add rounding policy and allocation services.
-- Add focused unit tests for parsing, rounding, allocation, currency mismatch, and validation errors.
-- No database schema unless strictly needed for policy metadata and explicitly approved.
-- No OpenAPI endpoints.
-- No generated client changes.
-- No expense, bill, settlement, balance, reimbursement, reconciliation, exchange-rate, worker, or UI runtime yet.
+This architecture document still does not authorize runtime expense, bill, settlement, balance, reimbursement, reconciliation, exchange-rate, worker, or UI implementation by itself.
