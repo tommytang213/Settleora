@@ -23,6 +23,7 @@ This repository is currently in scaffold materialization. It preserves the exist
 - [Privacy vault architecture](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md)
 - [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Money and rounding architecture](docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md)
+- [Expense, bill, split, and settlement architecture](docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Product requirements](docs/prd/)
