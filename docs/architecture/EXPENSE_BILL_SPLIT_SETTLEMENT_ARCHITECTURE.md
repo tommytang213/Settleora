@@ -16,7 +16,8 @@ The current repository state is:
 - File metadata lifecycle foundation exists, but no generic public upload/download API exists yet.
 - Internal money, rounding, validation, and allocation foundations exist under the API project, including `MoneyAmount`, `CurrencyCode`, `MoneyRoundingService`, and `MoneyAllocationService`.
 - EF Core migrations now define schema-only expense/bill foundation tables: `expense_bills`, `expense_bill_items`, `expense_bill_item_splits`, `expense_bill_participants`, `expense_bill_payers`, `expense_bill_adjustments`, and `expense_bill_attachments`.
-- No expense, bill, split, settlement, balance, recurring, reconciliation, or bill-related notification runtime exists yet.
+- An internal bill calculation/split service exists for same-currency draft/pending calculations, including item split resolution, participant share aggregation, equal/proportional adjustment allocation, manual-adjustment rejection, and payer contribution validation.
+- No public expense, bill, split, settlement, balance, recurring, reconciliation, or bill-related notification endpoints exist yet.
 - No expense, bill, or settlement OpenAPI paths exist yet.
 - No business migrations for settlements, balances, recurring bills, or reconciliation exist yet.
 

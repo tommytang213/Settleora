@@ -16,8 +16,8 @@ The current repository state is:
 - Internal `MoneyRoundingService` exists in the API project.
 - Internal `MoneyAllocationService` exists in the API project.
 - Focused `MoneyFoundationTests` cover currency validation, decimal parsing, bounds, rounding, supported minor units, and allocation behavior.
-- No expense, bill, settlement, reimbursement, balance, forecasting, or statement reconciliation runtime exists yet.
-- EF Core migrations now define schema-only expense/bill root, item, item split, participant, payer, adjustment, and attachment foundations. Money-bearing bill tables use decimal-safe amount plus currency columns as persistence backstops; item split `basis_value` is calculation basis only, while `resolved_amount` plus `resolved_currency` is the authoritative stored item split money value. No bill calculation, split calculation, settlement, balance, allocation runtime, reimbursement, or money ledger workflow exists yet.
+- An internal bill calculation/split service exists for draft/pending-style bill totals, item split resolution, participant share aggregation, adjustment allocation, and payer contribution validation.
+- EF Core migrations now define schema-only expense/bill root, item, item split, participant, payer, adjustment, and attachment foundations. Money-bearing bill tables use decimal-safe amount plus currency columns as persistence backstops; item split `basis_value` is calculation basis only, while `resolved_amount` plus `resolved_currency` is the authoritative stored item split money value. No public bill endpoints, settlement, balance, reimbursement, or money ledger workflow exists yet.
 - No public endpoint uses the internal money foundation yet.
 - `user_profiles.default_currency` exists as an optional user preference with uppercase three-letter validation. It is not a complete money model and must not be treated as authoritative amount data.
 - Payment details and payment QR file linkage exist, but they are payment instructions and sensitive profile data. They are not authoritative monetary values, balances, settlement amounts, or payment records.
