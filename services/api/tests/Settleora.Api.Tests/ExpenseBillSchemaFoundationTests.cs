@@ -181,6 +181,10 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertColumn(entity, storeObject, "ReceivedResidualMinorUnit", "received_residual_minor_unit", isNullable: false);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+        Assert.Null(entity.FindProperty("BasisCurrency"));
+        Assert.DoesNotContain(
+            entity.GetProperties(),
+            property => property.GetColumnName(storeObject) == "basis_currency");
 
         AssertIndex(
             entity,
@@ -699,6 +703,7 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.True(basisValueColumn.IsNullable);
         Assert.Equal(ExpenseBillConstraints.MoneyAmountPrecision, basisValueColumn.Precision);
         Assert.Equal(ExpenseBillConstraints.MoneyAmountScale, basisValueColumn.Scale);
+        Assert.DoesNotContain(createTable.Columns, column => column.Name == "basis_currency");
 
         var residualColumn = Assert.Single(createTable.Columns, column => column.Name == "received_residual_minor_unit");
         Assert.Equal(typeof(bool), residualColumn.ClrType);
