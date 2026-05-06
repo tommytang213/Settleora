@@ -725,7 +725,7 @@ class PaymentDetailsVisibilityValues {
   static const Set<PaymentDetailsVisibility> values = {private, settlementCounterpartiesOnly, groupMembersWhenShared};
 }
 
-/// Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+/// Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, storage object keys, storage paths, provider URLs, vault internals, and submitted filenames.
 class SelfPaymentDetailsResponse {
   const SelfPaymentDetailsResponse({
     required this.isConfigured,
@@ -734,6 +734,7 @@ class SelfPaymentDetailsResponse {
     required this.paymentHandle,
     required this.paymentNote,
     required this.visibility,
+    required this.qrFile,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -745,6 +746,8 @@ class SelfPaymentDetailsResponse {
   final String? paymentHandle;
   final String? paymentNote;
   final PaymentDetailsVisibility visibility;
+  /// Safe metadata for the active linked payment QR file, or null when no active QR is linked.
+  final SelfPaymentDetailsQrFileResponse? qrFile;
   final DateTime? createdAtUtc;
   final DateTime? updatedAtUtc;
 
@@ -756,6 +759,7 @@ class SelfPaymentDetailsResponse {
       paymentHandle: json["paymentHandle"] == null ? null : json["paymentHandle"] as String,
       paymentNote: json["paymentNote"] == null ? null : json["paymentNote"] as String,
       visibility: json["visibility"] as String,
+      qrFile: json["qrFile"] == null ? null : SelfPaymentDetailsQrFileResponse.fromJson(JsonObject.from(json["qrFile"] as Map)),
       createdAtUtc: json["createdAtUtc"] == null ? null : DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: json["updatedAtUtc"] == null ? null : DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -766,6 +770,7 @@ class SelfPaymentDetailsResponse {
     final preferredMethodLabelJsonValue = preferredMethodLabel;
     final paymentHandleJsonValue = paymentHandle;
     final paymentNoteJsonValue = paymentNote;
+    final qrFileJsonValue = qrFile;
     final createdAtUtcJsonValue = createdAtUtc;
     final updatedAtUtcJsonValue = updatedAtUtc;
 
@@ -776,8 +781,65 @@ class SelfPaymentDetailsResponse {
       "paymentHandle": paymentHandleJsonValue,
       "paymentNote": paymentNoteJsonValue,
       "visibility": visibility,
+      "qrFile": qrFileJsonValue == null ? null : qrFileJsonValue.toJson(),
       "createdAtUtc": createdAtUtcJsonValue == null ? null : createdAtUtcJsonValue.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtcJsonValue == null ? null : updatedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe self payment QR file metadata. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+class SelfPaymentDetailsQrFileResponse {
+  const SelfPaymentDetailsQrFileResponse({
+    required this.id,
+    required this.contentType,
+    required this.sizeBytes,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable file metadata identifier for the linked QR file.
+  final String id;
+  final String contentType;
+  final int sizeBytes;
+  final DateTime updatedAtUtc;
+
+  factory SelfPaymentDetailsQrFileResponse.fromJson(JsonObject json) {
+    return SelfPaymentDetailsQrFileResponse(
+      id: json["id"] as String,
+      contentType: json["contentType"] as String,
+      sizeBytes: (json["sizeBytes"] as num).toInt(),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "id": id,
+      "contentType": contentType,
+      "sizeBytes": sizeBytes,
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Multipart form used to upload a single self payment QR image. The filename is treated as submitted transport metadata only and is not returned by the API.
+class AttachSelfPaymentQrRequest {
+  const AttachSelfPaymentQrRequest({
+    required this.file,
+  });
+
+  /// Payment QR image. Allowed content types are image/png, image/jpeg, and image/webp; the maximum accepted file size is 2 MB.
+  final List<int> file;
+
+  factory AttachSelfPaymentQrRequest.fromJson(JsonObject json) {
+    return AttachSelfPaymentQrRequest(
+      file: List<int>.from(json["file"] as List),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "file": file,
     };
   }
 }

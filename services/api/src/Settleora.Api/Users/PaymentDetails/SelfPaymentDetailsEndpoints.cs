@@ -1,12 +1,13 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Users.PaymentDetails;
 
-internal static class SelfPaymentDetailsEndpoints
+internal static partial class SelfPaymentDetailsEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
@@ -28,6 +29,8 @@ internal static class SelfPaymentDetailsEndpoints
 
         app.MapPatch("/api/v1/users/me/payment-details", UpdateSelfPaymentDetailsAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+
+        MapSelfPaymentDetailsQrEndpoints(app);
 
         return app;
     }
@@ -208,6 +211,7 @@ internal static class SelfPaymentDetailsEndpoints
         CancellationToken cancellationToken)
     {
         var paymentProfiles = dbContext.Set<UserPaymentProfile>()
+            .Include(paymentProfile => paymentProfile.QrFileObject)
             .Where(paymentProfile => paymentProfile.UserProfileId == userProfileId
                 && paymentProfile.DeletedAtUtc == null
                 && paymentProfile.UserProfile.DeletedAtUtc == null);
@@ -428,6 +432,7 @@ internal static class SelfPaymentDetailsEndpoints
                 PaymentHandle: null,
                 PaymentNote: null,
                 Visibility: UserPaymentProfileVisibilities.Default,
+                QrFile: null,
                 CreatedAtUtc: null,
                 UpdatedAtUtc: null)
             : new SelfPaymentDetailsResponse(
@@ -437,8 +442,30 @@ internal static class SelfPaymentDetailsEndpoints
                 paymentProfile.PaymentHandle,
                 paymentProfile.PaymentNote,
                 paymentProfile.Visibility,
+                MapQrFileResponse(paymentProfile.QrFileObject, paymentProfile.UserProfileId),
                 paymentProfile.CreatedAtUtc,
                 paymentProfile.UpdatedAtUtc);
+    }
+
+    private static SelfPaymentDetailsQrFileResponse? MapQrFileResponse(
+        FileObject? fileObject,
+        Guid ownerUserProfileId)
+    {
+        if (fileObject is null
+            || fileObject.DeletedAtUtc is not null
+            || fileObject.OwnerUserProfileId != ownerUserProfileId
+            || fileObject.CreatedByUserProfileId != ownerUserProfileId
+            || !StringComparer.Ordinal.Equals(fileObject.Purpose, FileObjectPurposes.PaymentQr)
+            || !StringComparer.Ordinal.Equals(fileObject.Status, FileObjectStatuses.Active))
+        {
+            return null;
+        }
+
+        return new SelfPaymentDetailsQrFileResponse(
+            fileObject.Id,
+            fileObject.ContentType,
+            fileObject.SizeBytes,
+            fileObject.UpdatedAtUtc);
     }
 
     private static IResult Unauthenticated()

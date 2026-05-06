@@ -999,7 +999,7 @@ paths:
   /api/v1/users/me/payment-details:
     get:
       summary: Self payment details
-      description: Returns the authenticated actor's own payment details through the server-side business authorization boundary. No counterparty, admin, QR, file, or storage fields are exposed in this foundation slice.
+      description: Returns the authenticated actor's own payment details through the server-side business authorization boundary. Counterparty, admin, storage path, provider, object key, filename, and vault fields are not exposed.
       operationId: getSelfPaymentDetails
       security:
         - SessionBearerAuth: []
@@ -1030,7 +1030,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     patch:
       summary: Update self payment details
-      description: Creates or updates the authenticated actor's own default payment profile through the server-side business authorization boundary. Profile identity is derived from the current session, and QR/payment image fields are intentionally absent until storage file metadata exists.
+      description: Creates or updates the authenticated actor's own default payment profile through the server-side business authorization boundary. Profile identity is derived from the current session; QR image bytes are managed only through the dedicated self QR endpoints.
       operationId: updateSelfPaymentDetails
       security:
         - SessionBearerAuth: []
@@ -1067,6 +1067,139 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Payment details update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/users/me/payment-details/qr:
+    post:
+      summary: Attach or replace self payment QR
+      description: Uploads one QR image for the authenticated actor's own active payment profile. The API derives the actor from the current session, creates the payment profile if needed, validates a narrow image policy, writes bytes through the internal storage lifecycle foundation, and returns only safe payment-details metadata.
+      operationId: attachSelfPaymentQr
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AttachSelfPaymentQrRequest"
+      responses:
+        "200":
+          description: Configured authenticated user's payment details after QR attach or replacement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfPaymentDetailsResponse"
+        "400":
+          description: The submitted QR upload is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Payment QR upload could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Remove self payment QR
+      description: Clears the authenticated actor's own payment QR link and marks the previously linked file deleted through the internal lifecycle foundation. Missing QR state is idempotent and does not expose unrelated state.
+      operationId: removeSelfPaymentQr
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "204":
+          description: The self payment QR link is absent after the request.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Payment QR removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/users/me/payment-details/qr/content:
+    get:
+      summary: Read self payment QR content
+      description: Returns bytes for the authenticated actor's own active linked payment QR only. The endpoint validates the current actor, payment-details authorization, file purpose, owner, creator, lifecycle state, and content type before opening storage.
+      operationId: getSelfPaymentQrContent
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Self payment QR image bytes.
+          headers:
+            X-Content-Type-Options:
+              schema:
+                type: string
+              description: Set to nosniff.
+            Content-Disposition:
+              schema:
+                type: string
+              description: Conservative attachment disposition with no submitted filename.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile or payment QR is unavailable or not allowed.
           content:
             application/problem+json:
               schema:
@@ -1595,7 +1728,7 @@ components:
         - group_members_when_shared
     SelfPaymentDetailsResponse:
       type: object
-      description: Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+      description: Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, storage object keys, storage paths, provider URLs, vault internals, and submitted filenames.
       required:
         - isConfigured
         - id
@@ -1603,6 +1736,7 @@ components:
         - paymentHandle
         - paymentNote
         - visibility
+        - qrFile
         - createdAtUtc
         - updatedAtUtc
       properties:
@@ -1634,6 +1768,11 @@ components:
             - type: "null"
         visibility:
           $ref: "#/components/schemas/PaymentDetailsVisibility"
+        qrFile:
+          oneOf:
+            - $ref: "#/components/schemas/SelfPaymentDetailsQrFileResponse"
+            - type: "null"
+          description: Safe metadata for the active linked payment QR file, or null when no active QR is linked.
         createdAtUtc:
           oneOf:
             - type: string
@@ -1644,6 +1783,44 @@ components:
             - type: string
               format: date-time
             - type: "null"
+    SelfPaymentDetailsQrFileResponse:
+      type: object
+      description: Safe self payment QR file metadata. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+      required:
+        - id
+        - contentType
+        - sizeBytes
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable file metadata identifier for the linked QR file.
+        contentType:
+          type: string
+          enum:
+            - image/png
+            - image/jpeg
+            - image/webp
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2097152
+        updatedAtUtc:
+          type: string
+          format: date-time
+    AttachSelfPaymentQrRequest:
+      type: object
+      description: Multipart form used to upload a single self payment QR image. The filename is treated as submitted transport metadata only and is not returned by the API.
+      additionalProperties: false
+      required:
+        - file
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Payment QR image. Allowed content types are image/png, image/jpeg, and image/webp; the maximum accepted file size is 2 MB.
     UpdateSelfPaymentDetailsRequest:
       type: object
       description: Safe self payment-details update. Missing text fields are preserved on update, explicit null clears them, whitespace-only text normalizes to null, and omitted visibility defaults only when creating a new payment profile.

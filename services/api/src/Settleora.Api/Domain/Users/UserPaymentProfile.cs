@@ -1,3 +1,5 @@
+using Settleora.Api.Domain.Files;
+
 namespace Settleora.Api.Domain.Users;
 
 public sealed class UserPaymentProfile
@@ -15,6 +17,10 @@ public sealed class UserPaymentProfile
     public string? PaymentNote { get; set; }
 
     public string Visibility { get; set; } = UserPaymentProfileVisibilities.Default;
+
+    public Guid? QrFileObjectId { get; set; }
+
+    public FileObject? QrFileObject { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }
 

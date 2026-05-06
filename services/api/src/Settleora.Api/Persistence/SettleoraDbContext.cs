@@ -336,6 +336,9 @@ public sealed class SettleoraDbContext : DbContext
             .HasMaxLength(UserPaymentProfileConstraints.VisibilityMaxLength)
             .IsRequired();
 
+        entity.Property(paymentProfile => paymentProfile.QrFileObjectId)
+            .HasColumnName("qr_file_object_id");
+
         entity.Property(paymentProfile => paymentProfile.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .IsRequired();
@@ -352,10 +355,19 @@ public sealed class SettleoraDbContext : DbContext
             .HasDatabaseName("ux_user_payment_profiles_active_user_profile_id")
             .HasFilter("deleted_at_utc IS NULL");
 
+        entity.HasIndex(paymentProfile => paymentProfile.QrFileObjectId)
+            .HasDatabaseName("ix_user_payment_profiles_qr_file_object_id");
+
         entity.HasOne(paymentProfile => paymentProfile.UserProfile)
             .WithMany(userProfile => userProfile.PaymentProfiles)
             .HasForeignKey(paymentProfile => paymentProfile.UserProfileId)
             .HasConstraintName("fk_user_payment_profiles_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(paymentProfile => paymentProfile.QrFileObject)
+            .WithMany()
+            .HasForeignKey(paymentProfile => paymentProfile.QrFileObjectId)
+            .HasConstraintName("fk_user_payment_profiles_file_objects_qr_file_object_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

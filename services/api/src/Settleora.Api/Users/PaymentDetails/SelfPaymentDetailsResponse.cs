@@ -7,5 +7,12 @@ internal sealed record SelfPaymentDetailsResponse(
     string? PaymentHandle,
     string? PaymentNote,
     string Visibility,
+    SelfPaymentDetailsQrFileResponse? QrFile,
     DateTimeOffset? CreatedAtUtc,
     DateTimeOffset? UpdatedAtUtc);
+
+internal sealed record SelfPaymentDetailsQrFileResponse(
+    Guid Id,
+    string ContentType,
+    long SizeBytes,
+    DateTimeOffset UpdatedAtUtc);

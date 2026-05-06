@@ -132,6 +132,18 @@ export class SettleoraApiClient {
     return this.request<SelfPaymentDetailsResponse>("PATCH", "/api/v1/users/me/payment-details", body, options, options.accessToken);
   }
 
+  async attachSelfPaymentQr(file: Blob, options: SettleoraAuthenticatedRequestOptions): Promise<SelfPaymentDetailsResponse> {
+    return this.requestMultipart<SelfPaymentDetailsResponse>("POST", "/api/v1/users/me/payment-details/qr", "file", file, options, options.accessToken);
+  }
+
+  async removeSelfPaymentQr(options: SettleoraAuthenticatedRequestOptions): Promise<void> {
+    return this.request<void>("DELETE", "/api/v1/users/me/payment-details/qr", undefined, options, options.accessToken);
+  }
+
+  async getSelfPaymentQrContent(options: SettleoraAuthenticatedRequestOptions): Promise<Blob> {
+    return this.requestBlob("GET", "/api/v1/users/me/payment-details/qr/content", options, options.accessToken);
+  }
+
   async getSelfUserProfile(options: SettleoraAuthenticatedRequestOptions): Promise<SelfUserProfileResponse> {
     return this.request<SelfUserProfileResponse>("GET", "/api/v1/users/me/profile", undefined, options, options.accessToken);
   }
@@ -146,6 +158,73 @@ export class SettleoraApiClient {
 
   async getHealthReady(options: SettleoraRequestOptions = {}): Promise<GetHealthReadyResponse> {
     return this.request<GetHealthReadyResponse>("GET", "/health/ready", undefined, options, undefined);
+  }
+
+  private async requestMultipart<T>(
+    method: string,
+    path: string,
+    fieldName: string,
+    file: Blob,
+    options: SettleoraRequestOptions,
+    accessToken?: string
+  ): Promise<T> {
+    const headers = new Headers(this.defaultHeaders);
+    for (const [key, value] of new Headers(options.headers ?? {})) {
+      headers.set(key, value);
+    }
+
+    if (accessToken) {
+      headers.set("authorization", `Bearer ${accessToken}`);
+    }
+
+    const formData = new FormData();
+    formData.append(fieldName, file);
+
+    const response = await this.fetchImpl(this.resolveUrl(path), {
+      method,
+      headers,
+      body: formData,
+      signal: options.signal
+    });
+
+    const text = await response.text();
+    const payload = text.length > 0 ? parseJson(text) : undefined;
+
+    if (!response.ok) {
+      throw new SettleoraApiError(response.status, response.statusText, payload);
+    }
+
+    return payload as T;
+  }
+
+  private async requestBlob(
+    method: string,
+    path: string,
+    options: SettleoraRequestOptions,
+    accessToken?: string
+  ): Promise<Blob> {
+    const headers = new Headers(this.defaultHeaders);
+    for (const [key, value] of new Headers(options.headers ?? {})) {
+      headers.set(key, value);
+    }
+
+    if (accessToken) {
+      headers.set("authorization", `Bearer ${accessToken}`);
+    }
+
+    const response = await this.fetchImpl(this.resolveUrl(path), {
+      method,
+      headers,
+      signal: options.signal
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      const payload = text.length > 0 ? parseJson(text) : undefined;
+      throw new SettleoraApiError(response.status, response.statusText, payload);
+    }
+
+    return response.blob();
   }
 
   private async request<T>(

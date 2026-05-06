@@ -56,7 +56,9 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
             RequireOptionalSafeMetadataCategory(auditEvent.PreviousVisibility, nameof(auditEvent.PreviousVisibility)),
-            RequireOptionalSafeMetadataCategory(auditEvent.NewVisibility, nameof(auditEvent.NewVisibility)));
+            RequireOptionalSafeMetadataCategory(auditEvent.NewVisibility, nameof(auditEvent.NewVisibility)),
+            auditEvent.QrFileObjectId?.ToString("D"),
+            RequireOptionalSafeMetadataCategory(auditEvent.ChangeCategory, nameof(auditEvent.ChangeCategory)));
 
         var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         if (json.Length > SafeMetadataJsonMaxLength)
@@ -108,5 +110,7 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
         bool RowCreated,
         IReadOnlyList<string> FieldsChanged,
         string? PreviousVisibility,
-        string? NewVisibility);
+        string? NewVisibility,
+        string? QrFileObjectId,
+        string? ChangeCategory);
 }

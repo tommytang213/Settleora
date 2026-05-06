@@ -277,7 +277,7 @@ export type GroupMembershipStatus = "active" | "removed";
 export type PaymentDetailsVisibility = "private" | "settlement_counterparties_only" | "group_members_when_shared";
 
 /**
- * Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, QR file IDs, storage paths, and vault internals.
+ * Safe self payment-details response for the authenticated actor. It excludes auth account IDs, session IDs, credential state, audit metadata, counterparty data, storage object keys, storage paths, provider URLs, vault internals, and submitted filenames.
  */
 export interface SelfPaymentDetailsResponse {
   /**
@@ -289,8 +289,35 @@ export interface SelfPaymentDetailsResponse {
   paymentHandle: string | null;
   paymentNote: string | null;
   visibility: PaymentDetailsVisibility;
+  /**
+   * Safe metadata for the active linked payment QR file, or null when no active QR is linked.
+   */
+  qrFile: SelfPaymentDetailsQrFileResponse | null;
   createdAtUtc: string | null;
   updatedAtUtc: string | null;
+}
+
+/**
+ * Safe self payment QR file metadata. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+ */
+export interface SelfPaymentDetailsQrFileResponse {
+  /**
+   * Stable file metadata identifier for the linked QR file.
+   */
+  id: string;
+  contentType: "image/png" | "image/jpeg" | "image/webp";
+  sizeBytes: number;
+  updatedAtUtc: string;
+}
+
+/**
+ * Multipart form used to upload a single self payment QR image. The filename is treated as submitted transport metadata only and is not returned by the API.
+ */
+export interface AttachSelfPaymentQrRequest {
+  /**
+   * Payment QR image. Allowed content types are image/png, image/jpeg, and image/webp; the maximum accepted file size is 2 MB.
+   */
+  file: Blob;
 }
 
 /**

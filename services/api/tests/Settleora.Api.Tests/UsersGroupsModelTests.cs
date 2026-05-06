@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Configuration;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 using Settleora.Api.Persistence.Migrations;
@@ -126,6 +127,7 @@ public sealed class UsersGroupsModelTests
         AssertColumn(entity, storeObject, "PaymentHandle", "payment_handle", isNullable: true, maxLength: 320);
         AssertColumn(entity, storeObject, "PaymentNote", "payment_note", isNullable: true, maxLength: 1000);
         AssertColumn(entity, storeObject, "Visibility", "visibility", isNullable: false, maxLength: 40);
+        AssertColumn(entity, storeObject, "QrFileObjectId", "qr_file_object_id", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "DeletedAtUtc", "deleted_at_utc", isNullable: true);
@@ -137,10 +139,20 @@ public sealed class UsersGroupsModelTests
         Assert.Equal(["UserProfileId"], activeProfileIndex.Properties.Select(property => property.Name));
         Assert.Equal("deleted_at_utc IS NULL", activeProfileIndex.GetFilter());
 
-        var foreignKey = Assert.Single(entity.GetForeignKeys());
-        Assert.Equal(typeof(UserProfile), foreignKey.PrincipalEntityType.ClrType);
-        Assert.Equal(["UserProfileId"], foreignKey.Properties.Select(property => property.Name));
-        Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior);
+        Assert.Contains(
+            entity.GetIndexes(),
+            index => index.GetDatabaseName() == "ix_user_payment_profiles_qr_file_object_id"
+                && index.Properties.Select(property => property.Name).SequenceEqual(["QrFileObjectId"]));
+
+        Assert.All(entity.GetForeignKeys(), foreignKey => Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior));
+        Assert.Contains(
+            entity.GetForeignKeys(),
+            foreignKey => foreignKey.PrincipalEntityType.ClrType == typeof(UserProfile)
+                && foreignKey.Properties.Select(property => property.Name).SequenceEqual(["UserProfileId"]));
+        Assert.Contains(
+            entity.GetForeignKeys(),
+            foreignKey => foreignKey.PrincipalEntityType.ClrType == typeof(FileObject)
+                && foreignKey.Properties.Select(property => property.Name).SequenceEqual(["QrFileObjectId"]));
 
         AssertCheckConstraint(
             entity,
@@ -214,6 +226,51 @@ public sealed class UsersGroupsModelTests
         Assert.True(activeIndex.IsUnique);
         Assert.Equal(["user_profile_id"], activeIndex.Columns);
         Assert.Equal("deleted_at_utc IS NULL", activeIndex.Filter);
+    }
+
+    [Fact]
+    public void PaymentProfileQrFileReferenceMigrationIsRegisteredAndReviewable()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddPaymentProfileQrFileReference", StringComparison.Ordinal));
+
+        var migration = new AddPaymentProfileQrFileReference();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is CreateTableOperation
+                or DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var addColumn = Assert.Single(
+            migration.UpOperations.OfType<AddColumnOperation>(),
+            column => column.Table == "user_payment_profiles"
+                && column.Name == "qr_file_object_id");
+        Assert.Equal(typeof(Guid), addColumn.ClrType);
+        Assert.True(addColumn.IsNullable);
+        Assert.Equal("uuid", addColumn.ColumnType);
+
+        var index = Assert.Single(
+            migration.UpOperations.OfType<CreateIndexOperation>(),
+            index => index.Table == "user_payment_profiles"
+                && index.Name == "ix_user_payment_profiles_qr_file_object_id");
+        Assert.False(index.IsUnique);
+        Assert.Equal(["qr_file_object_id"], index.Columns);
+
+        var foreignKey = Assert.Single(
+            migration.UpOperations.OfType<AddForeignKeyOperation>(),
+            foreignKey => foreignKey.Table == "user_payment_profiles"
+                && foreignKey.Name == "fk_user_payment_profiles_file_objects_qr_file_object_id");
+        Assert.Equal(["qr_file_object_id"], foreignKey.Columns);
+        Assert.Equal("file_objects", foreignKey.PrincipalTable);
+        Assert.Equal(["id"], foreignKey.PrincipalColumns!);
+        Assert.Equal(ReferentialAction.Restrict, foreignKey.OnDelete);
     }
 
     private static SettleoraDbContext CreateDbContext()

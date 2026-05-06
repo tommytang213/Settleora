@@ -19,6 +19,18 @@ class SettleoraApiException implements Exception {
   String toString() => 'SettleoraApiException: $statusCode $reasonPhrase';
 }
 
+class SettleoraMultipartFile {
+  const SettleoraMultipartFile({
+    required this.bytes,
+    required this.filename,
+    required this.contentType,
+  });
+
+  final List<int> bytes;
+  final String filename;
+  final String contentType;
+}
+
 class SettleoraApiClient {
   SettleoraApiClient({
     required this.baseUri,
@@ -265,6 +277,37 @@ class SettleoraApiClient {
     return SelfPaymentDetailsResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SelfPaymentDetailsResponse> attachSelfPaymentQr(SettleoraMultipartFile file, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendMultipart(
+      "POST",
+      "/api/v1/users/me/payment-details/qr",
+      fieldName: "file",
+      file: file,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SelfPaymentDetailsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removeSelfPaymentQr({required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      "/api/v1/users/me/payment-details/qr",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<List<int>> getSelfPaymentQrContent({required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      "/api/v1/users/me/payment-details/qr/content",
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<SelfUserProfileResponse> getSelfUserProfile({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -307,6 +350,82 @@ class SettleoraApiClient {
     return GetHealthReadyResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<Object?> _sendMultipart(
+    String method,
+    String path, {
+    required String fieldName,
+    required SettleoraMultipartFile file,
+    String? accessToken,
+    Map<String, String>? headers,
+  }) async {
+    final request = await _httpClient.openUrl(method, baseUri.resolve(path.startsWith('/') ? path.substring(1) : path));
+    final boundary = 'settleora-${DateTime.now().microsecondsSinceEpoch}';
+
+    for (final entry in defaultHeaders.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    for (final entry in (headers ?? const <String, String>{}).entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    if (accessToken != null && accessToken.isNotEmpty) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+    }
+
+    request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
+    request.add(utf8.encode('--$boundary\r\n'));
+    request.add(utf8.encode('Content-Disposition: form-data; name="${_escapeMultipartHeader(fieldName)}"; filename="${_escapeMultipartHeader(file.filename)}"\r\n'));
+    request.add(utf8.encode('Content-Type: ${file.contentType}\r\n\r\n'));
+    request.add(file.bytes);
+    request.add(utf8.encode('\r\n--$boundary--\r\n'));
+
+    final response = await request.close();
+    final text = await utf8.decodeStream(response);
+    final payload = text.isEmpty ? null : _parseJsonOrText(text);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);
+    }
+
+    return payload;
+  }
+
+  Future<List<int>> _sendBytes(
+    String method,
+    String path, {
+    String? accessToken,
+    Map<String, String>? headers,
+  }) async {
+    final request = await _httpClient.openUrl(method, baseUri.resolve(path.startsWith('/') ? path.substring(1) : path));
+
+    for (final entry in defaultHeaders.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    for (final entry in (headers ?? const <String, String>{}).entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    if (accessToken != null && accessToken.isNotEmpty) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+    }
+
+    final response = await request.close();
+    final bytes = await response.fold<List<int>>(<int>[], (buffer, chunk) {
+      buffer.addAll(chunk);
+      return buffer;
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final payload = text.isEmpty ? null : _parseJsonOrText(text);
+      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);
+    }
+
+    return bytes;
+  }
+
   Future<Object?> _send(
     String method,
     String path, {
@@ -335,12 +454,28 @@ class SettleoraApiClient {
 
     final response = await request.close();
     final text = await utf8.decodeStream(response);
-    final payload = text.isEmpty ? null : jsonDecode(text);
+    final payload = text.isEmpty ? null : _parseJsonOrText(text);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);
     }
 
     return payload;
+  }
+}
+
+String _escapeMultipartHeader(String value) {
+  return value
+      .replaceAll('\\', '\\\\')
+      .replaceAll('"', '\\"')
+      .replaceAll('\r', ' ')
+      .replaceAll('\n', ' ');
+}
+
+Object _parseJsonOrText(String text) {
+  try {
+    return jsonDecode(text) as Object;
+  } catch (_) {
+    return text;
   }
 }

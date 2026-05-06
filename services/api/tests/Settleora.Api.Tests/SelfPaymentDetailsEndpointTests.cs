@@ -865,7 +865,8 @@ public sealed class SelfPaymentDetailsEndpointTests : IClassFixture<WebApplicati
         using var payload = await JsonDocument.ParseAsync(responseStream);
         var root = payload.RootElement;
 
-        Assert.Equal(8, root.EnumerateObject().Count());
+        Assert.Equal(9, root.EnumerateObject().Count());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("qrFile").ValueKind);
         return new PaymentDetailsPayload(
             root.GetProperty("isConfigured").GetBoolean(),
             ReadNullableGuid(root.GetProperty("id")),
@@ -1037,8 +1038,9 @@ public sealed class SelfPaymentDetailsEndpointTests : IClassFixture<WebApplicati
         Assert.DoesNotContain("path", lowerContent);
         Assert.DoesNotContain("vault", lowerContent);
         Assert.DoesNotContain("counterparty", lowerContent);
-        Assert.DoesNotContain("qr", lowerContent);
-        Assert.DoesNotContain("file", lowerContent);
+        Assert.DoesNotContain("objectkey", lowerContent);
+        Assert.DoesNotContain("rootpath", lowerContent);
+        Assert.DoesNotContain("providerurl", lowerContent);
     }
 
     private static void AssertSafePaymentDetailsAuditContent(

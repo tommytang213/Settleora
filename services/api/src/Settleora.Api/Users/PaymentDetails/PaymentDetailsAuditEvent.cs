@@ -9,4 +9,6 @@ internal sealed record PaymentDetailsAuditEvent(
     IReadOnlyList<string> FieldsChanged,
     string? PreviousVisibility,
     string? NewVisibility,
-    DateTimeOffset OccurredAtUtc);
+    DateTimeOffset OccurredAtUtc,
+    Guid? QrFileObjectId = null,
+    string? ChangeCategory = null);

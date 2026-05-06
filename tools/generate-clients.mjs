@@ -54,10 +54,26 @@ function collectOperations(openApiSpec) {
         ...(operation.parameters ?? [])
       ].filter((parameter) => parameter.in === "path");
 
-      const requestSchema = operation.requestBody?.content?.["application/json"]?.schema;
+      const requestContent = operation.requestBody?.content ?? {};
+      const jsonRequestSchema = requestContent["application/json"]?.schema;
+      const multipartFileField = jsonRequestSchema
+        ? null
+        : multipartFileFieldName(openApiSpec, requestContent["multipart/form-data"]?.schema);
+      const requestSchema = jsonRequestSchema ?? null;
+      const requestKind = requestSchema ? "json" : multipartFileField ? "multipart" : "none";
       const successResponse = getSuccessResponse(operation.responses ?? {});
-      const successSchema = successResponse?.content?.["application/json"]?.schema;
-      const successTypeName = successSchema ? schemaTypeNameForOperation(operation.operationId, successSchema) : "void";
+      const successContent = successResponse?.content ?? {};
+      const successSchema = successContent["application/json"]?.schema ?? binarySuccessSchema(successContent);
+      const successKind = successContent["application/json"]?.schema
+        ? "json"
+        : successSchema
+          ? "binary"
+          : "void";
+      const successTypeName = successKind === "json"
+        ? schemaTypeNameForOperation(operation.operationId, successSchema)
+        : successKind === "binary"
+          ? "Blob"
+          : "void";
       const requiresAuth = operationRequiresAuth(operation);
 
       collected.push({
@@ -65,7 +81,10 @@ function collectOperations(openApiSpec) {
         path,
         operationId: operation.operationId,
         pathParameters,
+        requestKind,
         requestSchema,
+        multipartFileField,
+        successKind,
         successSchema,
         successTypeName,
         requiresAuth
@@ -80,7 +99,7 @@ function collectInlineSuccessSchemas(collectedOperations) {
   const inlineSchemas = {};
 
   for (const operation of collectedOperations) {
-    if (!operation.successSchema || operation.successSchema.$ref) {
+    if (operation.successKind !== "json" || !operation.successSchema || operation.successSchema.$ref) {
       continue;
     }
 
@@ -94,6 +113,43 @@ function getSuccessResponse(responses) {
   for (const statusCode of Object.keys(responses).sort()) {
     if (/^2\d\d$/.test(statusCode)) {
       return responses[statusCode];
+    }
+  }
+
+  return null;
+}
+
+function multipartFileFieldName(openApiSpec, schema) {
+  const resolvedSchema = resolveSchema(openApiSpec, schema);
+  if (!resolvedSchema?.properties) {
+    return null;
+  }
+
+  const binaryFields = Object.entries(resolvedSchema.properties)
+    .filter(([, propertySchema]) => propertySchema?.type === "string" && propertySchema?.format === "binary")
+    .map(([propertyName]) => propertyName);
+
+  return binaryFields.length === 1 ? binaryFields[0] : null;
+}
+
+function resolveSchema(openApiSpec, schema) {
+  if (!schema?.$ref) {
+    return schema;
+  }
+
+  const prefix = "#/components/schemas/";
+  if (!schema.$ref.startsWith(prefix)) {
+    return schema;
+  }
+
+  return openApiSpec.components?.schemas?.[schema.$ref.slice(prefix.length)] ?? schema;
+}
+
+function binarySuccessSchema(content) {
+  for (const mediaType of Object.keys(content ?? {})) {
+    const schema = content[mediaType]?.schema;
+    if (schema?.type === "string" && schema?.format === "binary") {
+      return schema;
     }
   }
 
@@ -164,7 +220,7 @@ function generateTypeScriptClient(collectedOperations) {
 
   for (const operation of collectedOperations) {
     collectTypeImports(operation.requestSchema, importedTypes);
-    if (operation.successSchema) {
+    if (operation.successKind === "json" && operation.successSchema) {
       importedTypes.add(operation.successTypeName);
     }
   }
@@ -221,6 +277,73 @@ function generateTypeScriptClient(collectedOperations) {
   }
 
   lines.push(
+    "  private async requestMultipart<T>(",
+    "    method: string,",
+    "    path: string,",
+    "    fieldName: string,",
+    "    file: Blob,",
+    "    options: SettleoraRequestOptions,",
+    "    accessToken?: string",
+    "  ): Promise<T> {",
+    "    const headers = new Headers(this.defaultHeaders);",
+    "    for (const [key, value] of new Headers(options.headers ?? {})) {",
+    "      headers.set(key, value);",
+    "    }",
+    "",
+    "    if (accessToken) {",
+    "      headers.set(\"authorization\", `Bearer ${accessToken}`);",
+    "    }",
+    "",
+    "    const formData = new FormData();",
+    "    formData.append(fieldName, file);",
+    "",
+    "    const response = await this.fetchImpl(this.resolveUrl(path), {",
+    "      method,",
+    "      headers,",
+    "      body: formData,",
+    "      signal: options.signal",
+    "    });",
+    "",
+    "    const text = await response.text();",
+    "    const payload = text.length > 0 ? parseJson(text) : undefined;",
+    "",
+    "    if (!response.ok) {",
+    "      throw new SettleoraApiError(response.status, response.statusText, payload);",
+    "    }",
+    "",
+    "    return payload as T;",
+    "  }",
+    "",
+    "  private async requestBlob(",
+    "    method: string,",
+    "    path: string,",
+    "    options: SettleoraRequestOptions,",
+    "    accessToken?: string",
+    "  ): Promise<Blob> {",
+    "    const headers = new Headers(this.defaultHeaders);",
+    "    for (const [key, value] of new Headers(options.headers ?? {})) {",
+    "      headers.set(key, value);",
+    "    }",
+    "",
+    "    if (accessToken) {",
+    "      headers.set(\"authorization\", `Bearer ${accessToken}`);",
+    "    }",
+    "",
+    "    const response = await this.fetchImpl(this.resolveUrl(path), {",
+    "      method,",
+    "      headers,",
+    "      signal: options.signal",
+    "    });",
+    "",
+    "    if (!response.ok) {",
+    "      const text = await response.text();",
+    "      const payload = text.length > 0 ? parseJson(text) : undefined;",
+    "      throw new SettleoraApiError(response.status, response.statusText, payload);",
+    "    }",
+    "",
+    "    return response.blob();",
+    "  }",
+    "",
     "  private async request<T>(",
     "    method: string,",
     "    path: string,",
@@ -285,17 +408,38 @@ function generateTypeScriptClient(collectedOperations) {
 
 function generateTypeScriptOperation(operation) {
   const requestType = operation.requestSchema ? typescriptType(operation.requestSchema) : null;
-  const returnType = operation.successSchema ? operation.successTypeName : "void";
+  const returnType = operation.successKind === "json"
+    ? operation.successTypeName
+    : operation.successKind === "binary"
+      ? "Blob"
+      : "void";
   const parameters = [
     ...operation.pathParameters.map((parameter) => `${parameter.name}: ${typescriptType(parameter.schema)}`),
-    ...(requestType ? [`body: ${requestType}`] : []),
+    ...(operation.requestKind === "multipart" ? ["file: Blob"] : []),
+    ...(operation.requestKind === "json" && requestType ? [`body: ${requestType}`] : []),
     operation.requiresAuth
       ? "options: SettleoraAuthenticatedRequestOptions"
       : "options: SettleoraRequestOptions = {}"
   ];
   const pathExpression = typeScriptPathExpression(operation.path, operation.pathParameters);
-  const bodyExpression = requestType ? "body" : "undefined";
+  const bodyExpression = operation.requestKind === "json" && requestType ? "body" : "undefined";
   const accessTokenExpression = operation.requiresAuth ? "options.accessToken" : "undefined";
+
+  if (operation.requestKind === "multipart") {
+    return [
+      `  async ${operation.operationId}(${parameters.join(", ")}): Promise<${returnType}> {`,
+      `    return this.requestMultipart<${returnType}>(\"${operation.method}\", ${pathExpression}, ${JSON.stringify(operation.multipartFileField)}, file, options, ${accessTokenExpression});`,
+      "  }"
+    ];
+  }
+
+  if (operation.successKind === "binary") {
+    return [
+      `  async ${operation.operationId}(${parameters.join(", ")}): Promise<Blob> {`,
+      `    return this.requestBlob(\"${operation.method}\", ${pathExpression}, options, ${accessTokenExpression});`,
+      "  }"
+    ];
+  }
 
   return [
     `  async ${operation.operationId}(${parameters.join(", ")}): Promise<${returnType}> {`,
@@ -352,6 +496,10 @@ function typescriptType(schema) {
 
   if (schema.enum) {
     return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+  }
+
+  if (schema.type === "string" && schema.format === "binary") {
+    return "Blob";
   }
 
   if (schema.type === "string") {
@@ -591,6 +739,18 @@ function generateDartClient(collectedOperations) {
     "  String toString() => 'SettleoraApiException: $statusCode $reasonPhrase';",
     "}",
     "",
+    "class SettleoraMultipartFile {",
+    "  const SettleoraMultipartFile({",
+    "    required this.bytes,",
+    "    required this.filename,",
+    "    required this.contentType,",
+    "  });",
+    "",
+    "  final List<int> bytes;",
+    "  final String filename;",
+    "  final String contentType;",
+    "}",
+    "",
     "class SettleoraApiClient {",
     "  SettleoraApiClient({",
     "    required this.baseUri,",
@@ -611,6 +771,82 @@ function generateDartClient(collectedOperations) {
   }
 
   lines.push(
+    "  Future<Object?> _sendMultipart(",
+    "    String method,",
+    "    String path, {",
+    "    required String fieldName,",
+    "    required SettleoraMultipartFile file,",
+    "    String? accessToken,",
+    "    Map<String, String>? headers,",
+    "  }) async {",
+    "    final request = await _httpClient.openUrl(method, baseUri.resolve(path.startsWith('/') ? path.substring(1) : path));",
+    "    final boundary = 'settleora-${DateTime.now().microsecondsSinceEpoch}';",
+    "",
+    "    for (final entry in defaultHeaders.entries) {",
+    "      request.headers.set(entry.key, entry.value);",
+    "    }",
+    "",
+    "    for (final entry in (headers ?? const <String, String>{}).entries) {",
+    "      request.headers.set(entry.key, entry.value);",
+    "    }",
+    "",
+    "    if (accessToken != null && accessToken.isNotEmpty) {",
+    "      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');",
+    "    }",
+    "",
+    "    request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});",
+    "    request.add(utf8.encode('--$boundary\\r\\n'));",
+    "    request.add(utf8.encode('Content-Disposition: form-data; name=\"${_escapeMultipartHeader(fieldName)}\"; filename=\"${_escapeMultipartHeader(file.filename)}\"\\r\\n'));",
+    "    request.add(utf8.encode('Content-Type: ${file.contentType}\\r\\n\\r\\n'));",
+    "    request.add(file.bytes);",
+    "    request.add(utf8.encode('\\r\\n--$boundary--\\r\\n'));",
+    "",
+    "    final response = await request.close();",
+    "    final text = await utf8.decodeStream(response);",
+    "    final payload = text.isEmpty ? null : _parseJsonOrText(text);",
+    "",
+    "    if (response.statusCode < 200 || response.statusCode >= 300) {",
+    "      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);",
+    "    }",
+    "",
+    "    return payload;",
+    "  }",
+    "",
+    "  Future<List<int>> _sendBytes(",
+    "    String method,",
+    "    String path, {",
+    "    String? accessToken,",
+    "    Map<String, String>? headers,",
+    "  }) async {",
+    "    final request = await _httpClient.openUrl(method, baseUri.resolve(path.startsWith('/') ? path.substring(1) : path));",
+    "",
+    "    for (final entry in defaultHeaders.entries) {",
+    "      request.headers.set(entry.key, entry.value);",
+    "    }",
+    "",
+    "    for (final entry in (headers ?? const <String, String>{}).entries) {",
+    "      request.headers.set(entry.key, entry.value);",
+    "    }",
+    "",
+    "    if (accessToken != null && accessToken.isNotEmpty) {",
+    "      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');",
+    "    }",
+    "",
+    "    final response = await request.close();",
+    "    final bytes = await response.fold<List<int>>(<int>[], (buffer, chunk) {",
+    "      buffer.addAll(chunk);",
+    "      return buffer;",
+    "    });",
+    "",
+    "    if (response.statusCode < 200 || response.statusCode >= 300) {",
+    "      final text = utf8.decode(bytes, allowMalformed: true);",
+    "      final payload = text.isEmpty ? null : _parseJsonOrText(text);",
+    "      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);",
+    "    }",
+    "",
+    "    return bytes;",
+    "  }",
+    "",
     "  Future<Object?> _send(",
     "    String method,",
     "    String path, {",
@@ -639,13 +875,29 @@ function generateDartClient(collectedOperations) {
     "",
     "    final response = await request.close();",
     "    final text = await utf8.decodeStream(response);",
-    "    final payload = text.isEmpty ? null : jsonDecode(text);",
+    "    final payload = text.isEmpty ? null : _parseJsonOrText(text);",
     "",
     "    if (response.statusCode < 200 || response.statusCode >= 300) {",
     "      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);",
     "    }",
     "",
     "    return payload;",
+    "  }",
+    "}",
+    "",
+    "String _escapeMultipartHeader(String value) {",
+    "  return value",
+    "      .replaceAll('\\\\', '\\\\\\\\')",
+    "      .replaceAll('\"', '\\\\\"')",
+    "      .replaceAll('\\r', ' ')",
+    "      .replaceAll('\\n', ' ');",
+    "}",
+    "",
+    "Object _parseJsonOrText(String text) {",
+    "  try {",
+    "    return jsonDecode(text) as Object;",
+    "  } catch (_) {",
+    "    return text;",
     "  }",
     "}"
   );
@@ -654,10 +906,15 @@ function generateDartClient(collectedOperations) {
 }
 
 function generateDartOperation(operation) {
-  const responseType = operation.successSchema ? operation.successTypeName : "void";
+  const responseType = operation.successKind === "json"
+    ? operation.successTypeName
+    : operation.successKind === "binary"
+      ? "List<int>"
+      : "void";
   const positionalParameters = [
     ...operation.pathParameters.map((parameter) => `${dartType(parameter.schema, { nullable: false })} ${toCamelCase(parameter.name)}`),
-    ...(operation.requestSchema ? [`${dartType(operation.requestSchema, { nullable: false })} body`] : [])
+    ...(operation.requestKind === "multipart" ? ["SettleoraMultipartFile file"] : []),
+    ...(operation.requestKind === "json" && operation.requestSchema ? [`${dartType(operation.requestSchema, { nullable: false })} body`] : [])
   ];
   const namedParameters = [
     ...(operation.requiresAuth ? ["required String accessToken"] : []),
@@ -668,9 +925,58 @@ function generateDartOperation(operation) {
     `{${namedParameters.join(", ")}}`
   ].join(", ");
   const pathExpression = dartPathExpression(operation.path, operation.pathParameters);
-  const bodyExpression = operation.requestSchema ? "body.toJson()" : "null";
+  const bodyExpression = operation.requestKind === "json" && operation.requestSchema ? "body.toJson()" : "null";
   const accessTokenArgument = operation.requiresAuth ? "accessToken: accessToken," : "";
-  const sendStart = operation.successSchema ? "    final payload = await _send(" : "    await _send(";
+  if (operation.requestKind === "multipart") {
+    const lines = [
+      `  Future<${responseType}> ${operation.operationId}(${parameterText}) async {`,
+      "    final payload = await _sendMultipart(",
+      `      ${JSON.stringify(operation.method)},`,
+      `      ${pathExpression},`,
+      `      fieldName: ${JSON.stringify(operation.multipartFileField)},`,
+      "      file: file,"
+    ];
+
+    if (accessTokenArgument) {
+      lines.push(`      ${accessTokenArgument}`);
+    }
+
+    lines.push(
+      "      headers: headers,",
+      "    );"
+    );
+
+    if (schemaIsObject(schemas[responseType])) {
+      lines.push(`    return ${responseType}.fromJson(JsonObject.from(payload as Map));`);
+    } else {
+      lines.push(`    return payload as ${responseType};`);
+    }
+
+    lines.push("  }");
+    return lines;
+  }
+
+  if (operation.successKind === "binary") {
+    const lines = [
+      `  Future<List<int>> ${operation.operationId}(${parameterText}) async {`,
+      "    return _sendBytes(",
+      `      ${JSON.stringify(operation.method)},`,
+      `      ${pathExpression},`
+    ];
+
+    if (accessTokenArgument) {
+      lines.push(`      ${accessTokenArgument}`);
+    }
+
+    lines.push(
+      "      headers: headers,",
+      "    );",
+      "  }"
+    );
+    return lines;
+  }
+
+  const sendStart = operation.successKind === "json" ? "    final payload = await _send(" : "    await _send(";
   const lines = [
     `  Future<${responseType}> ${operation.operationId}(${parameterText}) async {`,
     sendStart,
@@ -688,7 +994,7 @@ function generateDartOperation(operation) {
     "    );"
   );
 
-  if (!operation.successSchema) {
+  if (operation.successKind !== "json") {
     lines.push("  }");
     return lines;
   }
@@ -752,6 +1058,10 @@ function dartType(schema, options) {
     return `DateTime${nullableSuffix}`;
   }
 
+  if (schema.type === "string" && schema.format === "binary") {
+    return `List<int>${nullableSuffix}`;
+  }
+
   if (schema.type === "string") {
     return `String${nullableSuffix}`;
   }
@@ -801,6 +1111,10 @@ function dartFromJsonExpression(schema, expression, nullable) {
     }
 
     return expression;
+  }
+
+  if (schema.type === "string" && schema.format === "binary") {
+    return `List<int>.from(${expression} as List)`;
   }
 
   if (schema.type === "string" && schema.format === "date-time") {
