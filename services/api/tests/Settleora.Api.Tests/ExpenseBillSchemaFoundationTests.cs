@@ -333,10 +333,11 @@ public sealed class ExpenseBillSchemaFoundationTests
                 or SqlOperation);
 
         var createTables = migration.UpOperations.OfType<CreateTableOperation>().ToArray();
+        var createIndexes = migration.UpOperations.OfType<CreateIndexOperation>().ToArray();
         Assert.Equal(ExpenseBillSchemaTables.Order(), createTables.Select(table => table.Name).Order());
 
         Assert.All(
-            migration.UpOperations.OfType<CreateIndexOperation>(),
+            createIndexes,
             index => Assert.Contains(ExpenseBillSchemaTables, table => table == index.Table));
 
         var forbiddenNames = migration.UpOperations
@@ -402,6 +403,151 @@ public sealed class ExpenseBillSchemaFoundationTests
             createTables.SelectMany(table => table.CheckConstraints),
             constraint => constraint.Name == "ck_expense_bill_adjustments_direction"
                 && constraint.Sql == "direction IN ('charge', 'credit')");
+
+        AssertMigrationMoneyColumns(
+            expenseBills,
+            amountColumnName: "total_amount",
+            currencyColumnName: "total_currency",
+            nonNegativeConstraintName: "ck_expense_bills_total_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bills_total_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bills_total_currency_uppercase_iso");
+        AssertMigrationCheckConstraint(
+            expenseBills,
+            "ck_expense_bills_status",
+            "status IN ('draft', 'pending_confirmation', 'confirmed', 'rejected', 'cancelled', 'finalized', 'archived')");
+
+        var items = Assert.Single(createTables, table => table.Name == "expense_bill_items");
+        AssertMigrationMoneyColumns(
+            items,
+            amountColumnName: "amount",
+            currencyColumnName: "currency",
+            nonNegativeConstraintName: "ck_expense_bill_items_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bill_items_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bill_items_currency_uppercase_iso");
+
+        AssertMigrationMoneyColumns(
+            participants,
+            amountColumnName: "resolved_share_amount",
+            currencyColumnName: "resolved_share_currency",
+            nonNegativeConstraintName: "ck_expense_bill_participants_share_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bill_participants_share_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bill_participants_share_currency_iso");
+        AssertMigrationCheckConstraint(
+            participants,
+            "ck_expense_bill_participants_status",
+            "status IN ('pending_acceptance', 'accepted', 'rejected', 'partially_settled', 'settled', 'waived', 'claimed_paid', 'confirmed_paid')");
+
+        var payers = Assert.Single(createTables, table => table.Name == "expense_bill_payers");
+        AssertMigrationMoneyColumns(
+            payers,
+            amountColumnName: "amount",
+            currencyColumnName: "currency",
+            nonNegativeConstraintName: "ck_expense_bill_payers_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bill_payers_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bill_payers_currency_uppercase_iso");
+
+        var adjustments = Assert.Single(createTables, table => table.Name == "expense_bill_adjustments");
+        AssertMigrationMoneyColumns(
+            adjustments,
+            amountColumnName: "amount",
+            currencyColumnName: "currency",
+            nonNegativeConstraintName: "ck_expense_bill_adjustments_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bill_adjustments_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bill_adjustments_currency_iso");
+        AssertMigrationCheckConstraint(
+            adjustments,
+            "ck_expense_bill_adjustments_type",
+            "type IN ('tax', 'service_charge', 'discount', 'manual_adjustment', 'credit')");
+        AssertMigrationCheckConstraint(
+            adjustments,
+            "ck_expense_bill_adjustments_direction",
+            "direction IN ('charge', 'credit')");
+        AssertMigrationCheckConstraint(
+            adjustments,
+            "ck_expense_bill_adjustments_allocation_method",
+            "allocation_method IN ('equal', 'proportional_by_item_subtotal', 'manual')");
+
+        AssertMigrationCheckConstraint(
+            attachments,
+            "ck_expense_bill_attachments_purpose",
+            "purpose IN ('receipt', 'supporting_attachment')");
+
+        AssertMigrationForeignKey(expenseBills, "user_profiles", ["created_by_user_profile_id"]);
+        AssertMigrationForeignKey(expenseBills, "user_groups", ["group_id"]);
+        AssertMigrationForeignKey(items, "expense_bills", ["expense_bill_id"]);
+        AssertMigrationForeignKey(participants, "expense_bills", ["expense_bill_id"]);
+        AssertMigrationForeignKey(participants, "user_profiles", ["user_profile_id"]);
+        AssertMigrationForeignKey(payers, "expense_bills", ["expense_bill_id"]);
+        AssertMigrationForeignKey(payers, "user_profiles", ["user_profile_id"]);
+        AssertMigrationForeignKey(adjustments, "expense_bills", ["expense_bill_id"]);
+        AssertMigrationForeignKey(attachments, "expense_bills", ["expense_bill_id"]);
+        AssertMigrationForeignKey(attachments, "file_objects", ["file_object_id"]);
+        AssertMigrationForeignKey(attachments, "user_profiles", ["created_by_user_profile_id"]);
+
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bills_created_by_user_profile_id",
+            "expense_bills",
+            ["created_by_user_profile_id"]);
+        AssertMigrationIndex(createIndexes, "ix_expense_bills_group_id", "expense_bills", ["group_id"]);
+        AssertMigrationIndex(createIndexes, "ix_expense_bills_status", "expense_bills", ["status"]);
+        AssertMigrationIndex(createIndexes, "ix_expense_bills_bill_date", "expense_bills", ["bill_date"]);
+        AssertMigrationIndex(createIndexes, "ix_expense_bills_archived_at_utc", "expense_bills", ["archived_at_utc"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_items_expense_bill_id",
+            "expense_bill_items",
+            ["expense_bill_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_items_bill_sort_order",
+            "expense_bill_items",
+            ["expense_bill_id", "sort_order"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_items_deleted_at_utc",
+            "expense_bill_items",
+            ["deleted_at_utc"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_participants_user_profile_id",
+            "expense_bill_participants",
+            ["user_profile_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_payers_expense_bill_id",
+            "expense_bill_payers",
+            ["expense_bill_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_payers_user_profile_id",
+            "expense_bill_payers",
+            ["user_profile_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_payers_bill_user_profile_id",
+            "expense_bill_payers",
+            ["expense_bill_id", "user_profile_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_adjustments_expense_bill_id",
+            "expense_bill_adjustments",
+            ["expense_bill_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_adjustments_bill_sort_order",
+            "expense_bill_adjustments",
+            ["expense_bill_id", "sort_order"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_attachments_file_object_id",
+            "expense_bill_attachments",
+            ["file_object_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_attachments_created_by_profile_id",
+            "expense_bill_attachments",
+            ["created_by_user_profile_id"]);
     }
 
     private static SettleoraDbContext CreateDbContext()
@@ -468,6 +614,71 @@ public sealed class ExpenseBillSchemaFoundationTests
         {
             Assert.Equal(columnType, property.GetColumnType());
         }
+    }
+
+    private static void AssertMigrationMoneyColumns(
+        CreateTableOperation table,
+        string amountColumnName,
+        string currencyColumnName,
+        string nonNegativeConstraintName,
+        string upperBoundConstraintName,
+        string currencyConstraintName)
+    {
+        var amountColumn = Assert.Single(table.Columns, column => column.Name == amountColumnName);
+        Assert.Equal(typeof(decimal), amountColumn.ClrType);
+        Assert.Equal("numeric(19,4)", amountColumn.ColumnType);
+        Assert.False(amountColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.MoneyAmountPrecision, amountColumn.Precision);
+        Assert.Equal(ExpenseBillConstraints.MoneyAmountScale, amountColumn.Scale);
+
+        var currencyColumn = Assert.Single(table.Columns, column => column.Name == currencyColumnName);
+        Assert.Equal(typeof(string), currencyColumn.ClrType);
+        Assert.Equal("character varying(3)", currencyColumn.ColumnType);
+        Assert.False(currencyColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.CurrencyMaxLength, currencyColumn.MaxLength);
+
+        AssertMigrationCheckConstraint(table, nonNegativeConstraintName, $"{amountColumnName} >= 0");
+        AssertMigrationCheckConstraint(
+            table,
+            upperBoundConstraintName,
+            $"{amountColumnName} <= {ExpenseBillConstraints.MoneyAmountMaxValue:0.0000}");
+        AssertMigrationCheckConstraint(table, currencyConstraintName, $"{currencyColumnName} ~ '^[A-Z]{{3}}$'");
+    }
+
+    private static void AssertMigrationCheckConstraint(
+        CreateTableOperation table,
+        string constraintName,
+        string sql)
+    {
+        Assert.Contains(
+            table.CheckConstraints,
+            constraint => constraint.Name == constraintName && constraint.Sql == sql);
+    }
+
+    private static void AssertMigrationForeignKey(
+        CreateTableOperation table,
+        string principalTable,
+        string[] columnNames)
+    {
+        Assert.Contains(
+            table.ForeignKeys,
+            foreignKey => foreignKey.PrincipalTable == principalTable
+                && foreignKey.Columns.SequenceEqual(columnNames)
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+    }
+
+    private static void AssertMigrationIndex(
+        CreateIndexOperation[] indexes,
+        string indexName,
+        string tableName,
+        string[] columnNames)
+    {
+        var index = Assert.Single(
+            indexes,
+            index => index.Name == indexName && index.Table == tableName);
+
+        Assert.Equal(columnNames, index.Columns);
+        Assert.False(index.IsUnique);
     }
 
     private static IIndex AssertIndex(
