@@ -13,6 +13,7 @@ public static class ExpenseBillConstraints
     public const int AdjustmentDirectionMaxLength = 16;
     public const int AdjustmentAllocationMethodMaxLength = 40;
     public const int AttachmentPurposeMaxLength = 32;
+    public const int ItemSplitMethodMaxLength = 32;
     public const int MoneyAmountPrecision = 19;
     public const int MoneyAmountScale = 4;
     public const decimal MoneyAmountMaxValue = 999999999999999.9999m;

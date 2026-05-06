@@ -54,6 +54,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<GroupMembership>(ConfigureGroupMembership);
         modelBuilder.Entity<ExpenseBill>(ConfigureExpenseBill);
         modelBuilder.Entity<ExpenseBillItem>(ConfigureExpenseBillItem);
+        modelBuilder.Entity<ExpenseBillItemSplit>(ConfigureExpenseBillItemSplit);
         modelBuilder.Entity<ExpenseBillParticipant>(ConfigureExpenseBillParticipant);
         modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
@@ -700,6 +701,117 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(participant => participant.UserProfileId)
             .HasConstraintName("fk_expense_bill_participants_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillItemSplit(EntityTypeBuilder<ExpenseBillItemSplit> entity)
+    {
+        entity.ToTable("expense_bill_item_splits", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_split_method",
+                "split_method IN ('equal', 'exact_amount', 'percentage', 'ratio', 'share_weight')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_basis_value_non_negative",
+                "basis_value IS NULL OR basis_value >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_basis_value_upper_bound",
+                "basis_value IS NULL OR basis_value <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_resolved_amount_non_negative",
+                "resolved_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_resolved_amount_upper_bound",
+                "resolved_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_resolved_currency_iso",
+                "resolved_currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_item_splits_allocation_order_non_negative",
+                "allocation_order >= 0");
+        });
+
+        entity.HasKey(split => split.Id);
+
+        entity.Property(split => split.Id)
+            .HasColumnName("id");
+
+        entity.Property(split => split.ExpenseBillItemId)
+            .HasColumnName("expense_bill_item_id");
+
+        entity.Property(split => split.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(split => split.SplitMethod)
+            .HasColumnName("split_method")
+            .HasMaxLength(ExpenseBillConstraints.ItemSplitMethodMaxLength)
+            .IsRequired();
+
+        entity.Property(split => split.BasisValue)
+            .HasColumnName("basis_value")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale);
+
+        entity.Property(split => split.ResolvedAmount)
+            .HasColumnName("resolved_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(split => split.ResolvedCurrency)
+            .HasColumnName("resolved_currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(split => split.AllocationOrder)
+            .HasColumnName("allocation_order")
+            .IsRequired();
+
+        entity.Property(split => split.ReceivedResidualMinorUnit)
+            .HasColumnName("received_residual_minor_unit")
+            .IsRequired();
+
+        entity.Property(split => split.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(split => split.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(split => split.ExpenseBillItemId)
+            .HasDatabaseName("ix_expense_bill_item_splits_expense_bill_item_id");
+
+        entity.HasIndex(split => split.UserProfileId)
+            .HasDatabaseName("ix_expense_bill_item_splits_user_profile_id");
+
+        entity.HasIndex(split => new
+            {
+                split.ExpenseBillItemId,
+                split.AllocationOrder
+            })
+            .HasDatabaseName("ix_expense_bill_item_splits_item_allocation_order");
+
+        entity.HasIndex(split => new
+            {
+                split.ExpenseBillItemId,
+                split.UserProfileId
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_expense_bill_item_splits_item_user_profile_id");
+
+        entity.HasOne(split => split.ExpenseBillItem)
+            .WithMany(item => item.Splits)
+            .HasForeignKey(split => split.ExpenseBillItemId)
+            .HasConstraintName("fk_expense_bill_item_splits_expense_bill_items_item_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(split => split.UserProfile)
+            .WithMany()
+            .HasForeignKey(split => split.UserProfileId)
+            .HasConstraintName("fk_expense_bill_item_splits_user_profiles_user_profile_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

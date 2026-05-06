@@ -31,6 +31,7 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.Equal(4, ExpenseBillConstraints.MoneyAmountScale);
         Assert.Equal(3, ExpenseBillConstraints.CurrencyMaxLength);
         Assert.Equal(999999999999999.9999m, ExpenseBillConstraints.MoneyAmountMaxValue);
+        Assert.Equal(32, ExpenseBillConstraints.ItemSplitMethodMaxLength);
 
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.Draft));
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.PendingConfirmation));
@@ -60,6 +61,13 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.True(ExpenseBillAttachmentPurposes.IsSupported(ExpenseBillAttachmentPurposes.Receipt));
         Assert.True(ExpenseBillAttachmentPurposes.IsSupported(ExpenseBillAttachmentPurposes.SupportingAttachment));
         Assert.False(ExpenseBillAttachmentPurposes.IsSupported("storage_path"));
+
+        Assert.True(ExpenseBillItemSplitMethods.IsSupported(ExpenseBillItemSplitMethods.Equal));
+        Assert.True(ExpenseBillItemSplitMethods.IsSupported(ExpenseBillItemSplitMethods.ExactAmount));
+        Assert.True(ExpenseBillItemSplitMethods.IsSupported(ExpenseBillItemSplitMethods.Percentage));
+        Assert.True(ExpenseBillItemSplitMethods.IsSupported(ExpenseBillItemSplitMethods.Ratio));
+        Assert.True(ExpenseBillItemSplitMethods.IsSupported(ExpenseBillItemSplitMethods.ShareWeight));
+        Assert.False(ExpenseBillItemSplitMethods.IsSupported("client_calculated"));
     }
 
     [Fact]
@@ -143,6 +151,85 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertCheckConstraint(entity, "ck_expense_bill_items_amount_non_negative", "amount >= 0");
         AssertCheckConstraint(entity, "ck_expense_bill_items_amount_upper_bound", "amount <= 999999999999999.9999");
         AssertCheckConstraint(entity, "ck_expense_bill_items_currency_uppercase_iso", "currency ~ '^[A-Z]{3}$'");
+    }
+
+    [Fact]
+    public void ExpenseBillItemSplitModelUsesItemResolvedShareAndResidualConstraints()
+    {
+        using var dbContext = CreateDbContext();
+        var entity = FindEntityType<ExpenseBillItemSplit>(dbContext);
+        var storeObject = StoreObjectIdentifier.Table("expense_bill_item_splits", null);
+
+        Assert.Equal("expense_bill_item_splits", entity.GetTableName());
+        Assert.Equal(["Id"], entity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
+        AssertColumn(entity, storeObject, "ExpenseBillItemId", "expense_bill_item_id", isNullable: false);
+        AssertColumn(entity, storeObject, "UserProfileId", "user_profile_id", isNullable: false);
+        AssertColumn(entity, storeObject, "SplitMethod", "split_method", isNullable: false, maxLength: 32);
+        AssertColumn(
+            entity,
+            storeObject,
+            "BasisValue",
+            "basis_value",
+            isNullable: true,
+            precision: ExpenseBillConstraints.MoneyAmountPrecision,
+            scale: ExpenseBillConstraints.MoneyAmountScale);
+        AssertMoneyColumn(entity, storeObject, "ResolvedAmount", "resolved_amount");
+        AssertColumn(entity, storeObject, "ResolvedCurrency", "resolved_currency", isNullable: false, maxLength: 3);
+        AssertColumn(entity, storeObject, "AllocationOrder", "allocation_order", isNullable: false);
+        AssertColumn(entity, storeObject, "ReceivedResidualMinorUnit", "received_residual_minor_unit", isNullable: false);
+        AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+
+        AssertIndex(
+            entity,
+            "ix_expense_bill_item_splits_expense_bill_item_id",
+            ["ExpenseBillItemId"],
+            isUnique: false);
+        AssertIndex(entity, "ix_expense_bill_item_splits_user_profile_id", ["UserProfileId"], isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_expense_bill_item_splits_item_allocation_order",
+            ["ExpenseBillItemId", "AllocationOrder"],
+            isUnique: false);
+        AssertIndex(
+            entity,
+            "ux_expense_bill_item_splits_item_user_profile_id",
+            ["ExpenseBillItemId", "UserProfileId"],
+            isUnique: true);
+
+        AssertForeignKey(entity, typeof(ExpenseBillItem), ["ExpenseBillItemId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(UserProfile), ["UserProfileId"], DeleteBehavior.Restrict);
+
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_split_method",
+            "split_method IN ('equal', 'exact_amount', 'percentage', 'ratio', 'share_weight')");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_basis_value_non_negative",
+            "basis_value IS NULL OR basis_value >= 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_basis_value_upper_bound",
+            "basis_value IS NULL OR basis_value <= 999999999999999.9999");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_resolved_amount_non_negative",
+            "resolved_amount >= 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_resolved_amount_upper_bound",
+            "resolved_amount <= 999999999999999.9999");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_resolved_currency_iso",
+            "resolved_currency ~ '^[A-Z]{3}$'");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_item_splits_allocation_order_non_negative",
+            "allocation_order >= 0");
     }
 
     [Fact]
@@ -550,6 +637,138 @@ public sealed class ExpenseBillSchemaFoundationTests
             ["created_by_user_profile_id"]);
     }
 
+    [Fact]
+    public void ExpenseBillItemSplitSchemaFoundationMigrationIsRegisteredAndReviewable()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddExpenseBillItemSplitSchemaFoundation", StringComparison.Ordinal));
+
+        var migration = new AddExpenseBillItemSplitSchemaFoundation();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var createTable = Assert.Single(migration.UpOperations.OfType<CreateTableOperation>());
+        var createIndexes = migration.UpOperations.OfType<CreateIndexOperation>().ToArray();
+
+        Assert.Equal("expense_bill_item_splits", createTable.Name);
+        Assert.Equal(["id"], createTable.PrimaryKey!.Columns);
+        Assert.Equal(
+            [
+                "id",
+                "expense_bill_item_id",
+                "user_profile_id",
+                "split_method",
+                "basis_value",
+                "resolved_amount",
+                "resolved_currency",
+                "allocation_order",
+                "received_residual_minor_unit",
+                "created_at_utc",
+                "updated_at_utc"
+            ],
+            createTable.Columns.Select(column => column.Name));
+
+        Assert.All(createIndexes, index => Assert.Equal("expense_bill_item_splits", index.Table));
+        Assert.All(
+            createTable.ForeignKeys,
+            foreignKey => Assert.Equal(ReferentialAction.Restrict, foreignKey.OnDelete));
+        Assert.All(
+            createTable.ForeignKeys,
+            foreignKey => Assert.Contains(
+                ["expense_bill_items", "user_profiles"],
+                principalTable => principalTable == foreignKey.PrincipalTable));
+
+        var splitMethodColumn = Assert.Single(createTable.Columns, column => column.Name == "split_method");
+        Assert.Equal(typeof(string), splitMethodColumn.ClrType);
+        Assert.Equal("character varying(32)", splitMethodColumn.ColumnType);
+        Assert.False(splitMethodColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.ItemSplitMethodMaxLength, splitMethodColumn.MaxLength);
+
+        var basisValueColumn = Assert.Single(createTable.Columns, column => column.Name == "basis_value");
+        Assert.Equal(typeof(decimal), basisValueColumn.ClrType);
+        Assert.Equal("numeric(19,4)", basisValueColumn.ColumnType);
+        Assert.True(basisValueColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.MoneyAmountPrecision, basisValueColumn.Precision);
+        Assert.Equal(ExpenseBillConstraints.MoneyAmountScale, basisValueColumn.Scale);
+
+        var residualColumn = Assert.Single(createTable.Columns, column => column.Name == "received_residual_minor_unit");
+        Assert.Equal(typeof(bool), residualColumn.ClrType);
+        Assert.Equal("boolean", residualColumn.ColumnType);
+        Assert.False(residualColumn.IsNullable);
+
+        Assert.All(
+            createTable.Columns.Where(column => column.ClrType == typeof(string)),
+            column => Assert.NotNull(column.MaxLength));
+
+        AssertMigrationMoneyColumns(
+            createTable,
+            amountColumnName: "resolved_amount",
+            currencyColumnName: "resolved_currency",
+            nonNegativeConstraintName: "ck_expense_bill_item_splits_resolved_amount_non_negative",
+            upperBoundConstraintName: "ck_expense_bill_item_splits_resolved_amount_upper_bound",
+            currencyConstraintName: "ck_expense_bill_item_splits_resolved_currency_iso");
+        AssertMigrationCheckConstraint(
+            createTable,
+            "ck_expense_bill_item_splits_split_method",
+            "split_method IN ('equal', 'exact_amount', 'percentage', 'ratio', 'share_weight')");
+        AssertMigrationCheckConstraint(
+            createTable,
+            "ck_expense_bill_item_splits_basis_value_non_negative",
+            "basis_value IS NULL OR basis_value >= 0");
+        AssertMigrationCheckConstraint(
+            createTable,
+            "ck_expense_bill_item_splits_basis_value_upper_bound",
+            "basis_value IS NULL OR basis_value <= 999999999999999.9999");
+        AssertMigrationCheckConstraint(
+            createTable,
+            "ck_expense_bill_item_splits_allocation_order_non_negative",
+            "allocation_order >= 0");
+
+        AssertMigrationForeignKey(createTable, "expense_bill_items", ["expense_bill_item_id"]);
+        AssertMigrationForeignKey(createTable, "user_profiles", ["user_profile_id"]);
+
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_item_splits_expense_bill_item_id",
+            "expense_bill_item_splits",
+            ["expense_bill_item_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_item_splits_user_profile_id",
+            "expense_bill_item_splits",
+            ["user_profile_id"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ix_expense_bill_item_splits_item_allocation_order",
+            "expense_bill_item_splits",
+            ["expense_bill_item_id", "allocation_order"]);
+        AssertMigrationIndex(
+            createIndexes,
+            "ux_expense_bill_item_splits_item_user_profile_id",
+            "expense_bill_item_splits",
+            ["expense_bill_item_id", "user_profile_id"],
+            isUnique: true);
+
+        var names = migration.UpOperations
+            .OfType<CreateTableOperation>()
+            .Select(table => table.Name)
+            .Concat(migration.UpOperations.OfType<CreateIndexOperation>().Select(index => index.Table))
+            .ToArray();
+        Assert.DoesNotContain(names, name => name.Contains("settlement", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(names, name => name.Contains("recurring", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(names, name => name.Contains("balance", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(names, name => name.Contains("reconciliation", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static SettleoraDbContext CreateDbContext()
     {
         Dictionary<string, string?> values = new()
@@ -671,14 +890,15 @@ public sealed class ExpenseBillSchemaFoundationTests
         CreateIndexOperation[] indexes,
         string indexName,
         string tableName,
-        string[] columnNames)
+        string[] columnNames,
+        bool isUnique = false)
     {
         var index = Assert.Single(
             indexes,
             index => index.Name == indexName && index.Table == tableName);
 
         Assert.Equal(columnNames, index.Columns);
-        Assert.False(index.IsUnique);
+        Assert.Equal(isUnique, index.IsUnique);
     }
 
     private static IIndex AssertIndex(

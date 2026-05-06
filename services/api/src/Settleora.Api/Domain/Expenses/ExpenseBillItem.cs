@@ -25,4 +25,6 @@ public sealed class ExpenseBillItem
     public DateTimeOffset UpdatedAtUtc { get; set; }
 
     public DateTimeOffset? DeletedAtUtc { get; set; }
+
+    public ICollection<ExpenseBillItemSplit> Splits { get; } = new List<ExpenseBillItemSplit>();
 }

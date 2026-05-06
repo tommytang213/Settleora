@@ -7,10 +7,10 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, auth audit event, expense bill root, expense bill item, expense bill participant, expense bill payer, expense bill adjustment, and expense bill attachment tables.
+- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, auth audit event, expense bill root, expense bill item, expense bill item split, expense bill participant, expense bill payer, expense bill adjustment, and expense bill attachment tables.
 - Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist.
 - Guarded self-profile, self payment-details, self payment QR, group foundation, group member management, and admin local-user endpoints exist as narrow API layers on the current user/group/payment/file metadata foundations.
-- No business tables for expense item splits, settlement workflows, settlement proof associations, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
+- No business tables for settlement workflows, settlement proof associations, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
 
 ## Authority Boundary
 
@@ -63,6 +63,7 @@ The current schema foundation is intentionally limited to:
 - `file_objects`: API-owned file metadata foundation linked to owner and creator `user_profiles`, with constrained purpose/status/encryption-mode values, content type, optional display filename, size, optional SHA-256 hash, local storage provider metadata, provider-internal object key, optional vault/retention references, timestamps, and soft-delete timestamp. The first subject-specific file workflow is self-only payment QR linkage through the payment-details boundary; no generic public file API exists.
 - `expense_bills`: schema-only bill/expense roots linked to the creator `user_profiles` row and optional `user_groups` row, with bounded optional merchant text, bill date, constrained status, `numeric(19,4)` total amount, uppercase three-letter currency, timestamps, archive timestamp, indexes, and restrictive foreign keys.
 - `expense_bill_items`: schema-only bill item rows linked to `expense_bills`, with bounded name/note fields, optional positive quantity, `numeric(19,4)` amount, uppercase three-letter currency, deterministic sort-order index, timestamps, and soft-delete timestamp.
+- `expense_bill_item_splits`: schema-only item split rows linked to `expense_bill_items` and `user_profiles`, with constrained split method, nullable non-negative basis value, resolved `numeric(19,4)` amount/currency pair, deterministic allocation order, residual flag, uniqueness per item/profile, indexes, and restrictive foreign keys.
 - `expense_bill_participants`: schema-only bill participant rows keyed by bill/profile, with constrained acknowledgement/payment status, resolved share amount/currency, acknowledgement timestamps, indexes, and restrictive foreign keys.
 - `expense_bill_payers`: schema-only original payer contribution rows linked to bills and user profiles, with non-negative bounded amount/currency pairs, optional bounded payment-method label snapshot, indexes, and restrictive foreign keys.
 - `expense_bill_adjustments`: schema-only tax, service-charge, discount, credit, and manual adjustment rows with constrained type, direction, allocation method, non-negative bounded amount/currency pair, optional bounded reason note, deterministic sort-order index, and restrictive foreign key.
@@ -74,7 +75,7 @@ Future business tables are deferred. Future schema design should separate concer
 
 - Passkeys, MFA, reset tokens, recovery codes, invitations, and friends.
 - Business audit records outside auth.
-- Item-level split records, recurring bills, reimbursements, and reconciliation records.
+- Recurring bills, reimbursements, and reconciliation records.
 - Settlement workflows, balances, approvals, and status history.
 - File subject associations and storage lifecycle records beyond the first `file_objects` metadata foundation.
 - OCR metadata, extraction results, confidence data, and review state.

@@ -15,10 +15,10 @@ The current repository state is:
 - Payment details and payment QR file metadata linkage foundations exist.
 - File metadata lifecycle foundation exists, but no generic public upload/download API exists yet.
 - Internal money, rounding, validation, and allocation foundations exist under the API project, including `MoneyAmount`, `CurrencyCode`, `MoneyRoundingService`, and `MoneyAllocationService`.
-- EF Core migrations now define the first schema-only expense/bill foundation tables: `expense_bills`, `expense_bill_items`, `expense_bill_participants`, `expense_bill_payers`, `expense_bill_adjustments`, and `expense_bill_attachments`.
+- EF Core migrations now define schema-only expense/bill foundation tables: `expense_bills`, `expense_bill_items`, `expense_bill_item_splits`, `expense_bill_participants`, `expense_bill_payers`, `expense_bill_adjustments`, and `expense_bill_attachments`.
 - No expense, bill, split, settlement, balance, recurring, reconciliation, or bill-related notification runtime exists yet.
 - No expense, bill, or settlement OpenAPI paths exist yet.
-- No business migrations for expense bill item splits, settlements, balances, recurring bills, or reconciliation exist yet.
+- No business migrations for settlements, balances, recurring bills, or reconciliation exist yet.
 
 Existing payment details are payment instructions and optional QR linkage only. They are not settlement records, payment confirmations, balances, or proof that money moved.
 
@@ -217,7 +217,7 @@ No generic public file upload/download API is authorized here unless a future st
 
 ## Database Direction
 
-The first expense/bill schema foundation has been implemented for bill roots, items, participants, payers, adjustments, and bill attachment references. Future schema branches should continue introducing small table groups with explicit constraints.
+The first expense/bill schema foundation has been implemented for bill roots, items, item splits, participants, payers, adjustments, and bill attachment references. Future schema branches should continue introducing small table groups with explicit constraints.
 
 Suggested table categories:
 
@@ -239,7 +239,7 @@ Suggested purpose and constraints:
 - `expense_bills`: root bill/expense record with creator, optional group, merchant/date/category metadata, status, total amount/currency, version/timestamps, archive fields, and same-currency Day 1 constraint. Implemented schema foundation fields currently cover creator, optional group, merchant, bill date, status, total amount/currency, timestamps, and archive timestamp.
 - `expense_bill_items`: item rows for a bill with description, quantity where needed, amount/currency, ordering, optional OCR candidate linkage, and soft-delete/archive direction. Implemented schema foundation fields currently cover bill linkage, name, optional note, optional positive quantity, amount/currency, sort order, timestamps, and soft-delete timestamp.
 - `expense_bill_participants`: bill-level participant rows with user profile, status, resolved share amount/currency, acknowledgement timestamps, and uniqueness per bill/profile. Implemented schema foundation fields currently cover bill/profile composite key, status, resolved share amount/currency, acknowledgement/payment timestamps, and timestamps.
-- `expense_bill_item_splits`: item-level split basis and resolved share rows with method, basis value, participant, amount/currency, input order, and residual flag.
+- `expense_bill_item_splits`: item-level split basis and resolved share rows with method, basis value, participant, amount/currency, input order, and residual flag. Implemented schema foundation fields currently cover item/profile linkage, constrained split method, nullable non-negative bounded basis value, resolved amount/currency, allocation order, residual flag, timestamps, uniqueness per item/profile, indexes, and restrictive foreign keys.
 - `expense_bill_payers`: original payer contribution rows with user profile, amount/currency, optional payment method hint, and non-negative amount constraint. Implemented schema foundation fields currently cover bill/profile linkage, amount/currency, optional payment-method label snapshot, and timestamps.
 - `expense_bill_adjustments`: tax, service charge, discount, credit, or manual adjustment rows with explicit type, direction, amount/currency, allocation method, and non-hidden sign policy. Implemented schema foundation fields currently cover bill linkage, constrained type/direction/allocation method, amount/currency, optional reason note, sort order, and timestamps.
 - `expense_bill_attachments`: receipt/supporting file references using stable `file_objects.id`, purpose/lifecycle constraints, subject ownership, and no provider path fields. Implemented schema foundation fields currently cover bill/file composite key, constrained purpose, creator reference, timestamps, and removed timestamp.
@@ -278,7 +278,7 @@ Generated clients must be regenerated only after reviewed OpenAPI changes. Gener
 
 Recommended next implementation candidates, in order:
 
-1. Expense/bill schema foundation only. This is now landed for bill roots, items, participants, payers, adjustments, and bill attachment references only.
+1. Expense/bill schema foundation only. This is now landed for bill roots, items, item splits, participants, payers, adjustments, and bill attachment references only.
 2. Internal bill calculation and split domain service tests using the money foundation.
 3. Minimal bill create/read endpoints for personal bills only.
 4. Group bill create/read with authorization and resolved shares.
