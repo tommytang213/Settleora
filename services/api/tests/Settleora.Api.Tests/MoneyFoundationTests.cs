@@ -28,8 +28,10 @@ public sealed class MoneyFoundationTests
     [InlineData("USDD")]
     [InlineData(" US")]
     [InlineData("US ")]
+    [InlineData(" USD ")]
     [InlineData("U$D")]
     [InlineData("12D")]
+    [InlineData("123")]
     public void CurrencyCodeRejectsInvalidFormats(string? submittedCurrency)
     {
         var accepted = CurrencyCode.TryCreate(submittedCurrency, out _);
@@ -57,6 +59,8 @@ public sealed class MoneyFoundationTests
     [InlineData("JPY", 0)]
     [InlineData("HKD", 2)]
     [InlineData("USD", 2)]
+    [InlineData("EUR", 2)]
+    [InlineData("GBP", 2)]
     [InlineData("KWD", 3)]
     [InlineData("BHD", 3)]
     public void SupportedCurrencyPolicyReturnsMinorUnits(string submittedCurrency, int expectedMinorUnits)
@@ -80,6 +84,22 @@ public sealed class MoneyFoundationTests
         Assert.False(validationResult.Succeeded);
         Assert.Equal(MoneyValidationFailureReason.UnsupportedCurrency, validationResult.FailureReason);
         Assert.Equal("unsupported_currency", validationResult.Code);
+    }
+
+    [Fact]
+    public void MoneyParserRejectsUnsupportedCurrencyDuringAuthoritativeValidation()
+    {
+        var validationResult = MoneyAmount.TryParse(
+            "12.34",
+            "ZZZ",
+            MoneyValidationOptions.Default,
+            SupportedCurrencyPolicy.Default,
+            out _);
+
+        Assert.False(validationResult.Succeeded);
+        Assert.Equal(MoneyValidationFailureReason.UnsupportedCurrency, validationResult.FailureReason);
+        Assert.Equal("unsupported_currency", validationResult.Code);
+        Assert.Equal("currency", validationResult.Field);
     }
 
     [Theory]
@@ -134,6 +154,42 @@ public sealed class MoneyFoundationTests
     }
 
     [Fact]
+    public void DecimalStringParserUsesInvariantCulture()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("fr-FR");
+
+            var acceptedResult = MoneyAmount.TryParse(
+                "12.34",
+                CreateCurrency("EUR"),
+                MoneyValidationOptions.Default,
+                SupportedCurrencyPolicy.Default,
+                out var acceptedAmount);
+            var rejectedResult = MoneyAmount.TryParse(
+                "12,34",
+                CreateCurrency("EUR"),
+                MoneyValidationOptions.Default,
+                SupportedCurrencyPolicy.Default,
+                out _);
+
+            Assert.True(acceptedResult.Succeeded);
+            Assert.Equal(12.34m, acceptedAmount.Amount);
+            Assert.False(rejectedResult.Succeeded);
+            Assert.Equal(MoneyValidationFailureReason.InvalidDecimalFormat, rejectedResult.FailureReason);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    [Fact]
     public void AmountBoundsAreEnforced()
     {
         var currency = CreateCurrency("USD");
@@ -149,12 +205,29 @@ public sealed class MoneyFoundationTests
             MoneyValidationOptions.Default,
             SupportedCurrencyPolicy.Default,
             out _);
+        var negativeAcceptedResult = MoneyAmount.TryParse(
+            "-999999999999999.9999",
+            currency,
+            MoneyValidationOptions.Default with { AllowNegative = true },
+            SupportedCurrencyPolicy.Default,
+            out var negativeAcceptedAmount);
+        var negativeRejectedResult = MoneyAmount.TryParse(
+            "-1000000000000000.0000",
+            currency,
+            MoneyValidationOptions.Default with { AllowNegative = true },
+            SupportedCurrencyPolicy.Default,
+            out _);
 
         Assert.True(acceptedResult.Succeeded);
         Assert.Equal(MoneyAmount.MaxAbsStorageAmount, acceptedAmount.Amount);
         Assert.False(rejectedResult.Succeeded);
         Assert.Equal(MoneyValidationFailureReason.AmountOutOfRange, rejectedResult.FailureReason);
         Assert.Equal("amount_out_of_range", rejectedResult.Code);
+        Assert.True(negativeAcceptedResult.Succeeded);
+        Assert.Equal(-MoneyAmount.MaxAbsStorageAmount, negativeAcceptedAmount.Amount);
+        Assert.False(negativeRejectedResult.Succeeded);
+        Assert.Equal(MoneyValidationFailureReason.AmountOutOfRange, negativeRejectedResult.FailureReason);
+        Assert.Equal("amount_out_of_range", negativeRejectedResult.Code);
     }
 
     [Fact]
@@ -162,6 +235,21 @@ public sealed class MoneyFoundationTests
     {
         var validationResult = MoneyAmount.TryParse(
             "12.345",
+            CreateCurrency("HKD"),
+            MoneyValidationOptions.Default with { MaxFractionalDigits = 2 },
+            SupportedCurrencyPolicy.Default,
+            out _);
+
+        Assert.False(validationResult.Succeeded);
+        Assert.Equal(MoneyValidationFailureReason.TooManyFractionalDigits, validationResult.FailureReason);
+        Assert.Equal("too_many_fractional_digits", validationResult.Code);
+    }
+
+    [Fact]
+    public void FractionalScaleValidationCountsSubmittedTrailingZeros()
+    {
+        var validationResult = MoneyAmount.TryParse(
+            "12.340",
             CreateCurrency("HKD"),
             MoneyValidationOptions.Default with { MaxFractionalDigits = 2 },
             SupportedCurrencyPolicy.Default,
@@ -258,6 +346,8 @@ public sealed class MoneyFoundationTests
         AssertMoney(13m, "JPY", service.RoundToCurrencyMinorUnits(Money("12.60", "JPY")));
         AssertMoney(12.34m, "HKD", service.RoundToCurrencyMinorUnits(Money("12.345", "HKD")));
         AssertMoney(12.34m, "USD", service.RoundToCurrencyMinorUnits(Money("12.345", "USD")));
+        AssertMoney(12.34m, "EUR", service.RoundToCurrencyMinorUnits(Money("12.345", "EUR")));
+        AssertMoney(12.34m, "GBP", service.RoundToCurrencyMinorUnits(Money("12.345", "GBP")));
         AssertMoney(12.346m, "KWD", service.RoundToCurrencyMinorUnits(Money("12.3456", "KWD")));
         AssertMoney(12.346m, "BHD", service.RoundToCurrencyMinorUnits(Money("12.3456", "BHD")));
     }
@@ -289,6 +379,22 @@ public sealed class MoneyFoundationTests
         Assert.True(result.Shares[0].ReceivedResidualMinorUnit);
         Assert.False(result.Shares[1].ReceivedResidualMinorUnit);
         Assert.False(result.Shares[2].ReceivedResidualMinorUnit);
+        AssertAllocationSumsToRoundedTotal(result);
+    }
+
+    [Fact]
+    public void EqualSplitUsesRoundedTotalMinorUnitsForResidualDistribution()
+    {
+        var participantKeys = ParticipantKeys(2);
+        var service = new MoneyAllocationService();
+
+        var result = service.AllocateEqual(Money("10.006", "HKD"), participantKeys);
+
+        Assert.True(result.Succeeded);
+        AssertMoney(10.01m, "HKD", result.RoundedTotal!);
+        Assert.Equal(1, result.ResidualMinorUnits);
+        Assert.Equal([participantKeys[0]], result.ResidualParticipantKeys);
+        AssertAllocationAmounts(result, [5.01m, 5.00m]);
         AssertAllocationSumsToRoundedTotal(result);
     }
 
@@ -344,6 +450,21 @@ public sealed class MoneyFoundationTests
         var service = new MoneyAllocationService();
 
         var result = service.AllocateEqual(Money("1.00", "USD"), []);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(MoneyValidationFailureReason.InvalidSplitParticipant, result.ValidationResult.FailureReason);
+        Assert.Equal("invalid_split_participant", result.Code);
+    }
+
+    [Fact]
+    public void AllocationRejectsDuplicateParticipants()
+    {
+        var participantKeys = ParticipantKeys(2);
+        var service = new MoneyAllocationService();
+
+        var result = service.AllocateEqual(
+            Money("1.00", "USD"),
+            [participantKeys[0], participantKeys[0]]);
 
         Assert.False(result.Succeeded);
         Assert.Equal(MoneyValidationFailureReason.InvalidSplitParticipant, result.ValidationResult.FailureReason);
