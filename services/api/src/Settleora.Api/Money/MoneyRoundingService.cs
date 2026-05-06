@@ -38,14 +38,21 @@ internal sealed class MoneyRoundingService
         MoneyAmount amount,
         MoneyRoundingMode roundingMode = MoneyRoundingMode.NearestToEven)
     {
-        if (!supportedCurrencies.TryGetMinorUnitDigits(amount.Currency, out var minorUnitDigits))
+        if (!TryRoundToCurrencyMinorUnits(
+            amount,
+            roundingMode,
+            out var roundedAmount,
+            out var validationResult))
         {
-            throw new ArgumentException("Currency is not supported for rounding.", nameof(amount));
+            if (validationResult.FailureReason is MoneyValidationFailureReason.UnsupportedCurrency)
+            {
+                throw new ArgumentException("Currency is not supported for rounding.", nameof(amount));
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(amount), "Amount exceeds the supported storage range.");
         }
 
-        return new MoneyAmount(
-            Round(amount.Amount, minorUnitDigits, roundingMode),
-            amount.Currency);
+        return roundedAmount;
     }
 
     public bool TryRoundToCurrencyMinorUnits(
@@ -64,9 +71,26 @@ internal sealed class MoneyRoundingService
             return false;
         }
 
-        roundedAmount = new MoneyAmount(
-            Round(amount.Amount, minorUnitDigits, roundingMode),
-            amount.Currency);
+        if (ExceedsStorageBounds(amount.Amount))
+        {
+            validationResult = MoneyValidationResult.Failed(
+                MoneyValidationFailureReason.AmountOutOfRange,
+                "amount",
+                "Amount exceeds the supported storage range.");
+            return false;
+        }
+
+        var roundedValue = Round(amount.Amount, minorUnitDigits, roundingMode);
+        if (ExceedsStorageBounds(roundedValue))
+        {
+            validationResult = MoneyValidationResult.Failed(
+                MoneyValidationFailureReason.AmountOutOfRange,
+                "amount",
+                "Amount exceeds the supported storage range.");
+            return false;
+        }
+
+        roundedAmount = new MoneyAmount(roundedValue, amount.Currency);
         validationResult = MoneyValidationResult.Valid();
         return true;
     }
@@ -104,5 +128,11 @@ internal sealed class MoneyRoundingService
     {
         var scaleFactor = GetScaleFactor(fractionalDigits);
         return decimal.Floor(amount * scaleFactor) / scaleFactor;
+    }
+
+    private static bool ExceedsStorageBounds(decimal amount)
+    {
+        return amount < -MoneyAmount.MaxAbsStorageAmount ||
+            amount > MoneyAmount.MaxAbsStorageAmount;
     }
 }

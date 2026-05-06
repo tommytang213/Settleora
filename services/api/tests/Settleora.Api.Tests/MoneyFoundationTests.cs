@@ -353,6 +353,23 @@ public sealed class MoneyFoundationTests
     }
 
     [Fact]
+    public void CurrencyMinorUnitRoundingRejectsValuesThatRoundPastStorageBounds()
+    {
+        var service = new MoneyRoundingService();
+        var amount = new MoneyAmount(MoneyAmount.MaxAbsStorageAmount, CreateCurrency("USD"));
+
+        var rounded = service.TryRoundToCurrencyMinorUnits(
+            amount,
+            MoneyRoundingMode.NearestToEven,
+            out _,
+            out var validationResult);
+
+        Assert.False(rounded);
+        Assert.Equal(MoneyValidationFailureReason.AmountOutOfRange, validationResult.FailureReason);
+        Assert.Equal("amount_out_of_range", validationResult.Code);
+    }
+
+    [Fact]
     public void StorageScaleRoundingUsesNumericNineteenFourDirection()
     {
         var service = new MoneyRoundingService();
@@ -396,6 +413,21 @@ public sealed class MoneyFoundationTests
         Assert.Equal([participantKeys[0]], result.ResidualParticipantKeys);
         AssertAllocationAmounts(result, [5.01m, 5.00m]);
         AssertAllocationSumsToRoundedTotal(result);
+    }
+
+    [Fact]
+    public void EqualSplitRejectsRoundedTotalsThatExceedStorageBounds()
+    {
+        var participantKeys = ParticipantKeys(1);
+        var service = new MoneyAllocationService();
+
+        var result = service.AllocateEqual(
+            new MoneyAmount(MoneyAmount.MaxAbsStorageAmount, CreateCurrency("USD")),
+            participantKeys);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(MoneyValidationFailureReason.AmountOutOfRange, result.ValidationResult.FailureReason);
+        Assert.Equal("amount_out_of_range", result.Code);
     }
 
     [Fact]

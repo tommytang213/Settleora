@@ -190,9 +190,15 @@ internal sealed class MoneyAllocationService
                     "Negative split amounts are not allowed for this operation."));
             }
 
-            var roundedShare = roundingService.RoundToCurrencyMinorUnits(
+            if (!roundingService.TryRoundToCurrencyMinorUnits(
                 customShare.Amount,
-                roundingMode);
+                roundingMode,
+                out var roundedShare,
+                out var shareValidation))
+            {
+                return MoneyAllocationResult.Failed(shareValidation);
+            }
+
             var shareMinorUnits = ToMinorUnits(roundedShare.Amount, scaleFactor);
             assignedMinorUnits += shareMinorUnits;
 
@@ -240,7 +246,15 @@ internal sealed class MoneyAllocationService
         }
 
         scaleFactor = MoneyRoundingService.GetScaleFactor(minorUnitDigits);
-        roundedTotal = roundingService.RoundToCurrencyMinorUnits(total, roundingMode);
+        if (!roundingService.TryRoundToCurrencyMinorUnits(
+            total,
+            roundingMode,
+            out roundedTotal,
+            out validationResult))
+        {
+            return false;
+        }
+
         totalMinorUnits = ToMinorUnits(roundedTotal.Amount, scaleFactor);
         validationResult = MoneyValidationResult.Valid();
         return true;
