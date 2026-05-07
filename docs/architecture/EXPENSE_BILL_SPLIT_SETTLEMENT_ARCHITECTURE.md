@@ -24,6 +24,7 @@ The current repository state is:
 - No public bill edit, settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
 - Personal and group bill create/read plus bill workflow OpenAPI paths and generated clients exist. No settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
 - Settlement persistence schema exists for request roots, payment claims, and proof attachment file references. No settlement runtime behavior, settlement proof bytes, balance, recurring bill, or reconciliation migrations exist yet.
+- [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md) now defines the design gate for future request creation, payment claims, receiver confirmation, dispute, cancellation, proof linkage, audit, and rebuildable balance projections before endpoint implementation.
 
 Existing payment details are payment instructions and optional QR linkage only. They are not settlement records, payment confirmations, balances, or proof that money moved.
 
@@ -256,7 +257,7 @@ Money-bearing tables should follow the money architecture: decimal-safe amount p
 
 ## API And OpenAPI Direction
 
-The settlement schema foundation does not change OpenAPI. No settlement paths or generated settlement client methods exist yet.
+The settlement schema foundation and settlement runtime design gate do not change OpenAPI. No settlement paths or generated settlement client methods exist yet.
 
 Current bill endpoint foundations are:
 
@@ -269,7 +270,7 @@ GET /api/v1/groups/{groupId}/bills
 GET /api/v1/groups/{groupId}/bills/{billId}
 ```
 
-Future endpoint categories are directional only and require separate OpenAPI, implementation, tests, and generated-client branches:
+Future endpoint categories are directional only and require separate OpenAPI, implementation, tests, and generated-client branches. Settlement runtime categories are refined in [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md).
 
 ```text
 PATCH /api/v1/bills/{billId}
@@ -297,7 +298,8 @@ Recommended next implementation candidates, in order:
 4. Group bill create/read with authorization and resolved shares. This is now landed.
 5. Participant acknowledgement/dispute workflow.
 6. Settlement request/payment/proof schema foundation. This is now landed as persistence only.
-7. Receipt/proof attachment integration once public authorized file flows exist.
+7. Settlement runtime design gate. This is now landed as policy only.
+8. Receipt/proof attachment integration once public authorized file flows exist.
 
 Each slice should include focused tests and validation for its boundary. Avoid combining schema, OpenAPI, generated clients, endpoint runtime, storage bytes, OCR, UI, and settlement behavior in one branch.
 
