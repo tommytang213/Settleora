@@ -8,6 +8,7 @@ using Settleora.Api.Auth.SignIn;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Configuration;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Expenses.BillWorkflow;
 using Settleora.Api.Expenses.GroupBills;
 using Settleora.Api.Expenses.PersonalBills;
@@ -34,6 +35,7 @@ builder.Services.AddPersonalBillAudit();
 builder.Services.AddGroupBillAudit();
 builder.Services.AddExpenseBillWorkflowAudit();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
+builder.Services.AddSingleton<SettlementCandidateDerivationService>();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
