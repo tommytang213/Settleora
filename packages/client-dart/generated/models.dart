@@ -715,6 +715,587 @@ class GroupMembershipStatusValues {
   static const Set<GroupMembershipStatus> values = {active, removed};
 }
 
+/// Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.
+class CreatePersonalBillRequest {
+  static const Object _unsetMerchantName = Object();
+  static const Object _unsetPayerPaymentMethodLabelSnapshot = Object();
+
+  CreatePersonalBillRequest({
+    Object? merchantName = _unsetMerchantName,
+    required this.billDate,
+    required this.currency,
+    required this.items,
+    this.adjustments,
+    Object? payerPaymentMethodLabelSnapshot = _unsetPayerPaymentMethodLabelSnapshot,
+  })
+      : merchantName = identical(merchantName, _unsetMerchantName) ? null : merchantName as String?,
+        _hasMerchantName = !identical(merchantName, _unsetMerchantName),
+        payerPaymentMethodLabelSnapshot = identical(payerPaymentMethodLabelSnapshot, _unsetPayerPaymentMethodLabelSnapshot) ? null : payerPaymentMethodLabelSnapshot as String?,
+        _hasPayerPaymentMethodLabelSnapshot = !identical(payerPaymentMethodLabelSnapshot, _unsetPayerPaymentMethodLabelSnapshot);
+
+  /// Optional merchant name after server-side trimming.
+  final String? merchantName;
+  final bool _hasMerchantName;
+  /// Bill date as yyyy-MM-dd.
+  final String billDate;
+  final CurrencyCode currency;
+  final List<CreatePersonalBillItemRequest> items;
+  final List<CreatePersonalBillAdjustmentRequest>? adjustments;
+  /// Optional payment method label snapshot for the actor payer row after server-side trimming.
+  final String? payerPaymentMethodLabelSnapshot;
+  final bool _hasPayerPaymentMethodLabelSnapshot;
+
+  factory CreatePersonalBillRequest.fromJson(JsonObject json) {
+    return CreatePersonalBillRequest(
+      merchantName: json.containsKey("merchantName")
+          ? json["merchantName"] == null ? null : json["merchantName"] as String
+          : _unsetMerchantName,
+      billDate: json["billDate"] as String,
+      currency: json["currency"] as String,
+      items: (json["items"] as List<dynamic>).map((item) => CreatePersonalBillItemRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustments: json["adjustments"] == null ? null : (json["adjustments"] as List<dynamic>).map((item) => CreatePersonalBillAdjustmentRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payerPaymentMethodLabelSnapshot: json.containsKey("payerPaymentMethodLabelSnapshot")
+          ? json["payerPaymentMethodLabelSnapshot"] == null ? null : json["payerPaymentMethodLabelSnapshot"] as String
+          : _unsetPayerPaymentMethodLabelSnapshot,
+    );
+  }
+
+  JsonObject toJson() {
+    final merchantNameJsonValue = merchantName;
+    final adjustmentsJsonValue = adjustments;
+    final payerPaymentMethodLabelSnapshotJsonValue = payerPaymentMethodLabelSnapshot;
+
+    return {
+      if (_hasMerchantName) "merchantName": merchantNameJsonValue,
+      "billDate": billDate,
+      "currency": currency,
+      "items": items.map((item) => item.toJson()).toList(growable: false),
+      if (adjustmentsJsonValue != null) "adjustments": adjustmentsJsonValue.map((item) => item.toJson()).toList(growable: false),
+      if (_hasPayerPaymentMethodLabelSnapshot) "payerPaymentMethodLabelSnapshot": payerPaymentMethodLabelSnapshotJsonValue,
+    };
+  }
+}
+
+/// Personal bill item. The service creates exactly one exact-amount split for the authenticated actor.
+class CreatePersonalBillItemRequest {
+  static const Object _unsetNote = Object();
+
+  CreatePersonalBillItemRequest({
+    required this.name,
+    Object? note = _unsetNote,
+    required this.amount,
+    this.currency,
+  })
+      : note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  /// Item name after server-side trimming.
+  final String name;
+  /// Optional item note after server-side trimming.
+  final String? note;
+  final bool _hasNote;
+  /// Decimal-safe item amount represented as a string.
+  final String amount;
+  final CurrencyCode? currency;
+
+  factory CreatePersonalBillItemRequest.fromJson(JsonObject json) {
+    return CreatePersonalBillItemRequest(
+      name: json["name"] as String,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+      amount: json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+    final currencyJsonValue = currency;
+
+    return {
+      "name": name,
+      if (_hasNote) "note": noteJsonValue,
+      "amount": amount,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+    };
+  }
+}
+
+/// Optional personal bill adjustment. Manual allocation is intentionally excluded from this first endpoint slice.
+class CreatePersonalBillAdjustmentRequest {
+  static const Object _unsetReasonNote = Object();
+
+  CreatePersonalBillAdjustmentRequest({
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    this.currency,
+    Object? reasonNote = _unsetReasonNote,
+  })
+      : reasonNote = identical(reasonNote, _unsetReasonNote) ? null : reasonNote as String?,
+        _hasReasonNote = !identical(reasonNote, _unsetReasonNote);
+
+  final ExpenseBillAdjustmentType type;
+  final ExpenseBillAdjustmentDirection direction;
+  final PersonalBillAdjustmentAllocationMethod allocationMethod;
+  /// Decimal-safe adjustment amount represented as a string.
+  final String amount;
+  final CurrencyCode? currency;
+  /// Optional adjustment reason note after server-side trimming.
+  final String? reasonNote;
+  final bool _hasReasonNote;
+
+  factory CreatePersonalBillAdjustmentRequest.fromJson(JsonObject json) {
+    return CreatePersonalBillAdjustmentRequest(
+      type: json["type"] as String,
+      direction: json["direction"] as String,
+      allocationMethod: json["allocationMethod"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      reasonNote: json.containsKey("reasonNote")
+          ? json["reasonNote"] == null ? null : json["reasonNote"] as String
+          : _unsetReasonNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final currencyJsonValue = currency;
+    final reasonNoteJsonValue = reasonNote;
+
+    return {
+      "type": type,
+      "direction": direction,
+      "allocationMethod": allocationMethod,
+      "amount": amount,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+      if (_hasReasonNote) "reasonNote": reasonNoteJsonValue,
+    };
+  }
+}
+
+/// Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
+class PersonalBillListResponse {
+  const PersonalBillListResponse({
+    required this.bills,
+  });
+
+  final List<PersonalBillResponse> bills;
+
+  factory PersonalBillListResponse.fromJson(JsonObject json) {
+    return PersonalBillListResponse(
+      bills: (json["bills"] as List<dynamic>).map((item) => PersonalBillResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "bills": bills.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe personal bill response for the authenticated actor. It excludes auth/session/credential data, group membership internals, storage paths, object keys, provider internals, audit metadata, OCR data, and unrelated user data. Adjustment allocations are calculated response data because no adjustment-allocation persistence table exists in the current schema.
+class PersonalBillResponse {
+  const PersonalBillResponse({
+    required this.id,
+    required this.merchantName,
+    required this.billDate,
+    required this.status,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.items,
+    required this.participants,
+    required this.payers,
+    required this.adjustments,
+    required this.calculatedAdjustmentAllocations,
+  });
+
+  final String id;
+  final String? merchantName;
+  final String billDate;
+  final ExpenseBillStatus status;
+  /// Decimal-safe total amount represented as a string.
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final List<PersonalBillItemResponse> items;
+  final List<PersonalBillParticipantResponse> participants;
+  final List<PersonalBillPayerResponse> payers;
+  final List<PersonalBillAdjustmentResponse> adjustments;
+  /// Calculated adjustment allocation data returned for display/auditability. It is not backed by a dedicated persistence table in this schema slice.
+  final List<PersonalBillCalculatedAdjustmentAllocationResponse> calculatedAdjustmentAllocations;
+
+  factory PersonalBillResponse.fromJson(JsonObject json) {
+    return PersonalBillResponse(
+      id: json["id"] as String,
+      merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
+      billDate: json["billDate"] as String,
+      status: json["status"] as String,
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      items: (json["items"] as List<dynamic>).map((item) => PersonalBillItemResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      participants: (json["participants"] as List<dynamic>).map((item) => PersonalBillParticipantResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payers: (json["payers"] as List<dynamic>).map((item) => PersonalBillPayerResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustments: (json["adjustments"] as List<dynamic>).map((item) => PersonalBillAdjustmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      calculatedAdjustmentAllocations: (json["calculatedAdjustmentAllocations"] as List<dynamic>).map((item) => PersonalBillCalculatedAdjustmentAllocationResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final merchantNameJsonValue = merchantName;
+
+    return {
+      "id": id,
+      "merchantName": merchantNameJsonValue,
+      "billDate": billDate,
+      "status": status,
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "items": items.map((item) => item.toJson()).toList(growable: false),
+      "participants": participants.map((item) => item.toJson()).toList(growable: false),
+      "payers": payers.map((item) => item.toJson()).toList(growable: false),
+      "adjustments": adjustments.map((item) => item.toJson()).toList(growable: false),
+      "calculatedAdjustmentAllocations": calculatedAdjustmentAllocations.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class PersonalBillItemResponse {
+  const PersonalBillItemResponse({
+    required this.id,
+    required this.name,
+    required this.note,
+    required this.amount,
+    required this.currency,
+    required this.sortOrder,
+    required this.splits,
+  });
+
+  final String id;
+  final String name;
+  final String? note;
+  final String amount;
+  final CurrencyCode currency;
+  final int sortOrder;
+  final List<PersonalBillItemSplitResponse> splits;
+
+  factory PersonalBillItemResponse.fromJson(JsonObject json) {
+    return PersonalBillItemResponse(
+      id: json["id"] as String,
+      name: json["name"] as String,
+      note: json["note"] == null ? null : json["note"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      sortOrder: (json["sortOrder"] as num).toInt(),
+      splits: (json["splits"] as List<dynamic>).map((item) => PersonalBillItemSplitResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+
+    return {
+      "id": id,
+      "name": name,
+      "note": noteJsonValue,
+      "amount": amount,
+      "currency": currency,
+      "sortOrder": sortOrder,
+      "splits": splits.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class PersonalBillItemSplitResponse {
+  const PersonalBillItemSplitResponse({
+    required this.userProfileId,
+    required this.splitMethod,
+    required this.basisValue,
+    required this.resolvedAmount,
+    required this.resolvedCurrency,
+    required this.allocationOrder,
+    required this.receivedResidualMinorUnit,
+  });
+
+  final String userProfileId;
+  final ExpenseBillItemSplitMethod splitMethod;
+  final String? basisValue;
+  final String resolvedAmount;
+  final CurrencyCode resolvedCurrency;
+  final int allocationOrder;
+  final bool receivedResidualMinorUnit;
+
+  factory PersonalBillItemSplitResponse.fromJson(JsonObject json) {
+    return PersonalBillItemSplitResponse(
+      userProfileId: json["userProfileId"] as String,
+      splitMethod: json["splitMethod"] as String,
+      basisValue: json["basisValue"] == null ? null : json["basisValue"] as String,
+      resolvedAmount: json["resolvedAmount"] as String,
+      resolvedCurrency: json["resolvedCurrency"] as String,
+      allocationOrder: (json["allocationOrder"] as num).toInt(),
+      receivedResidualMinorUnit: json["receivedResidualMinorUnit"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final basisValueJsonValue = basisValue;
+
+    return {
+      "userProfileId": userProfileId,
+      "splitMethod": splitMethod,
+      "basisValue": basisValueJsonValue,
+      "resolvedAmount": resolvedAmount,
+      "resolvedCurrency": resolvedCurrency,
+      "allocationOrder": allocationOrder,
+      "receivedResidualMinorUnit": receivedResidualMinorUnit,
+    };
+  }
+}
+
+class PersonalBillParticipantResponse {
+  const PersonalBillParticipantResponse({
+    required this.userProfileId,
+    required this.status,
+    required this.resolvedShareAmount,
+    required this.resolvedShareCurrency,
+  });
+
+  final String userProfileId;
+  final ExpenseBillParticipantStatus status;
+  final String resolvedShareAmount;
+  final CurrencyCode resolvedShareCurrency;
+
+  factory PersonalBillParticipantResponse.fromJson(JsonObject json) {
+    return PersonalBillParticipantResponse(
+      userProfileId: json["userProfileId"] as String,
+      status: json["status"] as String,
+      resolvedShareAmount: json["resolvedShareAmount"] as String,
+      resolvedShareCurrency: json["resolvedShareCurrency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "status": status,
+      "resolvedShareAmount": resolvedShareAmount,
+      "resolvedShareCurrency": resolvedShareCurrency,
+    };
+  }
+}
+
+class PersonalBillPayerResponse {
+  const PersonalBillPayerResponse({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+    required this.paymentMethodLabelSnapshot,
+  });
+
+  final String userProfileId;
+  final String amount;
+  final CurrencyCode currency;
+  final String? paymentMethodLabelSnapshot;
+
+  factory PersonalBillPayerResponse.fromJson(JsonObject json) {
+    return PersonalBillPayerResponse(
+      userProfileId: json["userProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      paymentMethodLabelSnapshot: json["paymentMethodLabelSnapshot"] == null ? null : json["paymentMethodLabelSnapshot"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final paymentMethodLabelSnapshotJsonValue = paymentMethodLabelSnapshot;
+
+    return {
+      "userProfileId": userProfileId,
+      "amount": amount,
+      "currency": currency,
+      "paymentMethodLabelSnapshot": paymentMethodLabelSnapshotJsonValue,
+    };
+  }
+}
+
+class PersonalBillAdjustmentResponse {
+  const PersonalBillAdjustmentResponse({
+    required this.id,
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    required this.currency,
+    required this.reasonNote,
+    required this.sortOrder,
+  });
+
+  final String id;
+  final ExpenseBillAdjustmentType type;
+  final ExpenseBillAdjustmentDirection direction;
+  final PersonalBillAdjustmentAllocationMethod allocationMethod;
+  final String amount;
+  final CurrencyCode currency;
+  final String? reasonNote;
+  final int sortOrder;
+
+  factory PersonalBillAdjustmentResponse.fromJson(JsonObject json) {
+    return PersonalBillAdjustmentResponse(
+      id: json["id"] as String,
+      type: json["type"] as String,
+      direction: json["direction"] as String,
+      allocationMethod: json["allocationMethod"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      reasonNote: json["reasonNote"] == null ? null : json["reasonNote"] as String,
+      sortOrder: (json["sortOrder"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final reasonNoteJsonValue = reasonNote;
+
+    return {
+      "id": id,
+      "type": type,
+      "direction": direction,
+      "allocationMethod": allocationMethod,
+      "amount": amount,
+      "currency": currency,
+      "reasonNote": reasonNoteJsonValue,
+      "sortOrder": sortOrder,
+    };
+  }
+}
+
+class PersonalBillCalculatedAdjustmentAllocationResponse {
+  const PersonalBillCalculatedAdjustmentAllocationResponse({
+    required this.expenseBillAdjustmentId,
+    required this.userProfileId,
+    required this.direction,
+    required this.allocationMethod,
+    required this.allocatedAmount,
+    required this.currency,
+    required this.allocationOrder,
+    required this.receivedResidualMinorUnit,
+  });
+
+  final String expenseBillAdjustmentId;
+  final String userProfileId;
+  final ExpenseBillAdjustmentDirection direction;
+  final PersonalBillAdjustmentAllocationMethod allocationMethod;
+  final String allocatedAmount;
+  final CurrencyCode currency;
+  final int allocationOrder;
+  final bool receivedResidualMinorUnit;
+
+  factory PersonalBillCalculatedAdjustmentAllocationResponse.fromJson(JsonObject json) {
+    return PersonalBillCalculatedAdjustmentAllocationResponse(
+      expenseBillAdjustmentId: json["expenseBillAdjustmentId"] as String,
+      userProfileId: json["userProfileId"] as String,
+      direction: json["direction"] as String,
+      allocationMethod: json["allocationMethod"] as String,
+      allocatedAmount: json["allocatedAmount"] as String,
+      currency: json["currency"] as String,
+      allocationOrder: (json["allocationOrder"] as num).toInt(),
+      receivedResidualMinorUnit: json["receivedResidualMinorUnit"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "expenseBillAdjustmentId": expenseBillAdjustmentId,
+      "userProfileId": userProfileId,
+      "direction": direction,
+      "allocationMethod": allocationMethod,
+      "allocatedAmount": allocatedAmount,
+      "currency": currency,
+      "allocationOrder": allocationOrder,
+      "receivedResidualMinorUnit": receivedResidualMinorUnit,
+    };
+  }
+}
+
+/// Expense bill root status.
+typedef ExpenseBillStatus = String;
+class ExpenseBillStatusValues {
+  const ExpenseBillStatusValues._();
+  static const ExpenseBillStatus draft = "draft";
+  static const ExpenseBillStatus pendingConfirmation = "pending_confirmation";
+  static const ExpenseBillStatus confirmed = "confirmed";
+  static const ExpenseBillStatus rejected = "rejected";
+  static const ExpenseBillStatus cancelled = "cancelled";
+  static const ExpenseBillStatus finalized = "finalized";
+  static const ExpenseBillStatus archived = "archived";
+  static const Set<ExpenseBillStatus> values = {draft, pendingConfirmation, confirmed, rejected, cancelled, finalized, archived};
+}
+
+/// Expense bill participant status.
+typedef ExpenseBillParticipantStatus = String;
+class ExpenseBillParticipantStatusValues {
+  const ExpenseBillParticipantStatusValues._();
+  static const ExpenseBillParticipantStatus pendingAcceptance = "pending_acceptance";
+  static const ExpenseBillParticipantStatus accepted = "accepted";
+  static const ExpenseBillParticipantStatus rejected = "rejected";
+  static const ExpenseBillParticipantStatus partiallySettled = "partially_settled";
+  static const ExpenseBillParticipantStatus settled = "settled";
+  static const ExpenseBillParticipantStatus waived = "waived";
+  static const ExpenseBillParticipantStatus claimedPaid = "claimed_paid";
+  static const ExpenseBillParticipantStatus confirmedPaid = "confirmed_paid";
+  static const Set<ExpenseBillParticipantStatus> values = {pendingAcceptance, accepted, rejected, partiallySettled, settled, waived, claimedPaid, confirmedPaid};
+}
+
+/// Expense bill item split method.
+typedef ExpenseBillItemSplitMethod = String;
+class ExpenseBillItemSplitMethodValues {
+  const ExpenseBillItemSplitMethodValues._();
+  static const ExpenseBillItemSplitMethod equal = "equal";
+  static const ExpenseBillItemSplitMethod exactAmount = "exact_amount";
+  static const ExpenseBillItemSplitMethod percentage = "percentage";
+  static const ExpenseBillItemSplitMethod ratio = "ratio";
+  static const ExpenseBillItemSplitMethod shareWeight = "share_weight";
+  static const Set<ExpenseBillItemSplitMethod> values = {equal, exactAmount, percentage, ratio, shareWeight};
+}
+
+/// Expense bill adjustment type.
+typedef ExpenseBillAdjustmentType = String;
+class ExpenseBillAdjustmentTypeValues {
+  const ExpenseBillAdjustmentTypeValues._();
+  static const ExpenseBillAdjustmentType tax = "tax";
+  static const ExpenseBillAdjustmentType serviceCharge = "service_charge";
+  static const ExpenseBillAdjustmentType discount = "discount";
+  static const ExpenseBillAdjustmentType manualAdjustment = "manual_adjustment";
+  static const ExpenseBillAdjustmentType credit = "credit";
+  static const Set<ExpenseBillAdjustmentType> values = {tax, serviceCharge, discount, manualAdjustment, credit};
+}
+
+/// Expense bill adjustment direction.
+typedef ExpenseBillAdjustmentDirection = String;
+class ExpenseBillAdjustmentDirectionValues {
+  const ExpenseBillAdjustmentDirectionValues._();
+  static const ExpenseBillAdjustmentDirection charge = "charge";
+  static const ExpenseBillAdjustmentDirection credit = "credit";
+  static const Set<ExpenseBillAdjustmentDirection> values = {charge, credit};
+}
+
+/// Supported adjustment allocation methods for the first personal bill endpoint slice.
+typedef PersonalBillAdjustmentAllocationMethod = String;
+class PersonalBillAdjustmentAllocationMethodValues {
+  const PersonalBillAdjustmentAllocationMethodValues._();
+  static const PersonalBillAdjustmentAllocationMethod equal = "equal";
+  static const PersonalBillAdjustmentAllocationMethod proportionalByItemSubtotal = "proportional_by_item_subtotal";
+  static const Set<PersonalBillAdjustmentAllocationMethod> values = {equal, proportionalByItemSubtotal};
+}
+
 /// Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
 typedef PaymentDetailsVisibility = String;
 class PaymentDetailsVisibilityValues {

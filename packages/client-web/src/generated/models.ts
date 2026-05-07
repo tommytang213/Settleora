@@ -272,6 +272,182 @@ export type GroupRole = "owner" | "member";
 export type GroupMembershipStatus = "active" | "removed";
 
 /**
+ * Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.
+ */
+export interface CreatePersonalBillRequest {
+  /**
+   * Optional merchant name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Bill date as yyyy-MM-dd.
+   */
+  billDate: string;
+  currency: CurrencyCode;
+  items: CreatePersonalBillItemRequest[];
+  adjustments?: CreatePersonalBillAdjustmentRequest[];
+  /**
+   * Optional payment method label snapshot for the actor payer row after server-side trimming.
+   */
+  payerPaymentMethodLabelSnapshot?: string | null;
+}
+
+/**
+ * Personal bill item. The service creates exactly one exact-amount split for the authenticated actor.
+ */
+export interface CreatePersonalBillItemRequest {
+  /**
+   * Item name after server-side trimming.
+   */
+  name: string;
+  /**
+   * Optional item note after server-side trimming.
+   */
+  note?: string | null;
+  /**
+   * Decimal-safe item amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+}
+
+/**
+ * Optional personal bill adjustment. Manual allocation is intentionally excluded from this first endpoint slice.
+ */
+export interface CreatePersonalBillAdjustmentRequest {
+  type: ExpenseBillAdjustmentType;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: PersonalBillAdjustmentAllocationMethod;
+  /**
+   * Decimal-safe adjustment amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  /**
+   * Optional adjustment reason note after server-side trimming.
+   */
+  reasonNote?: string | null;
+}
+
+/**
+ * Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
+ */
+export interface PersonalBillListResponse {
+  bills: PersonalBillResponse[];
+}
+
+/**
+ * Safe personal bill response for the authenticated actor. It excludes auth/session/credential data, group membership internals, storage paths, object keys, provider internals, audit metadata, OCR data, and unrelated user data. Adjustment allocations are calculated response data because no adjustment-allocation persistence table exists in the current schema.
+ */
+export interface PersonalBillResponse {
+  id: string;
+  merchantName: string | null;
+  billDate: string;
+  status: ExpenseBillStatus;
+  /**
+   * Decimal-safe total amount represented as a string.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  items: PersonalBillItemResponse[];
+  participants: PersonalBillParticipantResponse[];
+  payers: PersonalBillPayerResponse[];
+  adjustments: PersonalBillAdjustmentResponse[];
+  /**
+   * Calculated adjustment allocation data returned for display/auditability. It is not backed by a dedicated persistence table in this schema slice.
+   */
+  calculatedAdjustmentAllocations: PersonalBillCalculatedAdjustmentAllocationResponse[];
+}
+
+export interface PersonalBillItemResponse {
+  id: string;
+  name: string;
+  note: string | null;
+  amount: string;
+  currency: CurrencyCode;
+  sortOrder: number;
+  splits: PersonalBillItemSplitResponse[];
+}
+
+export interface PersonalBillItemSplitResponse {
+  userProfileId: string;
+  splitMethod: ExpenseBillItemSplitMethod;
+  basisValue: string | null;
+  resolvedAmount: string;
+  resolvedCurrency: CurrencyCode;
+  allocationOrder: number;
+  receivedResidualMinorUnit: boolean;
+}
+
+export interface PersonalBillParticipantResponse {
+  userProfileId: string;
+  status: ExpenseBillParticipantStatus;
+  resolvedShareAmount: string;
+  resolvedShareCurrency: CurrencyCode;
+}
+
+export interface PersonalBillPayerResponse {
+  userProfileId: string;
+  amount: string;
+  currency: CurrencyCode;
+  paymentMethodLabelSnapshot: string | null;
+}
+
+export interface PersonalBillAdjustmentResponse {
+  id: string;
+  type: ExpenseBillAdjustmentType;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: PersonalBillAdjustmentAllocationMethod;
+  amount: string;
+  currency: CurrencyCode;
+  reasonNote: string | null;
+  sortOrder: number;
+}
+
+export interface PersonalBillCalculatedAdjustmentAllocationResponse {
+  expenseBillAdjustmentId: string;
+  userProfileId: string;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: PersonalBillAdjustmentAllocationMethod;
+  allocatedAmount: string;
+  currency: CurrencyCode;
+  allocationOrder: number;
+  receivedResidualMinorUnit: boolean;
+}
+
+/**
+ * Expense bill root status.
+ */
+export type ExpenseBillStatus = "draft" | "pending_confirmation" | "confirmed" | "rejected" | "cancelled" | "finalized" | "archived";
+
+/**
+ * Expense bill participant status.
+ */
+export type ExpenseBillParticipantStatus = "pending_acceptance" | "accepted" | "rejected" | "partially_settled" | "settled" | "waived" | "claimed_paid" | "confirmed_paid";
+
+/**
+ * Expense bill item split method.
+ */
+export type ExpenseBillItemSplitMethod = "equal" | "exact_amount" | "percentage" | "ratio" | "share_weight";
+
+/**
+ * Expense bill adjustment type.
+ */
+export type ExpenseBillAdjustmentType = "tax" | "service_charge" | "discount" | "manual_adjustment" | "credit";
+
+/**
+ * Expense bill adjustment direction.
+ */
+export type ExpenseBillAdjustmentDirection = "charge" | "credit";
+
+/**
+ * Supported adjustment allocation methods for the first personal bill endpoint slice.
+ */
+export type PersonalBillAdjustmentAllocationMethod = "equal" | "proportional_by_item_subtotal";
+
+/**
  * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
  */
 export type PaymentDetailsVisibility = "private" | "settlement_counterparties_only" | "group_members_when_shared";

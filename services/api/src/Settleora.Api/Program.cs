@@ -7,6 +7,8 @@ using Settleora.Api.Auth.PasswordHashing;
 using Settleora.Api.Auth.SignIn;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Configuration;
+using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Expenses.PersonalBills;
 using Settleora.Api.Health;
 using Settleora.Api.Persistence;
 using Settleora.Api.Storage;
@@ -26,6 +28,7 @@ builder.Services.AddSignInAbusePolicy();
 builder.Services.AddSettleoraAuth();
 builder.Services.AddGroupMembershipAudit();
 builder.Services.AddPaymentDetailsAudit();
+builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(
@@ -49,6 +52,7 @@ app.MapGroupFoundationEndpoints();
 app.MapGroupMemberManagementEndpoints();
 app.MapSelfUserProfileEndpoints();
 app.MapSelfPaymentDetailsEndpoints();
+app.MapPersonalBillEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();
