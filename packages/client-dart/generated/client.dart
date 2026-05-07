@@ -245,6 +245,39 @@ class SettleoraApiClient {
     return GroupResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<GroupBillListResponse> listGroupBills(String groupId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupBillListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupBillResponse> createGroupBill(String groupId, CreateGroupBillRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<GroupBillResponse> getGroupBill(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return GroupBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<GroupMemberListResponse> listGroupMembers(String groupId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

@@ -418,6 +418,195 @@ export interface PersonalBillCalculatedAdjustmentAllocationResponse {
 }
 
 /**
+ * Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
+ */
+export interface CreateGroupBillRequest {
+  /**
+   * Optional merchant name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Bill date as yyyy-MM-dd.
+   */
+  billDate: string;
+  currency: CurrencyCode;
+  items: CreateGroupBillItemRequest[];
+  /**
+   * Optional adjustments. Manual allocation is intentionally excluded from this first group bill endpoint slice.
+   */
+  adjustments?: CreateGroupBillAdjustmentRequest[] | null;
+  /**
+   * Optional payer rows. When omitted, null, or empty, the authenticated actor is the sole payer for the calculated bill total.
+   */
+  payers?: CreateGroupBillPayerRequest[] | null;
+}
+
+/**
+ * Group bill item. Splits are required and every split userProfileId must belong to an active member of the route group.
+ */
+export interface CreateGroupBillItemRequest {
+  /**
+   * Item name after server-side trimming.
+   */
+  name: string;
+  /**
+   * Optional item note after server-side trimming.
+   */
+  note?: string | null;
+  /**
+   * Decimal-safe item amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  splits: CreateGroupBillItemSplitRequest[];
+}
+
+/**
+ * Group bill item split. exact_amount, percentage, ratio, and share_weight require basisValue; equal split does not.
+ */
+export interface CreateGroupBillItemSplitRequest {
+  /**
+   * User profile ID for an active member of the route group.
+   */
+  userProfileId: string;
+  splitMethod: ExpenseBillItemSplitMethod;
+  /**
+   * Decimal-safe split basis represented as a string where required by splitMethod.
+   */
+  basisValue?: string | null;
+  /**
+   * Optional allocation order. When omitted, input order is used.
+   */
+  allocationOrder?: number;
+}
+
+/**
+ * Optional group bill adjustment. Manual allocation is intentionally excluded from this first endpoint slice.
+ */
+export interface CreateGroupBillAdjustmentRequest {
+  type: ExpenseBillAdjustmentType;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: GroupBillAdjustmentAllocationMethod;
+  /**
+   * Decimal-safe adjustment amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  /**
+   * Optional adjustment reason note after server-side trimming.
+   */
+  reasonNote?: string | null;
+}
+
+/**
+ * Optional group bill payer row. Every userProfileId must belong to an active member of the route group, and supplied payer totals must match the calculated bill total.
+ */
+export interface CreateGroupBillPayerRequest {
+  /**
+   * User profile ID for an active member of the route group.
+   */
+  userProfileId: string;
+  /**
+   * Decimal-safe payer amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  /**
+   * Optional payment method label snapshot after server-side trimming.
+   */
+  paymentMethodLabelSnapshot?: string | null;
+}
+
+/**
+ * Group bills visible to the authenticated active group member. This first foundation response is intentionally unpaginated.
+ */
+export interface GroupBillListResponse {
+  bills: GroupBillResponse[];
+}
+
+/**
+ * Safe group bill response for the authenticated active group member. It excludes auth/session/credential data, group membership internals beyond submitted bill participants, storage paths, object keys, provider internals, audit metadata, OCR data, and unrelated user data. Adjustment allocations are calculated response data because no adjustment-allocation persistence table exists in the current schema.
+ */
+export interface GroupBillResponse {
+  id: string;
+  groupId: string;
+  merchantName: string | null;
+  billDate: string;
+  status: ExpenseBillStatus;
+  /**
+   * Decimal-safe total amount represented as a string.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  items: GroupBillItemResponse[];
+  participants: GroupBillParticipantResponse[];
+  payers: GroupBillPayerResponse[];
+  adjustments: GroupBillAdjustmentResponse[];
+  /**
+   * Calculated adjustment allocation data returned for display/auditability. It is not backed by a dedicated persistence table in this schema slice.
+   */
+  calculatedAdjustmentAllocations: GroupBillCalculatedAdjustmentAllocationResponse[];
+}
+
+export interface GroupBillItemResponse {
+  id: string;
+  name: string;
+  note: string | null;
+  amount: string;
+  currency: CurrencyCode;
+  sortOrder: number;
+  splits: GroupBillItemSplitResponse[];
+}
+
+export interface GroupBillItemSplitResponse {
+  userProfileId: string;
+  splitMethod: ExpenseBillItemSplitMethod;
+  basisValue: string | null;
+  resolvedAmount: string;
+  resolvedCurrency: CurrencyCode;
+  allocationOrder: number;
+  receivedResidualMinorUnit: boolean;
+}
+
+export interface GroupBillParticipantResponse {
+  userProfileId: string;
+  status: ExpenseBillParticipantStatus;
+  resolvedShareAmount: string;
+  resolvedShareCurrency: CurrencyCode;
+}
+
+export interface GroupBillPayerResponse {
+  userProfileId: string;
+  amount: string;
+  currency: CurrencyCode;
+  paymentMethodLabelSnapshot: string | null;
+}
+
+export interface GroupBillAdjustmentResponse {
+  id: string;
+  type: ExpenseBillAdjustmentType;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: GroupBillAdjustmentAllocationMethod;
+  amount: string;
+  currency: CurrencyCode;
+  reasonNote: string | null;
+  sortOrder: number;
+}
+
+export interface GroupBillCalculatedAdjustmentAllocationResponse {
+  expenseBillAdjustmentId: string;
+  userProfileId: string;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: GroupBillAdjustmentAllocationMethod;
+  allocatedAmount: string;
+  currency: CurrencyCode;
+  allocationOrder: number;
+  receivedResidualMinorUnit: boolean;
+}
+
+/**
  * Expense bill root status.
  */
 export type ExpenseBillStatus = "draft" | "pending_confirmation" | "confirmed" | "rejected" | "cancelled" | "finalized" | "archived";
@@ -446,6 +635,11 @@ export type ExpenseBillAdjustmentDirection = "charge" | "credit";
  * Supported adjustment allocation methods for the first personal bill endpoint slice.
  */
 export type PersonalBillAdjustmentAllocationMethod = "equal" | "proportional_by_item_subtotal";
+
+/**
+ * Supported non-manual adjustment allocation methods for the first group bill endpoint slice.
+ */
+export type GroupBillAdjustmentAllocationMethod = "equal" | "proportional_by_item_subtotal";
 
 /**
  * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

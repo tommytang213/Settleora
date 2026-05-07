@@ -4,7 +4,7 @@
 
 This document is the Day 1 design gate for Settleora's core expense, bill, split, settlement, and balance workflows.
 
-It sits after the internal money, rounding, and allocation foundation and before any expense, bill, settlement, balance, recurring, reconciliation, API, OpenAPI, generated-client, or migration implementation. Future branches should use this document to keep financial state-machine work small, reviewable, server-authoritative, and auditable.
+It established the gate after the internal money, rounding, and allocation foundation and before expense, bill, settlement, balance, recurring, reconciliation, API, OpenAPI, generated-client, or migration implementation started. Future branches should use this document to keep financial state-machine work small, reviewable, server-authoritative, and auditable.
 
 ## Current State
 
@@ -17,8 +17,10 @@ The current repository state is:
 - Internal money, rounding, validation, and allocation foundations exist under the API project, including `MoneyAmount`, `CurrencyCode`, `MoneyRoundingService`, and `MoneyAllocationService`.
 - EF Core migrations now define schema-only expense/bill foundation tables: `expense_bills`, `expense_bill_items`, `expense_bill_item_splits`, `expense_bill_participants`, `expense_bill_payers`, `expense_bill_adjustments`, and `expense_bill_attachments`.
 - An internal bill calculation/split service exists for same-currency draft/pending calculations, including item split resolution, participant share aggregation, equal/proportional adjustment allocation, manual-adjustment rejection, and payer contribution validation.
-- No public expense, bill, split, settlement, balance, recurring, reconciliation, or bill-related notification endpoints exist yet.
-- No expense, bill, or settlement OpenAPI paths exist yet.
+- Public personal bill create/list/get endpoints exist at `POST /api/v1/bills`, `GET /api/v1/bills`, and `GET /api/v1/bills/{billId}`.
+- Public group-scoped group bill create/list/get endpoints exist at `POST /api/v1/groups/{groupId}/bills`, `GET /api/v1/groups/{groupId}/bills`, and `GET /api/v1/groups/{groupId}/bills/{billId}`.
+- No public bill edit, submit, participant acknowledgement, dispute, settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
+- Personal and group bill create/read OpenAPI paths and generated clients exist. No settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
 - No business migrations for settlements, balances, recurring bills, or reconciliation exist yet.
 
 Existing payment details are payment instructions and optional QR linkage only. They are not settlement records, payment confirmations, balances, or proof that money moved.
@@ -254,12 +256,20 @@ Money-bearing tables should follow the money architecture: decimal-safe amount p
 
 This branch does not change OpenAPI.
 
-Future endpoint categories are directional only and require separate OpenAPI, implementation, tests, and generated-client branches:
+Current bill endpoint foundations are:
 
 ```text
 POST /api/v1/bills
 GET /api/v1/bills
 GET /api/v1/bills/{billId}
+POST /api/v1/groups/{groupId}/bills
+GET /api/v1/groups/{groupId}/bills
+GET /api/v1/groups/{groupId}/bills/{billId}
+```
+
+Future endpoint categories are directional only and require separate OpenAPI, implementation, tests, and generated-client branches:
+
+```text
 PATCH /api/v1/bills/{billId}
 POST /api/v1/bills/{billId}/submit
 POST /api/v1/bills/{billId}/participants/{participantId}/accept
@@ -281,8 +291,8 @@ Recommended next implementation candidates, in order:
 
 1. Expense/bill schema foundation only. This is now landed for bill roots, items, item splits, participants, payers, adjustments, and bill attachment references only.
 2. Internal bill calculation and split domain service tests using the money foundation.
-3. Minimal bill create/read endpoints for personal bills only.
-4. Group bill create/read with authorization and resolved shares.
+3. Minimal bill create/read endpoints for personal bills only. This is now landed.
+4. Group bill create/read with authorization and resolved shares. This is now landed.
 5. Participant acknowledgement/dispute workflow.
 6. Settlement request/payment/confirmation foundation.
 7. Receipt/proof attachment integration once public authorized file flows exist.
