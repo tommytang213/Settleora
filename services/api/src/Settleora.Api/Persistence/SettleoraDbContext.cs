@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Storage;
 
@@ -59,6 +60,9 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
+        modelBuilder.Entity<SettlementRequest>(ConfigureSettlementRequest);
+        modelBuilder.Entity<SettlementPayment>(ConfigureSettlementPayment);
+        modelBuilder.Entity<SettlementProofAttachment>(ConfigureSettlementProofAttachment);
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
@@ -1054,6 +1058,328 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(attachment => attachment.CreatedByUserProfileId)
             .HasConstraintName("fk_expense_bill_attachments_user_profiles_created_by")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementRequest(EntityTypeBuilder<SettlementRequest> entity)
+    {
+        entity.ToTable("settlement_requests", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_settlement_requests_status",
+                "status IN ('requested', 'partially_paid', 'marked_paid', 'confirmed', 'disputed', 'cancelled')");
+            table.HasCheckConstraint(
+                "ck_settlement_requests_amount_positive",
+                "amount > 0");
+            table.HasCheckConstraint(
+                "ck_settlement_requests_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_settlement_requests_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_settlement_requests_debtor_creditor_distinct",
+                "debtor_user_profile_id <> creditor_user_profile_id");
+        });
+
+        entity.HasKey(request => request.Id);
+
+        entity.Property(request => request.Id)
+            .HasColumnName("id");
+
+        entity.Property(request => request.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(request => request.SourceExpenseBillId)
+            .HasColumnName("source_expense_bill_id");
+
+        entity.Property(request => request.DebtorUserProfileId)
+            .HasColumnName("debtor_user_profile_id");
+
+        entity.Property(request => request.CreditorUserProfileId)
+            .HasColumnName("creditor_user_profile_id");
+
+        entity.Property(request => request.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                SettlementConstraints.MoneyAmountPrecision,
+                SettlementConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(request => request.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(SettlementConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.Status)
+            .HasColumnName("status")
+            .HasMaxLength(SettlementConstraints.RequestStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.RequestedByUserProfileId)
+            .HasColumnName("requested_by_user_profile_id");
+
+        entity.Property(request => request.RequestedAtUtc)
+            .HasColumnName("requested_at_utc")
+            .IsRequired();
+
+        entity.Property(request => request.ConfirmedAtUtc)
+            .HasColumnName("confirmed_at_utc");
+
+        entity.Property(request => request.DisputedAtUtc)
+            .HasColumnName("disputed_at_utc");
+
+        entity.Property(request => request.CancelledAtUtc)
+            .HasColumnName("cancelled_at_utc");
+
+        entity.Property(request => request.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(request => request.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(request => request.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(request => request.DebtorUserProfileId)
+            .HasDatabaseName("ix_settlement_requests_debtor_user_profile_id");
+
+        entity.HasIndex(request => request.CreditorUserProfileId)
+            .HasDatabaseName("ix_settlement_requests_creditor_user_profile_id");
+
+        entity.HasIndex(request => request.GroupId)
+            .HasDatabaseName("ix_settlement_requests_group_id");
+
+        entity.HasIndex(request => request.SourceExpenseBillId)
+            .HasDatabaseName("ix_settlement_requests_source_expense_bill_id");
+
+        entity.HasIndex(request => request.Status)
+            .HasDatabaseName("ix_settlement_requests_status");
+
+        entity.HasIndex(request => request.RequestedByUserProfileId)
+            .HasDatabaseName("ix_settlement_requests_requested_by_user_profile_id");
+
+        entity.HasIndex(request => request.RequestedAtUtc)
+            .HasDatabaseName("ix_settlement_requests_requested_at_utc");
+
+        entity.HasIndex(request => request.CreatedAtUtc)
+            .HasDatabaseName("ix_settlement_requests_created_at_utc");
+
+        entity.HasIndex(request => request.ArchivedAtUtc)
+            .HasDatabaseName("ix_settlement_requests_archived_at_utc");
+
+        entity.HasOne(request => request.Group)
+            .WithMany()
+            .HasForeignKey(request => request.GroupId)
+            .HasConstraintName("fk_settlement_requests_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.SourceExpenseBill)
+            .WithMany()
+            .HasForeignKey(request => request.SourceExpenseBillId)
+            .HasConstraintName("fk_settlement_requests_expense_bills_source_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.DebtorUserProfile)
+            .WithMany()
+            .HasForeignKey(request => request.DebtorUserProfileId)
+            .HasConstraintName("fk_settlement_requests_user_profiles_debtor_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.CreditorUserProfile)
+            .WithMany()
+            .HasForeignKey(request => request.CreditorUserProfileId)
+            .HasConstraintName("fk_settlement_requests_user_profiles_creditor_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.RequestedByUserProfile)
+            .WithMany()
+            .HasForeignKey(request => request.RequestedByUserProfileId)
+            .HasConstraintName("fk_settlement_requests_user_profiles_requested_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementPayment(EntityTypeBuilder<SettlementPayment> entity)
+    {
+        entity.ToTable("settlement_payments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_settlement_payments_status",
+                "status IN ('marked_paid', 'confirmed', 'disputed', 'cancelled')");
+            table.HasCheckConstraint(
+                "ck_settlement_payments_amount_positive",
+                "amount > 0");
+            table.HasCheckConstraint(
+                "ck_settlement_payments_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_settlement_payments_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_settlement_payments_payer_receiver_distinct",
+                "paid_by_user_profile_id <> received_by_user_profile_id");
+            table.HasCheckConstraint(
+                "ck_settlement_payments_note_not_blank",
+                "note IS NULL OR length(btrim(note)) > 0");
+        });
+
+        entity.HasKey(payment => payment.Id);
+
+        entity.Property(payment => payment.Id)
+            .HasColumnName("id");
+
+        entity.Property(payment => payment.SettlementRequestId)
+            .HasColumnName("settlement_request_id");
+
+        entity.Property(payment => payment.PaidByUserProfileId)
+            .HasColumnName("paid_by_user_profile_id");
+
+        entity.Property(payment => payment.ReceivedByUserProfileId)
+            .HasColumnName("received_by_user_profile_id");
+
+        entity.Property(payment => payment.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                SettlementConstraints.MoneyAmountPrecision,
+                SettlementConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(payment => payment.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(SettlementConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(payment => payment.Status)
+            .HasColumnName("status")
+            .HasMaxLength(SettlementConstraints.PaymentStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(payment => payment.PaymentDate)
+            .HasColumnName("payment_date")
+            .HasColumnType("date")
+            .IsRequired();
+
+        entity.Property(payment => payment.Note)
+            .HasColumnName("note")
+            .HasMaxLength(SettlementConstraints.NoteMaxLength);
+
+        entity.Property(payment => payment.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(payment => payment.ClaimedAtUtc)
+            .HasColumnName("claimed_at_utc")
+            .IsRequired();
+
+        entity.Property(payment => payment.ConfirmedAtUtc)
+            .HasColumnName("confirmed_at_utc");
+
+        entity.Property(payment => payment.DisputedAtUtc)
+            .HasColumnName("disputed_at_utc");
+
+        entity.Property(payment => payment.CancelledAtUtc)
+            .HasColumnName("cancelled_at_utc");
+
+        entity.Property(payment => payment.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(payment => payment.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(payment => payment.SettlementRequestId)
+            .HasDatabaseName("ix_settlement_payments_settlement_request_id");
+
+        entity.HasIndex(payment => payment.PaidByUserProfileId)
+            .HasDatabaseName("ix_settlement_payments_paid_by_user_profile_id");
+
+        entity.HasIndex(payment => payment.ReceivedByUserProfileId)
+            .HasDatabaseName("ix_settlement_payments_received_by_user_profile_id");
+
+        entity.HasIndex(payment => payment.CreatedByUserProfileId)
+            .HasDatabaseName("ix_settlement_payments_created_by_user_profile_id");
+
+        entity.HasIndex(payment => payment.Status)
+            .HasDatabaseName("ix_settlement_payments_status");
+
+        entity.HasIndex(payment => payment.PaymentDate)
+            .HasDatabaseName("ix_settlement_payments_payment_date");
+
+        entity.HasOne(payment => payment.SettlementRequest)
+            .WithMany(request => request.Payments)
+            .HasForeignKey(payment => payment.SettlementRequestId)
+            .HasConstraintName("fk_settlement_payments_settlement_requests_request_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payment => payment.PaidByUserProfile)
+            .WithMany()
+            .HasForeignKey(payment => payment.PaidByUserProfileId)
+            .HasConstraintName("fk_settlement_payments_user_profiles_paid_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payment => payment.ReceivedByUserProfile)
+            .WithMany()
+            .HasForeignKey(payment => payment.ReceivedByUserProfileId)
+            .HasConstraintName("fk_settlement_payments_user_profiles_received_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payment => payment.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(payment => payment.CreatedByUserProfileId)
+            .HasConstraintName("fk_settlement_payments_user_profiles_created_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementProofAttachment(EntityTypeBuilder<SettlementProofAttachment> entity)
+    {
+        entity.ToTable("settlement_proof_attachments");
+
+        entity.HasKey(attachment => new
+        {
+            attachment.SettlementPaymentId,
+            attachment.FileObjectId
+        });
+
+        entity.Property(attachment => attachment.SettlementPaymentId)
+            .HasColumnName("settlement_payment_id");
+
+        entity.Property(attachment => attachment.FileObjectId)
+            .HasColumnName("file_object_id");
+
+        entity.Property(attachment => attachment.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(attachment => attachment.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(attachment => attachment.RemovedAtUtc)
+            .HasColumnName("removed_at_utc");
+
+        entity.HasIndex(attachment => attachment.FileObjectId)
+            .HasDatabaseName("ix_settlement_proof_attachments_file_object_id");
+
+        entity.HasIndex(attachment => attachment.CreatedByUserProfileId)
+            .HasDatabaseName("ix_settlement_proof_attachments_created_by_profile_id");
+
+        entity.HasOne(attachment => attachment.SettlementPayment)
+            .WithMany(payment => payment.ProofAttachments)
+            .HasForeignKey(attachment => attachment.SettlementPaymentId)
+            .HasConstraintName("fk_settlement_proof_attachments_payments_payment_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attachment => attachment.FileObject)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.FileObjectId)
+            .HasConstraintName("fk_settlement_proof_attachments_file_objects_file_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attachment => attachment.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.CreatedByUserProfileId)
+            .HasConstraintName("fk_settlement_proof_attachments_user_profiles_created_by")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

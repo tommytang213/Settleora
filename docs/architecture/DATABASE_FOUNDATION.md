@@ -7,10 +7,10 @@ This document defines Settleora's database foundation direction for API-owned Po
 - PostgreSQL readiness exists through the API readiness endpoint.
 - The API has runtime configuration placeholders for PostgreSQL.
 - The API has EF Core infrastructure registered for API-owned PostgreSQL persistence.
-- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, auth audit event, expense bill root, expense bill item, expense bill item split, expense bill participant, expense bill payer, expense bill adjustment, and expense bill attachment tables.
+- EF Core migrations define schema-only user profile, user payment profile, user group, group membership, file object metadata, auth account, auth identity, system role assignment, local password credential, auth session, auth session family, auth refresh credential history, auth audit event, expense bill root, expense bill item, expense bill item split, expense bill participant, expense bill payer, expense bill adjustment, expense bill attachment, settlement request, settlement payment, and settlement proof attachment tables.
 - Internal password hashing, credential workflow, session runtime, refresh session runtime, sign-in abuse policy, local sign-in/refresh/current-account session endpoint boundaries, the `SettleoraSession` bearer middleware/current-actor/policy foundation, and an internal business authorization service foundation exist.
 - Guarded self-profile, self payment-details, self payment QR, group foundation, group member management, and admin local-user endpoints exist as narrow API layers on the current user/group/payment/file metadata foundations.
-- No business tables for settlement workflows, settlement proof associations, OCR, business audit, sync, passkeys, MFA, reset tokens, or recovery codes exist yet.
+- Settlement request/payment/proof attachment schema exists only as a persistence foundation. Settlement runtime endpoints, OpenAPI paths, generated clients, proof upload/download bytes, OCR, business audit, sync, passkeys, MFA, reset tokens, and recovery codes do not exist yet.
 
 ## Authority Boundary
 
@@ -68,15 +68,18 @@ The current schema foundation is intentionally limited to:
 - `expense_bill_payers`: schema-only original payer contribution rows linked to bills and user profiles, with non-negative bounded amount/currency pairs, optional bounded payment-method label snapshot, indexes, and restrictive foreign keys.
 - `expense_bill_adjustments`: schema-only tax, service-charge, discount, credit, and manual adjustment rows with constrained type, direction, allocation method, non-negative bounded amount/currency pair, optional bounded reason note, deterministic sort-order index, and restrictive foreign key.
 - `expense_bill_attachments`: schema-only subject-specific bill attachment references keyed by bill/file object, with constrained purpose, creator reference, timestamps, and restrictive foreign keys. This table references only `file_objects.id` and does not duplicate storage paths, object keys, provider internals, filenames, vault references, or storage roots.
+- `settlement_requests`: schema-only settlement request roots linked to debtor, creditor, requester `user_profiles`, optional `user_groups`, and optional source `expense_bills`, with positive `numeric(19,4)` amount, uppercase three-letter currency, constrained status, counterparty distinction constraint, lifecycle timestamps, archive timestamp, indexes, and restrictive foreign keys.
+- `settlement_payments`: schema-only payment claim rows linked to `settlement_requests`, payer, receiver, and creator `user_profiles`, with positive `numeric(19,4)` amount, uppercase three-letter currency, constrained status, payment date, optional bounded note, counterparty distinction constraint, lifecycle timestamps, indexes, and restrictive foreign keys.
+- `settlement_proof_attachments`: schema-only settlement proof attachment references keyed by settlement payment and file object, with creator reference and timestamps. This table references only `file_objects.id` and does not duplicate storage paths, object keys, provider internals, filenames, vault references, storage roots, public URLs, or file bytes.
 
-The schema foundation by itself does not authorize public runtime behavior; the existing auth/session runtime, business authorization service, self-profile, self payment-details, self payment QR, group, group-member, admin local-user, internal local file-object storage foundation, and internal bill calculation/split service are separate API/domain layers. Expense/bill schema tables do not add bill endpoints, settlement workflows, receipt upload/download runtime, OCR behavior, notifications, or UI behavior. Invitations, friends, broader business endpoints, counterparty QR reads, generic file APIs, item-split workflows beyond the internal calculation service, settlements, OCR, sync, and reporting are not implemented yet.
+The schema foundation by itself does not authorize public runtime behavior; the existing auth/session runtime, business authorization service, self-profile, self payment-details, self payment QR, group, group-member, admin local-user, internal local file-object storage foundation, and internal bill calculation/split service are separate API/domain layers. Settlement schema tables do not add settlement request/create/mark-paid/confirm/dispute endpoints, OpenAPI settlement paths, generated client methods, proof upload/download bytes, receipt upload/download runtime, OCR behavior, notifications, or UI behavior. Invitations, friends, broader business endpoints, counterparty QR reads, generic file APIs, item-split workflows beyond the internal calculation service, settlement runtime workflows, OCR, sync, and reporting are not implemented yet.
 
 Future business tables are deferred. Future schema design should separate concerns as appropriate, including:
 
 - Passkeys, MFA, reset tokens, recovery codes, invitations, and friends.
 - Business audit records outside auth.
 - Recurring bills, reimbursements, and reconciliation records.
-- Settlement workflows, balances, approvals, and status history.
+- Settlement workflow runtime, balances, approvals, status history, and audit records beyond the current schema foundation.
 - File subject associations and storage lifecycle records beyond the first `file_objects` metadata foundation.
 - OCR metadata, extraction results, confidence data, and review state.
 - Audit records.
@@ -116,7 +119,7 @@ This document does not authorize:
 - Runtime behavior changes.
 - Authentication or authorization.
 - User/group business endpoints.
-- Expense/bill runtime, item-split workflows, settlements, public file workflows, OCR, audit, sync, or additional identity/session persistence beyond the listed schema foundations.
+- Settlement runtime workflows, settlement proof upload/download bytes, expense/bill runtime beyond implemented slices, item-split workflows beyond the internal calculation service, public file workflows, OCR, audit, sync, or additional identity/session persistence beyond the listed schema foundations.
 - Business persistence workflows.
 
 ## Next Implementation Candidate
