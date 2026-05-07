@@ -20,6 +20,8 @@ internal static class PersonalBillEndpoints
     private const string BillWriteFailedDetail = "Unable to complete bill write.";
     private const string BillReadFailedTitle = "Bill read failed";
     private const string BillReadFailedDetail = "Unable to read bill calculation data.";
+    private const string BillCreatedAction = "bill.created";
+    private const string PersonalGroupMode = "personal";
 
     public static WebApplication MapPersonalBillEndpoints(this WebApplication app)
     {
@@ -37,6 +39,7 @@ internal static class PersonalBillEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IPersonalBillAuditWriter auditWriter,
         ExpenseBillCalculationService calculationService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -166,6 +169,21 @@ internal static class PersonalBillEndpoints
 
         ApplyCalculation(bill, finalCalculation);
         dbContext.Set<ExpenseBill>().Add(bill);
+        await auditWriter.WriteAsync(
+            new PersonalBillAuditEvent(
+                BillCreatedAction,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                bill.Id,
+                PersonalGroupMode,
+                bill.Status,
+                bill.Items.Count,
+                bill.Adjustments.Count,
+                bill.Participants.Count,
+                bill.TotalCurrency,
+                bill.TotalAmount,
+                now),
+            cancellationToken);
 
         try
         {

@@ -28,6 +28,7 @@ builder.Services.AddSignInAbusePolicy();
 builder.Services.AddSettleoraAuth();
 builder.Services.AddGroupMembershipAudit();
 builder.Services.AddPaymentDetailsAudit();
+builder.Services.AddPersonalBillAudit();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));

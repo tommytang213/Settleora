@@ -18,6 +18,7 @@ namespace Settleora.Api.Tests;
 public sealed class PersonalBillEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string BillsPath = "/api/v1/bills";
+    private const string PersonalBillCreatedAction = "bill.created";
     private const string WrongRawToken = "visible-wrong-personal-bill-session-token";
 
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 7, 9, 0, 0, TimeSpan.Zero);
@@ -131,6 +132,29 @@ public sealed class PersonalBillEndpointTests : IClassFixture<WebApplicationFact
         Assert.Single(bill.Items.Single().Splits);
         Assert.Single(bill.Adjustments);
         Assert.Single(bill.Payers);
+
+        var auditEvent = await AssertSinglePersonalBillAuditEventAsync(
+            testFactory,
+            seededSession.AuthAccountId,
+            billId,
+            WriteTimestamp);
+        AssertPersonalBillAuditMetadata(
+            auditEvent,
+            billId,
+            ExpenseBillStatuses.Draft,
+            itemCount: 1,
+            adjustmentCount: 1,
+            participantCount: 1,
+            currency: "USD",
+            totalAmount: "11");
+        AssertSafePersonalBillAuditContent(
+            auditEvent,
+            seededSession.RawSessionToken,
+            "Corner Shop",
+            "Lunch",
+            "Noodles",
+            "Tip",
+            "Cash");
     }
 
     [Fact]
@@ -210,6 +234,7 @@ public sealed class PersonalBillEndpointTests : IClassFixture<WebApplicationFact
         Assert.DoesNotContain("payerUserProfileId", content);
         Assert.DoesNotContain("visible-personal-bill-token", content);
         await AssertNoBillsCreatedByAsync(testFactory, seededSession.UserProfileId);
+        await AssertNoPersonalBillAuditEventsAsync(testFactory);
     }
 
     [Fact]
@@ -528,6 +553,49 @@ public sealed class PersonalBillEndpointTests : IClassFixture<WebApplicationFact
             .SingleAsync();
     }
 
+    private static async Task<AuthAuditEvent> AssertSinglePersonalBillAuditEventAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid expectedAuthAccountId,
+        Guid expectedBillId,
+        DateTimeOffset expectedOccurredAtUtc)
+    {
+        var auditEvent = Assert.Single(await ReadPersonalBillAuditEventsAsync(testFactory));
+
+        Assert.Equal(PersonalBillCreatedAction, auditEvent.Action);
+        Assert.Equal(expectedAuthAccountId, auditEvent.ActorAuthAccountId);
+        Assert.Equal(expectedAuthAccountId, auditEvent.SubjectAuthAccountId);
+        Assert.Equal(AuthAuditOutcomes.Success, auditEvent.Outcome);
+        Assert.Equal(expectedOccurredAtUtc, auditEvent.OccurredAtUtc);
+        Assert.Null(auditEvent.CorrelationId);
+        Assert.Null(auditEvent.RequestId);
+        Assert.Contains(
+            expectedBillId.ToString("D"),
+            auditEvent.SafeMetadataJson ?? string.Empty,
+            StringComparison.Ordinal);
+
+        return auditEvent;
+    }
+
+    private static async Task AssertNoPersonalBillAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        Assert.Empty(await ReadPersonalBillAuditEventsAsync(testFactory));
+    }
+
+    private static async Task<IReadOnlyList<AuthAuditEvent>> ReadPersonalBillAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthAuditEvent>()
+            .AsNoTracking()
+            .Where(auditEvent => auditEvent.Action == PersonalBillCreatedAction)
+            .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
+            .ThenBy(auditEvent => auditEvent.Id)
+            .ToArrayAsync();
+    }
+
     private static async Task AssertNoBillsCreatedByAsync(
         WebApplicationFactory<Program> testFactory,
         Guid userProfileId)
@@ -538,6 +606,97 @@ public sealed class PersonalBillEndpointTests : IClassFixture<WebApplicationFact
             .CountAsync(bill => bill.CreatedByUserProfileId == userProfileId);
 
         Assert.Equal(0, billCount);
+    }
+
+    private static void AssertPersonalBillAuditMetadata(
+        AuthAuditEvent auditEvent,
+        Guid expectedBillId,
+        string expectedStatus,
+        int itemCount,
+        int adjustmentCount,
+        int participantCount,
+        string currency,
+        string totalAmount)
+    {
+        Assert.NotNull(auditEvent.SafeMetadataJson);
+        Assert.True(auditEvent.SafeMetadataJson!.Length <= 4096);
+
+        using var metadata = JsonDocument.Parse(auditEvent.SafeMetadataJson);
+        var propertyNames = metadata.RootElement
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var expectedPropertyNames = new[]
+        {
+            "adjustmentCount",
+            "billId",
+            "currency",
+            "groupMode",
+            "itemCount",
+            "participantCount",
+            "status",
+            "totalAmount",
+            "workflowName"
+        };
+        Assert.Equal(expectedPropertyNames, propertyNames);
+
+        Assert.Equal("personal_bill", metadata.RootElement.GetProperty("workflowName").GetString());
+        Assert.Equal(expectedBillId.ToString("D"), metadata.RootElement.GetProperty("billId").GetString());
+        Assert.Equal("personal", metadata.RootElement.GetProperty("groupMode").GetString());
+        Assert.Equal(expectedStatus, metadata.RootElement.GetProperty("status").GetString());
+        Assert.Equal(itemCount, metadata.RootElement.GetProperty("itemCount").GetInt32());
+        Assert.Equal(adjustmentCount, metadata.RootElement.GetProperty("adjustmentCount").GetInt32());
+        Assert.Equal(participantCount, metadata.RootElement.GetProperty("participantCount").GetInt32());
+        Assert.Equal(currency, metadata.RootElement.GetProperty("currency").GetString());
+        Assert.Equal(totalAmount, metadata.RootElement.GetProperty("totalAmount").GetString());
+
+        Assert.InRange(metadata.RootElement.GetProperty("workflowName").GetString()!.Length, 1, 120);
+        Assert.InRange(metadata.RootElement.GetProperty("groupMode").GetString()!.Length, 1, 120);
+        Assert.InRange(metadata.RootElement.GetProperty("status").GetString()!.Length, 1, 120);
+        Assert.InRange(metadata.RootElement.GetProperty("currency").GetString()!.Length, 1, 120);
+        Assert.InRange(metadata.RootElement.GetProperty("totalAmount").GetString()!.Length, 1, 120);
+    }
+
+    private static void AssertSafePersonalBillAuditContent(
+        AuthAuditEvent auditEvent,
+        params string[] forbiddenValues)
+    {
+        var auditText = string.Join(
+            "\n",
+            auditEvent.Action,
+            auditEvent.Outcome,
+            auditEvent.SafeMetadataJson ?? string.Empty);
+        var lowerAuditText = auditText.ToLowerInvariant();
+
+        foreach (var forbiddenValue in forbiddenValues)
+        {
+            Assert.DoesNotContain(forbiddenValue, auditText);
+        }
+
+        Assert.DoesNotContain("merchant", lowerAuditText);
+        Assert.DoesNotContain("itemname", lowerAuditText);
+        Assert.DoesNotContain("note", lowerAuditText);
+        Assert.DoesNotContain("payer", lowerAuditText);
+        Assert.DoesNotContain("payment", lowerAuditText);
+        Assert.DoesNotContain("method", lowerAuditText);
+        Assert.DoesNotContain("label", lowerAuditText);
+        Assert.DoesNotContain("request", lowerAuditText);
+        Assert.DoesNotContain("body", lowerAuditText);
+        Assert.DoesNotContain("auth", lowerAuditText);
+        Assert.DoesNotContain("session", lowerAuditText);
+        Assert.DoesNotContain("credential", lowerAuditText);
+        Assert.DoesNotContain("token", lowerAuditText);
+        Assert.DoesNotContain("hash", lowerAuditText);
+        Assert.DoesNotContain("password", lowerAuditText);
+        Assert.DoesNotContain("provider", lowerAuditText);
+        Assert.DoesNotContain("payload", lowerAuditText);
+        Assert.DoesNotContain("storage", lowerAuditText);
+        Assert.DoesNotContain("path", lowerAuditText);
+        Assert.DoesNotContain("file", lowerAuditText);
+        Assert.DoesNotContain("object", lowerAuditText);
+        Assert.DoesNotContain("vault", lowerAuditText);
+        Assert.DoesNotContain("ocr", lowerAuditText);
     }
 
     private static HttpRequestMessage CreateBearerRequest(
