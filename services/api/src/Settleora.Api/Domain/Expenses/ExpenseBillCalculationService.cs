@@ -35,12 +35,14 @@ internal sealed class ExpenseBillCalculationService
             _ => 0m);
         var participantOrder = participantIds.ToList();
         var itemSubtotal = 0m;
+        var activeItemCount = 0;
 
         foreach (var item in bill.Items
             .Where(item => item.DeletedAtUtc is null)
             .OrderBy(item => item.SortOrder)
             .ThenBy(item => item.Id))
         {
+            activeItemCount++;
             if (!TryCreateSameCurrencyMoney(
                 item.Amount,
                 item.Currency,
@@ -72,6 +74,15 @@ internal sealed class ExpenseBillCalculationService
 
                 preAdjustmentShares[calculatedSplit.UserProfileId] += calculatedSplit.ResolvedAmount;
             }
+        }
+
+        if (activeItemCount is 0)
+        {
+            return ExpenseBillCalculationResult.Failed(ExpenseBillCalculationFailure.Create(
+                ExpenseBillCalculationFailureReason.NoActiveItems,
+                "no_active_items",
+                "items",
+                "At least one active bill item is required for calculation."));
         }
 
         var participantShares = new Dictionary<Guid, decimal>(preAdjustmentShares);
@@ -410,6 +421,14 @@ internal sealed class ExpenseBillCalculationService
                     participantId,
                     preAdjustmentShares[participantId]))
                 .ToArray();
+            if (weights.Length is 0)
+            {
+                return ExpenseBillAdjustmentCalculationResult.Failed(ExpenseBillCalculationFailure.Create(
+                    ExpenseBillCalculationFailureReason.AdjustmentAllocationDenominatorNotPositive,
+                    "adjustment_allocation_denominator_not_positive",
+                    "adjustments.allocation_method",
+                    "Proportional adjustment allocation requires a positive active item subtotal."));
+            }
 
             allocationResult = allocationService.AllocateByWeights(adjustmentAmount, weights);
         }
@@ -478,6 +497,7 @@ internal sealed class ExpenseBillCalculationService
 
         var roundedPayerTotal = 0m;
         var payerCount = 0;
+        var payerIds = new HashSet<Guid>();
         foreach (var payer in payers)
         {
             payerCount++;
@@ -488,6 +508,16 @@ internal sealed class ExpenseBillCalculationService
                     "invalid_payer",
                     "payers.user_profile_id",
                     "Payer participant identifiers must be present.");
+                return false;
+            }
+
+            if (!payerIds.Add(payer.UserProfileId))
+            {
+                failure = ExpenseBillCalculationFailure.Create(
+                    ExpenseBillCalculationFailureReason.InvalidPayer,
+                    "invalid_payer",
+                    "payers.user_profile_id",
+                    "Payer participant identifiers must be unique.");
                 return false;
             }
 
@@ -912,6 +942,8 @@ internal enum ExpenseBillCalculationFailureReason
     InvalidAdjustmentDirection,
     UnsupportedAdjustmentAllocationMethod,
     UnsupportedManualAdjustmentAllocation,
+    NoActiveItems,
+    AdjustmentAllocationDenominatorNotPositive,
     NegativeBillTotal,
     NegativeParticipantShare,
     PayerContributionTotalMismatch

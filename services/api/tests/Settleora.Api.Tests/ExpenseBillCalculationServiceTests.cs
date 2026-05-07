@@ -43,7 +43,7 @@ public sealed class ExpenseBillCalculationServiceTests
         var bill = CreateBill();
         AddItem(
             bill,
-            10.00m,
+            10.004m,
             ExpenseBillItemSplitMethods.ExactAmount,
             [
                 Split(ParticipantOne, 4.00m),
@@ -76,6 +76,25 @@ public sealed class ExpenseBillCalculationServiceTests
         Assert.False(result.Succeeded);
         Assert.Equal("exact_amount_split_total_mismatch", result.Code);
         Assert.Empty(result.ItemSplits);
+    }
+
+    [Fact]
+    public void ExactAmountItemSplitRequiresBasisValue()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            10.00m,
+            ExpenseBillItemSplitMethods.ExactAmount,
+            [
+                Split(ParticipantOne, 4.00m),
+                Split(ParticipantTwo)
+            ]);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("missing_split_basis", result.Code);
     }
 
     [Fact]
@@ -121,6 +140,47 @@ public sealed class ExpenseBillCalculationServiceTests
     }
 
     [Fact]
+    public void PercentageItemSplitRequiresBasisValue()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Percentage,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo, 100m)
+            ]);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("missing_split_basis", result.Code);
+    }
+
+    [Fact]
+    public void PercentageItemSplitRejectsZeroOrNegativeBasisValues()
+    {
+        foreach (var invalidBasisValue in new[] { 0m, -1m })
+        {
+            var bill = CreateBill();
+            AddItem(
+                bill,
+                10.00m,
+                ExpenseBillItemSplitMethods.Percentage,
+                [
+                    Split(ParticipantOne, invalidBasisValue),
+                    Split(ParticipantTwo, 100m - invalidBasisValue)
+                ]);
+
+            var result = service.Calculate(bill);
+
+            Assert.False(result.Succeeded);
+            Assert.Equal("invalid_split_basis", result.Code);
+        }
+    }
+
+    [Fact]
     public void RatioAndShareWeightSplitsUseWeightedAllocationWithDeterministicResiduals()
     {
         var ratioBill = CreateBill();
@@ -158,6 +218,50 @@ public sealed class ExpenseBillCalculationServiceTests
         AssertItemSplit(shareWeightResult, ParticipantOne, 0.03m, residual: true, allocationOrder: 0, basisValue: 5m);
         AssertItemSplit(shareWeightResult, ParticipantTwo, 0.01m, residual: false, allocationOrder: 1, basisValue: 3m);
         AssertItemSplit(shareWeightResult, ParticipantThree, 0.01m, residual: false, allocationOrder: 2, basisValue: 2m);
+    }
+
+    [Fact]
+    public void RatioAndShareWeightSplitsRejectZeroOrNegativeBasisValues()
+    {
+        foreach (var splitMethod in new[] { ExpenseBillItemSplitMethods.Ratio, ExpenseBillItemSplitMethods.ShareWeight })
+        {
+            foreach (var invalidBasisValue in new[] { 0m, -1m })
+            {
+                var bill = CreateBill();
+                AddItem(
+                    bill,
+                    10.00m,
+                    splitMethod,
+                    [
+                        Split(ParticipantOne, invalidBasisValue),
+                        Split(ParticipantTwo, 1m)
+                    ]);
+
+                var result = service.Calculate(bill);
+
+                Assert.False(result.Succeeded);
+                Assert.Equal("invalid_split_basis", result.Code);
+            }
+        }
+    }
+
+    [Fact]
+    public void UnsupportedItemSplitMethodReturnsBoundedFailure()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            10.00m,
+            "client_calculated",
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("unsupported_split_method", result.Code);
     }
 
     [Fact]
@@ -254,6 +358,54 @@ public sealed class ExpenseBillCalculationServiceTests
     }
 
     [Fact]
+    public void CreditAdjustmentLargerThanBillTotalFails()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            1.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddAdjustment(
+            bill,
+            1.01m,
+            ExpenseBillAdjustmentDirections.Credit,
+            ExpenseBillAdjustmentAllocationMethods.Equal);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("negative_bill_total", result.Code);
+    }
+
+    [Fact]
+    public void CreditAdjustmentLargerThanParticipantShareFails()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            10.00m,
+            ExpenseBillItemSplitMethods.ExactAmount,
+            [
+                Split(ParticipantOne, 0.01m),
+                Split(ParticipantTwo, 9.99m)
+            ]);
+        AddAdjustment(
+            bill,
+            0.04m,
+            ExpenseBillAdjustmentDirections.Credit,
+            ExpenseBillAdjustmentAllocationMethods.Equal);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("negative_participant_share", result.Code);
+    }
+
+    [Fact]
     public void ProportionalAdjustmentAllocationUsesPreAdjustmentItemSubtotal()
     {
         var bill = CreateBill();
@@ -285,6 +437,30 @@ public sealed class ExpenseBillCalculationServiceTests
     }
 
     [Fact]
+    public void ProportionalAdjustmentAllocationFailsWhenNoPositiveItemSubtotalExists()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            0.00m,
+            ExpenseBillItemSplitMethods.ExactAmount,
+            [
+                Split(ParticipantOne, 0.00m),
+                Split(ParticipantTwo, 0.00m)
+            ]);
+        AddAdjustment(
+            bill,
+            1.00m,
+            ExpenseBillAdjustmentDirections.Charge,
+            ExpenseBillAdjustmentAllocationMethods.ProportionalByItemSubtotal);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("adjustment_allocation_denominator_not_positive", result.Code);
+    }
+
+    [Fact]
     public void ManualAdjustmentAllocationReturnsExplicitUnsupportedFailure()
     {
         var bill = CreateBill();
@@ -311,9 +487,9 @@ public sealed class ExpenseBillCalculationServiceTests
     [Fact]
     public void MixedCurrenciesAreRejected()
     {
-        var bill = CreateBill();
+        var itemCurrencyBill = CreateBill();
         AddItem(
-            bill,
+            itemCurrencyBill,
             10.00m,
             ExpenseBillItemSplitMethods.Equal,
             [
@@ -322,11 +498,50 @@ public sealed class ExpenseBillCalculationServiceTests
             ],
             currency: "EUR");
 
-        var result = service.Calculate(bill);
+        var itemCurrencyResult = service.Calculate(itemCurrencyBill);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal("currency_mismatch", result.Code);
-        Assert.Equal("items.currency", result.Failure!.Field);
+        Assert.False(itemCurrencyResult.Succeeded);
+        Assert.Equal("currency_mismatch", itemCurrencyResult.Code);
+        Assert.Equal("items.currency", itemCurrencyResult.Failure!.Field);
+
+        var adjustmentCurrencyBill = CreateBill();
+        AddItem(
+            adjustmentCurrencyBill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddAdjustment(
+            adjustmentCurrencyBill,
+            1.00m,
+            ExpenseBillAdjustmentDirections.Charge,
+            ExpenseBillAdjustmentAllocationMethods.Equal,
+            currency: "EUR");
+
+        var adjustmentCurrencyResult = service.Calculate(adjustmentCurrencyBill);
+
+        Assert.False(adjustmentCurrencyResult.Succeeded);
+        Assert.Equal("currency_mismatch", adjustmentCurrencyResult.Code);
+        Assert.Equal("adjustments.currency", adjustmentCurrencyResult.Failure!.Field);
+
+        var payerCurrencyBill = CreateBill();
+        AddItem(
+            payerCurrencyBill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddPayer(payerCurrencyBill, ParticipantOne, 10.00m, currency: "EUR");
+
+        var payerCurrencyResult = service.Calculate(payerCurrencyBill);
+
+        Assert.False(payerCurrencyResult.Succeeded);
+        Assert.Equal("currency_mismatch", payerCurrencyResult.Code);
+        Assert.Equal("payers.currency", payerCurrencyResult.Failure!.Field);
     }
 
     [Fact]
@@ -364,7 +579,7 @@ public sealed class ExpenseBillCalculationServiceTests
     }
 
     [Fact]
-    public void PayerContributionsMustMatchResolvedBillTotalWhenSupplied()
+    public void PayerContributionsMustMatchResolvedBillTotalAfterAdjustmentsWhenSupplied()
     {
         var matchedBill = CreateBill();
         AddItem(
@@ -375,13 +590,18 @@ public sealed class ExpenseBillCalculationServiceTests
                 Split(ParticipantOne, 4.00m),
                 Split(ParticipantTwo, 6.00m)
             ]);
-        AddPayer(matchedBill, ParticipantOne, 4.00m);
+        AddAdjustment(
+            matchedBill,
+            1.00m,
+            ExpenseBillAdjustmentDirections.Charge,
+            ExpenseBillAdjustmentAllocationMethods.Equal);
+        AddPayer(matchedBill, ParticipantOne, 5.00m);
         AddPayer(matchedBill, ParticipantTwo, 6.00m);
 
         var matchedResult = service.Calculate(matchedBill);
 
         AssertSucceeded(matchedResult);
-        AssertMoney(10.00m, "USD", matchedResult.PayerContributionTotal!);
+        AssertMoney(11.00m, "USD", matchedResult.PayerContributionTotal!);
 
         var mismatchedBill = CreateBill();
         AddItem(
@@ -392,13 +612,71 @@ public sealed class ExpenseBillCalculationServiceTests
                 Split(ParticipantOne, 4.00m),
                 Split(ParticipantTwo, 6.00m)
             ]);
-        AddPayer(mismatchedBill, ParticipantOne, 4.00m);
+        AddAdjustment(
+            mismatchedBill,
+            1.00m,
+            ExpenseBillAdjustmentDirections.Charge,
+            ExpenseBillAdjustmentAllocationMethods.Equal);
+        AddPayer(mismatchedBill, ParticipantOne, 5.00m);
         AddPayer(mismatchedBill, ParticipantTwo, 5.99m);
 
         var mismatchedResult = service.Calculate(mismatchedBill);
 
         Assert.False(mismatchedResult.Succeeded);
         Assert.Equal("payer_contribution_total_mismatch", mismatchedResult.Code);
+    }
+
+    [Fact]
+    public void PayerContributionsRequirePresentUniqueNonNegativePayers()
+    {
+        var missingPayerBill = CreateBill();
+        AddItem(
+            missingPayerBill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddPayer(missingPayerBill, Guid.Empty, 10.00m);
+
+        var missingPayerResult = service.Calculate(missingPayerBill);
+
+        Assert.False(missingPayerResult.Succeeded);
+        Assert.Equal("invalid_payer", missingPayerResult.Code);
+
+        var duplicatePayerBill = CreateBill();
+        AddItem(
+            duplicatePayerBill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddPayer(duplicatePayerBill, ParticipantOne, 5.00m);
+        AddPayer(duplicatePayerBill, ParticipantOne, 5.00m);
+
+        var duplicatePayerResult = service.Calculate(duplicatePayerBill);
+
+        Assert.False(duplicatePayerResult.Succeeded);
+        Assert.Equal("invalid_payer", duplicatePayerResult.Code);
+
+        var negativePayerBill = CreateBill();
+        AddItem(
+            negativePayerBill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ]);
+        AddPayer(negativePayerBill, ParticipantOne, -10.00m);
+
+        var negativePayerResult = service.Calculate(negativePayerBill);
+
+        Assert.False(negativePayerResult.Succeeded);
+        Assert.Equal("negative_amount_not_allowed", negativePayerResult.Code);
     }
 
     [Fact]
@@ -430,6 +708,26 @@ public sealed class ExpenseBillCalculationServiceTests
         AssertParticipantShare(result, ParticipantOne, 2.00m, allocationOrder: 0);
         AssertParticipantShare(result, ParticipantTwo, 4.00m, allocationOrder: 1);
         Assert.DoesNotContain(result.ParticipantShares, share => share.UserProfileId == ParticipantThree);
+    }
+
+    [Fact]
+    public void NoActiveItemsFailClearly()
+    {
+        var bill = CreateBill();
+        AddItem(
+            bill,
+            10.00m,
+            ExpenseBillItemSplitMethods.Equal,
+            [
+                Split(ParticipantOne),
+                Split(ParticipantTwo)
+            ],
+            deleted: true);
+
+        var result = service.Calculate(bill);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("no_active_items", result.Code);
     }
 
     private static ExpenseBill CreateBill(
