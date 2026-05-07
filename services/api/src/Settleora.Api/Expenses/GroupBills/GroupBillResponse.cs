@@ -41,7 +41,8 @@ internal sealed record GroupBillParticipantResponse(
     Guid UserProfileId,
     string Status,
     string ResolvedShareAmount,
-    string ResolvedShareCurrency);
+    string ResolvedShareCurrency,
+    string? RejectionReasonCode);
 
 internal sealed record GroupBillPayerResponse(
     Guid UserProfileId,

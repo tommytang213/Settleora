@@ -875,6 +875,27 @@ class CreatePersonalBillAdjustmentRequest {
   }
 }
 
+/// Bounded participant rejection request. Free-text rejection notes are intentionally excluded from this slice.
+class RejectBillParticipantRequest {
+  const RejectBillParticipantRequest({
+    required this.reasonCode,
+  });
+
+  final ExpenseBillParticipantRejectionReasonCode reasonCode;
+
+  factory RejectBillParticipantRequest.fromJson(JsonObject json) {
+    return RejectBillParticipantRequest(
+      reasonCode: json["reasonCode"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "reasonCode": reasonCode,
+    };
+  }
+}
+
 /// Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
 class PersonalBillListResponse {
   const PersonalBillListResponse({
@@ -1067,12 +1088,15 @@ class PersonalBillParticipantResponse {
     required this.status,
     required this.resolvedShareAmount,
     required this.resolvedShareCurrency,
+    required this.rejectionReasonCode,
   });
 
   final String userProfileId;
   final ExpenseBillParticipantStatus status;
   final String resolvedShareAmount;
   final CurrencyCode resolvedShareCurrency;
+  /// Bounded rejection reason code when the participant rejected the bill; null otherwise.
+  final ExpenseBillParticipantRejectionReasonCode? rejectionReasonCode;
 
   factory PersonalBillParticipantResponse.fromJson(JsonObject json) {
     return PersonalBillParticipantResponse(
@@ -1080,15 +1104,19 @@ class PersonalBillParticipantResponse {
       status: json["status"] as String,
       resolvedShareAmount: json["resolvedShareAmount"] as String,
       resolvedShareCurrency: json["resolvedShareCurrency"] as String,
+      rejectionReasonCode: json["rejectionReasonCode"] == null ? null : json["rejectionReasonCode"] as String,
     );
   }
 
   JsonObject toJson() {
+    final rejectionReasonCodeJsonValue = rejectionReasonCode;
+
     return {
       "userProfileId": userProfileId,
       "status": status,
       "resolvedShareAmount": resolvedShareAmount,
       "resolvedShareCurrency": resolvedShareCurrency,
+      "rejectionReasonCode": rejectionReasonCodeJsonValue,
     };
   }
 }
@@ -1684,12 +1712,15 @@ class GroupBillParticipantResponse {
     required this.status,
     required this.resolvedShareAmount,
     required this.resolvedShareCurrency,
+    required this.rejectionReasonCode,
   });
 
   final String userProfileId;
   final ExpenseBillParticipantStatus status;
   final String resolvedShareAmount;
   final CurrencyCode resolvedShareCurrency;
+  /// Bounded rejection reason code when the participant rejected the bill; null otherwise.
+  final ExpenseBillParticipantRejectionReasonCode? rejectionReasonCode;
 
   factory GroupBillParticipantResponse.fromJson(JsonObject json) {
     return GroupBillParticipantResponse(
@@ -1697,15 +1728,19 @@ class GroupBillParticipantResponse {
       status: json["status"] as String,
       resolvedShareAmount: json["resolvedShareAmount"] as String,
       resolvedShareCurrency: json["resolvedShareCurrency"] as String,
+      rejectionReasonCode: json["rejectionReasonCode"] == null ? null : json["rejectionReasonCode"] as String,
     );
   }
 
   JsonObject toJson() {
+    final rejectionReasonCodeJsonValue = rejectionReasonCode;
+
     return {
       "userProfileId": userProfileId,
       "status": status,
       "resolvedShareAmount": resolvedShareAmount,
       "resolvedShareCurrency": resolvedShareCurrency,
+      "rejectionReasonCode": rejectionReasonCodeJsonValue,
     };
   }
 }
@@ -1869,6 +1904,19 @@ class ExpenseBillParticipantStatusValues {
   static const ExpenseBillParticipantStatus claimedPaid = "claimed_paid";
   static const ExpenseBillParticipantStatus confirmedPaid = "confirmed_paid";
   static const Set<ExpenseBillParticipantStatus> values = {pendingAcceptance, accepted, rejected, partiallySettled, settled, waived, claimedPaid, confirmedPaid};
+}
+
+/// Bounded participant rejection reason code.
+typedef ExpenseBillParticipantRejectionReasonCode = String;
+class ExpenseBillParticipantRejectionReasonCodeValues {
+  const ExpenseBillParticipantRejectionReasonCodeValues._();
+  static const ExpenseBillParticipantRejectionReasonCode wrongAmount = "wrong_amount";
+  static const ExpenseBillParticipantRejectionReasonCode wrongItems = "wrong_items";
+  static const ExpenseBillParticipantRejectionReasonCode wrongSplit = "wrong_split";
+  static const ExpenseBillParticipantRejectionReasonCode duplicate = "duplicate";
+  static const ExpenseBillParticipantRejectionReasonCode notMine = "not_mine";
+  static const ExpenseBillParticipantRejectionReasonCode other = "other";
+  static const Set<ExpenseBillParticipantRejectionReasonCode> values = {wrongAmount, wrongItems, wrongSplit, duplicate, notMine, other};
 }
 
 /// Expense bill item split method.

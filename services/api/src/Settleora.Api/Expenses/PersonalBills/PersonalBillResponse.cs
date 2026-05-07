@@ -40,7 +40,8 @@ internal sealed record PersonalBillParticipantResponse(
     Guid UserProfileId,
     string Status,
     string ResolvedShareAmount,
-    string ResolvedShareCurrency);
+    string ResolvedShareCurrency,
+    string? RejectionReasonCode);
 
 internal sealed record PersonalBillPayerResponse(
     Guid UserProfileId,

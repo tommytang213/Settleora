@@ -13,7 +13,8 @@ info:
     refresh-capable local sign-in, public refresh, current-session sign-out,
     current-account sign-out-all, current-account session list and per-session
     revocation, the minimal current-user auth read boundary, and guarded
-    self-profile read/update endpoints, first personal and group bill create/read endpoints,
+    self-profile read/update endpoints, first personal and group bill create/read
+    endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
@@ -693,6 +694,176 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/submit:
+    post:
+      summary: Submit personal bill
+      description: Submits a draft or rejected personal bill created by the authenticated actor. Submission moves the bill to pending confirmation, resets participant acknowledgement state, and writes bounded safe audit metadata.
+      operationId: submitPersonalBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID to submit.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Personal bill submitted.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, archived, a group bill, unrelated, not created by the actor, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill state does not allow submission.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Personal bill workflow write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/participants/{userProfileId}/accept:
+    post:
+      summary: Accept personal bill participant share
+      description: Accepts the authenticated actor's own participant row on a visible personal bill in pending confirmation. The route userProfileId must equal the current actor profile ID; final participant acceptance confirms the bill and writes bounded safe audit metadata.
+      operationId: acceptPersonalBillParticipant
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Participant user profile ID. Must be the authenticated actor's own profile ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Participant acceptance recorded.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or participant is missing, archived, group-scoped, unrelated, route-mismatched, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill or participant state does not allow acceptance.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Personal bill workflow write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/participants/{userProfileId}/reject:
+    post:
+      summary: Reject personal bill participant share
+      description: Rejects the authenticated actor's own participant row on a visible personal bill in pending confirmation using a bounded reason code. The route userProfileId must equal the current actor profile ID; rejection moves the bill to rejected and writes bounded safe audit metadata.
+      operationId: rejectPersonalBillParticipant
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Participant user profile ID. Must be the authenticated actor's own profile ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectBillParticipantRequest"
+      responses:
+        "204":
+          description: Participant rejection recorded.
+        "400":
+          description: The submitted rejection request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or participant is missing, archived, group-scoped, unrelated, route-mismatched, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill or participant state does not allow rejection.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Personal bill workflow write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/groups/{groupId}/bills:
     post:
       summary: Create group bill
@@ -827,6 +998,197 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/submit:
+    post:
+      summary: Submit group bill
+      description: Submits a draft or rejected group bill created by the authenticated actor. The actor must still have active access to the route group. Submission moves the bill to pending confirmation, resets participant acknowledgement state, and writes bounded safe audit metadata.
+      operationId: submitGroupBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID to submit.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Group bill submitted.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, not created by the actor, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill state does not allow submission.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill workflow write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/participants/{userProfileId}/accept:
+    post:
+      summary: Accept group bill participant share
+      description: Accepts the authenticated actor's own participant row on a visible group bill in pending confirmation. The actor must have active access to the route group, and the route userProfileId must equal the current actor profile ID; final participant acceptance confirms the bill and writes bounded safe audit metadata.
+      operationId: acceptGroupBillParticipant
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Participant user profile ID. Must be the authenticated actor's own profile ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Participant acceptance recorded.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, or participant is missing, deleted, archived, personal, unrelated, in another group, route-mismatched, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill or participant state does not allow acceptance.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill workflow write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/participants/{userProfileId}/reject:
+    post:
+      summary: Reject group bill participant share
+      description: Rejects the authenticated actor's own participant row on a visible group bill in pending confirmation using a bounded reason code. The actor must have active access to the route group, and the route userProfileId must equal the current actor profile ID; rejection moves the bill to rejected and writes bounded safe audit metadata.
+      operationId: rejectGroupBillParticipant
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Participant user profile ID. Must be the authenticated actor's own profile ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectBillParticipantRequest"
+      responses:
+        "204":
+          description: Participant rejection recorded.
+        "400":
+          description: The submitted rejection request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, or participant is missing, deleted, archived, personal, unrelated, in another group, route-mismatched, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill or participant state does not allow rejection.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill workflow write could not be completed.
           content:
             application/problem+json:
               schema:
@@ -2075,6 +2437,15 @@ components:
               maxLength: 1000
             - type: "null"
           description: Optional adjustment reason note after server-side trimming.
+    RejectBillParticipantRequest:
+      type: object
+      description: Bounded participant rejection request. Free-text rejection notes are intentionally excluded from this slice.
+      additionalProperties: false
+      required:
+        - reasonCode
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/ExpenseBillParticipantRejectionReasonCode"
     PersonalBillListResponse:
       type: object
       description: Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
@@ -2218,6 +2589,7 @@ components:
         - status
         - resolvedShareAmount
         - resolvedShareCurrency
+        - rejectionReasonCode
       properties:
         userProfileId:
           type: string
@@ -2228,6 +2600,11 @@ components:
           type: string
         resolvedShareCurrency:
           $ref: "#/components/schemas/CurrencyCode"
+        rejectionReasonCode:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillParticipantRejectionReasonCode"
+            - type: "null"
+          description: Bounded rejection reason code when the participant rejected the bill; null otherwise.
     PersonalBillPayerResponse:
       type: object
       required:
@@ -2608,6 +2985,7 @@ components:
         - status
         - resolvedShareAmount
         - resolvedShareCurrency
+        - rejectionReasonCode
       properties:
         userProfileId:
           type: string
@@ -2618,6 +2996,11 @@ components:
           type: string
         resolvedShareCurrency:
           $ref: "#/components/schemas/CurrencyCode"
+        rejectionReasonCode:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillParticipantRejectionReasonCode"
+            - type: "null"
+          description: Bounded rejection reason code when the participant rejected the bill; null otherwise.
     GroupBillPayerResponse:
       type: object
       required:
@@ -2725,6 +3108,16 @@ components:
         - waived
         - claimed_paid
         - confirmed_paid
+    ExpenseBillParticipantRejectionReasonCode:
+      type: string
+      description: Bounded participant rejection reason code.
+      enum:
+        - wrong_amount
+        - wrong_items
+        - wrong_split
+        - duplicate
+        - not_mine
+        - other
     ExpenseBillItemSplitMethod:
       type: string
       description: Expense bill item split method.

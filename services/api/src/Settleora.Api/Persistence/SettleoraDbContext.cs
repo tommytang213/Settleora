@@ -632,6 +632,9 @@ public sealed class SettleoraDbContext : DbContext
                 "ck_expense_bill_participants_status",
                 "status IN ('pending_acceptance', 'accepted', 'rejected', 'partially_settled', 'settled', 'waived', 'claimed_paid', 'confirmed_paid')");
             table.HasCheckConstraint(
+                "ck_expense_bill_participants_rejection_reason_code",
+                "rejection_reason_code IS NULL OR rejection_reason_code IN ('wrong_amount', 'wrong_items', 'wrong_split', 'duplicate', 'not_mine', 'other')");
+            table.HasCheckConstraint(
                 "ck_expense_bill_participants_share_amount_non_negative",
                 "resolved_share_amount >= 0");
             table.HasCheckConstraint(
@@ -676,6 +679,10 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.Property(participant => participant.RejectedAtUtc)
             .HasColumnName("rejected_at_utc");
+
+        entity.Property(participant => participant.RejectionReasonCode)
+            .HasColumnName("rejection_reason_code")
+            .HasMaxLength(ExpenseBillConstraints.ParticipantRejectionReasonCodeMaxLength);
 
         entity.Property(participant => participant.SettledAtUtc)
             .HasColumnName("settled_at_utc");

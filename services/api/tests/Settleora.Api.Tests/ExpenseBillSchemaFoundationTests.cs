@@ -32,6 +32,7 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.Equal(3, ExpenseBillConstraints.CurrencyMaxLength);
         Assert.Equal(999999999999999.9999m, ExpenseBillConstraints.MoneyAmountMaxValue);
         Assert.Equal(32, ExpenseBillConstraints.ItemSplitMethodMaxLength);
+        Assert.Equal(32, ExpenseBillConstraints.ParticipantRejectionReasonCodeMaxLength);
 
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.Draft));
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.PendingConfirmation));
@@ -45,6 +46,12 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.PendingAcceptance));
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.ConfirmedPaid));
         Assert.False(ExpenseBillParticipantStatuses.IsSupported("invited"));
+
+        Assert.True(ExpenseBillParticipantRejectionReasonCodes.IsSupported(
+            ExpenseBillParticipantRejectionReasonCodes.WrongAmount));
+        Assert.True(ExpenseBillParticipantRejectionReasonCodes.IsSupported(
+            ExpenseBillParticipantRejectionReasonCodes.Other));
+        Assert.False(ExpenseBillParticipantRejectionReasonCodes.IsSupported("raw_note"));
 
         Assert.True(ExpenseBillAdjustmentTypes.IsSupported(ExpenseBillAdjustmentTypes.Tax));
         Assert.True(ExpenseBillAdjustmentTypes.IsSupported(ExpenseBillAdjustmentTypes.Credit));
@@ -253,6 +260,13 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertColumn(entity, storeObject, "ResolvedShareCurrency", "resolved_share_currency", isNullable: false, maxLength: 3);
         AssertColumn(entity, storeObject, "AcceptedAtUtc", "accepted_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "RejectedAtUtc", "rejected_at_utc", isNullable: true);
+        AssertColumn(
+            entity,
+            storeObject,
+            "RejectionReasonCode",
+            "rejection_reason_code",
+            isNullable: true,
+            maxLength: 32);
         AssertColumn(entity, storeObject, "SettledAtUtc", "settled_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
@@ -265,6 +279,10 @@ public sealed class ExpenseBillSchemaFoundationTests
             entity,
             "ck_expense_bill_participants_status",
             "status IN ('pending_acceptance', 'accepted', 'rejected', 'partially_settled', 'settled', 'waived', 'claimed_paid', 'confirmed_paid')");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_participants_rejection_reason_code",
+            "rejection_reason_code IS NULL OR rejection_reason_code IN ('wrong_amount', 'wrong_items', 'wrong_split', 'duplicate', 'not_mine', 'other')");
         AssertCheckConstraint(
             entity,
             "ck_expense_bill_participants_share_amount_non_negative",
@@ -772,6 +790,41 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.DoesNotContain(names, name => name.Contains("recurring", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(names, name => name.Contains("balance", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(names, name => name.Contains("reconciliation", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExpenseBillParticipantRejectionReasonMigrationIsRegisteredAndReviewable()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddExpenseBillParticipantRejectionReasonCode", StringComparison.Ordinal));
+
+        var migration = new AddExpenseBillParticipantRejectionReasonCode();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var addColumn = Assert.Single(migration.UpOperations.OfType<AddColumnOperation>());
+        Assert.Equal("expense_bill_participants", addColumn.Table);
+        Assert.Equal("rejection_reason_code", addColumn.Name);
+        Assert.Equal(typeof(string), addColumn.ClrType);
+        Assert.Equal("character varying(32)", addColumn.ColumnType);
+        Assert.True(addColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.ParticipantRejectionReasonCodeMaxLength, addColumn.MaxLength);
+
+        var checkConstraint = Assert.Single(migration.UpOperations.OfType<AddCheckConstraintOperation>());
+        Assert.Equal("expense_bill_participants", checkConstraint.Table);
+        Assert.Equal("ck_expense_bill_participants_rejection_reason_code", checkConstraint.Name);
+        Assert.Equal(
+            "rejection_reason_code IS NULL OR rejection_reason_code IN ('wrong_amount', 'wrong_items', 'wrong_split', 'duplicate', 'not_mine', 'other')",
+            checkConstraint.Sql);
     }
 
     private static SettleoraDbContext CreateDbContext()

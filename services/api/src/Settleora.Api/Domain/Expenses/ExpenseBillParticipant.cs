@@ -22,6 +22,8 @@ public sealed class ExpenseBillParticipant
 
     public DateTimeOffset? RejectedAtUtc { get; set; }
 
+    public string? RejectionReasonCode { get; set; }
+
     public DateTimeOffset? SettledAtUtc { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }

@@ -201,6 +201,36 @@ class SettleoraApiClient {
     return PersonalBillResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<void> acceptPersonalBillParticipant(String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/participants/${Uri.encodeComponent(userProfileId.toString())}/accept',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<void> rejectPersonalBillParticipant(String billId, String userProfileId, RejectBillParticipantRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/participants/${Uri.encodeComponent(userProfileId.toString())}/reject',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<void> submitPersonalBill(String billId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/submit',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<GroupListResponse> listGroups({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -276,6 +306,36 @@ class SettleoraApiClient {
       headers: headers,
     );
     return GroupBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> acceptGroupBillParticipant(String groupId, String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/participants/${Uri.encodeComponent(userProfileId.toString())}/accept',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<void> rejectGroupBillParticipant(String groupId, String billId, String userProfileId, RejectBillParticipantRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/participants/${Uri.encodeComponent(userProfileId.toString())}/reject',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<void> submitGroupBill(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/submit',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
   }
 
   Future<GroupMemberListResponse> listGroupMembers(String groupId, {required String accessToken, Map<String, String>? headers}) async {

@@ -903,7 +903,8 @@ internal static class PersonalBillEndpoints
                     participant.UserProfileId,
                     participant.Status,
                     FormatAmount(participant.ResolvedShareAmount),
-                    participant.ResolvedShareCurrency))
+                    participant.ResolvedShareCurrency,
+                    participant.RejectionReasonCode))
                 .ToArray(),
             bill.Payers
                 .OrderBy(payer => payer.CreatedAtUtc)

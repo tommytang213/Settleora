@@ -330,6 +330,13 @@ export interface CreatePersonalBillAdjustmentRequest {
 }
 
 /**
+ * Bounded participant rejection request. Free-text rejection notes are intentionally excluded from this slice.
+ */
+export interface RejectBillParticipantRequest {
+  reasonCode: ExpenseBillParticipantRejectionReasonCode;
+}
+
+/**
  * Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
  */
 export interface PersonalBillListResponse {
@@ -386,6 +393,10 @@ export interface PersonalBillParticipantResponse {
   status: ExpenseBillParticipantStatus;
   resolvedShareAmount: string;
   resolvedShareCurrency: CurrencyCode;
+  /**
+   * Bounded rejection reason code when the participant rejected the bill; null otherwise.
+   */
+  rejectionReasonCode: ExpenseBillParticipantRejectionReasonCode | null;
 }
 
 export interface PersonalBillPayerResponse {
@@ -575,6 +586,10 @@ export interface GroupBillParticipantResponse {
   status: ExpenseBillParticipantStatus;
   resolvedShareAmount: string;
   resolvedShareCurrency: CurrencyCode;
+  /**
+   * Bounded rejection reason code when the participant rejected the bill; null otherwise.
+   */
+  rejectionReasonCode: ExpenseBillParticipantRejectionReasonCode | null;
 }
 
 export interface GroupBillPayerResponse {
@@ -615,6 +630,11 @@ export type ExpenseBillStatus = "draft" | "pending_confirmation" | "confirmed" |
  * Expense bill participant status.
  */
 export type ExpenseBillParticipantStatus = "pending_acceptance" | "accepted" | "rejected" | "partially_settled" | "settled" | "waived" | "claimed_paid" | "confirmed_paid";
+
+/**
+ * Bounded participant rejection reason code.
+ */
+export type ExpenseBillParticipantRejectionReasonCode = "wrong_amount" | "wrong_items" | "wrong_split" | "duplicate" | "not_mine" | "other";
 
 /**
  * Expense bill item split method.
