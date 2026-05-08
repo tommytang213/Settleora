@@ -1333,6 +1333,97 @@ class SettlementCandidateResponse {
   }
 }
 
+/// Minimal settlement request creation body. The candidate key must come from a server-derived candidate preview; all settlement parties, amounts, currency, source bill, group, requester, status, payment details, proof/file IDs, auth account IDs, and session IDs are derived server-side.
+class CreateSettlementRequestRequest {
+  const CreateSettlementRequestRequest({
+    required this.candidateKey,
+  });
+
+  /// Server-derived candidate key from the current confirmed bill candidate basis.
+  final String candidateKey;
+
+  factory CreateSettlementRequestRequest.fromJson(JsonObject json) {
+    return CreateSettlementRequestRequest(
+      candidateKey: json["candidateKey"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "candidateKey": candidateKey,
+    };
+  }
+}
+
+/// Bounded settlement request creation response. It excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, and raw request bodies.
+class SettlementRequestResponse {
+  const SettlementRequestResponse({
+    required this.id,
+    required this.sourceExpenseBillId,
+    required this.groupId,
+    required this.debtorUserProfileId,
+    required this.creditorUserProfileId,
+    required this.amount,
+    required this.currency,
+    required this.status,
+    required this.requestedByUserProfileId,
+    required this.requestedAtUtc,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final String sourceExpenseBillId;
+  /// Route group ID for group bill settlement requests; null for personal bill settlement requests.
+  final String? groupId;
+  final String debtorUserProfileId;
+  final String creditorUserProfileId;
+  /// Decimal-safe requested settlement amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final SettlementRequestStatus status;
+  final String requestedByUserProfileId;
+  final DateTime requestedAtUtc;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory SettlementRequestResponse.fromJson(JsonObject json) {
+    return SettlementRequestResponse(
+      id: json["id"] as String,
+      sourceExpenseBillId: json["sourceExpenseBillId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      debtorUserProfileId: json["debtorUserProfileId"] as String,
+      creditorUserProfileId: json["creditorUserProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      status: json["status"] as String,
+      requestedByUserProfileId: json["requestedByUserProfileId"] as String,
+      requestedAtUtc: DateTime.parse(json["requestedAtUtc"] as String),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "id": id,
+      "sourceExpenseBillId": sourceExpenseBillId,
+      "groupId": groupIdJsonValue,
+      "debtorUserProfileId": debtorUserProfileId,
+      "creditorUserProfileId": creditorUserProfileId,
+      "amount": amount,
+      "currency": currency,
+      "status": status,
+      "requestedByUserProfileId": requestedByUserProfileId,
+      "requestedAtUtc": requestedAtUtc.toUtc().toIso8601String(),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
 class CreateGroupBillRequest {
   static const Object _unsetMerchantName = Object();
@@ -2048,6 +2139,19 @@ class GroupBillAdjustmentAllocationMethodValues {
   static const GroupBillAdjustmentAllocationMethod equal = "equal";
   static const GroupBillAdjustmentAllocationMethod proportionalByItemSubtotal = "proportional_by_item_subtotal";
   static const Set<GroupBillAdjustmentAllocationMethod> values = {equal, proportionalByItemSubtotal};
+}
+
+/// Settlement request status returned by the first request creation slice.
+typedef SettlementRequestStatus = String;
+class SettlementRequestStatusValues {
+  const SettlementRequestStatusValues._();
+  static const SettlementRequestStatus requested = "requested";
+  static const SettlementRequestStatus partiallyPaid = "partially_paid";
+  static const SettlementRequestStatus markedPaid = "marked_paid";
+  static const SettlementRequestStatus confirmed = "confirmed";
+  static const SettlementRequestStatus disputed = "disputed";
+  static const SettlementRequestStatus cancelled = "cancelled";
+  static const Set<SettlementRequestStatus> values = {requested, partiallyPaid, markedPaid, confirmed, disputed, cancelled};
 }
 
 /// Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

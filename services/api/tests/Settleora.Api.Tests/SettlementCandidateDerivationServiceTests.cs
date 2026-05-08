@@ -339,7 +339,7 @@ public sealed class SettlementCandidateDerivationServiceTests
     }
 
     [Fact]
-    public void SettlementCandidateOpenApiAndGeneratedClientsExposeOnlyPreviewSurface()
+    public void SettlementCandidateOpenApiAndGeneratedClientsExposeOnlyPreviewAndRequestCreateSurface()
     {
         var repoRoot = FindRepoRoot();
         var openApi = File.ReadAllText(Path.Combine(repoRoot, "packages/contracts/openapi/settleora.v1.yaml"));
@@ -348,7 +348,13 @@ public sealed class SettlementCandidateDerivationServiceTests
         Assert.Contains("/api/v1/groups/{groupId}/bills/{billId}/settlement-candidates", openApi, StringComparison.Ordinal);
         Assert.Contains("listPersonalBillSettlementCandidates", openApi, StringComparison.Ordinal);
         Assert.Contains("listGroupBillSettlementCandidates", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/bills/{billId}/settlement-requests", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/groups/{groupId}/bills/{billId}/settlement-requests", openApi, StringComparison.Ordinal);
+        Assert.Contains("createPersonalBillSettlementRequest", openApi, StringComparison.Ordinal);
+        Assert.Contains("createGroupBillSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("SettlementCandidateListResponse", openApi, StringComparison.Ordinal);
+        Assert.Contains("CreateSettlementRequestRequest", openApi, StringComparison.Ordinal);
+        Assert.Contains("SettlementRequestResponse", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("/api/v1/settlements", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("createSettlement", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlement", openApi, StringComparison.Ordinal);
@@ -371,12 +377,13 @@ public sealed class SettlementCandidateDerivationServiceTests
             generatedFiles.Select(File.ReadAllText));
         Assert.Contains("listPersonalBillSettlementCandidates", generatedContent, StringComparison.Ordinal);
         Assert.Contains("listGroupBillSettlementCandidates", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("createPersonalBillSettlementRequest", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("createGroupBillSettlementRequest", generatedContent, StringComparison.Ordinal);
         foreach (var generatedFile in generatedFiles)
         {
             var content = File.ReadAllText(generatedFile);
             Assert.DoesNotContain("createSettlement", content, StringComparison.Ordinal);
             Assert.DoesNotContain("markSettlement", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("settlement-requests", content, StringComparison.OrdinalIgnoreCase);
         }
     }
 

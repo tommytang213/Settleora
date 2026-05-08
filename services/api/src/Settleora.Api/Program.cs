@@ -35,6 +35,7 @@ builder.Services.AddPaymentDetailsAudit();
 builder.Services.AddPersonalBillAudit();
 builder.Services.AddGroupBillAudit();
 builder.Services.AddExpenseBillWorkflowAudit();
+builder.Services.AddSettlementRequestAudit();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.AddSingleton<SettlementCandidateDerivationService>();
 builder.Services.Configure<RabbitMqOptions>(
@@ -64,6 +65,7 @@ app.MapPersonalBillEndpoints();
 app.MapGroupBillEndpoints();
 app.MapExpenseBillWorkflowEndpoints();
 app.MapSettlementCandidatePreviewEndpoints();
+app.MapSettlementRequestCreateEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

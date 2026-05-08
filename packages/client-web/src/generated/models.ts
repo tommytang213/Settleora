@@ -463,6 +463,40 @@ export interface SettlementCandidateResponse {
 }
 
 /**
+ * Minimal settlement request creation body. The candidate key must come from a server-derived candidate preview; all settlement parties, amounts, currency, source bill, group, requester, status, payment details, proof/file IDs, auth account IDs, and session IDs are derived server-side.
+ */
+export interface CreateSettlementRequestRequest {
+  /**
+   * Server-derived candidate key from the current confirmed bill candidate basis.
+   */
+  candidateKey: string;
+}
+
+/**
+ * Bounded settlement request creation response. It excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, and raw request bodies.
+ */
+export interface SettlementRequestResponse {
+  id: string;
+  sourceExpenseBillId: string;
+  /**
+   * Route group ID for group bill settlement requests; null for personal bill settlement requests.
+   */
+  groupId: string | null;
+  debtorUserProfileId: string;
+  creditorUserProfileId: string;
+  /**
+   * Decimal-safe requested settlement amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  status: SettlementRequestStatus;
+  requestedByUserProfileId: string;
+  requestedAtUtc: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
  */
 export interface CreateGroupBillRequest {
@@ -694,6 +728,11 @@ export type PersonalBillAdjustmentAllocationMethod = "equal" | "proportional_by_
  * Supported non-manual adjustment allocation methods for the first group bill endpoint slice.
  */
 export type GroupBillAdjustmentAllocationMethod = "equal" | "proportional_by_item_subtotal";
+
+/**
+ * Settlement request status returned by the first request creation slice.
+ */
+export type SettlementRequestStatus = "requested" | "partially_paid" | "marked_paid" | "confirmed" | "disputed" | "cancelled";
 
 /**
  * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

@@ -232,6 +232,17 @@ class SettleoraApiClient {
     return SettlementCandidateListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SettlementRequestResponse> createPersonalBillSettlementRequest(String billId, CreateSettlementRequestRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/settlement-requests',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementRequestResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<void> submitPersonalBill(String billId, {required String accessToken, Map<String, String>? headers}) async {
     await _send(
       "POST",
@@ -348,6 +359,17 @@ class SettleoraApiClient {
       headers: headers,
     );
     return SettlementCandidateListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<SettlementRequestResponse> createGroupBillSettlementRequest(String groupId, String billId, CreateSettlementRequestRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/settlement-requests',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementRequestResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<void> submitGroupBill(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {

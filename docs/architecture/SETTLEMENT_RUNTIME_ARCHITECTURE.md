@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the Day 1 design gate for Settleora settlement runtime workflows after the settlement schema foundation has landed and before public settlement endpoints are implemented.
+This document is the Day 1 design gate for Settleora settlement runtime workflows after the settlement schema foundation has landed and as the first public settlement endpoints are implemented in narrow slices.
 
 It defines how future settlement request, payment claim, confirmation, dispute, cancellation, proof linkage, payment-detail visibility, and balance-projection branches must stay server-authoritative, decimal-safe, authorization-backed, and auditable.
 
@@ -19,9 +19,11 @@ The current repository state is:
 - Public bill submit, participant accept, participant reject, and bill-confirmed workflow endpoints exist.
 - The internal money, rounding, allocation, and bill calculation service exists for same-currency bill calculations.
 - Settlement schema rows exist for `settlement_requests`, `settlement_payments`, and `settlement_proof_attachments`.
-- Settlement request/payment/proof rows are persistence foundations only.
-- Settlement runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients do not exist.
+- Settlement candidate preview endpoints exist for personal and group bills.
+- Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
+- Settlement payment/proof rows are still persistence foundations only.
+- Settlement payment claim, partial payment, confirmation, dispute, cancellation, list/get, and proof runtime endpoints do not exist.
+- Settlement OpenAPI paths and generated settlement clients exist only for candidate preview and request creation.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -80,8 +82,8 @@ This document does not authorize OpenAPI changes. The following route concepts a
 
 Recommended first slices:
 
-1. Candidate preview from a confirmed bill.
-2. Create settlement request from one eligible confirmed bill/counterparty candidate.
+1. Candidate preview from a confirmed bill. Landed.
+2. Create settlement request from one eligible confirmed bill/counterparty candidate. Landed.
 3. List the current actor's settlement requests.
 4. Get one settlement request.
 5. Mark paid or create a payment claim.
@@ -393,9 +395,9 @@ Projection outputs must be scoped to the current actor. They should not expose u
 
 Recommended implementation sequence:
 
-1. Internal settlement candidate derivation service with focused tests and no public endpoints.
-2. Public candidate preview endpoint from one confirmed bill after OpenAPI review.
-3. Create settlement request from one derived confirmed-bill candidate.
+1. Internal settlement candidate derivation service with focused tests and no public endpoints. Landed.
+2. Public candidate preview endpoint from one confirmed bill after OpenAPI review. Landed.
+3. Create settlement request from one derived confirmed-bill candidate. Landed.
 4. List/get current actor settlement requests.
 5. Mark paid/create payment claim, including partial payment support.
 6. Receiver confirmation.
