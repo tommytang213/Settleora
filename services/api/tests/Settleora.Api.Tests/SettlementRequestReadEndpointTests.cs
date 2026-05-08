@@ -456,12 +456,13 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
     }
 
     [Fact]
-    public void OpenApiAndGeneratedClientsExposeSettlementListGetAndPaymentClaimWithoutFuturePaymentSurfaces()
+    public void OpenApiAndGeneratedClientsExposeSettlementListGetPaymentClaimAndConfirmationWithoutFuturePaymentSurfaces()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var settlementsPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements:");
         var settlementGetPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}:");
         var settlementPaymentPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}/payments:");
+        var settlementPaymentConfirmationPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/confirm:");
         var listSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementRequestListResponse:");
 
         Assert.Contains("operationId: listSettlementRequests", settlementsPathBlock, StringComparison.Ordinal);
@@ -471,13 +472,16 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("operationId: createSettlementPaymentClaim", settlementPaymentPathBlock, StringComparison.Ordinal);
         Assert.Contains("CreateSettlementPaymentRequest", settlementPaymentPathBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", settlementPaymentPathBlock, StringComparison.Ordinal);
+        Assert.Contains("operationId: confirmSettlementPayment", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentResponse", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("requestBody:", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
         Assert.Contains("settlements", listSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestResponse", listSchemaBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("/api/v1/settlement-payments", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("confirmSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("cancelSettlement", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("proofSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("settlementBalance", openApi, StringComparison.Ordinal);
 
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
         var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));
@@ -488,12 +492,14 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("listSettlementRequests", generatedContent, StringComparison.Ordinal);
         Assert.Contains("getSettlementRequest", generatedContent, StringComparison.Ordinal);
         Assert.Contains("createSettlementPaymentClaim", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("confirmSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", generatedContent, StringComparison.Ordinal);
-        Assert.DoesNotContain("confirmSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("disputeSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("cancelSettlement", generatedContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("proofSettlementPayment", generatedContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("settlementBalance", generatedContent, StringComparison.Ordinal);
     }
 
     private FactoryTestContext CreateFactory()

@@ -11,8 +11,6 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
     private const int MetadataCategoryMaxLength = 120;
     private const int SafeMetadataJsonMaxLength = 4096;
     private const decimal MetadataAmountMaxValue = 999_999_999_999_999.9999m;
-    private const string WorkflowName = "settlement_payment_claim";
-
     private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -50,7 +48,7 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
     private static string CreateSafeMetadataJson(SettlementPaymentAuditEvent auditEvent)
     {
         var metadata = new SettlementPaymentAuditMetadata(
-            WorkflowName,
+            RequireSafeMetadataCategory(auditEvent.WorkflowName, nameof(auditEvent.WorkflowName)),
             auditEvent.SettlementRequestId.ToString("D"),
             auditEvent.SettlementPaymentId.ToString("D"),
             auditEvent.SourceExpenseBillId.ToString("D"),

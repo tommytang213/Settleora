@@ -1,6 +1,7 @@
 namespace Settleora.Api.Settlements;
 
 internal sealed record SettlementPaymentAuditEvent(
+    string WorkflowName,
     string Action,
     Guid ActorAuthAccountId,
     Guid SubjectAuthAccountId,

@@ -69,6 +69,7 @@ app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
 app.MapSettlementPaymentClaimEndpoints();
+app.MapSettlementPaymentConfirmationEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

@@ -188,6 +188,10 @@ export class SettleoraApiClient {
     return this.request<void>("DELETE", `/api/v1/groups/${encodeURIComponent(String(groupId))}/members/${encodeURIComponent(String(userProfileId))}`, undefined, options, options.accessToken);
   }
 
+  async confirmSettlementPayment(paymentId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {
+    return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/confirm`, undefined, options, options.accessToken);
+  }
+
   async listSettlementRequests(options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestListResponse> {
     return this.request<SettlementRequestListResponse>("GET", "/api/v1/settlements", undefined, options, options.accessToken);
   }

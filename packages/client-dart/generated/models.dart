@@ -1476,7 +1476,7 @@ class CreateSettlementPaymentRequest {
   }
 }
 
-/// Bounded settlement payment claim response. It exposes payment claim fields only and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+/// Bounded settlement payment response for payment claim and confirmation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
 class SettlementPaymentResponse {
   const SettlementPaymentResponse({
     required this.paymentId,
@@ -2272,7 +2272,7 @@ class SettlementRequestStatusValues {
   static const Set<SettlementRequestStatus> values = {requested, partiallyPaid, markedPaid, confirmed, disputed, cancelled};
 }
 
-/// Settlement payment claim status returned by settlement payment surfaces. This slice creates only marked_paid claims; confirmation, dispute, and cancellation are future workflow states.
+/// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, and receiver confirmation moves them to confirmed; dispute and cancellation are future workflow states.
 typedef SettlementPaymentStatus = String;
 class SettlementPaymentStatusValues {
   const SettlementPaymentStatusValues._();

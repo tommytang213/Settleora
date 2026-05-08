@@ -21,6 +21,7 @@ internal static class SettlementPaymentClaimEndpoints
     private const string SettlementPaymentConflictDetail = "The settlement payment cannot be claimed for the current settlement state.";
     private const string SettlementPaymentWriteFailedTitle = "Settlement payment write failed";
     private const string SettlementPaymentWriteFailedDetail = "Unable to complete settlement payment write.";
+    private const string SettlementPaymentClaimWorkflowName = "settlement_payment_claim";
     private const string SettlementPaymentMarkedPaidAction = "settlement.payment_marked_paid";
     private const string SettlementPaymentPartiallyPaidAction = "settlement.payment_partially_paid";
     private const string PersonalGroupMode = "personal";
@@ -144,6 +145,7 @@ internal static class SettlementPaymentClaimEndpoints
 
         await auditWriter.WriteAsync(
             new SettlementPaymentAuditEvent(
+                SettlementPaymentClaimWorkflowName,
                 newRequestStatus is SettlementRequestStatuses.MarkedPaid
                     ? SettlementPaymentMarkedPaidAction
                     : SettlementPaymentPartiallyPaidAction,

@@ -425,6 +425,17 @@ class SettleoraApiClient {
     );
   }
 
+  Future<SettlementPaymentResponse> confirmSettlementPayment(String paymentId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/confirm',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementPaymentResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementRequestListResponse> listSettlementRequests({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
