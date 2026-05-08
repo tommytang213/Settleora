@@ -66,6 +66,7 @@ app.MapGroupBillEndpoints();
 app.MapExpenseBillWorkflowEndpoints();
 app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementRequestCreateEndpoints();
+app.MapSettlementRequestReadEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

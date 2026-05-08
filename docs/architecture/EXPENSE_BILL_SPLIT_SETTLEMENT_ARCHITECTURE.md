@@ -21,9 +21,9 @@ The current repository state is:
 - Public personal bill create/list/get endpoints exist at `POST /api/v1/bills`, `GET /api/v1/bills`, and `GET /api/v1/bills/{billId}`.
 - Public group-scoped group bill create/list/get endpoints exist at `POST /api/v1/groups/{groupId}/bills`, `GET /api/v1/groups/{groupId}/bills`, and `GET /api/v1/groups/{groupId}/bills/{billId}`.
 - Public bill submit, participant accept, participant reject, and bill confirmed workflow endpoints exist.
-- No public bill edit, settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
-- Personal and group bill create/read plus bill workflow OpenAPI paths and generated clients exist. No settlement, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
-- Settlement persistence schema exists for request roots, payment claims, and proof attachment file references. Candidate preview and first settlement request creation runtime exist for confirmed personal/group bill candidates. Settlement payment claim, partial payment, confirmation, dispute, cancellation, proof bytes, balance, recurring bill, and reconciliation migrations do not exist yet.
+- No public bill edit, settlement payment/confirmation/dispute/cancel/proof, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
+- Personal and group bill create/read, bill workflow, settlement candidate preview, settlement request creation, and settlement request list/get OpenAPI paths and generated clients exist. No settlement payment/proof, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
+- Settlement persistence schema exists for request roots, payment claims, and proof attachment file references. Candidate preview, first settlement request creation runtime, and read-only current-actor settlement request list/get endpoints exist for confirmed personal/group bill candidates. Settlement payment claim, partial payment, confirmation, dispute, cancellation, proof bytes, balance, recurring bill, and reconciliation migrations do not exist yet.
 - [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md) now defines the design gate for future request creation, payment claims, receiver confirmation, dispute, cancellation, proof linkage, audit, and rebuildable balance projections before endpoint implementation.
 
 Existing payment details are payment instructions and optional QR linkage only. They are not settlement records, payment confirmations, balances, or proof that money moved.
@@ -257,7 +257,7 @@ Money-bearing tables should follow the money architecture: decimal-safe amount p
 
 ## API And OpenAPI Direction
 
-Settlement candidate preview and first settlement request creation paths now exist in OpenAPI and generated clients. Settlement list/get, payment claim, confirmation, dispute, cancellation, proof, balance, recurring, reconciliation, receipt, OCR, and notification paths do not exist yet.
+Settlement candidate preview, first settlement request creation, and read-only current-actor settlement request list/get paths now exist in OpenAPI and generated clients. Settlement payment claim, confirmation, dispute, cancellation, proof, balance, recurring, reconciliation, receipt, OCR, and notification paths do not exist yet.
 
 Current bill endpoint foundations are:
 

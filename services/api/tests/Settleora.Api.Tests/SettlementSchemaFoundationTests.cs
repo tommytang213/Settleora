@@ -410,12 +410,18 @@ public sealed class SettlementSchemaFoundationTests
     }
 
     [Fact]
-    public void OpenApiContractDoesNotExposeSettlementRuntimePaths()
+    public void OpenApiContractExposesOnlyApprovedSettlementRuntimeReadPaths()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
 
-        Assert.DoesNotContain("/api/v1/settlements", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("settlementId", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/settlements", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/settlements/{settlementId}", openApi, StringComparison.Ordinal);
+        Assert.Contains("listSettlementRequests", openApi, StringComparison.Ordinal);
+        Assert.Contains("getSettlementRequest", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("/api/v1/settlement-payments", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("confirmSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("settlementProof", openApi, StringComparison.Ordinal);
     }
 
     private static SettleoraDbContext CreateDbContext()

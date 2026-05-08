@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
@@ -239,8 +238,8 @@ internal static class SettlementRequestCreateEndpoints
         }
 
         return Results.Created(
-            $"/api/v1/settlement-requests/{settlementRequest.Id:D}",
-            MapResponse(settlementRequest));
+            $"/api/v1/settlements/{settlementRequest.Id:D}",
+            SettlementRequestResponse.From(settlementRequest));
     }
 
     private static IQueryable<ExpenseBill> SettlementRequestPersonalBillQuery(
@@ -398,23 +397,6 @@ internal static class SettlementRequestCreateEndpoints
         return candidateKey;
     }
 
-    private static SettlementRequestResponse MapResponse(SettlementRequest settlementRequest)
-    {
-        return new SettlementRequestResponse(
-            settlementRequest.Id,
-            settlementRequest.SourceExpenseBillId!.Value,
-            settlementRequest.GroupId,
-            settlementRequest.DebtorUserProfileId,
-            settlementRequest.CreditorUserProfileId,
-            FormatAmount(settlementRequest.Amount),
-            settlementRequest.Currency,
-            settlementRequest.Status,
-            settlementRequest.RequestedByUserProfileId,
-            settlementRequest.RequestedAtUtc,
-            settlementRequest.CreatedAtUtc,
-            settlementRequest.UpdatedAtUtc);
-    }
-
     private static IResult MapPersonalAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
     {
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
@@ -507,11 +489,6 @@ internal static class SettlementRequestCreateEndpoints
             pair => pair.Key,
             pair => pair.Value.ToArray(),
             StringComparer.Ordinal);
-    }
-
-    private static string FormatAmount(decimal amount)
-    {
-        return amount.ToString("0.####", CultureInfo.InvariantCulture);
     }
 
     private sealed record SettlementRequestCreateRequest(string CandidateKey);

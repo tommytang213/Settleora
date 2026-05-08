@@ -473,7 +473,14 @@ export interface CreateSettlementRequestRequest {
 }
 
 /**
- * Bounded settlement request creation response. It excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, and raw request bodies.
+ * Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+ */
+export interface SettlementRequestListResponse {
+  settlements: SettlementRequestResponse[];
+}
+
+/**
+ * Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
  */
 export interface SettlementRequestResponse {
   id: string;
@@ -730,7 +737,7 @@ export type PersonalBillAdjustmentAllocationMethod = "equal" | "proportional_by_
 export type GroupBillAdjustmentAllocationMethod = "equal" | "proportional_by_item_subtotal";
 
 /**
- * Settlement request status returned by the first request creation slice.
+ * Settlement request status returned by settlement request surfaces.
  */
 export type SettlementRequestStatus = "requested" | "partially_paid" | "marked_paid" | "confirmed" | "disputed" | "cancelled";
 

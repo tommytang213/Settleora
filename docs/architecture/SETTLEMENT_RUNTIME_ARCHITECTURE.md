@@ -21,9 +21,10 @@ The current repository state is:
 - Settlement schema rows exist for `settlement_requests`, `settlement_payments`, and `settlement_proof_attachments`.
 - Settlement candidate preview endpoints exist for personal and group bills.
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
+- Settlement request list/get endpoints exist for read-only current-actor request visibility.
 - Settlement payment/proof rows are still persistence foundations only.
-- Settlement payment claim, partial payment, confirmation, dispute, cancellation, list/get, and proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist only for candidate preview and request creation.
+- Settlement payment claim, partial payment, confirmation, dispute, cancellation, and proof runtime endpoints do not exist.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, and read-only current-actor request list/get.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -84,8 +85,8 @@ Recommended first slices:
 
 1. Candidate preview from a confirmed bill. Landed.
 2. Create settlement request from one eligible confirmed bill/counterparty candidate. Landed.
-3. List the current actor's settlement requests.
-4. Get one settlement request.
+3. List the current actor's settlement requests. Landed.
+4. Get one settlement request. Landed.
 5. Mark paid or create a payment claim.
 6. Partial payment claim.
 7. Receiver confirmation.
@@ -398,7 +399,7 @@ Recommended implementation sequence:
 1. Internal settlement candidate derivation service with focused tests and no public endpoints. Landed.
 2. Public candidate preview endpoint from one confirmed bill after OpenAPI review. Landed.
 3. Create settlement request from one derived confirmed-bill candidate. Landed.
-4. List/get current actor settlement requests.
+4. List/get current actor settlement requests. Landed.
 5. Mark paid/create payment claim, including partial payment support.
 6. Receiver confirmation.
 7. Dispute and cancellation.

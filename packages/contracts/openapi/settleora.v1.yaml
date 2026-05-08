@@ -1232,6 +1232,78 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements:
+    get:
+      summary: List settlement requests
+      description: Lists read-only settlement requests involving the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties; group membership alone does not expose unrelated settlements. Responses include request-level fields only and exclude bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      operationId: listSettlementRequests
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Settlement requests involving the authenticated actor. The list can be empty when no visible settlement requests involve the actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementRequestListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Actor profile is missing, deleted, inactive, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/{settlementId}:
+    get:
+      summary: Get settlement request
+      description: Returns one read-only settlement request only when it involves the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties. Missing, archived, deleted, unrelated, inactive, removed, not-visible, or unavailable settlement requests return the same safe 404.
+      operationId: getSettlementRequest
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement request visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementRequestResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request is missing, archived, deleted, unrelated, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/groups/{groupId}/bills/{billId}/submit:
     post:
       summary: Submit group bill
@@ -2982,9 +3054,19 @@ components:
           minLength: 1
           maxLength: 240
           description: Server-derived candidate key from the current confirmed bill candidate basis.
+    SettlementRequestListResponse:
+      type: object
+      description: Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      required:
+        - settlements
+      properties:
+        settlements:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementRequestResponse"
     SettlementRequestResponse:
       type: object
-      description: Bounded settlement request creation response. It excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, and raw request bodies.
+      description: Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
       required:
         - id
         - sourceExpenseBillId
@@ -3503,7 +3585,7 @@ components:
         - proportional_by_item_subtotal
     SettlementRequestStatus:
       type: string
-      description: Settlement request status returned by the first request creation slice.
+      description: Settlement request status returned by settlement request surfaces.
       enum:
         - requested
         - partially_paid

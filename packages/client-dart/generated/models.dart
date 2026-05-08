@@ -1355,7 +1355,28 @@ class CreateSettlementRequestRequest {
   }
 }
 
-/// Bounded settlement request creation response. It excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, and raw request bodies.
+/// Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+class SettlementRequestListResponse {
+  const SettlementRequestListResponse({
+    required this.settlements,
+  });
+
+  final List<SettlementRequestResponse> settlements;
+
+  factory SettlementRequestListResponse.fromJson(JsonObject json) {
+    return SettlementRequestListResponse(
+      settlements: (json["settlements"] as List<dynamic>).map((item) => SettlementRequestResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "settlements": settlements.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
 class SettlementRequestResponse {
   const SettlementRequestResponse({
     required this.id,
@@ -2141,7 +2162,7 @@ class GroupBillAdjustmentAllocationMethodValues {
   static const Set<GroupBillAdjustmentAllocationMethod> values = {equal, proportionalByItemSubtotal};
 }
 
-/// Settlement request status returned by the first request creation slice.
+/// Settlement request status returned by settlement request surfaces.
 typedef SettlementRequestStatus = String;
 class SettlementRequestStatusValues {
   const SettlementRequestStatusValues._();
