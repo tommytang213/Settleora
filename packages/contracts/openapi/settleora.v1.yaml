@@ -694,6 +694,52 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/settlement-candidates:
+    get:
+      summary: List personal bill settlement candidates
+      description: Returns read-only settlement candidate previews for one non-archived personal bill visible to the authenticated actor through creator, participant, or payer relationship. Only candidates where the current actor is the debtor or creditor are returned; unrelated candidate pairs, participant net-position lists, payment details, proof metadata, file internals, and settlement runtime records are not exposed or written.
+      operationId: listPersonalBillSettlementCandidates
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID whose settlement candidates should be previewed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Candidate previews involving the authenticated actor. The list can be empty when the visible confirmed bill has no candidates involving the actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCandidateListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, archived, deleted, group-scoped, unrelated, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state or persisted bill money basis is not eligible for candidate derivation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/submit:
     post:
       summary: Submit personal bill
@@ -998,6 +1044,59 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/settlement-candidates:
+    get:
+      summary: List group bill settlement candidates
+      description: Returns read-only settlement candidate previews for one non-archived bill in the route group. The actor must have active group access and must be related to the bill as creator, participant, or payer; group membership alone does not expose candidate details. Only candidates where the current actor is the debtor or creditor are returned; unrelated candidate pairs, participant net-position lists, payment details, proof metadata, file internals, and settlement runtime records are not exposed or written.
+      operationId: listGroupBillSettlementCandidates
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID whose settlement candidates should be previewed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Candidate previews involving the authenticated actor. The list can be empty when the visible confirmed bill has no candidates involving the actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCandidateListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state or persisted bill money basis is not eligible for candidate derivation.
           content:
             application/problem+json:
               schema:
@@ -2689,6 +2788,63 @@ components:
           minimum: 0
         receivedResidualMinorUnit:
           type: boolean
+    SettlementCandidateListResponse:
+      type: object
+      description: Bounded read-only settlement candidate previews involving the authenticated actor only. The response excludes full net-position lists, payment details, proof/file internals, auth/session data, request bodies, and unrelated candidate pairs.
+      required:
+        - candidates
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementCandidateResponse"
+    SettlementCandidateResponse:
+      type: object
+      description: One deterministic settlement candidate derived from a visible confirmed bill where the authenticated actor is the debtor or creditor.
+      required:
+        - candidateKey
+        - sourceExpenseBillId
+        - groupId
+        - debtorUserProfileId
+        - creditorUserProfileId
+        - amount
+        - currency
+        - basis
+        - allocationOrder
+      properties:
+        candidateKey:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+        sourceExpenseBillId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group bills; null for personal bills.
+        debtorUserProfileId:
+          type: string
+          format: uuid
+        creditorUserProfileId:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Decimal-safe candidate amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        basis:
+          type: string
+          enum:
+            - confirmed_bill_net_position_v1
+          description: Server policy basis used to derive the candidate.
+        allocationOrder:
+          type: integer
+          minimum: 0
     CreateGroupBillRequest:
       type: object
       description: Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.

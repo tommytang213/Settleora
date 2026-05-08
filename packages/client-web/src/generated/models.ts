@@ -429,6 +429,40 @@ export interface PersonalBillCalculatedAdjustmentAllocationResponse {
 }
 
 /**
+ * Bounded read-only settlement candidate previews involving the authenticated actor only. The response excludes full net-position lists, payment details, proof/file internals, auth/session data, request bodies, and unrelated candidate pairs.
+ */
+export interface SettlementCandidateListResponse {
+  candidates: SettlementCandidateResponse[];
+}
+
+/**
+ * One deterministic settlement candidate derived from a visible confirmed bill where the authenticated actor is the debtor or creditor.
+ */
+export interface SettlementCandidateResponse {
+  /**
+   * Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+   */
+  candidateKey: string;
+  sourceExpenseBillId: string;
+  /**
+   * Route group ID for group bills; null for personal bills.
+   */
+  groupId: string | null;
+  debtorUserProfileId: string;
+  creditorUserProfileId: string;
+  /**
+   * Decimal-safe candidate amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  /**
+   * Server policy basis used to derive the candidate.
+   */
+  basis: "confirmed_bill_net_position_v1";
+  allocationOrder: number;
+}
+
+/**
  * Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
  */
 export interface CreateGroupBillRequest {

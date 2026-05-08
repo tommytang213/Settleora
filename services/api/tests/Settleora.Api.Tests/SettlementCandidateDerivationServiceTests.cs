@@ -339,13 +339,19 @@ public sealed class SettlementCandidateDerivationServiceTests
     }
 
     [Fact]
-    public void SettlementCandidateOpenApiAndGeneratedClientsRemainWithoutCandidateSurface()
+    public void SettlementCandidateOpenApiAndGeneratedClientsExposeOnlyPreviewSurface()
     {
         var repoRoot = FindRepoRoot();
         var openApi = File.ReadAllText(Path.Combine(repoRoot, "packages/contracts/openapi/settleora.v1.yaml"));
 
-        Assert.DoesNotContain("settlement-candidates", openApi, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("SettlementCandidate", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/bills/{billId}/settlement-candidates", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/groups/{groupId}/bills/{billId}/settlement-candidates", openApi, StringComparison.Ordinal);
+        Assert.Contains("listPersonalBillSettlementCandidates", openApi, StringComparison.Ordinal);
+        Assert.Contains("listGroupBillSettlementCandidates", openApi, StringComparison.Ordinal);
+        Assert.Contains("SettlementCandidateListResponse", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("/api/v1/settlements", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("createSettlement", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("markSettlement", openApi, StringComparison.Ordinal);
 
         var generatedFiles = Directory.EnumerateFiles(
                 Path.Combine(repoRoot, "packages/client-web/src/generated"),
@@ -360,12 +366,17 @@ public sealed class SettlementCandidateDerivationServiceTests
             .ToArray();
 
         Assert.NotEmpty(generatedFiles);
+        var generatedContent = string.Join(
+            "\n",
+            generatedFiles.Select(File.ReadAllText));
+        Assert.Contains("listPersonalBillSettlementCandidates", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("listGroupBillSettlementCandidates", generatedContent, StringComparison.Ordinal);
         foreach (var generatedFile in generatedFiles)
         {
             var content = File.ReadAllText(generatedFile);
-            Assert.DoesNotContain("SettlementCandidate", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("settlementCandidate", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("settlement-candidates", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("createSettlement", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("markSettlement", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("settlement-requests", content, StringComparison.OrdinalIgnoreCase);
         }
     }
 

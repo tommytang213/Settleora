@@ -1253,6 +1253,86 @@ class PersonalBillCalculatedAdjustmentAllocationResponse {
   }
 }
 
+/// Bounded read-only settlement candidate previews involving the authenticated actor only. The response excludes full net-position lists, payment details, proof/file internals, auth/session data, request bodies, and unrelated candidate pairs.
+class SettlementCandidateListResponse {
+  const SettlementCandidateListResponse({
+    required this.candidates,
+  });
+
+  final List<SettlementCandidateResponse> candidates;
+
+  factory SettlementCandidateListResponse.fromJson(JsonObject json) {
+    return SettlementCandidateListResponse(
+      candidates: (json["candidates"] as List<dynamic>).map((item) => SettlementCandidateResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "candidates": candidates.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// One deterministic settlement candidate derived from a visible confirmed bill where the authenticated actor is the debtor or creditor.
+class SettlementCandidateResponse {
+  const SettlementCandidateResponse({
+    required this.candidateKey,
+    required this.sourceExpenseBillId,
+    required this.groupId,
+    required this.debtorUserProfileId,
+    required this.creditorUserProfileId,
+    required this.amount,
+    required this.currency,
+    required this.basis,
+    required this.allocationOrder,
+  });
+
+  /// Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+  final String candidateKey;
+  final String sourceExpenseBillId;
+  /// Route group ID for group bills; null for personal bills.
+  final String? groupId;
+  final String debtorUserProfileId;
+  final String creditorUserProfileId;
+  /// Decimal-safe candidate amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  /// Server policy basis used to derive the candidate.
+  final String basis;
+  final int allocationOrder;
+
+  factory SettlementCandidateResponse.fromJson(JsonObject json) {
+    return SettlementCandidateResponse(
+      candidateKey: json["candidateKey"] as String,
+      sourceExpenseBillId: json["sourceExpenseBillId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      debtorUserProfileId: json["debtorUserProfileId"] as String,
+      creditorUserProfileId: json["creditorUserProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      basis: json["basis"] as String,
+      allocationOrder: (json["allocationOrder"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "candidateKey": candidateKey,
+      "sourceExpenseBillId": sourceExpenseBillId,
+      "groupId": groupIdJsonValue,
+      "debtorUserProfileId": debtorUserProfileId,
+      "creditorUserProfileId": creditorUserProfileId,
+      "amount": amount,
+      "currency": currency,
+      "basis": basis,
+      "allocationOrder": allocationOrder,
+    };
+  }
+}
+
 /// Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
 class CreateGroupBillRequest {
   static const Object _unsetMerchantName = Object();
