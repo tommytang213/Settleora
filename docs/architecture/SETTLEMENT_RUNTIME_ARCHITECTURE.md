@@ -6,7 +6,7 @@ This document is the Day 1 design gate for Settleora settlement runtime workflow
 
 It defines how future settlement request, payment claim, confirmation, dispute, cancellation, proof linkage, payment-detail visibility, and balance-projection branches must stay server-authoritative, decimal-safe, authorization-backed, and auditable.
 
-This branch does not implement runtime behavior, OpenAPI paths, generated clients, migrations, EF model changes, proof upload/download bytes, UI, notifications, OCR, reconciliation, FX, locks, refunds, governance, recurring workflows, forecasting, or AI behavior.
+This document does not authorize unrelated runtime behavior, migrations, EF model changes, proof upload/download bytes, UI, notifications, OCR, reconciliation, FX, locks, refunds, governance, recurring workflows, forecasting, or AI behavior.
 
 ## Current State
 
@@ -22,9 +22,10 @@ The current repository state is:
 - Settlement candidate preview endpoints exist for personal and group bills.
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility.
-- Settlement payment/proof rows are still persistence foundations only.
-- Settlement payment claim, partial payment, confirmation, dispute, cancellation, and proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, and read-only current-actor request list/get.
+- Settlement proof rows are still persistence foundations only.
+- Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
+- Settlement confirmation, dispute, cancellation, and proof runtime endpoints do not exist.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, and payment claim creation.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -87,8 +88,8 @@ Recommended first slices:
 2. Create settlement request from one eligible confirmed bill/counterparty candidate. Landed.
 3. List the current actor's settlement requests. Landed.
 4. Get one settlement request. Landed.
-5. Mark paid or create a payment claim.
-6. Partial payment claim.
+5. Mark paid or create a payment claim. Landed.
+6. Partial payment claim. Landed.
 7. Receiver confirmation.
 8. Dispute.
 9. Cancel where policy allows.
@@ -400,7 +401,7 @@ Recommended implementation sequence:
 2. Public candidate preview endpoint from one confirmed bill after OpenAPI review. Landed.
 3. Create settlement request from one derived confirmed-bill candidate. Landed.
 4. List/get current actor settlement requests. Landed.
-5. Mark paid/create payment claim, including partial payment support.
+5. Mark paid/create payment claim, including partial payment support. Landed.
 6. Receiver confirmation.
 7. Dispute and cancellation.
 8. Relationship-backed counterparty payment-details read.

@@ -504,6 +504,42 @@ export interface SettlementRequestResponse {
 }
 
 /**
+ * Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+ */
+export interface CreateSettlementPaymentRequest {
+  /**
+   * Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  /**
+   * Claimed payment date as yyyy-MM-dd.
+   */
+  paymentDate: string;
+}
+
+/**
+ * Bounded settlement payment claim response. It exposes payment claim fields only and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+ */
+export interface SettlementPaymentResponse {
+  paymentId: string;
+  settlementRequestId: string;
+  paidByUserProfileId: string;
+  receivedByUserProfileId: string;
+  /**
+   * Decimal-safe payment amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  status: SettlementPaymentStatus;
+  paymentDate: string;
+  claimedAtUtc: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  settlementRequestStatus: SettlementRequestStatus;
+}
+
+/**
  * Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
  */
 export interface CreateGroupBillRequest {
@@ -740,6 +776,11 @@ export type GroupBillAdjustmentAllocationMethod = "equal" | "proportional_by_ite
  * Settlement request status returned by settlement request surfaces.
  */
 export type SettlementRequestStatus = "requested" | "partially_paid" | "marked_paid" | "confirmed" | "disputed" | "cancelled";
+
+/**
+ * Settlement payment claim status returned by settlement payment surfaces. This slice creates only marked_paid claims; confirmation, dispute, and cancellation are future workflow states.
+ */
+export type SettlementPaymentStatus = "marked_paid" | "confirmed" | "disputed" | "cancelled";
 
 /**
  * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

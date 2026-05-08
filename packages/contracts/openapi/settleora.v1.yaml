@@ -15,13 +15,14 @@ info:
     revocation, the minimal current-user auth read boundary, and guarded
     self-profile read/update endpoints, first personal and group bill create/read
     endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
-    settlement candidate preview and first settlement request creation endpoints,
+    settlement candidate preview, first settlement request creation endpoints,
+    settlement request list/get endpoints, and settlement payment claim endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
     public refresh, broader user management, role assignment, group invitations,
-    guest members, settlement payment/confirmation/dispute/cancel/proof flows, sync,
+    guest members, settlement confirmation/dispute/cancel/proof flows, sync,
     OCR upload, UI behavior, or database behavior.
 servers:
   - url: /
@@ -1294,6 +1295,70 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Settlement request is missing, archived, deleted, unrelated, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/{settlementId}/payments:
+    post:
+      summary: Create settlement payment claim
+      description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state. The request body intentionally accepts only amount, currency, and paymentDate; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency partial payments, rejects overpayment, and does not implement receiver confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
+      operationId: createSettlementPaymentClaim
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID to mark paid or partially paid.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSettlementPaymentRequest"
+      responses:
+        "201":
+          description: Settlement payment claim created and the request status moved to partially_paid or marked_paid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentResponse"
+        "400":
+          description: Request body is malformed, contains unsupported fields, or contains an invalid decimal amount, currency, or payment date.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request is missing, archived, deleted, unrelated, not debtor-owned by the actor, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement state, unsupported status transition, currency mismatch, existing payment coverage, or overpayment blocks the claim.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement payment write could not be completed.
           content:
             application/problem+json:
               schema:
@@ -3118,6 +3183,74 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    CreateSettlementPaymentRequest:
+      type: object
+      description: Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+      additionalProperties: false
+      required:
+        - amount
+        - currency
+        - paymentDate
+      properties:
+        amount:
+          type: string
+          description: Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        paymentDate:
+          type: string
+          format: date
+          description: Claimed payment date as yyyy-MM-dd.
+    SettlementPaymentResponse:
+      type: object
+      description: Bounded settlement payment claim response. It exposes payment claim fields only and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+      required:
+        - paymentId
+        - settlementRequestId
+        - paidByUserProfileId
+        - receivedByUserProfileId
+        - amount
+        - currency
+        - status
+        - paymentDate
+        - claimedAtUtc
+        - createdAtUtc
+        - updatedAtUtc
+        - settlementRequestStatus
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        settlementRequestId:
+          type: string
+          format: uuid
+        paidByUserProfileId:
+          type: string
+          format: uuid
+        receivedByUserProfileId:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Decimal-safe payment amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        status:
+          $ref: "#/components/schemas/SettlementPaymentStatus"
+        paymentDate:
+          type: string
+          format: date
+        claimedAtUtc:
+          type: string
+          format: date-time
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        settlementRequestStatus:
+          $ref: "#/components/schemas/SettlementRequestStatus"
     CreateGroupBillRequest:
       type: object
       description: Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
@@ -3589,6 +3722,14 @@ components:
       enum:
         - requested
         - partially_paid
+        - marked_paid
+        - confirmed
+        - disputed
+        - cancelled
+    SettlementPaymentStatus:
+      type: string
+      description: Settlement payment claim status returned by settlement payment surfaces. This slice creates only marked_paid claims; confirmation, dispute, and cancellation are future workflow states.
+      enum:
         - marked_paid
         - confirmed
         - disputed

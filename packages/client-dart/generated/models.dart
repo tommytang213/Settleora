@@ -1445,6 +1445,103 @@ class SettlementRequestResponse {
   }
 }
 
+/// Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+class CreateSettlementPaymentRequest {
+  const CreateSettlementPaymentRequest({
+    required this.amount,
+    required this.currency,
+    required this.paymentDate,
+  });
+
+  /// Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+  final String amount;
+  final CurrencyCode currency;
+  /// Claimed payment date as yyyy-MM-dd.
+  final String paymentDate;
+
+  factory CreateSettlementPaymentRequest.fromJson(JsonObject json) {
+    return CreateSettlementPaymentRequest(
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      paymentDate: json["paymentDate"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "amount": amount,
+      "currency": currency,
+      "paymentDate": paymentDate,
+    };
+  }
+}
+
+/// Bounded settlement payment claim response. It exposes payment claim fields only and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+class SettlementPaymentResponse {
+  const SettlementPaymentResponse({
+    required this.paymentId,
+    required this.settlementRequestId,
+    required this.paidByUserProfileId,
+    required this.receivedByUserProfileId,
+    required this.amount,
+    required this.currency,
+    required this.status,
+    required this.paymentDate,
+    required this.claimedAtUtc,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.settlementRequestStatus,
+  });
+
+  final String paymentId;
+  final String settlementRequestId;
+  final String paidByUserProfileId;
+  final String receivedByUserProfileId;
+  /// Decimal-safe payment amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final SettlementPaymentStatus status;
+  final String paymentDate;
+  final DateTime claimedAtUtc;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final SettlementRequestStatus settlementRequestStatus;
+
+  factory SettlementPaymentResponse.fromJson(JsonObject json) {
+    return SettlementPaymentResponse(
+      paymentId: json["paymentId"] as String,
+      settlementRequestId: json["settlementRequestId"] as String,
+      paidByUserProfileId: json["paidByUserProfileId"] as String,
+      receivedByUserProfileId: json["receivedByUserProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      status: json["status"] as String,
+      paymentDate: json["paymentDate"] as String,
+      claimedAtUtc: DateTime.parse(json["claimedAtUtc"] as String),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      settlementRequestStatus: json["settlementRequestStatus"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "paymentId": paymentId,
+      "settlementRequestId": settlementRequestId,
+      "paidByUserProfileId": paidByUserProfileId,
+      "receivedByUserProfileId": receivedByUserProfileId,
+      "amount": amount,
+      "currency": currency,
+      "status": status,
+      "paymentDate": paymentDate,
+      "claimedAtUtc": claimedAtUtc.toUtc().toIso8601String(),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "settlementRequestStatus": settlementRequestStatus,
+    };
+  }
+}
+
 /// Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
 class CreateGroupBillRequest {
   static const Object _unsetMerchantName = Object();
@@ -2173,6 +2270,17 @@ class SettlementRequestStatusValues {
   static const SettlementRequestStatus disputed = "disputed";
   static const SettlementRequestStatus cancelled = "cancelled";
   static const Set<SettlementRequestStatus> values = {requested, partiallyPaid, markedPaid, confirmed, disputed, cancelled};
+}
+
+/// Settlement payment claim status returned by settlement payment surfaces. This slice creates only marked_paid claims; confirmation, dispute, and cancellation are future workflow states.
+typedef SettlementPaymentStatus = String;
+class SettlementPaymentStatusValues {
+  const SettlementPaymentStatusValues._();
+  static const SettlementPaymentStatus markedPaid = "marked_paid";
+  static const SettlementPaymentStatus confirmed = "confirmed";
+  static const SettlementPaymentStatus disputed = "disputed";
+  static const SettlementPaymentStatus cancelled = "cancelled";
+  static const Set<SettlementPaymentStatus> values = {markedPaid, confirmed, disputed, cancelled};
 }
 
 /// Payment details visibility policy value. The default app behavior is settlement_counterparties_only.
