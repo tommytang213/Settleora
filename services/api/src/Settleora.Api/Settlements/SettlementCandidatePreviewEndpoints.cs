@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
@@ -116,6 +117,8 @@ internal static class SettlementCandidatePreviewEndpoints
                 && bill.ArchivedAtUtc == null
                 && bill.Status != ExpenseBillStatuses.Archived
                 && bill.CreatedByUserProfile.DeletedAtUtc == null
+                && bill.Participants.All(participant => participant.UserProfile.DeletedAtUtc == null)
+                && bill.Payers.All(payer => payer.UserProfile.DeletedAtUtc == null)
                 && (bill.CreatedByUserProfileId == actorUserProfileId
                     || bill.Participants.Any(participant => participant.UserProfileId == actorUserProfileId)
                     || bill.Payers.Any(payer => payer.UserProfileId == actorUserProfileId)));
@@ -136,6 +139,19 @@ internal static class SettlementCandidatePreviewEndpoints
                 && bill.Group != null
                 && bill.Group.DeletedAtUtc == null
                 && bill.CreatedByUserProfile.DeletedAtUtc == null
+                && bill.CreatedByUserProfile.GroupMemberships.Any(membership =>
+                    membership.GroupId == groupId
+                    && membership.Status == GroupMembershipStatuses.Active)
+                && bill.Participants.All(participant =>
+                    participant.UserProfile.DeletedAtUtc == null
+                    && participant.UserProfile.GroupMemberships.Any(membership =>
+                        membership.GroupId == groupId
+                        && membership.Status == GroupMembershipStatuses.Active))
+                && bill.Payers.All(payer =>
+                    payer.UserProfile.DeletedAtUtc == null
+                    && payer.UserProfile.GroupMemberships.Any(membership =>
+                        membership.GroupId == groupId
+                        && membership.Status == GroupMembershipStatuses.Active))
                 && (bill.CreatedByUserProfileId == actorUserProfileId
                     || bill.Participants.Any(participant => participant.UserProfileId == actorUserProfileId)
                     || bill.Payers.Any(payer => payer.UserProfileId == actorUserProfileId)));

@@ -276,6 +276,11 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             "Personal Deleted Creator",
             InitialTimestamp.AddMinutes(2),
             deletedAtUtc: InitialTimestamp.AddMinutes(30));
+        var deletedCounterparty = await SeedAccountAsync(
+            testFactory,
+            "Personal Deleted Counterparty",
+            InitialTimestamp.AddMinutes(3),
+            deletedAtUtc: InitialTimestamp.AddMinutes(31));
         var groupBillId = await SeedBillAsync(
             testFactory,
             actorSession.UserProfileId,
@@ -322,6 +327,15 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             ExpenseBillStatuses.Confirmed,
             "Hidden Deleted Creator Merchant",
             InitialTimestamp);
+        var deletedCounterpartyBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 50m), new ParticipantSeed(deletedCounterparty.UserProfileId, 50m)],
+            [new PayerSeed(actorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            "Hidden Deleted Counterparty Merchant",
+            InitialTimestamp);
         using var client = testFactory.CreateClient();
         var unavailablePaths = new[]
         {
@@ -330,7 +344,8 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             PersonalCandidatesPath(archivedBillId),
             PersonalCandidatesPath(archivedStatusBillId),
             PersonalCandidatesPath(unrelatedBillId),
-            PersonalCandidatesPath(deletedCreatorBillId)
+            PersonalCandidatesPath(deletedCreatorBillId),
+            PersonalCandidatesPath(deletedCounterpartyBillId)
         };
 
         foreach (var path in unavailablePaths)
@@ -349,6 +364,15 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
         using var testFactory = testContext.Factory;
         var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Fail Closed Actor");
         var other = await SeedAccountAsync(testFactory, "Group Fail Closed Other", InitialTimestamp.AddMinutes(1));
+        var deletedCounterparty = await SeedAccountAsync(
+            testFactory,
+            "Group Deleted Counterparty",
+            InitialTimestamp.AddMinutes(2),
+            deletedAtUtc: InitialTimestamp.AddMinutes(31));
+        var removedCounterparty = await SeedAccountAsync(
+            testFactory,
+            "Group Removed Counterparty",
+            InitialTimestamp.AddMinutes(3));
         var activeGroupId = await SeedGroupAsync(
             testFactory,
             actorSession.UserProfileId,
@@ -378,6 +402,15 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             InitialTimestamp,
             deletedAtUtc: null,
             new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Removed));
+        var inactiveCounterpartyGroupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Inactive Counterparty Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(deletedCounterparty.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(removedCounterparty.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Removed));
         var archivedBillId = await SeedBillAsync(
             testFactory,
             actorSession.UserProfileId,
@@ -442,6 +475,24 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             ExpenseBillStatuses.Confirmed,
             "Hidden Removed Member Merchant",
             InitialTimestamp);
+        var deletedCounterpartyBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            inactiveCounterpartyGroupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 50m), new ParticipantSeed(deletedCounterparty.UserProfileId, 50m)],
+            [new PayerSeed(actorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            "Hidden Deleted Group Counterparty Merchant",
+            InitialTimestamp);
+        var removedCounterpartyBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            inactiveCounterpartyGroupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 50m), new ParticipantSeed(removedCounterparty.UserProfileId, 50m)],
+            [new PayerSeed(actorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            "Hidden Removed Group Counterparty Merchant",
+            InitialTimestamp);
         using var client = testFactory.CreateClient();
         var unavailablePaths = new[]
         {
@@ -452,7 +503,9 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
             GroupCandidatesPath(activeGroupId, personalBillId),
             GroupCandidatesPath(activeGroupId, membershipOnlyBillId),
             GroupCandidatesPath(deletedGroupId, deletedGroupBillId),
-            GroupCandidatesPath(removedGroupId, removedMemberBillId)
+            GroupCandidatesPath(removedGroupId, removedMemberBillId),
+            GroupCandidatesPath(inactiveCounterpartyGroupId, deletedCounterpartyBillId),
+            GroupCandidatesPath(inactiveCounterpartyGroupId, removedCounterpartyBillId)
         };
 
         foreach (var path in unavailablePaths)
