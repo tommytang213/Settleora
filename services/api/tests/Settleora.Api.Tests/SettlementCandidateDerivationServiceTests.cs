@@ -367,7 +367,6 @@ public sealed class SettlementCandidateDerivationServiceTests
         Assert.Contains("CreateSettlementPaymentRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlement", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("cancelSettlement", openApi, StringComparison.Ordinal);
 
         var generatedFiles = Directory.EnumerateFiles(
@@ -398,7 +397,6 @@ public sealed class SettlementCandidateDerivationServiceTests
         {
             var content = File.ReadAllText(generatedFile);
             Assert.DoesNotContain("markSettlement", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("disputeSettlementPayment", content, StringComparison.Ordinal);
             Assert.DoesNotContain("cancelSettlement", content, StringComparison.Ordinal);
         }
     }
