@@ -2390,6 +2390,96 @@ class SelfPaymentDetailsQrFileResponse {
   }
 }
 
+/// Safe settlement-scoped counterparty payment-details response. It is not the self owner response and excludes payment profile IDs, owner-only timestamps, auth/session/credential data, audit internals, storage object keys, storage paths, provider URLs, vault internals, QR bytes, direct URLs, filenames, and unrelated users.
+class SettlementCounterpartyPaymentDetailsResponse {
+  const SettlementCounterpartyPaymentDetailsResponse({
+    required this.userProfileId,
+    required this.isConfigured,
+    required this.preferredMethodLabel,
+    required this.paymentHandle,
+    required this.paymentNote,
+    required this.visibilityApplied,
+    required this.qrFile,
+  });
+
+  /// Target counterparty user profile ID proven through the settlement request relationship.
+  final String userProfileId;
+  /// True only when an active target payment profile is visible through the settlement counterparty relationship.
+  final bool isConfigured;
+  /// Visibility-scoped payment method label, or null when not configured or not visible.
+  final String? preferredMethodLabel;
+  /// Visibility-scoped payment handle, or null when not configured or not visible.
+  final String? paymentHandle;
+  /// Visibility-scoped payment note, or null when not configured or not visible.
+  final String? paymentNote;
+  final PaymentDetailsVisibility visibilityApplied;
+  /// Safe metadata for the active linked payment QR file when visible through the settlement counterparty relationship, or null.
+  final SettlementCounterpartyPaymentDetailsQrFileResponse? qrFile;
+
+  factory SettlementCounterpartyPaymentDetailsResponse.fromJson(JsonObject json) {
+    return SettlementCounterpartyPaymentDetailsResponse(
+      userProfileId: json["userProfileId"] as String,
+      isConfigured: json["isConfigured"] as bool,
+      preferredMethodLabel: json["preferredMethodLabel"] == null ? null : json["preferredMethodLabel"] as String,
+      paymentHandle: json["paymentHandle"] == null ? null : json["paymentHandle"] as String,
+      paymentNote: json["paymentNote"] == null ? null : json["paymentNote"] as String,
+      visibilityApplied: json["visibilityApplied"] as String,
+      qrFile: json["qrFile"] == null ? null : SettlementCounterpartyPaymentDetailsQrFileResponse.fromJson(JsonObject.from(json["qrFile"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final preferredMethodLabelJsonValue = preferredMethodLabel;
+    final paymentHandleJsonValue = paymentHandle;
+    final paymentNoteJsonValue = paymentNote;
+    final qrFileJsonValue = qrFile;
+
+    return {
+      "userProfileId": userProfileId,
+      "isConfigured": isConfigured,
+      "preferredMethodLabel": preferredMethodLabelJsonValue,
+      "paymentHandle": paymentHandleJsonValue,
+      "paymentNote": paymentNoteJsonValue,
+      "visibilityApplied": visibilityApplied,
+      "qrFile": qrFileJsonValue == null ? null : qrFileJsonValue.toJson(),
+    };
+  }
+}
+
+/// Safe counterparty payment QR file metadata for a settlement-scoped relationship. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+class SettlementCounterpartyPaymentDetailsQrFileResponse {
+  const SettlementCounterpartyPaymentDetailsQrFileResponse({
+    required this.id,
+    required this.contentType,
+    required this.sizeBytes,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable file metadata identifier for the linked QR file.
+  final String id;
+  final String contentType;
+  final int sizeBytes;
+  final DateTime updatedAtUtc;
+
+  factory SettlementCounterpartyPaymentDetailsQrFileResponse.fromJson(JsonObject json) {
+    return SettlementCounterpartyPaymentDetailsQrFileResponse(
+      id: json["id"] as String,
+      contentType: json["contentType"] as String,
+      sizeBytes: (json["sizeBytes"] as num).toInt(),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "id": id,
+      "contentType": contentType,
+      "sizeBytes": sizeBytes,
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Multipart form used to upload a single self payment QR image. The filename is treated as submitted transport metadata only and is not returned by the API.
 class AttachSelfPaymentQrRequest {
   const AttachSelfPaymentQrRequest({

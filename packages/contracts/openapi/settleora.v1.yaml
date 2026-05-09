@@ -16,9 +16,10 @@ info:
     self-profile read/update endpoints, first personal and group bill create/read
     endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
     settlement candidate preview, first settlement request creation endpoints,
-    settlement request list/get endpoints, settlement payment claim endpoints,
-    receiver settlement payment confirmation endpoints, settlement dispute endpoints,
-    and settlement cancellation endpoints,
+    settlement request list/get endpoints, settlement counterparty payment-details
+    read endpoints, settlement-scoped counterparty payment QR content reads,
+    settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
+    settlement dispute endpoints, and settlement cancellation endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
@@ -1297,6 +1298,121 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Settlement request is missing, archived, deleted, unrelated, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/{settlementId}/counterparties/{userProfileId}/payment-details:
+    get:
+      summary: Get settlement counterparty payment details
+      description: Returns a bounded counterparty-shaped payment-details response for the target profile only when the authenticated actor is the debtor or creditor counterparty on a visible, non-archived settlement request. Group-scoped settlements additionally require active group visibility for the current actor and required settlement parties. The response applies the target payment profile visibility server-side, returns not-configured fields for private, missing, deleted, or not-visible payment profiles, and never exposes auth account IDs, session IDs, tokens, raw audit metadata, storage object keys, storage paths, provider URLs, vault internals, QR bytes, request bodies, or unrelated users.
+      operationId: getSettlementCounterpartyPaymentDetails
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID anchoring the counterparty relationship.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Target counterparty user profile ID. The target must be the authenticated actor's debtor or creditor counterparty on the settlement request.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Counterparty payment-details response with visibility-scoped fields and safe QR metadata only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCounterpartyPaymentDetailsResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request, actor profile, target profile, relationship, group visibility, or target auth account is missing, deleted, archived, unrelated, inactive, removed, not visible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Counterparty payment-details access audit could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/{settlementId}/counterparties/{userProfileId}/payment-details/qr/content:
+    get:
+      summary: Get settlement counterparty payment QR content
+      description: Streams the active linked payment QR bytes for the target counterparty only through the settlement/counterparty payment-details boundary. Authorization is evaluated against the settlement request and target profile every time, the target payment profile must be visible to this relationship, and the linked file object must be active, owned and created by the target profile, purpose payment_qr, and an allowed image type. This endpoint is not a generic file API and never exposes filesystem paths, storage object keys, provider URLs, bucket names, vault internals, filenames, thumbnails, or unrelated file metadata.
+      operationId: getSettlementCounterpartyPaymentDetailsQrContent
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID anchoring the counterparty relationship.
+          schema:
+            type: string
+            format: uuid
+        - name: userProfileId
+          in: path
+          required: true
+          description: Target counterparty user profile ID whose active linked payment QR content is requested.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Payment QR image bytes for the authorized settlement counterparty relationship.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request, actor profile, target profile, relationship, group visibility, payment profile, QR linkage, file lifecycle, file ownership, file purpose, file content type, or storage object is missing, deleted, archived, unrelated, inactive, removed, not visible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Counterparty QR content read audit could not be completed.
           content:
             application/problem+json:
               schema:
@@ -4093,6 +4209,80 @@ components:
     SelfPaymentDetailsQrFileResponse:
       type: object
       description: Safe self payment QR file metadata. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+      required:
+        - id
+        - contentType
+        - sizeBytes
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable file metadata identifier for the linked QR file.
+        contentType:
+          type: string
+          enum:
+            - image/png
+            - image/jpeg
+            - image/webp
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2097152
+        updatedAtUtc:
+          type: string
+          format: date-time
+    SettlementCounterpartyPaymentDetailsResponse:
+      type: object
+      description: Safe settlement-scoped counterparty payment-details response. It is not the self owner response and excludes payment profile IDs, owner-only timestamps, auth/session/credential data, audit internals, storage object keys, storage paths, provider URLs, vault internals, QR bytes, direct URLs, filenames, and unrelated users.
+      required:
+        - userProfileId
+        - isConfigured
+        - preferredMethodLabel
+        - paymentHandle
+        - paymentNote
+        - visibilityApplied
+        - qrFile
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+          description: Target counterparty user profile ID proven through the settlement request relationship.
+        isConfigured:
+          type: boolean
+          description: True only when an active target payment profile is visible through the settlement counterparty relationship.
+        preferredMethodLabel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Visibility-scoped payment method label, or null when not configured or not visible.
+        paymentHandle:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 320
+            - type: "null"
+          description: Visibility-scoped payment handle, or null when not configured or not visible.
+        paymentNote:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 1000
+            - type: "null"
+          description: Visibility-scoped payment note, or null when not configured or not visible.
+        visibilityApplied:
+          $ref: "#/components/schemas/PaymentDetailsVisibility"
+        qrFile:
+          oneOf:
+            - $ref: "#/components/schemas/SettlementCounterpartyPaymentDetailsQrFileResponse"
+            - type: "null"
+          description: Safe metadata for the active linked payment QR file when visible through the settlement counterparty relationship, or null.
+    SettlementCounterpartyPaymentDetailsQrFileResponse:
+      type: object
+      description: Safe counterparty payment QR file metadata for a settlement-scoped relationship. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
       required:
         - id
         - contentType

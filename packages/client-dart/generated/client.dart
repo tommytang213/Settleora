@@ -491,6 +491,26 @@ class SettleoraApiClient {
     return SettlementRequestResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SettlementCounterpartyPaymentDetailsResponse> getSettlementCounterpartyPaymentDetails(String settlementId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/settlements/${Uri.encodeComponent(settlementId.toString())}/counterparties/${Uri.encodeComponent(userProfileId.toString())}/payment-details',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementCounterpartyPaymentDetailsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<List<int>> getSettlementCounterpartyPaymentDetailsQrContent(String settlementId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      '/api/v1/settlements/${Uri.encodeComponent(settlementId.toString())}/counterparties/${Uri.encodeComponent(userProfileId.toString())}/payment-details/qr/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<SettlementRequestResponse> disputeSettlementRequest(String settlementId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

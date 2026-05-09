@@ -9,8 +9,6 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
 {
     private const int MetadataCategoryMaxLength = 120;
     private const int SafeMetadataJsonMaxLength = 4096;
-    private const string PaymentDetailsWorkflowName = "payment_details_self_profile";
-
     private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -48,8 +46,8 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
     private static string CreateSafeMetadataJson(PaymentDetailsAuditEvent auditEvent)
     {
         var metadata = new PaymentDetailsAuditMetadata(
-            PaymentDetailsWorkflowName,
-            auditEvent.PaymentProfileId.ToString("D"),
+            RequireSafeMetadataCategory(auditEvent.WorkflowName, nameof(auditEvent.WorkflowName)),
+            auditEvent.PaymentProfileId?.ToString("D"),
             auditEvent.RowCreated,
             auditEvent.FieldsChanged
                 .Select(field => RequireSafeMetadataCategory(field, nameof(auditEvent.FieldsChanged)))
@@ -58,7 +56,14 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
             RequireOptionalSafeMetadataCategory(auditEvent.PreviousVisibility, nameof(auditEvent.PreviousVisibility)),
             RequireOptionalSafeMetadataCategory(auditEvent.NewVisibility, nameof(auditEvent.NewVisibility)),
             auditEvent.QrFileObjectId?.ToString("D"),
-            RequireOptionalSafeMetadataCategory(auditEvent.ChangeCategory, nameof(auditEvent.ChangeCategory)));
+            RequireOptionalSafeMetadataCategory(auditEvent.ChangeCategory, nameof(auditEvent.ChangeCategory)),
+            auditEvent.SettlementRequestId?.ToString("D"),
+            auditEvent.ActorUserProfileId?.ToString("D"),
+            auditEvent.TargetUserProfileId?.ToString("D"),
+            auditEvent.GroupId?.ToString("D"),
+            RequireOptionalSafeMetadataCategory(auditEvent.GroupMode, nameof(auditEvent.GroupMode)),
+            RequireOptionalSafeMetadataCategory(auditEvent.Relationship, nameof(auditEvent.Relationship)),
+            auditEvent.IsConfigured);
 
         var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         if (json.Length > SafeMetadataJsonMaxLength)
@@ -106,11 +111,18 @@ internal sealed class EfPaymentDetailsAuditWriter : IPaymentDetailsAuditWriter
 
     private sealed record PaymentDetailsAuditMetadata(
         string WorkflowName,
-        string PaymentProfileId,
+        string? PaymentProfileId,
         bool RowCreated,
         IReadOnlyList<string> FieldsChanged,
         string? PreviousVisibility,
         string? NewVisibility,
         string? QrFileObjectId,
-        string? ChangeCategory);
+        string? ChangeCategory,
+        string? SettlementRequestId,
+        string? ActorUserProfileId,
+        string? TargetUserProfileId,
+        string? GroupId,
+        string? GroupMode,
+        string? Relationship,
+        bool? IsConfigured);
 }

@@ -782,7 +782,9 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
                 || path.Contains("recurring", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("forecast", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("reconciliation", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("ai", StringComparison.OrdinalIgnoreCase)));
+                || path.Contains("/ai", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("-ai", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("ai-", StringComparison.OrdinalIgnoreCase)));
 
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
         var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));

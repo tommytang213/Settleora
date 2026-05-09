@@ -822,6 +822,50 @@ export interface SelfPaymentDetailsQrFileResponse {
 }
 
 /**
+ * Safe settlement-scoped counterparty payment-details response. It is not the self owner response and excludes payment profile IDs, owner-only timestamps, auth/session/credential data, audit internals, storage object keys, storage paths, provider URLs, vault internals, QR bytes, direct URLs, filenames, and unrelated users.
+ */
+export interface SettlementCounterpartyPaymentDetailsResponse {
+  /**
+   * Target counterparty user profile ID proven through the settlement request relationship.
+   */
+  userProfileId: string;
+  /**
+   * True only when an active target payment profile is visible through the settlement counterparty relationship.
+   */
+  isConfigured: boolean;
+  /**
+   * Visibility-scoped payment method label, or null when not configured or not visible.
+   */
+  preferredMethodLabel: string | null;
+  /**
+   * Visibility-scoped payment handle, or null when not configured or not visible.
+   */
+  paymentHandle: string | null;
+  /**
+   * Visibility-scoped payment note, or null when not configured or not visible.
+   */
+  paymentNote: string | null;
+  visibilityApplied: PaymentDetailsVisibility;
+  /**
+   * Safe metadata for the active linked payment QR file when visible through the settlement counterparty relationship, or null.
+   */
+  qrFile: SettlementCounterpartyPaymentDetailsQrFileResponse | null;
+}
+
+/**
+ * Safe counterparty payment QR file metadata for a settlement-scoped relationship. It never contains storage object keys, storage paths, provider URLs, vault references, bytes, thumbnails, direct URLs, or submitted filenames.
+ */
+export interface SettlementCounterpartyPaymentDetailsQrFileResponse {
+  /**
+   * Stable file metadata identifier for the linked QR file.
+   */
+  id: string;
+  contentType: "image/png" | "image/jpeg" | "image/webp";
+  sizeBytes: number;
+  updatedAtUtc: string;
+}
+
+/**
  * Multipart form used to upload a single self payment QR image. The filename is treated as submitted transport metadata only and is not returned by the API.
  */
 export interface AttachSelfPaymentQrRequest {

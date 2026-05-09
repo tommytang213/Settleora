@@ -68,6 +68,7 @@ app.MapExpenseBillWorkflowEndpoints();
 app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
+app.MapSettlementCounterpartyPaymentDetailsEndpoints();
 app.MapSettlementPaymentClaimEndpoints();
 app.MapSettlementPaymentConfirmationEndpoints();
 app.MapSettlementDisputeEndpoints();
