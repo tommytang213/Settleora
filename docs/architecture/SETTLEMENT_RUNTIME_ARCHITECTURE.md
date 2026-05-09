@@ -4,7 +4,7 @@
 
 This document is the Day 1 design gate for Settleora settlement runtime workflows after the settlement schema foundation has landed and as the first public settlement endpoints are implemented in narrow slices.
 
-It defines how future settlement request, payment claim, confirmation, dispute, cancellation, proof linkage, payment-detail visibility, and balance-projection branches must stay server-authoritative, decimal-safe, authorization-backed, and auditable.
+It defines how implemented and future settlement request, payment claim, confirmation, dispute, cancellation, proof linkage, payment-detail visibility, and balance-projection branches must stay server-authoritative, decimal-safe, authorization-backed, and auditable.
 
 This document does not authorize unrelated runtime behavior, migrations, EF model changes, proof upload/download bytes, UI, notifications, OCR, reconciliation, FX, locks, refunds, governance, recurring workflows, forecasting, or AI behavior.
 
@@ -24,8 +24,10 @@ The current repository state is:
 - Settlement request list/get endpoints exist for read-only current-actor request visibility.
 - Settlement proof rows are still persistence foundations only.
 - Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
-- Settlement confirmation, dispute, cancellation, and proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, and payment claim creation.
+- Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
+- Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
+- Settlement cancellation and proof runtime endpoints do not exist.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, payment claim creation, payment confirmation, request dispute, and payment dispute.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -90,8 +92,8 @@ Recommended first slices:
 4. Get one settlement request. Landed.
 5. Mark paid or create a payment claim. Landed.
 6. Partial payment claim. Landed.
-7. Receiver confirmation.
-8. Dispute.
+7. Receiver confirmation. Landed.
+8. Request and payment dispute. Landed.
 9. Cancel where policy allows.
 10. Proof attachment linkage after authorized public file flows exist.
 
@@ -402,11 +404,12 @@ Recommended implementation sequence:
 3. Create settlement request from one derived confirmed-bill candidate. Landed.
 4. List/get current actor settlement requests. Landed.
 5. Mark paid/create payment claim, including partial payment support. Landed.
-6. Receiver confirmation.
-7. Dispute and cancellation.
-8. Relationship-backed counterparty payment-details read.
-9. Proof attachment metadata linkage after authorized public file flows exist.
-10. Balance projection read endpoints.
+6. Receiver confirmation. Landed.
+7. Request and payment dispute. Landed for bounded dispute transitions only.
+8. Cancellation where policy allows.
+9. Relationship-backed counterparty payment-details read.
+10. Proof attachment metadata linkage after authorized public file flows exist.
+11. Balance projection read endpoints.
 
 Keep schema, runtime, OpenAPI, generated clients, file bytes, payment-details counterparty reads, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
