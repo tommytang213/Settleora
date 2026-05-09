@@ -192,12 +192,20 @@ export class SettleoraApiClient {
     return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/confirm`, undefined, options, options.accessToken);
   }
 
+  async disputeSettlementPayment(paymentId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {
+    return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/dispute`, undefined, options, options.accessToken);
+  }
+
   async listSettlementRequests(options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestListResponse> {
     return this.request<SettlementRequestListResponse>("GET", "/api/v1/settlements", undefined, options, options.accessToken);
   }
 
   async getSettlementRequest(settlementId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestResponse> {
     return this.request<SettlementRequestResponse>("GET", `/api/v1/settlements/${encodeURIComponent(String(settlementId))}`, undefined, options, options.accessToken);
+  }
+
+  async disputeSettlementRequest(settlementId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestResponse> {
+    return this.request<SettlementRequestResponse>("POST", `/api/v1/settlements/${encodeURIComponent(String(settlementId))}/dispute`, undefined, options, options.accessToken);
   }
 
   async createSettlementPaymentClaim(settlementId: string, body: CreateSettlementPaymentRequest, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {

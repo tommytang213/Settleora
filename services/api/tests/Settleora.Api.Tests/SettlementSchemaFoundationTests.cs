@@ -422,8 +422,9 @@ public sealed class SettlementSchemaFoundationTests
         Assert.Contains("getSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("createSettlementPaymentClaim", openApi, StringComparison.Ordinal);
         Assert.Contains("confirmSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.Contains("disputeSettlementRequest", openApi, StringComparison.Ordinal);
+        Assert.Contains("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("cancelSettlement", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("settlementProof", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("settlementBalance", openApi, StringComparison.Ordinal);

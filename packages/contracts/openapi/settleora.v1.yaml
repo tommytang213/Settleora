@@ -17,13 +17,13 @@ info:
     endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
     settlement candidate preview, first settlement request creation endpoints,
     settlement request list/get endpoints, settlement payment claim endpoints,
-    and receiver settlement payment confirmation endpoints,
+    receiver settlement payment confirmation endpoints, and settlement dispute endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
     public refresh, broader user management, role assignment, group invitations,
-    guest members, settlement dispute/cancel/proof flows, sync,
+    guest members, settlement cancel/proof flows, sync,
     OCR upload, UI behavior, or database behavior.
 servers:
   - url: /
@@ -1306,10 +1306,68 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/{settlementId}/dispute:
+    post:
+      summary: Dispute settlement request
+      description: Disputes one visible settlement request without accepting a request body. The authenticated actor must be the request debtor or creditor, and the server derives actor identity, request visibility, dispute timestamp, request status transition, and audit metadata. This operation can move ordinary pre-final request states requested, partially_paid, or marked_paid to disputed. It does not delete or rewrite existing payment claims, proof attachment rows, bill rows, payment details, file metadata, proof bytes, QR contents, storage internals, auth/session data, raw request bodies, or raw audit metadata.
+      operationId: disputeSettlementRequest
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID to dispute.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement request moved to disputed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementRequestResponse"
+        "400":
+          description: A request body was submitted even though request dispute accepts no client-submitted fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request is missing, archived, deleted, unrelated, not debtor-or-creditor-owned by the actor, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement request state, unsupported status transition, or corrupt settlement basis blocks dispute.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement dispute write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/settlements/{settlementId}/payments:
     post:
       summary: Create settlement payment claim
-      description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state. The request body intentionally accepts only amount, currency, and paymentDate; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency partial payments, rejects overpayment, and does not implement receiver confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
+      description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state. The request body intentionally accepts only amount, currency, and paymentDate; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency partial payments, rejects overpayment, and does not perform receiver confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
       operationId: createSettlementPaymentClaim
       security:
         - SessionBearerAuth: []
@@ -1373,7 +1431,7 @@ paths:
   /api/v1/settlement-payments/{paymentId}/confirm:
     post:
       summary: Confirm settlement payment
-      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments, rejects corrupt coverage or currency state, and does not implement dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
+      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments, rejects corrupt coverage or currency state, and does not perform dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
       operationId: confirmSettlementPayment
       security:
         - SessionBearerAuth: []
@@ -1418,6 +1476,64 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Settlement payment write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}/dispute:
+    post:
+      summary: Dispute settlement payment
+      description: Disputes one visible debtor-authored settlement payment claim without accepting a request body. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, payment visibility, payment dispute timestamp, parent request dispute transition, and audit metadata. This operation can move only marked_paid payments to disputed and moves the parent request to disputed. It does not delete or rewrite other payment claims, proof attachment rows, bill rows, payment details, file metadata, proof bytes, QR contents, storage internals, auth/session data, raw request bodies, or raw audit metadata.
+      operationId: disputeSettlementPayment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID to dispute.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement payment and parent request moved to disputed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentResponse"
+        "400":
+          description: A request body was submitted even though payment dispute accepts no client-submitted fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment is missing, archived through its parent request, unrelated, not receiver-owned by the actor, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement payment state, parent request state, unsupported transition, currency mismatch, or corrupt settlement/payment basis blocks dispute.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement payment dispute write could not be completed.
           content:
             application/problem+json:
               schema:
@@ -3787,7 +3903,7 @@ components:
         - cancelled
     SettlementPaymentStatus:
       type: string
-      description: Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, and receiver confirmation moves them to confirmed; dispute and cancellation are future workflow states.
+      description: Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, and receiver dispute moves eligible marked_paid claims to disputed; cancellation is a future workflow state.
       enum:
         - marked_paid
         - confirmed

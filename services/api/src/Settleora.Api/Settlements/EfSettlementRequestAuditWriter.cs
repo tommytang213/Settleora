@@ -11,7 +11,6 @@ internal sealed class EfSettlementRequestAuditWriter : ISettlementRequestAuditWr
     private const int MetadataCategoryMaxLength = 120;
     private const int SafeMetadataJsonMaxLength = 4096;
     private const decimal MetadataAmountMaxValue = 999_999_999_999_999.9999m;
-    private const string WorkflowName = "settlement_request_create";
 
     private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -50,7 +49,7 @@ internal sealed class EfSettlementRequestAuditWriter : ISettlementRequestAuditWr
     private static string CreateSafeMetadataJson(SettlementRequestAuditEvent auditEvent)
     {
         var metadata = new SettlementRequestAuditMetadata(
-            WorkflowName,
+            RequireSafeMetadataCategory(auditEvent.WorkflowName, nameof(auditEvent.WorkflowName)),
             auditEvent.SettlementRequestId.ToString("D"),
             auditEvent.SourceExpenseBillId.ToString("D"),
             auditEvent.GroupId?.ToString("D"),
@@ -58,6 +57,12 @@ internal sealed class EfSettlementRequestAuditWriter : ISettlementRequestAuditWr
             auditEvent.DebtorUserProfileId.ToString("D"),
             auditEvent.CreditorUserProfileId.ToString("D"),
             RequireSafeMetadataCategory(auditEvent.Status, nameof(auditEvent.Status)),
+            auditEvent.PreviousRequestStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.PreviousRequestStatus, nameof(auditEvent.PreviousRequestStatus)),
+            auditEvent.NewRequestStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.NewRequestStatus, nameof(auditEvent.NewRequestStatus)),
             RequireSafeMetadataAmount(auditEvent.Amount, nameof(auditEvent.Amount)),
             RequireSafeMetadataCategory(auditEvent.Currency, nameof(auditEvent.Currency)),
             RequireSafeMetadataCategory(auditEvent.CandidateBasis, nameof(auditEvent.CandidateBasis)));
@@ -118,6 +123,8 @@ internal sealed class EfSettlementRequestAuditWriter : ISettlementRequestAuditWr
         string DebtorUserProfileId,
         string CreditorUserProfileId,
         string RequestStatus,
+        string? PreviousRequestStatus,
+        string? NewRequestStatus,
         string Amount,
         string Currency,
         string CandidateBasis);

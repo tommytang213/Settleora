@@ -70,6 +70,7 @@ app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
 app.MapSettlementPaymentClaimEndpoints();
 app.MapSettlementPaymentConfirmationEndpoints();
+app.MapSettlementDisputeEndpoints();
 app.MapSignOutEndpoints();
 app.MapSignOutAllEndpoints();
 app.MapSessionListEndpoints();

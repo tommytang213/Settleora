@@ -14,4 +14,11 @@ internal sealed record SettlementRequestAuditEvent(
     decimal Amount,
     string Currency,
     string CandidateBasis,
-    DateTimeOffset OccurredAtUtc);
+    DateTimeOffset OccurredAtUtc)
+{
+    public string WorkflowName { get; init; } = "settlement_request_create";
+
+    public string? PreviousRequestStatus { get; init; }
+
+    public string? NewRequestStatus { get; init; }
+}

@@ -59,6 +59,12 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
             RequireSafeMetadataCategory(auditEvent.PreviousRequestStatus, nameof(auditEvent.PreviousRequestStatus)),
             RequireSafeMetadataCategory(auditEvent.NewRequestStatus, nameof(auditEvent.NewRequestStatus)),
             RequireSafeMetadataCategory(auditEvent.PaymentStatus, nameof(auditEvent.PaymentStatus)),
+            auditEvent.PreviousPaymentStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.PreviousPaymentStatus, nameof(auditEvent.PreviousPaymentStatus)),
+            auditEvent.NewPaymentStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.NewPaymentStatus, nameof(auditEvent.NewPaymentStatus)),
             RequireSafeMetadataAmount(auditEvent.PaymentAmount, nameof(auditEvent.PaymentAmount)),
             RequireSafeMetadataAmount(auditEvent.ActivePaymentCoverageAmount, nameof(auditEvent.ActivePaymentCoverageAmount)),
             RequireSafeMetadataAmount(auditEvent.RequestAmount, nameof(auditEvent.RequestAmount)),
@@ -124,6 +130,8 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
         string PreviousRequestStatus,
         string NewRequestStatus,
         string PaymentStatus,
+        string? PreviousPaymentStatus,
+        string? NewPaymentStatus,
         string PaymentAmount,
         string ActivePaymentCoverageAmount,
         string RequestAmount,

@@ -20,4 +20,9 @@ internal sealed record SettlementPaymentAuditEvent(
     decimal RequestAmount,
     string Currency,
     DateOnly PaymentDate,
-    DateTimeOffset OccurredAtUtc);
+    DateTimeOffset OccurredAtUtc)
+{
+    public string? PreviousPaymentStatus { get; init; }
+
+    public string? NewPaymentStatus { get; init; }
+}

@@ -436,6 +436,17 @@ class SettleoraApiClient {
     return SettlementPaymentResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SettlementPaymentResponse> disputeSettlementPayment(String paymentId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/dispute',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementPaymentResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementRequestListResponse> listSettlementRequests({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -451,6 +462,17 @@ class SettleoraApiClient {
     final payload = await _send(
       "GET",
       '/api/v1/settlements/${Uri.encodeComponent(settlementId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementRequestResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<SettlementRequestResponse> disputeSettlementRequest(String settlementId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/settlements/${Uri.encodeComponent(settlementId.toString())}/dispute',
       body: null,
       accessToken: accessToken,
       headers: headers,
