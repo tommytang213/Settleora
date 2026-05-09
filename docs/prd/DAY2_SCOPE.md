@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, and user adoption.
+Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, payment handoff, payment-provider integration, and user adoption.
 
 Day 2 features should still be production-shaped. They should be implemented through focused branches with explicit validation.
 
@@ -348,7 +348,7 @@ Capabilities:
 - Manual column mapping.
 - Save mapping template per account/provider.
 - Import statement transactions.
-- Match against expenses, settlements, and refunds.
+- Match against expenses, settlements, refunds, and payment records.
 - Auto-suggest matches by date, amount, currency, merchant, payment method, and tolerance.
 - Manual link/unlink.
 - Show matched, possible match, unmatched, missing, mismatch, duplicate statuses.
@@ -362,11 +362,87 @@ Avoid in Day 2:
 - Silent mutation of expense records.
 - Full universal PDF parser.
 
+### 25. Payment instruction and provider integration
+
+Add payment-provider-aware settlement support after the Day 1 manual settlement flow exists.
+
+Capabilities:
+
+- Payment method profiles support manual display, QR/payment instruction generation, and linked provider connections.
+- Generate country/provider-aware payment instructions where supported, such as FPS/HKQR, SEPA EPC QR, PayPal links/API, and custom QR.
+- Show available payment methods on settlement and payment-request screens based on payee profile, authorization, currency, provider capability, and policy.
+- Keep payer-claimed payment, provider-verified payment, receiver confirmation, and dispute/reopen states as separate concepts.
+- Support optional provider payment attempts, with PayPal as the first direct API candidate.
+- Store provider payment events separately from settlement records.
+- Provider events may update settlement evidence/status only through API/domain settlement policy.
+- Provider webhooks must be verified, idempotent, audited, and safe to replay.
+- Manual mark-paid and receiver confirmation remain available for every payment method.
+- Provider verification must not silently bypass receiver confirmation unless user/group policy explicitly allows auto-confirm.
+- Linked provider connections may support incoming transaction reflection when provider access, user consent, and policy allow.
+- Imported incoming provider transactions are private to the linked account owner by default.
+- Incoming provider transactions can be matched against settlements, payment requests, refunds, or reimbursement records.
+- High-confidence matches may create provider-verified evidence; low/medium-confidence matches require user confirmation.
+- Users can manually link/unlink provider transactions to settlement records.
+- Provider secrets/tokens must be stored through a secret boundary, not in profile display data.
+
+Recommended payment evidence types:
+
+```text
+payer_claim
+proof_attachment
+provider_capture
+provider_incoming_transaction
+statement_match
+```
+
+Recommended provider payment states:
+
+```text
+created
+payer_action_required
+payer_approved
+captured
+provider_verified
+failed
+cancelled
+reversed
+disputed
+refunded
+```
+
+Recommended settlement states for provider-aware flows:
+
+```text
+requested
+payer_claimed_paid
+provider_verified
+receiver_confirmed
+disputed
+cancelled
+reopened
+```
+
+Important rule:
+
+```text
+Provider evidence proves money movement evidence.
+Receiver confirmation proves settlement acceptance.
+```
+
+Non-goals for initial payment integration:
+
+- Direct bank API sync as the first provider integration.
+- Silent settlement confirmation from weak or unmatched provider events.
+- Treating provider webhook payloads as authoritative without API/domain validation.
+- Exposing raw provider transaction data to group members by default.
+- Using provider integration to bypass settlement authorization, audit, or policy.
+
 ## Day 2 non-goals
 
 - AI reporting.
 - Bank account API sync.
 - Investment tracking.
 - Crypto trading rates.
-- Automatic financial record mutation from imported statements.
+- Automatic financial record mutation from imported statements or provider events.
 - Cross-group debt simplification.
+- Direct bank/e-wallet payment initiation without explicit provider support and security review.
