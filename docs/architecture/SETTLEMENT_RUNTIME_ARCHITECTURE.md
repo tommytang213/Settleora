@@ -26,8 +26,9 @@ The current repository state is:
 - Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
 - Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
 - Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
-- Settlement cancellation and proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, payment claim creation, payment confirmation, request dispute, and payment dispute.
+- Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
+- Settlement proof runtime endpoints do not exist.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, and payment cancellation.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -94,7 +95,7 @@ Recommended first slices:
 6. Partial payment claim. Landed.
 7. Receiver confirmation. Landed.
 8. Request and payment dispute. Landed.
-9. Cancel where policy allows.
+9. Cancel where policy allows. Landed for requester-owned unpaid requests and debtor-owned marked-paid payment claims.
 10. Proof attachment linkage after authorized public file flows exist.
 
 Potential route concepts:
@@ -108,6 +109,7 @@ POST /api/v1/settlements/{settlementId}/payments
 POST /api/v1/settlement-payments/{paymentId}/confirm
 POST /api/v1/settlement-payments/{paymentId}/dispute
 POST /api/v1/settlements/{settlementId}/cancel
+POST /api/v1/settlement-payments/{paymentId}/cancel
 POST /api/v1/settlement-payments/{paymentId}/proof
 DELETE /api/v1/settlement-payments/{paymentId}/proof/{fileId}
 ```
@@ -406,7 +408,7 @@ Recommended implementation sequence:
 5. Mark paid/create payment claim, including partial payment support. Landed.
 6. Receiver confirmation. Landed.
 7. Request and payment dispute. Landed for bounded dispute transitions only.
-8. Cancellation where policy allows.
+8. Cancellation where policy allows. Landed for request and payment cancellation.
 9. Relationship-backed counterparty payment-details read.
 10. Proof attachment metadata linkage after authorized public file flows exist.
 11. Balance projection read endpoints.

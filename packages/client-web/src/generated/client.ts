@@ -188,6 +188,10 @@ export class SettleoraApiClient {
     return this.request<void>("DELETE", `/api/v1/groups/${encodeURIComponent(String(groupId))}/members/${encodeURIComponent(String(userProfileId))}`, undefined, options, options.accessToken);
   }
 
+  async cancelSettlementPayment(paymentId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {
+    return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/cancel`, undefined, options, options.accessToken);
+  }
+
   async confirmSettlementPayment(paymentId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {
     return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/confirm`, undefined, options, options.accessToken);
   }
@@ -202,6 +206,10 @@ export class SettleoraApiClient {
 
   async getSettlementRequest(settlementId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestResponse> {
     return this.request<SettlementRequestResponse>("GET", `/api/v1/settlements/${encodeURIComponent(String(settlementId))}`, undefined, options, options.accessToken);
+  }
+
+  async cancelSettlementRequest(settlementId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestResponse> {
+    return this.request<SettlementRequestResponse>("POST", `/api/v1/settlements/${encodeURIComponent(String(settlementId))}/cancel`, undefined, options, options.accessToken);
   }
 
   async disputeSettlementRequest(settlementId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestResponse> {

@@ -2272,7 +2272,7 @@ class SettlementRequestStatusValues {
   static const Set<SettlementRequestStatus> values = {requested, partiallyPaid, markedPaid, confirmed, disputed, cancelled};
 }
 
-/// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, and receiver dispute moves eligible marked_paid claims to disputed; cancellation is a future workflow state.
+/// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.
 typedef SettlementPaymentStatus = String;
 class SettlementPaymentStatusValues {
   const SettlementPaymentStatusValues._();

@@ -66,7 +66,7 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
                 ? null
                 : RequireSafeMetadataCategory(auditEvent.NewPaymentStatus, nameof(auditEvent.NewPaymentStatus)),
             RequireSafeMetadataAmount(auditEvent.PaymentAmount, nameof(auditEvent.PaymentAmount)),
-            RequireSafeMetadataAmount(auditEvent.ActivePaymentCoverageAmount, nameof(auditEvent.ActivePaymentCoverageAmount)),
+            RequireSafeMetadataAmount(auditEvent.ActivePaymentCoverageAmount, nameof(auditEvent.ActivePaymentCoverageAmount), allowZero: true),
             RequireSafeMetadataAmount(auditEvent.RequestAmount, nameof(auditEvent.RequestAmount)),
             RequireSafeMetadataCategory(auditEvent.Currency, nameof(auditEvent.Currency)),
             auditEvent.PaymentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
@@ -80,9 +80,11 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
         return json;
     }
 
-    private static string RequireSafeMetadataAmount(decimal value, string name)
+    private static string RequireSafeMetadataAmount(decimal value, string name, bool allowZero = false)
     {
-        if (value is <= 0m or > MetadataAmountMaxValue)
+        if (value > MetadataAmountMaxValue
+            || value < 0m
+            || (!allowZero && value == 0m))
         {
             throw new InvalidOperationException($"Settlement payment audit metadata amount '{name}' is outside the allowed range.");
         }
