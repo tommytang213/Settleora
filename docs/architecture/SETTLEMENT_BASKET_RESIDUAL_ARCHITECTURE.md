@@ -4,7 +4,7 @@
 
 This document defines the Day 1 direction for settling one or more outstanding bill/share lines through a single payment claim while preserving exact owed amounts, actual paid amounts, explicit residual handling, receiver confirmation, and rebuildable balances.
 
-The goal is to let users capture and split each bill when it happens, then settle later in one payment if they want. Users should not be forced to delay bill entry until payment time, and they should not lose small rounded differences silently.
+The goal is to let users capture and split each bill when it happens, then settle later in one payment if they want. Users should not be forced to delay bill entry until payment time, they should not need to manually select every outstanding line when they intend to settle everything with one counterparty, and they should not lose small rounded differences silently.
 
 ## Product Problem
 
@@ -13,7 +13,7 @@ Real usage often looks like this:
 1. A bill arrives in the morning.
 2. The group captures, OCR-corrects, and splits it immediately while everyone remembers the items.
 3. Another bill arrives later the same day, or on another date.
-4. The payer/debtor may settle one bill at a time or pay several outstanding bills together later.
+4. The payer/debtor may settle one bill at a time, select specific outstanding bills, or pay all outstanding bills with one counterparty in a single later payment.
 
 The app must support both payment styles:
 
@@ -38,6 +38,7 @@ Calendar date must not determine settlement behavior. The selected settlement sc
 - Bill capture and settlement are separate workflows.
 - Bills should be captured and split when each bill is received.
 - Settlement may happen later and may include one or more outstanding bill/share lines.
+- Users must be able to settle all eligible outstanding lines for the same payer/payee pair without selecting each line manually.
 - Rounding and residual handling happen at payment/settlement time, not bill-entry time.
 - The exact debt must remain visible even when the actual payment is rounded.
 - The payer may propose residual handling, but the receiver/payee must confirm or dispute whether the debt is cleared.
@@ -58,6 +59,12 @@ A derived payable amount from a bill/share/counterparty relationship that has no
 
 Settlement basket
 The set of outstanding lines selected for one settlement/payment action.
+
+Pay all outstanding
+A bulk selection action that selects every eligible outstanding line in the current payer/payee settlement scope.
+
+Select all visible
+A bulk selection action that selects every eligible outstanding line currently visible after filters such as group, date range, bill category, or search.
 
 Exact selected total
 The sum of the selected outstanding lines before payment rounding.
@@ -87,13 +94,53 @@ Bill capture does not require immediate payment.
 
 1. Payer opens a counterparty settlement screen, such as `Pay Tommy`.
 2. App shows outstanding lines involving that payer and receiver.
-3. Payer selects one or more outstanding lines, including lines from different bills and dates.
+3. Payer selects one or more outstanding lines, selects all visible lines, or uses `pay all outstanding` for the current payer/payee scope.
 4. App calculates the exact selected total.
 5. Payer enters actual paid amount or selects a quick rounding option.
 6. App calculates the settlement delta.
 7. Payer proposes how to handle any underpayment or overpayment.
 8. Receiver confirms, disputes, or chooses a different allowed residual outcome.
 9. Balance projection updates only after policy-recognized confirmation.
+
+### Bulk Pay-All Selection
+
+The settlement UI must support bulk selection so a payer does not need to select every outstanding line manually.
+
+Required Day 1 bulk actions:
+
+- `pay_all_outstanding_for_counterparty`: select all eligible outstanding lines between the payer and receiver.
+- `select_all_visible`: select all eligible outstanding lines after the current filters are applied.
+- `clear_selection`: remove all selected lines.
+- `deselect_line`: remove an individual line after using a bulk selection.
+
+Optional later bulk filters:
+
+- group
+- date range
+- trip/event
+- bill category
+- minimum/maximum amount
+- search text
+
+Bulk selection must still produce concrete settlement lines before confirmation. The app may start from a bulk action, but the backend must persist the exact lines included in the settlement basket. A future request must not mean "whatever all outstanding lines happen to be later".
+
+The API must re-derive the eligible lines at write time and reject stale, already-cleared, disputed, cancelled, unauthorized, hidden, or currency-mismatched lines. The client must not be trusted to decide the final included set.
+
+The UI must show a confirmation summary before payment claim creation:
+
+```text
+Pay Tommy
+
+Bulk selection: All outstanding
+Included bills: 12
+Included lines: 18
+Exact selected total: 1,248.90
+
+[Review included lines]
+[Continue to payment amount]
+```
+
+Day 1 bulk payment is still scoped to one payer/payee pair and one currency. Automatic group-wide simplification across multiple counterparties remains a separate reviewed policy.
 
 ## Residual Handling
 
@@ -158,6 +205,8 @@ creditor_user_profile_id
 exact_total_amount
 currency
 status
+selection_mode nullable
+selection_filter_summary nullable
 requested_by_user_profile_id
 requested_at_utc
 confirmed_at_utc nullable
@@ -166,6 +215,16 @@ cancelled_at_utc nullable
 created_at_utc
 updated_at_utc
 archived_at_utc nullable
+```
+
+`selection_mode` and `selection_filter_summary` are audit/context helpers only. The concrete settlement request lines remain the financial source of the selected scope.
+
+Suggested `selection_mode` values:
+
+```text
+manual_lines
+select_all_visible
+pay_all_outstanding_for_counterparty
 ```
 
 ### Settlement Request Lines
@@ -183,12 +242,22 @@ source_candidate_key nullable
 exact_amount
 currency
 allocation_order
+selection_source
 status
 created_at_utc
 updated_at_utc
 ```
 
 A line may represent a bill-level counterparty candidate, a participant share basis, or a future derived balance line. The key requirement is that the API can rebuild and prove the selected amount from durable source records and policy.
+
+Suggested `selection_source` values:
+
+```text
+manual
+select_all_visible
+pay_all_outstanding
+system_expanded
+```
 
 ### Settlement Payment Claim
 
@@ -312,6 +381,8 @@ waived amount
 credit amount
 ```
 
+Bulk selection and pay-all workflows must not create opaque balance shortcuts. The resulting request lines and payment allocations must remain rebuildable and auditable.
+
 ## Authorization Rules
 
 - The current actor must come from the authenticated session/current-actor boundary.
@@ -319,6 +390,7 @@ credit amount
 - Receivers may confirm only payment claims where they are the receiver/payee.
 - Group membership alone is not enough to access unrelated settlement lines or payment details.
 - The API must re-derive selected lines at write time and reject stale, already-cleared, unauthorized, cancelled, disputed, or mismatched lines.
+- Bulk `pay all` and `select all visible` actions must be expanded server-side into concrete eligible lines and must not rely only on client-submitted line lists.
 - Payer-proposed residual handling is not final until receiver confirmation where the policy requires it.
 
 ## UX Direction
@@ -326,7 +398,10 @@ credit amount
 Settlement UI should support:
 
 - outstanding line selection across dates
+- pay all outstanding for a counterparty
+- select all visible after filters
 - selected exact total
+- selected line count and bill count
 - quick payment amount options such as exact, round down, round nearest, round up, and custom
 - visible difference between exact selected total and actual paid amount
 - proposed residual handling
@@ -338,11 +413,15 @@ Example payer screen:
 ```text
 Pay Tommy
 
+Quick actions:
+[Pay all outstanding] [Select all visible] [Clear]
+
 Outstanding:
 [x] May 9 Breakfast   123.45
 [x] May 9 Dinner      123.45
 [ ] May 10 Taxi        80.20
 
+Selected: 2 bills / 2 lines
 Exact selected total: 246.90
 Actual paid amount:  247.00
 Difference:          +0.10 overpayment
@@ -357,9 +436,12 @@ Example receiver screen:
 ```text
 Alice says she paid 247.00 for selected bills totaling 246.90.
 
+Included bills: 2
+Included lines: 2
 Difference: +0.10 overpayment
 Proposed handling: Carry as credit
 
+[Review lines]
 [Confirm]
 [Dispute]
 ```
@@ -387,6 +469,7 @@ Recommended future audit events:
 settlement.basket_created
 settlement.basket_line_added
 settlement.basket_line_removed
+settlement.basket_bulk_selection_applied
 settlement.payment_claimed
 settlement.payment_confirmed
 settlement.payment_disputed
