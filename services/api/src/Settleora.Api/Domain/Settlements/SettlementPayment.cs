@@ -44,5 +44,9 @@ public sealed class SettlementPayment
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
 
+    public ICollection<SettlementPaymentAllocation> Allocations { get; } = new List<SettlementPaymentAllocation>();
+
     public ICollection<SettlementProofAttachment> ProofAttachments { get; } = new List<SettlementProofAttachment>();
+
+    public ICollection<SettlementResidual> Residuals { get; } = new List<SettlementResidual>();
 }

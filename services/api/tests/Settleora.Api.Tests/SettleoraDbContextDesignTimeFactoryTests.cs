@@ -26,12 +26,15 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(23, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(26, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBill)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillItemSplit)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementRequest)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementRequestLine)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementPayment)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementPaymentAllocation)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementResidual)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementProofAttachment)));
     }
 

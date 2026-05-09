@@ -6,6 +6,12 @@ This document defines the Day 1 direction for settling one or more outstanding b
 
 The goal is to let users capture and split each bill when it happens, then settle later in one payment if they want. Users should not be forced to delay bill entry until payment time, they should not need to manually select every outstanding line when they intend to settle everything with one counterparty, and they should not lose small rounded differences silently.
 
+## Current State
+
+- EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, and supports purpose-specific settlement proof endpoints.
+- Public basket selection, bulk pay-all, residual creation or confirmation behavior, balance projection endpoints, OpenAPI basket/residual contracts, generated-client basket/residual methods, UI behavior, and worker behavior do not exist yet.
+
 ## Product Problem
 
 Real usage often looks like this:
@@ -189,7 +195,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-This section is directional and does not authorize immediate migrations by itself.
+The core request-line, allocation, and residual persistence tables have landed as a schema-only foundation. Runtime basket selection, residual policy application, balance projection behavior, OpenAPI changes, generated clients, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 

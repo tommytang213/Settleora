@@ -16,14 +16,14 @@ The current repository state is:
 - File metadata lifecycle foundation exists, but no generic public upload/download API exists yet.
 - Internal money, rounding, validation, and allocation foundations exist under the API project, including `MoneyAmount`, `CurrencyCode`, `MoneyRoundingService`, and `MoneyAllocationService`.
 - EF Core migrations now define schema-only expense/bill foundation tables: `expense_bills`, `expense_bill_items`, `expense_bill_item_splits`, `expense_bill_participants`, `expense_bill_payers`, `expense_bill_adjustments`, and `expense_bill_attachments`.
-- EF Core migrations now define schema-only settlement foundation tables: `settlement_requests`, `settlement_payments`, and `settlement_proof_attachments`.
+- EF Core migrations now define schema-only settlement foundation tables: `settlement_requests`, `settlement_payments`, `settlement_proof_attachments`, `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals`.
 - An internal bill calculation/split service exists for same-currency draft/pending calculations, including item split resolution, participant share aggregation, equal/proportional adjustment allocation, manual-adjustment rejection, and payer contribution validation.
 - Public personal bill create/list/get endpoints exist at `POST /api/v1/bills`, `GET /api/v1/bills`, and `GET /api/v1/bills/{billId}`.
 - Public group-scoped group bill create/list/get endpoints exist at `POST /api/v1/groups/{groupId}/bills`, `GET /api/v1/groups/{groupId}/bills`, and `GET /api/v1/groups/{groupId}/bills/{billId}`.
 - Public bill submit, participant accept, participant reject, and bill confirmed workflow endpoints exist.
 - No public bill edit, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
 - Personal and group bill create/read, bill workflow, settlement candidate preview, settlement request creation, settlement request list/get, settlement payment list/get, settlement payment claim, settlement payment confirmation, settlement dispute, settlement cancellation, and settlement payment proof OpenAPI paths and generated clients exist. No balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
-- Settlement persistence schema exists for request roots, payment claims, and proof attachment file references. Candidate preview, first settlement request creation runtime, read-only current-actor settlement request list/get endpoints, read-only settlement payment list/get endpoints, debtor-authored same-currency full/partial payment claim endpoints, receiver-authored payment confirmation endpoints, bounded request/payment dispute endpoints, guarded request/payment cancellation endpoints, and purpose-specific settlement payment proof attach/list/content/remove endpoints exist for confirmed personal/group bill candidates. Balance, recurring bill, and reconciliation migrations do not exist yet.
+- Settlement persistence schema exists for request roots, payment claims, proof attachment file references, basket request lines, payment allocations, and residual tracking. Candidate preview, first settlement request creation runtime, read-only current-actor settlement request list/get endpoints, read-only settlement payment list/get endpoints, debtor-authored same-currency full/partial payment claim endpoints, receiver-authored payment confirmation endpoints, bounded request/payment dispute endpoints, guarded request/payment cancellation endpoints, and purpose-specific settlement payment proof attach/list/content/remove endpoints exist for confirmed personal/group bill candidates. Settlement basket/residual runtime, balance, recurring bill, and reconciliation migrations do not exist yet.
 - [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md) now defines the design gate for request creation, payment claims, receiver confirmation, dispute, cancellation, proof linkage, audit, and rebuildable balance projections across narrow endpoint slices.
 
 Existing payment details are payment instructions and optional QR linkage only. They are not settlement records, payment confirmations, balances, or proof that money moved.
@@ -223,7 +223,7 @@ No generic public file upload/download API is authorized here unless a future st
 
 ## Database Direction
 
-The expense/bill schema foundation has been implemented for bill roots, items, item splits, participants, payers, adjustments, and bill attachment references. The settlement schema foundation has been implemented for request roots, payment claims, and proof attachment references. Future schema branches should continue introducing small table groups with explicit constraints.
+The expense/bill schema foundation has been implemented for bill roots, items, item splits, participants, payers, adjustments, and bill attachment references. The settlement schema foundation has been implemented for request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Future schema branches should continue introducing small table groups with explicit constraints.
 
 Suggested table categories:
 
@@ -238,6 +238,9 @@ expense_bill_attachments
 settlement_requests
 settlement_payments
 settlement_proof_attachments
+settlement_request_lines
+settlement_payment_allocations
+settlement_residuals
 ```
 
 Suggested purpose and constraints:
@@ -252,6 +255,9 @@ Suggested purpose and constraints:
 - `settlement_requests`: debtor/creditor request root with amount/currency, state, related group/bill basis where applicable, requester, state timestamps, archive timestamp, counterparty distinction constraint, indexes, and restrictive foreign keys. Implemented schema foundation fields currently cover these values; runtime creation, receiver confirmation recomputation, bounded request/payment dispute transitions, and requester cancellation for eligible requested requests now exist, while reopen/governance policy is still deferred.
 - `settlement_payments`: payment or partial-payment claim rows with positive amount/currency, actor/counterparty references, state, payment date, claimed/confirmed/disputed/cancelled timestamps, optional bounded note, counterparty distinction constraint, indexes, and restrictive foreign keys. Implemented schema foundation fields currently cover these values; runtime debtor mark-paid behavior exists for same-currency full/partial claims, receiver confirmation exists for eligible marked-paid claims, receiver dispute exists for eligible marked-paid claims, and debtor cancellation exists for eligible own marked-paid claims.
 - `settlement_proof_attachments`: stable file references for settlement proof through `file_objects.id`, creator reference, timestamps, and restrictive foreign keys. Implemented schema fields store no storage paths, object keys, provider internals, original filenames, public URLs, vault keys, storage roots, or file bytes; current proof bytes move only through purpose-specific settlement payment proof endpoints and the storage abstraction.
+- `settlement_request_lines`: exact selected basket line rows tied to settlement requests and source expense bills, with optional bounded candidate key, positive amount/currency, allocation order, constrained line status, timestamps, indexes, and restrictive foreign keys. Implemented schema foundation fields exist only for future runtime; current request creation still records one confirmed bill candidate on `settlement_requests`.
+- `settlement_payment_allocations`: payment-to-request-line allocation rows with positive cleared amount/currency, allocation order, timestamp, indexes, and restrictive foreign keys. Implemented schema foundation fields exist only for future allocation runtime.
+- `settlement_residuals`: underpayment/overpayment, waiver, carried-forward, and credit tracking rows tied to a settlement payment and/or request, debtor/creditor profiles, constrained direction/policy/status values, positive amount/currency, optional bounded reason, lifecycle timestamps, counterparty and payment-or-request presence checks, indexes, and restrictive foreign keys. Implemented schema foundation fields exist only for future residual runtime.
 
 Money-bearing tables should follow the money architecture: decimal-safe amount plus required currency columns, operation-specific positive or non-negative constraints, currency format checks, and centralized API validation. Avoid uncontrolled schema sprawl by landing expense/bill schema, settlement schema, and attachment subject associations in separate branches unless explicitly approved together.
 
@@ -298,11 +304,12 @@ Recommended next implementation candidates, in order:
 4. Group bill create/read with authorization and resolved shares. This is now landed.
 5. Participant acknowledgement/dispute workflow.
 6. Settlement request/payment/proof schema foundation. This is now landed as persistence only.
-7. Settlement runtime design gate. This is now landed as policy only.
-8. Settlement candidate preview and request creation. These are now landed for confirmed personal/group bill candidates only.
-9. Settlement payment claim, receiver confirmation, and bounded dispute transitions. These are now landed for confirmed personal/group bill candidates only.
-10. Settlement cancellation where policy allows. This is now landed.
-11. Receipt/proof attachment integration once public authorized file flows exist.
+7. Settlement basket/residual schema foundation. This is now landed as persistence only, with no public basket, residual, balance projection, OpenAPI, generated client, UI, worker, or proof-byte changes.
+8. Settlement runtime design gate. This is now landed as policy only.
+9. Settlement candidate preview and request creation. These are now landed for confirmed personal/group bill candidates only.
+10. Settlement payment claim, receiver confirmation, and bounded dispute transitions. These are now landed for confirmed personal/group bill candidates only.
+11. Settlement cancellation where policy allows. This is now landed.
+12. Receipt/proof attachment integration once public authorized file flows exist.
 
 Each slice should include focused tests and validation for its boundary. Avoid combining schema, OpenAPI, generated clients, endpoint runtime, storage bytes, OCR, UI, and settlement behavior in one branch.
 

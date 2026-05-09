@@ -47,5 +47,9 @@ public sealed class SettlementRequest
 
     public DateTimeOffset? ArchivedAtUtc { get; set; }
 
+    public ICollection<SettlementRequestLine> Lines { get; } = new List<SettlementRequestLine>();
+
     public ICollection<SettlementPayment> Payments { get; } = new List<SettlementPayment>();
+
+    public ICollection<SettlementResidual> Residuals { get; } = new List<SettlementResidual>();
 }

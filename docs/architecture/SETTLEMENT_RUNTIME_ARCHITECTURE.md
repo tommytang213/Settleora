@@ -18,7 +18,7 @@ The current repository state is:
 - Personal and group bill create/list/get endpoints exist.
 - Public bill submit, participant accept, participant reject, and bill-confirmed workflow endpoints exist.
 - The internal money, rounding, allocation, and bill calculation service exists for same-currency bill calculations.
-- Settlement schema rows exist for `settlement_requests`, `settlement_payments`, and `settlement_proof_attachments`.
+- Settlement schema rows exist for `settlement_requests`, `settlement_payments`, `settlement_proof_attachments`, `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals`.
 - Settlement candidate preview endpoints exist for personal and group bills.
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility.
@@ -30,7 +30,7 @@ The current repository state is:
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
 - Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
-- Balance projection runtime does not exist.
+- Settlement basket/residual runtime and balance projection runtime do not exist.
 
 ## Settlement Runtime Authority
 
@@ -51,7 +51,7 @@ Authoritative responsibilities include:
 
 Clients may preview settlement suggestions for usability. Client previews are not financial truth. A client must not decide authoritative balances, debtor/creditor relationships, payable amount, currency, settlement-clearing state, visibility, authorization, or audit outcome.
 
-Workers must not mutate `settlement_requests`, `settlement_payments`, `settlement_proof_attachments`, bill/share/payer tables, file metadata tables, or audit tables directly. Workers may publish reviewed job results or events for the API to validate.
+Workers must not mutate `settlement_requests`, `settlement_payments`, `settlement_proof_attachments`, `settlement_request_lines`, `settlement_payment_allocations`, `settlement_residuals`, bill/share/payer tables, file metadata tables, or audit tables directly. Workers may publish reviewed job results or events for the API to validate.
 
 Settlement values must use decimal-safe API/domain money types and persisted amount plus currency pairs. Day 1 settlement is same-currency only. Cross-currency settlement requires a later reviewed FX snapshot design that records rate source, timestamp, direction, precision, original amount/currency, converted amount/currency, and audit evidence.
 

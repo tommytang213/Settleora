@@ -53,17 +53,19 @@ ISettlementAuditWriter
 
 ## Persistence direction
 
-Future tables may include:
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Basket request lines, payment allocations, and residuals are schema-only and do not add public basket selection, residual confirmation, or balance projection endpoints.
+
+Current and future table categories include:
 
 ```text
 settlement_requests
 settlement_request_lines
-settlement_payment_claims
+settlement_payments
+settlement_proof_attachments
 settlement_payment_allocations
 settlement_residuals
 settlement_payment_evidence
 settlement_status_history
-settlement_proof_files
 ```
 
 Records should preserve history and avoid destructive replacement of financial events.

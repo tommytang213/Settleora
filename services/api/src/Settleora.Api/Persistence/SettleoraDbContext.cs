@@ -61,7 +61,10 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<SettlementRequest>(ConfigureSettlementRequest);
+        modelBuilder.Entity<SettlementRequestLine>(ConfigureSettlementRequestLine);
         modelBuilder.Entity<SettlementPayment>(ConfigureSettlementPayment);
+        modelBuilder.Entity<SettlementPaymentAllocation>(ConfigureSettlementPaymentAllocation);
+        modelBuilder.Entity<SettlementResidual>(ConfigureSettlementResidual);
         modelBuilder.Entity<SettlementProofAttachment>(ConfigureSettlementProofAttachment);
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
@@ -1329,6 +1332,328 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(payment => payment.CreatedByUserProfileId)
             .HasConstraintName("fk_settlement_payments_user_profiles_created_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementRequestLine(EntityTypeBuilder<SettlementRequestLine> entity)
+    {
+        entity.ToTable("settlement_request_lines", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_status",
+                "status IN ('open', 'partially_cleared', 'cleared', 'waived', 'disputed', 'cancelled')");
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_exact_amount_positive",
+                "exact_amount > 0");
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_exact_amount_upper_bound",
+                "exact_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_allocation_order_non_negative",
+                "allocation_order >= 0");
+            table.HasCheckConstraint(
+                "ck_settlement_request_lines_source_candidate_key_not_blank",
+                "source_candidate_key IS NULL OR length(btrim(source_candidate_key)) > 0");
+        });
+
+        entity.HasKey(line => line.Id);
+
+        entity.Property(line => line.Id)
+            .HasColumnName("id");
+
+        entity.Property(line => line.SettlementRequestId)
+            .HasColumnName("settlement_request_id");
+
+        entity.Property(line => line.SourceExpenseBillId)
+            .HasColumnName("source_expense_bill_id");
+
+        entity.Property(line => line.SourceCandidateKey)
+            .HasColumnName("source_candidate_key")
+            .HasMaxLength(SettlementConstraints.SourceCandidateKeyMaxLength);
+
+        entity.Property(line => line.ExactAmount)
+            .HasColumnName("exact_amount")
+            .HasPrecision(
+                SettlementConstraints.MoneyAmountPrecision,
+                SettlementConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(line => line.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(SettlementConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(line => line.AllocationOrder)
+            .HasColumnName("allocation_order")
+            .IsRequired();
+
+        entity.Property(line => line.Status)
+            .HasColumnName("status")
+            .HasMaxLength(SettlementConstraints.RequestLineStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(line => line.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(line => line.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(line => line.SettlementRequestId)
+            .HasDatabaseName("ix_settlement_request_lines_settlement_request_id");
+
+        entity.HasIndex(line => line.SourceExpenseBillId)
+            .HasDatabaseName("ix_settlement_request_lines_source_expense_bill_id");
+
+        entity.HasIndex(line => line.Status)
+            .HasDatabaseName("ix_settlement_request_lines_status");
+
+        entity.HasIndex(line => new
+            {
+                line.SettlementRequestId,
+                line.AllocationOrder
+            })
+            .HasDatabaseName("ix_settlement_request_lines_request_order");
+
+        entity.HasIndex(line => new
+            {
+                line.SettlementRequestId,
+                line.Status
+            })
+            .HasDatabaseName("ix_settlement_request_lines_request_status");
+
+        entity.HasOne(line => line.SettlementRequest)
+            .WithMany(request => request.Lines)
+            .HasForeignKey(line => line.SettlementRequestId)
+            .HasConstraintName("fk_settlement_request_lines_settlement_requests_request_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(line => line.SourceExpenseBill)
+            .WithMany()
+            .HasForeignKey(line => line.SourceExpenseBillId)
+            .HasConstraintName("fk_settlement_request_lines_expense_bills_source_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementPaymentAllocation(EntityTypeBuilder<SettlementPaymentAllocation> entity)
+    {
+        entity.ToTable("settlement_payment_allocations", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_settlement_payment_allocations_cleared_amount_positive",
+                "cleared_amount > 0");
+            table.HasCheckConstraint(
+                "ck_settlement_payment_allocations_cleared_amount_upper_bound",
+                "cleared_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_settlement_payment_allocations_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_settlement_payment_allocations_allocation_order_non_negative",
+                "allocation_order >= 0");
+        });
+
+        entity.HasKey(allocation => allocation.Id);
+
+        entity.Property(allocation => allocation.Id)
+            .HasColumnName("id");
+
+        entity.Property(allocation => allocation.SettlementPaymentId)
+            .HasColumnName("settlement_payment_id");
+
+        entity.Property(allocation => allocation.SettlementRequestLineId)
+            .HasColumnName("settlement_request_line_id");
+
+        entity.Property(allocation => allocation.ClearedAmount)
+            .HasColumnName("cleared_amount")
+            .HasPrecision(
+                SettlementConstraints.MoneyAmountPrecision,
+                SettlementConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(allocation => allocation.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(SettlementConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(allocation => allocation.AllocationOrder)
+            .HasColumnName("allocation_order")
+            .IsRequired();
+
+        entity.Property(allocation => allocation.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(allocation => allocation.SettlementPaymentId)
+            .HasDatabaseName("ix_settlement_payment_allocations_settlement_payment_id");
+
+        entity.HasIndex(allocation => allocation.SettlementRequestLineId)
+            .HasDatabaseName("ix_settlement_payment_allocations_request_line_id");
+
+        entity.HasIndex(allocation => new
+            {
+                allocation.SettlementPaymentId,
+                allocation.AllocationOrder
+            })
+            .HasDatabaseName("ix_settlement_payment_allocations_payment_order");
+
+        entity.HasOne(allocation => allocation.SettlementPayment)
+            .WithMany(payment => payment.Allocations)
+            .HasForeignKey(allocation => allocation.SettlementPaymentId)
+            .HasConstraintName("fk_settlement_payment_allocations_payments_payment_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(allocation => allocation.SettlementRequestLine)
+            .WithMany(line => line.PaymentAllocations)
+            .HasForeignKey(allocation => allocation.SettlementRequestLineId)
+            .HasConstraintName("fk_settlement_payment_allocations_request_lines_line_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSettlementResidual(EntityTypeBuilder<SettlementResidual> entity)
+    {
+        entity.ToTable("settlement_residuals", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_direction",
+                "direction IN ('underpayment', 'overpayment')");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_policy",
+                "policy IN ('remaining_balance', 'carried_forward', 'waived', 'credit_forward', 'waived_by_payer', 'applied_to_other_line')");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_status",
+                "status IN ('pending_receiver_confirmation', 'confirmed', 'carried_forward', 'waived', 'credited', 'disputed', 'cancelled')");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_amount_positive",
+                "amount > 0");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_debtor_creditor_distinct",
+                "debtor_user_profile_id <> creditor_user_profile_id");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_payment_or_request_present",
+                "settlement_payment_id IS NOT NULL OR settlement_request_id IS NOT NULL");
+            table.HasCheckConstraint(
+                "ck_settlement_residuals_reason_not_blank",
+                "reason IS NULL OR length(btrim(reason)) > 0");
+        });
+
+        entity.HasKey(residual => residual.Id);
+
+        entity.Property(residual => residual.Id)
+            .HasColumnName("id");
+
+        entity.Property(residual => residual.SettlementPaymentId)
+            .HasColumnName("settlement_payment_id");
+
+        entity.Property(residual => residual.SettlementRequestId)
+            .HasColumnName("settlement_request_id");
+
+        entity.Property(residual => residual.DebtorUserProfileId)
+            .HasColumnName("debtor_user_profile_id");
+
+        entity.Property(residual => residual.CreditorUserProfileId)
+            .HasColumnName("creditor_user_profile_id");
+
+        entity.Property(residual => residual.Direction)
+            .HasColumnName("direction")
+            .HasMaxLength(SettlementConstraints.ResidualDirectionMaxLength)
+            .IsRequired();
+
+        entity.Property(residual => residual.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                SettlementConstraints.MoneyAmountPrecision,
+                SettlementConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(residual => residual.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(SettlementConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(residual => residual.Policy)
+            .HasColumnName("policy")
+            .HasMaxLength(SettlementConstraints.ResidualPolicyMaxLength)
+            .IsRequired();
+
+        entity.Property(residual => residual.Status)
+            .HasColumnName("status")
+            .HasMaxLength(SettlementConstraints.ResidualStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(residual => residual.Reason)
+            .HasColumnName("reason")
+            .HasMaxLength(SettlementConstraints.ResidualReasonMaxLength);
+
+        entity.Property(residual => residual.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(residual => residual.ResolvedAtUtc)
+            .HasColumnName("resolved_at_utc");
+
+        entity.HasIndex(residual => residual.SettlementPaymentId)
+            .HasDatabaseName("ix_settlement_residuals_settlement_payment_id");
+
+        entity.HasIndex(residual => residual.SettlementRequestId)
+            .HasDatabaseName("ix_settlement_residuals_settlement_request_id");
+
+        entity.HasIndex(residual => residual.DebtorUserProfileId)
+            .HasDatabaseName("ix_settlement_residuals_debtor_user_profile_id");
+
+        entity.HasIndex(residual => residual.CreditorUserProfileId)
+            .HasDatabaseName("ix_settlement_residuals_creditor_user_profile_id");
+
+        entity.HasIndex(residual => residual.Status)
+            .HasDatabaseName("ix_settlement_residuals_status");
+
+        entity.HasIndex(residual => new
+            {
+                residual.DebtorUserProfileId,
+                residual.CreditorUserProfileId,
+                residual.Currency,
+                residual.Status
+            })
+            .HasDatabaseName("ix_settlement_residuals_counterparty_currency_status");
+
+        entity.HasIndex(residual => residual.CreatedAtUtc)
+            .HasDatabaseName("ix_settlement_residuals_created_at_utc");
+
+        entity.HasIndex(residual => residual.ResolvedAtUtc)
+            .HasDatabaseName("ix_settlement_residuals_resolved_at_utc");
+
+        entity.HasOne(residual => residual.SettlementPayment)
+            .WithMany(payment => payment.Residuals)
+            .HasForeignKey(residual => residual.SettlementPaymentId)
+            .HasConstraintName("fk_settlement_residuals_payments_payment_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(residual => residual.SettlementRequest)
+            .WithMany(request => request.Residuals)
+            .HasForeignKey(residual => residual.SettlementRequestId)
+            .HasConstraintName("fk_settlement_residuals_requests_request_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(residual => residual.DebtorUserProfile)
+            .WithMany()
+            .HasForeignKey(residual => residual.DebtorUserProfileId)
+            .HasConstraintName("fk_settlement_residuals_user_profiles_debtor_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(residual => residual.CreditorUserProfile)
+            .WithMany()
+            .HasForeignKey(residual => residual.CreditorUserProfileId)
+            .HasConstraintName("fk_settlement_residuals_user_profiles_creditor_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
