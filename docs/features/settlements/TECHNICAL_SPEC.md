@@ -6,6 +6,8 @@ Define implementation boundaries for settlement lifecycle, settlement baskets, p
 
 This spec should stay aligned with `docs/architecture/SETTLEMENT_BASKET_RESIDUAL_ARCHITECTURE.md`.
 
+Current public API route inventory lives in `packages/contracts/openapi/settleora.v1.yaml`. Route examples in this feature spec describe product targets and roadmap behavior; do not treat older examples here as the implementation source of truth.
+
 ## Architecture boundaries
 
 - API/domain services own settlement state transitions.

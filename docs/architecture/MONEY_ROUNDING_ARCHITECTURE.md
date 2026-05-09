@@ -17,11 +17,11 @@ The current repository state is:
 - Internal `MoneyAllocationService` exists in the API project.
 - Focused `MoneyFoundationTests` cover currency validation, decimal parsing, bounds, rounding, supported minor units, and allocation behavior.
 - An internal bill calculation/split service exists for draft/pending-style bill totals, item split resolution, participant share aggregation, adjustment allocation, and payer contribution validation.
-- EF Core migrations now define schema-only expense/bill root, item, item split, participant, payer, adjustment, and attachment foundations. Money-bearing bill tables use decimal-safe amount plus currency columns as persistence backstops; item split `basis_value` is calculation basis only, while `resolved_amount` plus `resolved_currency` is the authoritative stored item split money value. No public bill endpoints, settlement, balance, reimbursement, or money ledger workflow exists yet.
-- No public endpoint uses the internal money foundation yet.
+- EF Core migrations now define schema-only expense/bill root, item, item split, participant, payer, adjustment, and attachment foundations. Money-bearing bill tables use decimal-safe amount plus currency columns as persistence backstops; item split `basis_value` is calculation basis only, while `resolved_amount` plus `resolved_currency` is the authoritative stored item split money value. Guarded personal/group bill create/read and bill workflow endpoints use the internal bill calculation/split service and money foundation for same-currency totals, split resolution, participant shares, adjustment effects, and payer contribution validation.
+- EF Core migrations also define settlement request, payment, proof attachment, request-line, payment-allocation, and residual schema foundations. Current settlement candidate preview, request creation/read, payment read/claim/confirmation/dispute/cancellation, request dispute/cancellation, and proof endpoints use same-currency decimal-safe amount/currency values. Basket/residual runtime, balance projection, reimbursement, and money ledger workflows do not exist yet.
 - `user_profiles.default_currency` exists as an optional user preference with uppercase three-letter validation. It is not a complete money model and must not be treated as authoritative amount data.
 - Payment details and payment QR file linkage exist, but they are payment instructions and sensitive profile data. They are not authoritative monetary values, balances, settlement amounts, or payment records.
-- The OpenAPI contract currently includes placeholder/shared `CurrencyCode`, `Money`, and `RoundingMode` schemas, and generated clients include corresponding placeholder/shared model shapes. No expense, bill, split, settlement, balance, reimbursement, or reconciliation feature paths are implemented yet.
+- The OpenAPI contract includes shared `CurrencyCode`, `Money`, and `RoundingMode` schemas plus current bill and settlement feature paths. Generated clients include those current backend slices. Balance, reimbursement, recurring, forecasting, basket/residual runtime, and reconciliation feature paths are not implemented yet.
 - `CURRENCY_EXCHANGE_ARCHITECTURE.md` defines broader Day 2 exchange-rate direction. It does not replace the Day 1 need for decimal-safe money values, rounding, allocation, validation, and persistence rules before expense/bill/settlement implementation.
 - `STATEMENT_RECONCILIATION_ARCHITECTURE.md` defines Day 2 statement import and matching direction. It depends on stable money and currency semantics but does not authorize expense or settlement mutation.
 
@@ -367,33 +367,30 @@ The current internal money foundation includes focused `MoneyFoundationTests`. F
 
 ## Non-Goals
 
-This design branch does not authorize:
+This architecture document does not authorize additional work outside a reviewed implementation slice:
 
-- Implementation code.
-- Migrations.
-- OpenAPI changes.
-- Generated client changes.
-- Expense endpoints.
-- Bill endpoints.
-- Settlement endpoints.
+- New migrations.
+- New OpenAPI changes.
+- New generated client changes.
 - Balance runtime.
+- Basket/residual runtime.
 - Reimbursement runtime.
 - Exchange-rate runtime implementation.
 - Statement reconciliation implementation.
+- Recurring or forecasting runtime.
 - UI behavior.
 - Worker behavior.
 - OCR behavior changes.
-- AI insights or forecasting implementation.
+- AI insights implementation.
 - Silent cross-currency conversion.
-- Database schema changes for expenses, bills, settlements, balances, or reconciliations.
+- Database schema changes for balances or reconciliations.
 
 ## Next Implementation Candidate
 
-Recommended next candidates, in order:
+Recommended next candidates should extend the existing bill and settlement slices without moving money authority into clients:
 
-1. Expense/bill/split/settlement architecture design gate.
-2. Expense/bill schema foundation.
-3. Internal bill calculation and split domain service tests using the money foundation.
-4. Minimal personal bill endpoints after schema/domain validation exists.
+1. Basket/residual runtime on top of the existing schema-only foundation.
+2. Balance projection read endpoints backed by rebuildable source records.
+3. Reimbursement or reconciliation design gates after balance projection rules are proven.
 
-This architecture document still does not authorize runtime expense, bill, settlement, balance, reimbursement, reconciliation, exchange-rate, worker, or UI implementation by itself.
+This architecture document still does not authorize new balance, reimbursement, reconciliation, exchange-rate, worker, or UI implementation by itself. Existing bill and settlement slices must continue to treat the API/domain layer as the money authority and generated clients as transport helpers, not financial authority.

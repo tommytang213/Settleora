@@ -13,7 +13,7 @@ This document does not authorize unrelated runtime behavior, migrations, EF mode
 The current repository state is:
 
 - Auth, session, current-actor, and server-side business authorization foundations exist.
-- User profile, self payment-details, and self payment QR foundations exist. Counterparty payment-detail reads do not exist yet.
+- User profile, self payment-details, self payment QR, and settlement-scoped counterparty payment-details/QR read foundations exist.
 - Group foundation and group member management endpoints exist for registered users.
 - Personal and group bill create/list/get endpoints exist.
 - Public bill submit, participant accept, participant reject, and bill-confirmed workflow endpoints exist.
@@ -29,7 +29,7 @@ The current repository state is:
 - Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - Settlement basket/residual runtime and balance projection runtime do not exist.
 
 ## Settlement Runtime Authority
@@ -106,6 +106,8 @@ GET /api/v1/bills/{billId}/settlement-candidates
 POST /api/v1/bills/{billId}/settlement-requests
 GET /api/v1/settlements
 GET /api/v1/settlements/{settlementId}
+GET /api/v1/settlements/{settlementId}/counterparties/{userProfileId}/payment-details
+GET /api/v1/settlements/{settlementId}/counterparties/{userProfileId}/payment-details/qr/content
 GET /api/v1/settlements/{settlementId}/payments
 GET /api/v1/settlement-payments/{paymentId}
 POST /api/v1/settlements/{settlementId}/payments
@@ -281,7 +283,7 @@ Payment profile visibility:
 - Counterparty payment-details reads require an authorized settlement, payment request, bill, or equivalent relationship.
 - The default payment-details visibility is `settlement_counterparties_only`.
 - Payment details must not be exposed by global user lookup, group membership alone, generated client method availability, hidden UI routes, or possession of a profile ID.
-- Counterparty responses must expose only visibility-scoped payment fields and safe QR metadata once relationship-backed QR reads are designed.
+- Counterparty responses must expose only visibility-scoped payment fields and safe QR metadata through relationship-backed settlement reads.
 - Payment handles, notes, QR contents, storage metadata internals, and owner-only lifecycle fields must not leak through settlement responses.
 
 Failure behavior:
@@ -314,7 +316,7 @@ settlement.proof_read
 settlement.payment_details_viewed
 ```
 
-`settlement.reopened`, proof events, and payment-details view events should be implemented only when the corresponding runtime behavior exists.
+`settlement.reopened` should be implemented only when reopen runtime exists. Proof events and payment-details view events exist for the current purpose-specific proof and settlement-scoped counterparty payment-details flows and must stay bounded.
 
 Audit metadata may include:
 
@@ -413,12 +415,12 @@ Recommended implementation sequence:
 6. Receiver confirmation. Landed.
 7. Request and payment dispute. Landed for bounded dispute transitions only.
 8. Cancellation where policy allows. Landed for request and payment cancellation.
-9. Relationship-backed counterparty payment-details read. Landed.
+9. Relationship-backed counterparty payment-details and QR reads. Landed.
 10. Read-only settlement payment list/get endpoints. Landed.
-11. Proof attachment metadata linkage after authorized public file flows exist.
+11. Purpose-specific proof attachment upload, metadata list, content read, and removal. Landed.
 12. Balance projection read endpoints.
 
-Keep schema, runtime, OpenAPI, generated clients, file bytes, payment-details counterparty reads, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
+Keep schema, runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
 ## Validation Expectations
 
@@ -438,8 +440,8 @@ Future runtime branches should include focused tests for:
 - Dispute and cancellation policy.
 - Fail-closed response privacy.
 - Bounded audit metadata.
-- Payment-details counterparty visibility once added.
-- Proof stable file ID and authorization checks once added.
+- Payment-details counterparty visibility and QR content authorization.
+- Proof stable file ID and authorization checks.
 - Projection rebuild behavior once added.
 
 ## Non-Goals

@@ -32,6 +32,6 @@ Compose passes future API runtime configuration with ASP.NET Core environment va
 - `Settleora__Storage__Provider`
 - `Settleora__Storage__RootPath`
 
-The API connects to PostgreSQL and RabbitMQ and checks local storage only when `GET /health/ready` is requested. It does not connect during startup, touch storage during startup, run migrations, publish messages, consume messages, declare queues, implement upload/download endpoints, or store file metadata yet. Future file bytes must go through storage abstractions, and physical filesystem paths must not be exposed.
+The API connects to PostgreSQL and RabbitMQ and checks local storage only when `GET /health/ready` is requested. It does not connect during startup, touch storage during startup, run migrations, publish messages, consume messages, or declare queues. File metadata is now stored through the API-owned `file_objects` foundation, and the current public byte flows are purpose-specific self payment QR, settlement-scoped counterparty payment QR, and settlement payment proof endpoints. Generic public upload/download endpoints, receipt/OCR/statement file flows, and direct filesystem/path exposure are still absent.
 
 Do not commit real secrets.

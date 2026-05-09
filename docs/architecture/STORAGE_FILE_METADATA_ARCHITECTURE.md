@@ -6,7 +6,7 @@ This document defines Settleora's Day 1 architecture direction for storage abstr
 
 Storage is a cross-cutting foundation for receipt images, OCR source files, settlement proof attachments, payment QR images, statement uploads, exports, and future vault-protected sensitive files. The goal is to avoid turning future upload/download endpoints into a generic public file server.
 
-This document began as a design gate. The current repository now includes the explicitly scoped file metadata schema, internal local storage provider foundation, self payment QR linkage endpoints, and purpose-specific settlement payment proof endpoints described below; generic public file APIs, UI behavior, broader subject-specific file workflows, and non-local providers still require separate reviewed slices.
+This document began as a design gate. The current repository now includes the explicitly scoped file metadata schema, internal local storage provider foundation, self payment QR linkage endpoints, settlement-scoped counterparty payment QR content reads, and purpose-specific settlement payment proof endpoints described below; generic public file APIs, UI behavior, broader subject-specific file workflows, and non-local providers still require separate reviewed slices.
 
 ## Current State
 
@@ -23,8 +23,8 @@ This document began as a design gate. The current repository now includes the ex
 - A metadata-only internal file object lifecycle service exists for pending creation, upload completion/failure, deleted, and purged status transitions.
 - The lifecycle service writes bounded `auth_audit_events` actions `file.upload_started`, `file.upload_completed`, `file.upload_failed`, `file.deleted`, and `file.purged` with safe metadata only.
 - No generic file upload/download API exists.
-- The OpenAPI contract includes purpose-specific self payment QR attach/remove/content-read paths and settlement payment proof attach/list/content/remove paths; no generic file upload/download path exists.
-- Generated clients expose the self payment QR and settlement payment proof methods, not a generic file API.
+- The OpenAPI contract includes purpose-specific self payment QR attach/remove/content-read paths, settlement-scoped counterparty payment QR content reads, and settlement payment proof attach/list/content/remove paths; no generic file upload/download path exists.
+- Generated clients expose the self payment QR, settlement-scoped counterparty payment QR, and settlement payment proof methods, not a generic file API.
 - The payment-details foundation includes nullable `qr_file_object_id` linkage to `file_objects`.
 - The `user_payment_profiles` table has no storage path, vault key, provider URL, original filename, or object key.
 - Self payment QR upload/remove/content-read endpoints exist under `/api/v1/users/me/payment-details/qr`.
@@ -87,7 +87,7 @@ Payment QR or payment-code images attached to a user's payment details.
 
 Likely owner: the payment-profile owner.
 
-Authorization context: self access for the owner, plus future counterparty access only through payment-details visibility rules after QR support and relationship records exist. Payment QR files are sensitive payment data, not public profile images.
+Authorization context: self access for the owner, plus current settlement-scoped counterparty access only through payment-details visibility rules and proven settlement relationships. Payment QR files are sensitive payment data, not public profile images.
 
 ### `statement_upload`
 
@@ -165,13 +165,13 @@ Status direction:
 - `purged`: metadata remains only as bounded tombstone/audit support, while content is permanently removed where policy allows.
 - `upload_failed`: upload/write did not complete and should not be served.
 
-Additional future tables may be needed for subject associations, for example receipt-to-expense, proof-to-settlement, payment-profile QR reference, or export ownership. Those associations should use stable file IDs, not provider paths.
+Additional future tables may be needed for subject associations, for example receipt-to-expense, export ownership, or broader supporting attachments. Current payment-profile QR and settlement proof associations use stable file IDs, not provider paths.
 
 ## Storage Provider Abstraction
 
 API-side storage interfaces are provider-neutral boundaries, not direct filesystem or object-store calls from endpoint handlers.
 
-The current implementation includes an internal local provider that can create server-owned object keys and perform local read/write/delete under the configured root. A small metadata-only lifecycle service now reserves pending rows and records status transitions with bounded audit events. Authorization-aware reads, subject associations, cleanup orchestration, and public upload/download endpoints remain future work.
+The current implementation includes an internal local provider that can create server-owned object keys and perform local read/write/delete under the configured root. A small metadata-only lifecycle service now reserves pending rows and records status transitions with bounded audit events. Authorization-aware reads exist for purpose-specific self payment QR, settlement-scoped counterparty payment QR, and settlement payment proof flows. Generic public upload/download endpoints, receipt/statement/OCR subject associations, and cleanup orchestration remain future work.
 
 Possible service responsibilities:
 
@@ -255,12 +255,13 @@ POST /api/v1/users/me/payment-details/qr
 DELETE /api/v1/users/me/payment-details/qr
 GET /api/v1/users/me/payment-details/qr/content
 POST /api/v1/receipts
-POST /api/v1/settlements/{settlementId}/proof
+POST /api/v1/settlement-payments/{paymentId}/proof
+GET /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content
 ```
 
 Purpose-specific endpoints let the API enforce the exact relationship and policy before bytes are accepted. A generic upload endpoint can still exist later, but it should be a controlled internal foundation rather than an unscoped file bucket.
 
-For the first payment QR slice, the dedicated self payment-details QR content endpoint is safer than exposing `GET /api/v1/files/{fileId}/content`, because the API resolves the current actor, payment profile, `qr_file_object_id`, purpose, ownership, lifecycle state, and payment-details authorization in one subject-specific boundary. A future authorized file content endpoint may be introduced later, but only after a subject-specific authorization decision has already proven the actor may read the file content.
+For the first payment QR slices, dedicated payment-details QR content endpoints are safer than exposing `GET /api/v1/files/{fileId}/content`, because the API resolves the current actor, payment profile, settlement relationship where applicable, `qr_file_object_id`, purpose, ownership, lifecycle state, and payment-details authorization in one subject-specific boundary. A future authorized file content endpoint may be introduced later, but only after a subject-specific authorization decision has already proven the actor may read the file content.
 
 Response principles:
 
@@ -287,11 +288,11 @@ Authorization must be checked on every:
 Category access direction:
 
 - Owner self files: the owner may access files through authenticated self flows when the file purpose and lifecycle policy allow it.
-- Payment QR: visible only through payment-details visibility rules after relationship-backed QR reads exist. It must not be globally readable from a profile or user lookup.
+- Payment QR: visible only through payment-details visibility rules and relationship-backed QR reads. It must not be globally readable from a profile or user lookup.
 - Payment QR Day 1 self linkage: the authenticated actor must be derived from the current session, must pass the profile/payment-details authorization boundary, and must match both `owner_user_profile_id` and `created_by_user_profile_id` for the linked file.
 - Payment QR files must have purpose `payment_qr`; other file purposes must not be attachable to payment details.
 - Payment QR files must not be readable by group members merely because they share a group with the owner.
-- Future counterparty QR reads require settlement, payment-request, or equivalent relationship proof before the API opens file content.
+- Current counterparty QR reads require settlement relationship proof before the API opens file content; any future payment-request or equivalent flow must prove the same kind of concrete relationship.
 - Receipt images: visible only to authorized expense/bill participants or owners under API-verified record participation policy.
 - OCR source: visible only to the owning/importing user and approved processing paths. OCR workers may process only through reviewed job boundaries.
 - Settlement proof: visible only to authorized settlement parties and policy-approved viewers.
@@ -365,7 +366,7 @@ DELETE /api/v1/users/me/payment-details/qr
 GET /api/v1/users/me/payment-details/qr/content
 ```
 
-No generic public file endpoint, direct storage path, object key, bucket name, provider URL, or local filesystem path is part of this first QR slice. Counterparty QR reads remain out of scope until relationship-backed payment-details authorization exists.
+No generic public file endpoint, direct storage path, object key, bucket name, provider URL, or local filesystem path is part of this QR slice. Counterparty QR reads are limited to relationship-backed settlement authorization.
 
 ## Privacy Vault Interaction
 
@@ -476,7 +477,7 @@ Rules:
 This architecture still does not authorize:
 
 - UI behavior
-- counterparty QR read
+- generic or global counterparty QR read outside settlement-scoped relationship authorization
 - generic file API
 - receipt upload
 - generic settlement proof upload outside the purpose-specific payment proof endpoints
@@ -493,13 +494,14 @@ The current implementation slices are:
 ```text
 file metadata schema + internal storage abstraction + metadata lifecycle/audit foundation,
 self-only payment QR linkage through purpose-specific payment-details endpoints,
+settlement-scoped counterparty payment QR content reads,
 plus settlement payment proof linkage through purpose-specific settlement endpoints
 ```
 
-Those slices add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, a metadata-only lifecycle service, bounded file lifecycle audit events, nullable `user_payment_profiles.qr_file_object_id`, self QR attach/remove/content-read endpoints, safe QR metadata in self payment-details responses, purpose-specific settlement proof attach/list/content-read/remove endpoints, safe proof metadata responses, OpenAPI paths, generated client methods, and focused tests. They do not add generic public file endpoints, receipt upload, statement upload, UI behavior, OCR worker file processing, physical purge/delete orchestration, or broader subject associations.
+Those slices add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, a metadata-only lifecycle service, bounded file lifecycle audit events, nullable `user_payment_profiles.qr_file_object_id`, self QR attach/remove/content-read endpoints, settlement-scoped counterparty QR content reads, safe QR metadata in payment-details responses, purpose-specific settlement proof attach/list/content-read/remove endpoints, safe proof metadata responses, OpenAPI paths, generated client methods, and focused tests. They do not add generic public file endpoints, receipt upload, statement upload, UI behavior, OCR worker file processing, physical purge/delete orchestration, or broader subject associations.
 
 Next implementation candidates should remain separate:
 
 - Add subject association tables for purpose-specific file workflows.
 - Add authorized generic file read/download behavior only after subject-specific authorization and safe response shaping are reviewed.
-- Add relationship-backed counterparty payment QR reads only after settlement, payment request, or equivalent relationship proof exists.
+- Add additional relationship-backed counterparty payment QR reads only after settlement, payment request, or equivalent relationship proof exists for that new flow.
