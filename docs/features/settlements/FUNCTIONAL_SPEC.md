@@ -80,6 +80,13 @@ Bulk selection must still result in a concrete set of selected lines before conf
 - Receiver confirmation is required for underpayment waiver.
 - Overpayments must not be silently discarded.
 
+### Bill revision interaction
+
+- Settlement balances should use the active accepted bill/share revision.
+- Pending bill correction proposals must not silently change settlement balances or selected outstanding lines.
+- If a pending bill revision changes an amount that already has a settlement request/payment claim, affected settlement records should be flagged for review, reopened, or recalculated only through explicit settlement policy.
+- If a user accepted a pending bill revision that is later rejected, that approval does not create settlement truth unless the active bill revision also has valid acceptance.
+
 ### Dispute/reopen
 
 - Either party can dispute according to policy.
@@ -192,6 +199,8 @@ Avoid hiding residuals behind vague labels such as "adjustment" without explaini
 - Residual handling is explicit and receiver-confirmed where required.
 - Receivers can confirm, dispute, or reject residual proposals.
 - Partial settlement is tracked clearly.
+- Pending bill revisions do not silently mutate settlement balances.
+- Accepted/applied bill revisions can flag affected settlement records for review through explicit policy.
 - Disputes/reopen preserve history.
 - Unauthorized users cannot see settlement/payment details.
 
