@@ -18,7 +18,8 @@ Current public API route inventory lives in `packages/contracts/openapi/settleor
 - Settlement status transitions must be centralized and policy-driven.
 - Clients may display previews but cannot decide financial truth.
 - Provider events and statement matches are evidence, not final settlement truth by themselves.
-- Balances must be rebuildable from source bills, shares, settlement lines, payment claims, confirmations, residuals, waivers, credits, disputes, and cancellations.
+- Balances must be rebuildable from source bills, accepted bill revisions, shares, settlement lines, payment claims, confirmations, residuals, waivers, credits, disputes, and cancellations.
+- Pending bill revisions must not silently mutate settlement balances or active settlement baskets.
 
 ## Domain concepts
 
@@ -36,6 +37,7 @@ PaymentProofs
 PaymentEvidence
 SettlementStatusHistory
 BalanceProjections
+BillRevisionSettlementImpact
 ```
 
 Suggested service boundaries:
@@ -51,6 +53,7 @@ ISettlementBalanceProjectionService
 ISettlementStatusPolicy
 ISettlementAuthorizationService
 ISettlementAuditWriter
+IBillRevisionSettlementImpactService
 ```
 
 ## Persistence direction
@@ -71,6 +74,8 @@ settlement_status_history
 ```
 
 Records should preserve history and avoid destructive replacement of financial events.
+
+Settlement request lines should reference the accepted bill/share revision or source calculation basis they were derived from where practical. If the source bill revision later changes through an accepted/applied correction, settlement impact must be explicit and auditable.
 
 `selection_mode` and `selection_filter_summary` may be stored for audit/context, but concrete settlement request lines remain the source of the selected settlement scope.
 
@@ -131,6 +136,7 @@ Reject lines that are:
 - hidden by policy
 - currency-mismatched
 - outside the selected payer/payee scope
+- based on a pending or rejected bill revision
 
 Bulk selection must be expanded server-side into concrete settlement request lines. The client must not be trusted to decide final included line sets.
 
@@ -164,14 +170,27 @@ disputed
 
 The payer may propose residual handling, but receiver confirmation is required where policy requires it. Underpayment waiver must not be unilateral by the payer.
 
+## Bill revision interaction
+
+Settlement projections and baskets must use active accepted bill/share revisions.
+
+Rules:
+
+- Pending bill revisions are not settlement truth.
+- Rejected bill revision approvals do not become settlement truth.
+- A settlement request/payment claim should not silently change if a pending bill proposal exists.
+- When a bill revision is accepted/applied after a settlement request/payment claim exists, the API/domain policy must explicitly decide whether affected settlements are flagged for review, reopened, adjusted, or left unchanged.
+- Any settlement-impacting bill revision must be auditable and must preserve prior settlement history.
+- If a bill revision changes participant shares after receiver confirmation, settlement reopening/adjustment must be explicit and policy-controlled.
+
 ## Balance projection
 
 Balance views should be projections from durable events/records, not hidden mutable truth.
 
 Projection inputs include:
 
-- confirmed bill participant shares
-- bill payer contributions
+- confirmed bill participant shares from active accepted revisions
+- bill payer contributions from active accepted revisions
 - settlement request lines
 - payment claims
 - payment allocations
@@ -181,6 +200,7 @@ Projection inputs include:
 - overpayment credits
 - disputes
 - cancellations
+- accepted/applied bill revision impacts
 
 Projection output should distinguish:
 
@@ -191,6 +211,7 @@ confirmed cleared amount
 remaining residual amount
 waived amount
 credit amount
+revision_pending_review amount
 ```
 
 ## Authorization rules
@@ -250,6 +271,8 @@ Audit events should cover:
 - credit created/applied
 - dispute opened/resolved
 - settlement cancelled/reopened
+- settlement flagged by accepted bill revision change
+- settlement adjustment created from bill revision change
 - provider evidence linked/unlinked
 - denied settlement action
 
@@ -266,6 +289,7 @@ Required test categories:
 - pay all outstanding for one counterparty expands to concrete eligible lines
 - select all visible respects filters and authorization
 - stale/already-cleared/disputed/unauthorized/currency-mismatched lines rejected
+- pending/rejected bill revision lines rejected as settlement truth
 - denied settlement access for unrelated user
 - mark paid by payer
 - confirm by receiver
@@ -274,7 +298,9 @@ Required test categories:
 - underpayment creates remaining/carry-forward/waiver/dispute behavior according to policy
 - payer cannot unilaterally waive underpayment
 - overpayment creates credit/waiver/dispute behavior explicitly
-- balance projection distinguishes exact outstanding, pending claims, cleared amount, residuals, waivers, and credits
+- pending bill revision does not silently mutate settlement projection
+- accepted bill revision affecting settled amount flags/reopens/adjusts settlement only through explicit policy
+- balance projection distinguishes exact outstanding, pending claims, cleared amount, residuals, waivers, credits, and revision-pending-review amounts
 - invalid status transition rejected
 - proof attachment authorization
 - provider evidence does not auto-confirm unless policy allows
@@ -303,6 +329,7 @@ Handle:
 - amount/currency mismatch
 - settlement cancelled while payment attempt is pending
 - selected line cleared between preview and write
+- source bill revision superseded between preview and write
 - residual proposal rejected by receiver
 - disputed settlement with later provider reversal
 
@@ -314,4 +341,5 @@ Handle:
 - FX settlement basket behavior in Day 1.
 - Worker-owned settlement writes.
 - Silent provider-driven final confirmation.
+- Silent bill-revision-driven settlement mutation.
 - Hidden mutable balance source-of-truth tables.
