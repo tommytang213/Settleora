@@ -1540,6 +1540,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
   /api/v1/settlements/{settlementId}/payments:
+    get:
+      summary: List settlement payments
+      description: Lists read-only payment claims for one visible settlement request. The authenticated actor must be related to the parent settlement request as debtor, creditor, or requester; group-scoped settlements additionally require active group visibility for the current actor and active required settlement parties. Responses expose bounded payment state only and exclude payment handles, payment notes, payment QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      operationId: listSettlementPayments
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          description: Settlement request ID whose visible payment claims should be listed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement payment claims visible to the authenticated actor. The list can be empty when the settlement is visible and has no visible payment claims.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement request is missing, archived, deleted, unrelated, inactive, removed, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
     post:
       summary: Create settlement payment claim
       description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state. The request body intentionally accepts only amount, currency, and paymentDate; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency partial payments, rejects overpayment, and does not perform receiver confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
@@ -1593,6 +1632,46 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Settlement payment write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}:
+    get:
+      summary: Get settlement payment
+      description: Returns one read-only settlement payment claim only when the parent settlement request is visible to the authenticated actor as debtor, creditor, or requester. Group-scoped payments additionally require active group visibility for the current actor and active required settlement parties. Missing, archived, deleted, unrelated, inactive, removed, corrupt, not-visible, or unavailable settlement payments return the same safe 404. The response excludes payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      operationId: getSettlementPayment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement payment claim visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment is missing, archived through its parent request, deleted, unrelated, inactive, removed, not visible, corrupt, or unavailable to the authenticated actor.
           content:
             application/problem+json:
               schema:
@@ -3609,9 +3688,19 @@ components:
           type: string
           format: date
           description: Claimed payment date as yyyy-MM-dd.
+    SettlementPaymentListResponse:
+      type: object
+      description: Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      required:
+        - payments
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementPaymentResponse"
     SettlementPaymentResponse:
       type: object
-      description: Bounded settlement payment response for payment claim and confirmation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+      description: Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
       required:
         - paymentId
         - settlementRequestId

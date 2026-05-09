@@ -69,6 +69,7 @@ app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
 app.MapSettlementCounterpartyPaymentDetailsEndpoints();
+app.MapSettlementPaymentReadEndpoints();
 app.MapSettlementPaymentClaimEndpoints();
 app.MapSettlementPaymentConfirmationEndpoints();
 app.MapSettlementDisputeEndpoints();

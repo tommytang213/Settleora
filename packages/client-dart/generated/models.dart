@@ -1476,7 +1476,28 @@ class CreateSettlementPaymentRequest {
   }
 }
 
-/// Bounded settlement payment response for payment claim and confirmation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+/// Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+class SettlementPaymentListResponse {
+  const SettlementPaymentListResponse({
+    required this.payments,
+  });
+
+  final List<SettlementPaymentResponse> payments;
+
+  factory SettlementPaymentListResponse.fromJson(JsonObject json) {
+    return SettlementPaymentListResponse(
+      payments: (json["payments"] as List<dynamic>).map((item) => SettlementPaymentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "payments": payments.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
 class SettlementPaymentResponse {
   const SettlementPaymentResponse({
     required this.paymentId,

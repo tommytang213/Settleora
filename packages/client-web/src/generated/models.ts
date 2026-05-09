@@ -519,7 +519,14 @@ export interface CreateSettlementPaymentRequest {
 }
 
 /**
- * Bounded settlement payment response for payment claim and confirmation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+ * Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+ */
+export interface SettlementPaymentListResponse {
+  payments: SettlementPaymentResponse[];
+}
+
+/**
+ * Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
  */
 export interface SettlementPaymentResponse {
   paymentId: string;

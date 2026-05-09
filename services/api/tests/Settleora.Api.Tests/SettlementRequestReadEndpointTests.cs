@@ -13,6 +13,7 @@ using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.Storage;
 
 namespace Settleora.Api.Tests;
 
@@ -22,6 +23,10 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
     private const string HiddenMerchantName = "Hidden Settlement Read Merchant";
     private const string HiddenItemName = "Hidden Settlement Read Item";
     private const string HiddenPaymentMethodLabel = "Hidden settlement read payment method";
+    private const string HiddenPaymentHandle = "hidden-settlement-read-payment-handle";
+    private const string HiddenPaymentNote = "hidden settlement read payment note";
+    private const string HiddenStorageObjectKey = "hidden/settlement/read/proof-object-key";
+    private const string HiddenOriginalFilename = "hidden-settlement-read-proof.png";
 
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 8, 11, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset ValidationTimestamp = new(2026, 5, 8, 11, 15, 0, TimeSpan.Zero);
@@ -350,6 +355,30 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             12m,
             SettlementRequestStatuses.Requested,
             InitialTimestamp.AddMinutes(3));
+        var deletedDebtorPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            deletedDebtorSettlementId,
+            deletedDebtor.UserProfileId,
+            actorSession.UserProfileId,
+            10m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(4));
+        var deletedCreditorPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            deletedCreditorSettlementId,
+            actorSession.UserProfileId,
+            deletedCreditor.UserProfileId,
+            11m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(5));
+        var deletedRequesterPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            deletedRequesterSettlementId,
+            actorSession.UserProfileId,
+            activeCounterparty.UserProfileId,
+            12m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(6));
 
         using var client = testFactory.CreateClient();
         foreach (var settlementId in new[]
@@ -364,11 +393,329 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             await AssertSettlementUnavailableProblemAsync(getResponse);
         }
 
+        foreach (var paymentId in new[]
+        {
+            deletedDebtorPaymentId,
+            deletedCreditorPaymentId,
+            deletedRequesterPaymentId
+        })
+        {
+            using var getRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(paymentId), actorSession.RawSessionToken);
+            using var getResponse = await client.SendAsync(getRequest);
+            await AssertSettlementPaymentUnavailableProblemAsync(getResponse);
+        }
+
         using var listRequest = CreateBearerRequest(HttpMethod.Get, SettlementsPath(), actorSession.RawSessionToken);
         using var listResponse = await client.SendAsync(listRequest);
         using var listPayload = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.Empty(listPayload.RootElement.GetProperty("settlements").EnumerateArray());
+
+        using var paymentListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(deletedRequesterSettlementId), actorSession.RawSessionToken);
+        using var paymentListResponse = await client.SendAsync(paymentListRequest);
+        await AssertSettlementUnavailableProblemAsync(paymentListResponse);
+    }
+
+    [Fact]
+    public async Task PersonalPaymentListAndGetReturnVisiblePaymentsForDebtorCreditorAndRequesterWithBoundedResponse()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Payment Read Debtor");
+        var creditorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Payment Read Creditor");
+        var requesterSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Payment Read Requester");
+        var unrelatedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Unrelated Payment Read User");
+        await SeedPaymentProfileWithQrAsync(testFactory, creditorSession.UserProfileId, InitialTimestamp.AddMinutes(2));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(debtorSession.UserProfileId, 100m), new ParticipantSeed(creditorSession.UserProfileId, 100m)],
+            [new PayerSeed(creditorSession.UserProfileId, 200m)],
+            InitialTimestamp);
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            requesterSession.UserProfileId,
+            100m,
+            SettlementRequestStatuses.Disputed,
+            InitialTimestamp.AddMinutes(3));
+        var markedPaidPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            10m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(4));
+        var confirmedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            20m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(5));
+        var disputedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            30m,
+            SettlementPaymentStatuses.Disputed,
+            InitialTimestamp.AddMinutes(6));
+        var cancelledPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            40m,
+            SettlementPaymentStatuses.Cancelled,
+            InitialTimestamp.AddMinutes(7));
+        await SeedSettlementProofAttachmentAsync(
+            testFactory,
+            markedPaidPaymentId,
+            debtorSession.UserProfileId,
+            InitialTimestamp.AddMinutes(8));
+        var unrelatedBillId = await SeedBillAsync(
+            testFactory,
+            unrelatedSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(unrelatedSession.UserProfileId, 5m)],
+            [new PayerSeed(unrelatedSession.UserProfileId, 5m)],
+            InitialTimestamp);
+        var unrelatedSettlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            unrelatedBillId,
+            groupId: null,
+            unrelatedSession.UserProfileId,
+            creditorSession.UserProfileId,
+            unrelatedSession.UserProfileId,
+            5m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(9));
+        await SeedSettlementPaymentAsync(
+            testFactory,
+            unrelatedSettlementId,
+            unrelatedSession.UserProfileId,
+            creditorSession.UserProfileId,
+            5m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(10));
+        var archivedSettlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            requesterSession.UserProfileId,
+            25m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(11),
+            archivedAtUtc: InitialTimestamp.AddMinutes(12));
+        var archivedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            archivedSettlementId,
+            debtorSession.UserProfileId,
+            creditorSession.UserProfileId,
+            25m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(13));
+        var before = await ReadSideEffectCountsAsync(testFactory);
+        var sessionTokenHash = await ReadSessionTokenHashAsync(testFactory, debtorSession.AuthSessionId);
+
+        using var client = testFactory.CreateClient();
+        using var debtorListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), debtorSession.RawSessionToken);
+        using var debtorListResponse = await client.SendAsync(debtorListRequest);
+        var debtorListContent = await debtorListResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, debtorListResponse.StatusCode);
+        Assert.Equal("application/json", debtorListResponse.Content.Headers.ContentType?.MediaType);
+        AssertSafeReadResponseContent(
+            debtorListContent,
+            debtorSession.RawSessionToken,
+            sessionTokenHash,
+            HiddenMerchantName,
+            HiddenItemName,
+            HiddenPaymentMethodLabel,
+            HiddenPaymentHandle,
+            HiddenPaymentNote,
+            HiddenStorageObjectKey,
+            HiddenOriginalFilename,
+            "Unrelated Payment Read User");
+        using var debtorListPayload = JsonDocument.Parse(debtorListContent);
+        Assert.Equal(["payments"], debtorListPayload.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        var payments = debtorListPayload.RootElement.GetProperty("payments").EnumerateArray().ToArray();
+        Assert.Equal(4, payments.Length);
+        Assert.Equal(
+            [cancelledPaymentId, disputedPaymentId, confirmedPaymentId, markedPaidPaymentId],
+            payments.Select(payment => payment.GetProperty("paymentId").GetGuid()).ToArray());
+        var paymentStatuses = payments
+            .Select(payment => payment.GetProperty("status").GetString())
+            .ToArray();
+        Assert.Equal(
+            new string?[]
+            {
+                SettlementPaymentStatuses.Cancelled,
+                SettlementPaymentStatuses.Disputed,
+                SettlementPaymentStatuses.Confirmed,
+                SettlementPaymentStatuses.MarkedPaid
+            },
+            paymentStatuses);
+        Assert.All(payments, AssertSettlementPaymentResponseShape);
+        Assert.All(payments, payment =>
+        {
+            Assert.Equal(settlementId, payment.GetProperty("settlementRequestId").GetGuid());
+            Assert.Equal(debtorSession.UserProfileId, payment.GetProperty("paidByUserProfileId").GetGuid());
+            Assert.Equal(creditorSession.UserProfileId, payment.GetProperty("receivedByUserProfileId").GetGuid());
+            Assert.Equal(SettlementRequestStatuses.Disputed, payment.GetProperty("settlementRequestStatus").GetString());
+        });
+
+        using var creditorGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(confirmedPaymentId), creditorSession.RawSessionToken);
+        using var creditorGetResponse = await client.SendAsync(creditorGetRequest);
+        var creditorGetContent = await creditorGetResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, creditorGetResponse.StatusCode);
+        AssertSafeReadResponseContent(creditorGetContent, HiddenPaymentHandle, HiddenPaymentNote, HiddenStorageObjectKey);
+        using var creditorGetPayload = JsonDocument.Parse(creditorGetContent);
+        AssertSettlementPaymentResponseShape(creditorGetPayload.RootElement);
+        Assert.Equal(confirmedPaymentId, creditorGetPayload.RootElement.GetProperty("paymentId").GetGuid());
+        Assert.Equal("20", creditorGetPayload.RootElement.GetProperty("amount").GetString());
+
+        using var requesterListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), requesterSession.RawSessionToken);
+        using var requesterListResponse = await client.SendAsync(requesterListRequest);
+        using var requesterListPayload = JsonDocument.Parse(await requesterListResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, requesterListResponse.StatusCode);
+        Assert.Equal(4, requesterListPayload.RootElement.GetProperty("payments").GetArrayLength());
+
+        using var unrelatedListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), unrelatedSession.RawSessionToken);
+        using var unrelatedListResponse = await client.SendAsync(unrelatedListRequest);
+        await AssertSettlementUnavailableProblemAsync(unrelatedListResponse);
+
+        using var unrelatedGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(markedPaidPaymentId), unrelatedSession.RawSessionToken);
+        using var unrelatedGetResponse = await client.SendAsync(unrelatedGetRequest);
+        await AssertSettlementPaymentUnavailableProblemAsync(unrelatedGetResponse);
+
+        using var archivedListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(archivedSettlementId), debtorSession.RawSessionToken);
+        using var archivedListResponse = await client.SendAsync(archivedListRequest);
+        await AssertSettlementUnavailableProblemAsync(archivedListResponse);
+
+        using var archivedGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(archivedPaymentId), debtorSession.RawSessionToken);
+        using var archivedGetResponse = await client.SendAsync(archivedGetRequest);
+        await AssertSettlementPaymentUnavailableProblemAsync(archivedGetResponse);
+
+        var after = await ReadSideEffectCountsAsync(testFactory);
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
+    public async Task GroupPaymentReadsRequireSettlementPartyRelationshipAndActiveGroupVisibility()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Payment Read Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Group Payment Read Creditor", InitialTimestamp.AddMinutes(1));
+        var requester = await SeedAccountAsync(testFactory, "Group Payment Read Requester", InitialTimestamp.AddMinutes(2));
+        var membershipOnlySession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Payment Membership Only");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            "Visible Payment Read Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(debtorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(creditor.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(requester.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(membershipOnlySession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditor.UserProfileId,
+            groupId,
+            [new ParticipantSeed(debtorSession.UserProfileId, 60m), new ParticipantSeed(creditor.UserProfileId, 60m)],
+            [new PayerSeed(creditor.UserProfileId, 120m)],
+            InitialTimestamp);
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            requester.UserProfileId,
+            60m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(3));
+        var paymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            60m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(4));
+
+        var removedDebtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Removed Group Payment Debtor");
+        var removedCreditor = await SeedAccountAsync(testFactory, "Removed Group Payment Creditor", InitialTimestamp.AddMinutes(5));
+        var removedGroupId = await SeedGroupAsync(
+            testFactory,
+            removedCreditor.UserProfileId,
+            "Removed Payment Read Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(removedDebtorSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Removed),
+            new MembershipSeed(removedCreditor.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var removedBillId = await SeedBillAsync(
+            testFactory,
+            removedCreditor.UserProfileId,
+            removedGroupId,
+            [new ParticipantSeed(removedDebtorSession.UserProfileId, 8m), new ParticipantSeed(removedCreditor.UserProfileId, 8m)],
+            [new PayerSeed(removedCreditor.UserProfileId, 16m)],
+            InitialTimestamp);
+        var removedSettlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            removedBillId,
+            removedGroupId,
+            removedDebtorSession.UserProfileId,
+            removedCreditor.UserProfileId,
+            removedCreditor.UserProfileId,
+            8m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(6));
+        var removedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            removedSettlementId,
+            removedDebtorSession.UserProfileId,
+            removedCreditor.UserProfileId,
+            8m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(7));
+
+        using var client = testFactory.CreateClient();
+        using var visibleListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), debtorSession.RawSessionToken);
+        using var visibleListResponse = await client.SendAsync(visibleListRequest);
+        using var visibleListPayload = JsonDocument.Parse(await visibleListResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, visibleListResponse.StatusCode);
+        Assert.Equal(paymentId, Assert.Single(visibleListPayload.RootElement.GetProperty("payments").EnumerateArray()).GetProperty("paymentId").GetGuid());
+
+        using var membershipOnlyListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), membershipOnlySession.RawSessionToken);
+        using var membershipOnlyListResponse = await client.SendAsync(membershipOnlyListRequest);
+        await AssertSettlementUnavailableProblemAsync(membershipOnlyListResponse);
+
+        using var membershipOnlyGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(paymentId), membershipOnlySession.RawSessionToken);
+        using var membershipOnlyGetResponse = await client.SendAsync(membershipOnlyGetRequest);
+        await AssertSettlementPaymentUnavailableProblemAsync(membershipOnlyGetResponse);
+
+        using var removedListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(removedSettlementId), removedDebtorSession.RawSessionToken);
+        using var removedListResponse = await client.SendAsync(removedListRequest);
+        await AssertSettlementUnavailableProblemAsync(removedListResponse);
+
+        using var removedGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(removedPaymentId), removedDebtorSession.RawSessionToken);
+        using var removedGetResponse = await client.SendAsync(removedGetRequest);
+        await AssertSettlementPaymentUnavailableProblemAsync(removedGetResponse);
     }
 
     [Fact]
@@ -394,6 +741,22 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         using var invalidGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPath(settlementId), WrongRawToken);
         using var invalidGetResponse = await client.SendAsync(invalidGetRequest);
         await AssertUnauthenticatedProblemAsync(invalidGetResponse, WrongRawToken);
+
+        using var missingPaymentListRequest = new HttpRequestMessage(HttpMethod.Get, SettlementPaymentsPath(settlementId));
+        using var missingPaymentListResponse = await client.SendAsync(missingPaymentListRequest);
+        await AssertUnauthenticatedProblemAsync(missingPaymentListResponse);
+
+        using var invalidPaymentListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), WrongRawToken);
+        using var invalidPaymentListResponse = await client.SendAsync(invalidPaymentListRequest);
+        await AssertUnauthenticatedProblemAsync(invalidPaymentListResponse, WrongRawToken);
+
+        using var missingPaymentGetRequest = new HttpRequestMessage(HttpMethod.Get, SettlementPaymentPath(Guid.NewGuid()));
+        using var missingPaymentGetResponse = await client.SendAsync(missingPaymentGetRequest);
+        await AssertUnauthenticatedProblemAsync(missingPaymentGetResponse);
+
+        using var invalidPaymentGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(Guid.NewGuid()), WrongRawToken);
+        using var invalidPaymentGetResponse = await client.SendAsync(invalidPaymentGetRequest);
+        await AssertUnauthenticatedProblemAsync(invalidPaymentGetResponse, WrongRawToken);
     }
 
     [Fact]
@@ -403,6 +766,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         using var testFactory = testContext.Factory;
         var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Read Side Effect Debtor");
         var creditor = await SeedAccountAsync(testFactory, "Read Side Effect Creditor", InitialTimestamp.AddMinutes(1));
+        await SeedPaymentProfileWithQrAsync(testFactory, creditor.UserProfileId, InitialTimestamp.AddMinutes(2));
         var billId = await SeedBillAsync(
             testFactory,
             creditor.UserProfileId,
@@ -420,6 +784,19 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             14m,
             SettlementRequestStatuses.Requested,
             InitialTimestamp.AddMinutes(5));
+        var paymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            14m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(6));
+        await SeedSettlementProofAttachmentAsync(
+            testFactory,
+            paymentId,
+            debtorSession.UserProfileId,
+            InitialTimestamp.AddMinutes(7));
         var before = await ReadSideEffectCountsAsync(testFactory);
 
         using var client = testFactory.CreateClient();
@@ -431,9 +808,25 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         using var getResponse = await client.SendAsync(getRequest);
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
 
+        using var paymentListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(settlementId), debtorSession.RawSessionToken);
+        using var paymentListResponse = await client.SendAsync(paymentListRequest);
+        Assert.Equal(HttpStatusCode.OK, paymentListResponse.StatusCode);
+
+        using var paymentGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(paymentId), debtorSession.RawSessionToken);
+        using var paymentGetResponse = await client.SendAsync(paymentGetRequest);
+        Assert.Equal(HttpStatusCode.OK, paymentGetResponse.StatusCode);
+
         using var missingGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPath(Guid.NewGuid()), debtorSession.RawSessionToken);
         using var missingGetResponse = await client.SendAsync(missingGetRequest);
         await AssertSettlementUnavailableProblemAsync(missingGetResponse);
+
+        using var missingPaymentListRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentsPath(Guid.NewGuid()), debtorSession.RawSessionToken);
+        using var missingPaymentListResponse = await client.SendAsync(missingPaymentListRequest);
+        await AssertSettlementUnavailableProblemAsync(missingPaymentListResponse);
+
+        using var missingPaymentGetRequest = CreateBearerRequest(HttpMethod.Get, SettlementPaymentPath(Guid.NewGuid()), debtorSession.RawSessionToken);
+        using var missingPaymentGetResponse = await client.SendAsync(missingPaymentGetRequest);
+        await AssertSettlementPaymentUnavailableProblemAsync(missingPaymentGetResponse);
 
         var after = await ReadSideEffectCountsAsync(testFactory);
         Assert.Equal(before, after);
@@ -453,6 +846,20 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.DoesNotContain(actorSession.RawSessionToken, content);
+
+        using var paymentListRequest = CreateBearerRequest(HttpMethod.Get, "/api/v1/settlements/not-a-guid/payments", actorSession.RawSessionToken);
+        using var paymentListResponse = await client.SendAsync(paymentListRequest);
+        var paymentListContent = await paymentListResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, paymentListResponse.StatusCode);
+        Assert.DoesNotContain(actorSession.RawSessionToken, paymentListContent);
+
+        using var paymentGetRequest = CreateBearerRequest(HttpMethod.Get, "/api/v1/settlement-payments/not-a-guid", actorSession.RawSessionToken);
+        using var paymentGetResponse = await client.SendAsync(paymentGetRequest);
+        var paymentGetContent = await paymentGetResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, paymentGetResponse.StatusCode);
+        Assert.DoesNotContain(actorSession.RawSessionToken, paymentGetContent);
     }
 
     [Fact]
@@ -464,10 +871,12 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         var settlementRequestDisputePathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}/dispute:");
         var settlementRequestCancellationPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}/cancel:");
         var settlementPaymentPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}/payments:");
+        var settlementPaymentGetPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}:");
         var settlementPaymentConfirmationPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/confirm:");
         var settlementPaymentDisputePathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/dispute:");
         var settlementPaymentCancellationPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/cancel:");
         var listSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementRequestListResponse:");
+        var paymentListSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentListResponse:");
 
         Assert.Contains("operationId: listSettlementRequests", settlementsPathBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", settlementsPathBlock, StringComparison.Ordinal);
@@ -482,6 +891,11 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("operationId: createSettlementPaymentClaim", settlementPaymentPathBlock, StringComparison.Ordinal);
         Assert.Contains("CreateSettlementPaymentRequest", settlementPaymentPathBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", settlementPaymentPathBlock, StringComparison.Ordinal);
+        Assert.Contains("operationId: listSettlementPayments", settlementPaymentPathBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentListResponse", settlementPaymentPathBlock, StringComparison.Ordinal);
+        Assert.Contains("operationId: getSettlementPayment", settlementPaymentGetPathBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentResponse", settlementPaymentGetPathBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("requestBody:", settlementPaymentGetPathBlock, StringComparison.Ordinal);
         Assert.Contains("operationId: confirmSettlementPayment", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("requestBody:", settlementPaymentConfirmationPathBlock, StringComparison.Ordinal);
@@ -493,8 +907,11 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("requestBody:", settlementPaymentCancellationPathBlock, StringComparison.Ordinal);
         Assert.Contains("settlements", listSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestResponse", listSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("payments", paymentListSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentResponse", paymentListSchemaBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("proofSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.DoesNotContain("/api/v1/files/{fileId}", openApi, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("settlementBalance", openApi, StringComparison.Ordinal);
 
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
@@ -505,6 +922,8 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
 
         Assert.Contains("listSettlementRequests", generatedContent, StringComparison.Ordinal);
         Assert.Contains("getSettlementRequest", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("listSettlementPayments", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("getSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("createSettlementPaymentClaim", generatedContent, StringComparison.Ordinal);
         Assert.Contains("confirmSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("disputeSettlementRequest", generatedContent, StringComparison.Ordinal);
@@ -512,9 +931,12 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("cancelSettlementRequest", generatedContent, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentListResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("proofSettlementPayment", generatedContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("uploadSettlement", generatedContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("downloadSettlement", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("settlementBalance", generatedContent, StringComparison.Ordinal);
     }
 
@@ -778,6 +1200,132 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         return settlementId;
     }
 
+    private static async Task<Guid> SeedSettlementPaymentAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid settlementId,
+        Guid paidByUserProfileId,
+        Guid receivedByUserProfileId,
+        decimal amount,
+        string status,
+        DateTimeOffset createdAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var paymentId = Guid.NewGuid();
+        dbContext.Set<SettlementPayment>().Add(new SettlementPayment
+        {
+            Id = paymentId,
+            SettlementRequestId = settlementId,
+            PaidByUserProfileId = paidByUserProfileId,
+            ReceivedByUserProfileId = receivedByUserProfileId,
+            Amount = amount,
+            Currency = "USD",
+            Status = status,
+            PaymentDate = DateOnly.FromDateTime(createdAtUtc.UtcDateTime),
+            CreatedByUserProfileId = paidByUserProfileId,
+            ClaimedAtUtc = createdAtUtc,
+            ConfirmedAtUtc = status == SettlementPaymentStatuses.Confirmed ? createdAtUtc.AddMinutes(1) : null,
+            DisputedAtUtc = status == SettlementPaymentStatuses.Disputed ? createdAtUtc.AddMinutes(1) : null,
+            CancelledAtUtc = status == SettlementPaymentStatuses.Cancelled ? createdAtUtc.AddMinutes(1) : null,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        });
+
+        await dbContext.SaveChangesAsync();
+        return paymentId;
+    }
+
+    private static async Task<Guid> SeedPaymentProfileWithQrAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid userProfileId,
+        DateTimeOffset createdAtUtc)
+    {
+        var fileObjectId = await SeedFileObjectAsync(
+            testFactory,
+            userProfileId,
+            FileObjectPurposes.PaymentQr,
+            HiddenStorageObjectKey,
+            createdAtUtc);
+
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var paymentProfileId = Guid.NewGuid();
+        dbContext.Set<UserPaymentProfile>().Add(new UserPaymentProfile
+        {
+            Id = paymentProfileId,
+            UserProfileId = userProfileId,
+            PreferredMethodLabel = HiddenPaymentMethodLabel,
+            PaymentHandle = HiddenPaymentHandle,
+            PaymentNote = HiddenPaymentNote,
+            Visibility = UserPaymentProfileVisibilities.SettlementCounterpartiesOnly,
+            QrFileObjectId = fileObjectId,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        });
+
+        await dbContext.SaveChangesAsync();
+        return paymentProfileId;
+    }
+
+    private static async Task<Guid> SeedSettlementProofAttachmentAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid paymentId,
+        Guid createdByUserProfileId,
+        DateTimeOffset createdAtUtc)
+    {
+        var fileObjectId = await SeedFileObjectAsync(
+            testFactory,
+            createdByUserProfileId,
+            FileObjectPurposes.SettlementProof,
+            HiddenStorageObjectKey,
+            createdAtUtc);
+
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        dbContext.Set<SettlementProofAttachment>().Add(new SettlementProofAttachment
+        {
+            SettlementPaymentId = paymentId,
+            FileObjectId = fileObjectId,
+            CreatedByUserProfileId = createdByUserProfileId,
+            CreatedAtUtc = createdAtUtc
+        });
+
+        await dbContext.SaveChangesAsync();
+        return fileObjectId;
+    }
+
+    private static async Task<Guid> SeedFileObjectAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid ownerUserProfileId,
+        string purpose,
+        string storageObjectKey,
+        DateTimeOffset createdAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var fileObjectId = Guid.NewGuid();
+        dbContext.Set<FileObject>().Add(new FileObject
+        {
+            Id = fileObjectId,
+            OwnerUserProfileId = ownerUserProfileId,
+            CreatedByUserProfileId = ownerUserProfileId,
+            Purpose = purpose,
+            Status = FileObjectStatuses.Active,
+            ContentType = "image/png",
+            OriginalFilename = HiddenOriginalFilename,
+            SizeBytes = 12,
+            Sha256Hash = null,
+            StorageProvider = StorageProviderNames.Local,
+            StorageObjectKey = storageObjectKey,
+            EncryptionMode = FileObjectEncryptionModes.ServerManaged,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        });
+
+        await dbContext.SaveChangesAsync();
+        return fileObjectId;
+    }
+
     private static async Task<string> ReadSessionTokenHashAsync(
         WebApplicationFactory<Program> testFactory,
         Guid authSessionId)
@@ -831,6 +1379,16 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         return $"/api/v1/settlements/{settlementId:D}";
     }
 
+    private static string SettlementPaymentsPath(Guid settlementId)
+    {
+        return $"/api/v1/settlements/{settlementId:D}/payments";
+    }
+
+    private static string SettlementPaymentPath(Guid paymentId)
+    {
+        return $"/api/v1/settlement-payments/{paymentId:D}";
+    }
+
     private static void AssertSettlementRequestResponseShape(JsonElement response)
     {
         Assert.Equal(
@@ -845,6 +1403,29 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
                 "requestedAtUtc",
                 "requestedByUserProfileId",
                 "sourceExpenseBillId",
+                "status",
+                "updatedAtUtc"
+            ],
+            response.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static void AssertSettlementPaymentResponseShape(JsonElement response)
+    {
+        Assert.Equal(
+            [
+                "amount",
+                "claimedAtUtc",
+                "createdAtUtc",
+                "currency",
+                "paidByUserProfileId",
+                "paymentDate",
+                "paymentId",
+                "receivedByUserProfileId",
+                "settlementRequestId",
+                "settlementRequestStatus",
                 "status",
                 "updatedAtUtc"
             ],
@@ -884,7 +1465,11 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("paymentnote", lowerContent);
         Assert.DoesNotContain("payment_note", lowerContent);
         Assert.DoesNotContain("methodlabel", lowerContent);
+        Assert.DoesNotContain("qr", lowerContent);
         Assert.DoesNotContain("proof", lowerContent);
+        Assert.DoesNotContain("fileobject", lowerContent);
+        Assert.DoesNotContain("file_object", lowerContent);
+        Assert.DoesNotContain("filename", lowerContent);
         Assert.DoesNotContain("merchant", lowerContent);
         Assert.DoesNotContain("item", lowerContent);
         Assert.DoesNotContain("ocr", lowerContent);
@@ -902,6 +1487,21 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Equal(404, payload.RootElement.GetProperty("status").GetInt32());
         Assert.Equal(
             "The requested settlement is unavailable.",
+            payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertSettlementPaymentUnavailableProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Settlement payment unavailable", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(404, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The requested settlement payment is unavailable.",
             payload.RootElement.GetProperty("detail").GetString());
     }
 
@@ -936,6 +1536,9 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("objectkey", lowerContent);
         Assert.DoesNotContain("token", lowerContent);
         Assert.DoesNotContain("session", lowerContent);
+        Assert.DoesNotContain("proof", lowerContent);
+        Assert.DoesNotContain("qr", lowerContent);
+        Assert.DoesNotContain("filename", lowerContent);
     }
 
     private static string FindRepoFile(string relativePath)

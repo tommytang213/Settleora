@@ -23,12 +23,13 @@ The current repository state is:
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility.
 - Settlement proof rows are still persistence foundations only.
+- Settlement payment list/get endpoints exist for read-only payment visibility through visible settlement requests.
 - Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
 - Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
 - Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
 - Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
 - Settlement proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, and payment cancellation.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, and payment cancellation.
 - Settlement proof upload/download bytes do not exist.
 - Balance projection runtime does not exist.
 
@@ -96,7 +97,8 @@ Recommended first slices:
 7. Receiver confirmation. Landed.
 8. Request and payment dispute. Landed.
 9. Cancel where policy allows. Landed for requester-owned unpaid requests and debtor-owned marked-paid payment claims.
-10. Proof attachment linkage after authorized public file flows exist.
+10. List/get settlement payment claims for visible settlements. Landed.
+11. Proof attachment linkage after authorized public file flows exist.
 
 Potential route concepts:
 
@@ -105,6 +107,8 @@ GET /api/v1/bills/{billId}/settlement-candidates
 POST /api/v1/bills/{billId}/settlement-requests
 GET /api/v1/settlements
 GET /api/v1/settlements/{settlementId}
+GET /api/v1/settlements/{settlementId}/payments
+GET /api/v1/settlement-payments/{paymentId}
 POST /api/v1/settlements/{settlementId}/payments
 POST /api/v1/settlement-payments/{paymentId}/confirm
 POST /api/v1/settlement-payments/{paymentId}/dispute
@@ -409,9 +413,10 @@ Recommended implementation sequence:
 6. Receiver confirmation. Landed.
 7. Request and payment dispute. Landed for bounded dispute transitions only.
 8. Cancellation where policy allows. Landed for request and payment cancellation.
-9. Relationship-backed counterparty payment-details read.
-10. Proof attachment metadata linkage after authorized public file flows exist.
-11. Balance projection read endpoints.
+9. Relationship-backed counterparty payment-details read. Landed.
+10. Read-only settlement payment list/get endpoints. Landed.
+11. Proof attachment metadata linkage after authorized public file flows exist.
+12. Balance projection read endpoints.
 
 Keep schema, runtime, OpenAPI, generated clients, file bytes, payment-details counterparty reads, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
