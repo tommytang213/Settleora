@@ -70,6 +70,7 @@ internal static class PersonalBillEndpoints
         {
             Id = Guid.NewGuid(),
             CreatedByUserProfileId = actor.UserProfileId,
+            BillOwnerUserProfileId = actor.UserProfileId,
             GroupId = null,
             MerchantName = createRequest.MerchantName,
             BillDate = createRequest.BillDate,
@@ -149,7 +150,7 @@ internal static class PersonalBillEndpoints
         }
 
         ApplyCalculation(bill, firstCalculation);
-        bill.Payers.Add(new ExpenseBillPayer
+        var payer = new ExpenseBillPayer
         {
             Id = Guid.NewGuid(),
             ExpenseBillId = bill.Id,
@@ -159,7 +160,9 @@ internal static class PersonalBillEndpoints
             PaymentMethodLabelSnapshot = createRequest.PayerPaymentMethodLabelSnapshot,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
-        });
+        };
+        ExpenseBillPayerConfirmationPolicy.ApplyCreatedBy(payer, actor.UserProfileId, now);
+        bill.Payers.Add(payer);
 
         var finalCalculation = calculationService.Calculate(bill);
         if (!finalCalculation.Succeeded)

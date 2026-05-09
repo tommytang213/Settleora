@@ -35,7 +35,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
-    public async Task PersonalBillSubmitByCreatorResetsParticipantsToPendingAcceptanceAndWritesSafeAudit()
+    public async Task PersonalDraftBillSubmitByCreatorResetsDraftParticipantsToPendingAcceptanceAndWritesSafeAudit()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -56,8 +56,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
                     RejectedAtUtc: InitialTimestamp.AddMinutes(3),
                     RejectionReasonCode: ExpenseBillParticipantRejectionReasonCodes.WrongAmount)
             ],
-            ExpenseBillStatuses.Rejected,
-            "Submit Reset Merchant",
+            ExpenseBillStatuses.Draft,
+            "Draft Submit Reset Merchant",
             InitialTimestamp);
         testContext.TimeProvider.SetUtcNow(WriteTimestamp);
         using var client = testFactory.CreateClient();
@@ -92,7 +92,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             billId,
             groupId: null,
             groupMode: "personal",
-            previousBillStatus: ExpenseBillStatuses.Rejected,
+            previousBillStatus: ExpenseBillStatuses.Draft,
             newBillStatus: ExpenseBillStatuses.PendingConfirmation,
             previousParticipantStatus: null,
             newParticipantStatus: null,
@@ -104,9 +104,60 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         AssertSafeWorkflowAuditContent(
             auditEvent,
             creatorSession.RawSessionToken,
-            "Submit Reset Merchant",
+            "Draft Submit Reset Merchant",
             "Seeded Item",
             ExpenseBillParticipantRejectionReasonCodes.WrongAmount);
+    }
+
+    [Fact]
+    public async Task PersonalRejectedBillSubmitCannotResetAllParticipantsSilently()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Rejected Submit Creator");
+        var participant = await SeedAccountAsync(testFactory, "Rejected Submit Participant", InitialTimestamp.AddMinutes(1));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(
+                    creatorSession.UserProfileId,
+                    ExpenseBillParticipantStatuses.Accepted,
+                    AcceptedAtUtc: InitialTimestamp.AddMinutes(2)),
+                new ParticipantSeed(
+                    participant.UserProfileId,
+                    ExpenseBillParticipantStatuses.Rejected,
+                    RejectedAtUtc: InitialTimestamp.AddMinutes(3),
+                    RejectionReasonCode: ExpenseBillParticipantRejectionReasonCodes.WrongAmount)
+            ],
+            ExpenseBillStatuses.Rejected,
+            "Rejected Submit Guard Merchant",
+            InitialTimestamp);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(
+            HttpMethod.Post,
+            PersonalSubmitPath(billId),
+            creatorSession.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+
+        await AssertBillWorkflowConflictProblemAsync(response, creatorSession.RawSessionToken);
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(ExpenseBillStatuses.Rejected, bill.Status);
+        Assert.Contains(
+            bill.Participants,
+            participantRow => participantRow.UserProfileId == creatorSession.UserProfileId
+                && participantRow.Status == ExpenseBillParticipantStatuses.Accepted
+                && participantRow.AcceptedAtUtc == InitialTimestamp.AddMinutes(2));
+        Assert.Contains(
+            bill.Participants,
+            participantRow => participantRow.UserProfileId == participant.UserProfileId
+                && participantRow.Status == ExpenseBillParticipantStatuses.Rejected
+                && participantRow.RejectionReasonCode == ExpenseBillParticipantRejectionReasonCodes.WrongAmount
+                && participantRow.RejectedAtUtc == InitialTimestamp.AddMinutes(3));
+        Assert.Empty(await ReadWorkflowAuditEventsAsync(testFactory));
     }
 
     [Fact]

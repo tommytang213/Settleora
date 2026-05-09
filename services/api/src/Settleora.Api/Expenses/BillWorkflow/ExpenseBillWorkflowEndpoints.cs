@@ -360,7 +360,7 @@ internal static class ExpenseBillWorkflowEndpoints
         Guid? groupId,
         CancellationToken cancellationToken)
     {
-        if (bill.Status is not (ExpenseBillStatuses.Draft or ExpenseBillStatuses.Rejected)
+        if (bill.Status != ExpenseBillStatuses.Draft
             || bill.Participants.Count == 0
             || !CanResetParticipantStatuses(bill))
         {

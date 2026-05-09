@@ -14,11 +14,21 @@ public sealed class ExpenseBillPayer
 
     public UserProfile UserProfile { get; set; } = null!;
 
+    public Guid PayerFactsCreatedByUserProfileId { get; set; }
+
+    public UserProfile PayerFactsCreatedByUserProfile { get; set; } = null!;
+
     public decimal Amount { get; set; }
 
     public string Currency { get; set; } = string.Empty;
 
     public string? PaymentMethodLabelSnapshot { get; set; }
+
+    public string PayerConfirmationStatus { get; set; } = ExpenseBillPayerConfirmationStatuses.PendingConfirmation;
+
+    public DateTimeOffset? PayerConfirmedAtUtc { get; set; }
+
+    public DateTimeOffset? PayerRejectedAtUtc { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }
 

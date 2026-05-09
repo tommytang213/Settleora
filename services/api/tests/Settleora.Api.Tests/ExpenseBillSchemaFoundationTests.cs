@@ -33,6 +33,10 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.Equal(999999999999999.9999m, ExpenseBillConstraints.MoneyAmountMaxValue);
         Assert.Equal(32, ExpenseBillConstraints.ItemSplitMethodMaxLength);
         Assert.Equal(32, ExpenseBillConstraints.ParticipantRejectionReasonCodeMaxLength);
+        Assert.Equal(40, ExpenseBillConstraints.BillRevisionStatusMaxLength);
+        Assert.Equal(40, ExpenseBillConstraints.BillRevisionApprovalStatusMaxLength);
+        Assert.Equal(128, ExpenseBillConstraints.BillRevisionCalculationHashMaxLength);
+        Assert.Equal(32, ExpenseBillConstraints.PayerConfirmationStatusMaxLength);
 
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.Draft));
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.PendingConfirmation));
@@ -46,6 +50,16 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.PendingAcceptance));
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.ConfirmedPaid));
         Assert.False(ExpenseBillParticipantStatuses.IsSupported("invited"));
+
+        Assert.True(ExpenseBillRevisionStatuses.IsActivePending(ExpenseBillRevisionStatuses.DraftRevision));
+        Assert.True(ExpenseBillRevisionStatuses.IsActivePending(ExpenseBillRevisionStatuses.SubmittedForReview));
+        Assert.False(ExpenseBillRevisionStatuses.IsActivePending(ExpenseBillRevisionStatuses.AcceptedApplied));
+        Assert.False(ExpenseBillRevisionStatuses.IsActivePending("accepted"));
+
+        Assert.Equal("pending_review", ExpenseBillRevisionApprovalStatuses.PendingReview);
+        Assert.Equal("invalidated_by_supersession", ExpenseBillRevisionApprovalStatuses.InvalidatedBySupersession);
+        Assert.Equal("pending_confirmation", ExpenseBillPayerConfirmationStatuses.PendingConfirmation);
+        Assert.Equal("confirmed", ExpenseBillPayerConfirmationStatuses.Confirmed);
 
         Assert.True(ExpenseBillParticipantRejectionReasonCodes.IsSupported(
             ExpenseBillParticipantRejectionReasonCodes.WrongAmount));
@@ -89,6 +103,8 @@ public sealed class ExpenseBillSchemaFoundationTests
 
         AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
         AssertColumn(entity, storeObject, "CreatedByUserProfileId", "created_by_user_profile_id", isNullable: false);
+        AssertColumn(entity, storeObject, "BillOwnerUserProfileId", "bill_owner_user_profile_id", isNullable: false);
+        AssertColumn(entity, storeObject, "ActiveAcceptedBillRevisionId", "active_accepted_bill_revision_id", isNullable: true);
         AssertColumn(entity, storeObject, "GroupId", "group_id", isNullable: true);
         AssertColumn(entity, storeObject, "MerchantName", "merchant_name", isNullable: true, maxLength: 200);
         AssertColumn(entity, storeObject, "BillDate", "bill_date", isNullable: false, columnType: "date");
@@ -100,12 +116,15 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertColumn(entity, storeObject, "ArchivedAtUtc", "archived_at_utc", isNullable: true);
 
         AssertIndex(entity, "ix_expense_bills_created_by_user_profile_id", ["CreatedByUserProfileId"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bills_bill_owner_user_profile_id", ["BillOwnerUserProfileId"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bills_active_accepted_revision_id", ["ActiveAcceptedBillRevisionId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_group_id", ["GroupId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_status", ["Status"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_bill_date", ["BillDate"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_archived_at_utc", ["ArchivedAtUtc"], isUnique: false);
 
         AssertForeignKey(entity, typeof(UserProfile), ["CreatedByUserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(UserProfile), ["BillOwnerUserProfileId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserGroup), ["GroupId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(
@@ -298,7 +317,7 @@ public sealed class ExpenseBillSchemaFoundationTests
     }
 
     [Fact]
-    public void ExpenseBillPayerModelUsesOriginalPayerContributionShape()
+    public void ExpenseBillPayerModelUsesPayerContributionAndConfirmationShape()
     {
         using var dbContext = CreateDbContext();
         var entity = FindEntityType<ExpenseBillPayer>(dbContext);
@@ -310,6 +329,12 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
         AssertColumn(entity, storeObject, "ExpenseBillId", "expense_bill_id", isNullable: false);
         AssertColumn(entity, storeObject, "UserProfileId", "user_profile_id", isNullable: false);
+        AssertColumn(
+            entity,
+            storeObject,
+            "PayerFactsCreatedByUserProfileId",
+            "payer_facts_created_by_user_profile_id",
+            isNullable: false);
         AssertMoneyColumn(entity, storeObject, "Amount", "amount");
         AssertColumn(entity, storeObject, "Currency", "currency", isNullable: false, maxLength: 3);
         AssertColumn(
@@ -319,14 +344,30 @@ public sealed class ExpenseBillSchemaFoundationTests
             "payment_method_label_snapshot",
             isNullable: true,
             maxLength: 120);
+        AssertColumn(
+            entity,
+            storeObject,
+            "PayerConfirmationStatus",
+            "payer_confirmation_status",
+            isNullable: false,
+            maxLength: 32);
+        AssertColumn(entity, storeObject, "PayerConfirmedAtUtc", "payer_confirmed_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "PayerRejectedAtUtc", "payer_rejected_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
 
         AssertIndex(entity, "ix_expense_bill_payers_expense_bill_id", ["ExpenseBillId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bill_payers_user_profile_id", ["UserProfileId"], isUnique: false);
+        AssertIndex(
+            entity,
+            "ix_expense_bill_payers_facts_created_by_user_profile_id",
+            ["PayerFactsCreatedByUserProfileId"],
+            isUnique: false);
+        AssertIndex(entity, "ix_expense_bill_payers_confirmation_status", ["PayerConfirmationStatus"], isUnique: false);
         AssertIndex(entity, "ix_expense_bill_payers_bill_user_profile_id", ["ExpenseBillId", "UserProfileId"], isUnique: false);
         AssertForeignKey(entity, typeof(ExpenseBill), ["ExpenseBillId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserProfile), ["UserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(UserProfile), ["PayerFactsCreatedByUserProfileId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(entity, "ck_expense_bill_payers_amount_non_negative", "amount >= 0");
         AssertCheckConstraint(entity, "ck_expense_bill_payers_amount_upper_bound", "amount <= 999999999999999.9999");
@@ -335,6 +376,10 @@ public sealed class ExpenseBillSchemaFoundationTests
             entity,
             "ck_expense_bill_payers_method_label_not_blank",
             "payment_method_label_snapshot IS NULL OR length(btrim(payment_method_label_snapshot)) > 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bill_payers_confirmation_status",
+            "payer_confirmation_status IN ('pending_confirmation', 'confirmed', 'rejected')");
     }
 
     [Fact]

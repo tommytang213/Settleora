@@ -807,7 +807,7 @@ paths:
   /api/v1/bills/{billId}/submit:
     post:
       summary: Submit personal bill
-      description: Submits a draft or rejected personal bill created by the authenticated actor. Submission moves the bill to pending confirmation, resets participant acknowledgement state, and writes bounded safe audit metadata.
+      description: Submits a draft personal bill created by the authenticated actor. Submission moves the bill to pending confirmation, resets draft participant acknowledgement state, and writes bounded safe audit metadata. Rejected bill correction/resubmission must use the bill revision proposal workflow and is rejected here to avoid silently resetting all accepted participants.
       operationId: submitPersonalBill
       security:
         - SessionBearerAuth: []
@@ -2092,7 +2092,7 @@ paths:
   /api/v1/groups/{groupId}/bills/{billId}/submit:
     post:
       summary: Submit group bill
-      description: Submits a draft or rejected group bill created by the authenticated actor. The actor must still have active access to the route group. Submission moves the bill to pending confirmation, resets participant acknowledgement state, and writes bounded safe audit metadata.
+      description: Submits a draft group bill created by the authenticated actor. The actor must still have active access to the route group. Submission moves the bill to pending confirmation, resets draft participant acknowledgement state, and writes bounded safe audit metadata. Rejected bill correction/resubmission must use the bill revision proposal workflow and is rejected here to avoid silently resetting all accepted participants.
       operationId: submitGroupBill
       security:
         - SessionBearerAuth: []

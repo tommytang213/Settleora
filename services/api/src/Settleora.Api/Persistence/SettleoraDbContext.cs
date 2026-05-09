@@ -60,6 +60,10 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
+        modelBuilder.Entity<ExpenseBillRevision>(ConfigureExpenseBillRevision);
+        modelBuilder.Entity<ExpenseBillRevisionParticipant>(ConfigureExpenseBillRevisionParticipant);
+        modelBuilder.Entity<ExpenseBillRevisionPayer>(ConfigureExpenseBillRevisionPayer);
+        modelBuilder.Entity<ExpenseBillRevisionApproval>(ConfigureExpenseBillRevisionApproval);
         modelBuilder.Entity<SettlementRequest>(ConfigureSettlementRequest);
         modelBuilder.Entity<SettlementRequestLine>(ConfigureSettlementRequestLine);
         modelBuilder.Entity<SettlementPayment>(ConfigureSettlementPayment);
@@ -471,6 +475,12 @@ public sealed class SettleoraDbContext : DbContext
         entity.Property(bill => bill.CreatedByUserProfileId)
             .HasColumnName("created_by_user_profile_id");
 
+        entity.Property(bill => bill.BillOwnerUserProfileId)
+            .HasColumnName("bill_owner_user_profile_id");
+
+        entity.Property(bill => bill.ActiveAcceptedBillRevisionId)
+            .HasColumnName("active_accepted_bill_revision_id");
+
         entity.Property(bill => bill.GroupId)
             .HasColumnName("group_id");
 
@@ -514,6 +524,12 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasIndex(bill => bill.CreatedByUserProfileId)
             .HasDatabaseName("ix_expense_bills_created_by_user_profile_id");
 
+        entity.HasIndex(bill => bill.BillOwnerUserProfileId)
+            .HasDatabaseName("ix_expense_bills_bill_owner_user_profile_id");
+
+        entity.HasIndex(bill => bill.ActiveAcceptedBillRevisionId)
+            .HasDatabaseName("ix_expense_bills_active_accepted_revision_id");
+
         entity.HasIndex(bill => bill.GroupId)
             .HasDatabaseName("ix_expense_bills_group_id");
 
@@ -530,6 +546,12 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(bill => bill.CreatedByUserProfileId)
             .HasConstraintName("fk_expense_bills_user_profiles_created_by_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(bill => bill.BillOwnerUserProfile)
+            .WithMany()
+            .HasForeignKey(bill => bill.BillOwnerUserProfileId)
+            .HasConstraintName("fk_expense_bills_user_profiles_bill_owner_user_profile_id")
             .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(bill => bill.Group)
@@ -845,6 +867,9 @@ public sealed class SettleoraDbContext : DbContext
             table.HasCheckConstraint(
                 "ck_expense_bill_payers_method_label_not_blank",
                 "payment_method_label_snapshot IS NULL OR length(btrim(payment_method_label_snapshot)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_payers_confirmation_status",
+                "payer_confirmation_status IN ('pending_confirmation', 'confirmed', 'rejected')");
         });
 
         entity.HasKey(payer => payer.Id);
@@ -857,6 +882,9 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.Property(payer => payer.UserProfileId)
             .HasColumnName("user_profile_id");
+
+        entity.Property(payer => payer.PayerFactsCreatedByUserProfileId)
+            .HasColumnName("payer_facts_created_by_user_profile_id");
 
         entity.Property(payer => payer.Amount)
             .HasColumnName("amount")
@@ -874,6 +902,17 @@ public sealed class SettleoraDbContext : DbContext
             .HasColumnName("payment_method_label_snapshot")
             .HasMaxLength(ExpenseBillConstraints.PayerPaymentMethodLabelSnapshotMaxLength);
 
+        entity.Property(payer => payer.PayerConfirmationStatus)
+            .HasColumnName("payer_confirmation_status")
+            .HasMaxLength(ExpenseBillConstraints.PayerConfirmationStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(payer => payer.PayerConfirmedAtUtc)
+            .HasColumnName("payer_confirmed_at_utc");
+
+        entity.Property(payer => payer.PayerRejectedAtUtc)
+            .HasColumnName("payer_rejected_at_utc");
+
         entity.Property(payer => payer.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .IsRequired();
@@ -887,6 +926,12 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.HasIndex(payer => payer.UserProfileId)
             .HasDatabaseName("ix_expense_bill_payers_user_profile_id");
+
+        entity.HasIndex(payer => payer.PayerFactsCreatedByUserProfileId)
+            .HasDatabaseName("ix_expense_bill_payers_facts_created_by_user_profile_id");
+
+        entity.HasIndex(payer => payer.PayerConfirmationStatus)
+            .HasDatabaseName("ix_expense_bill_payers_confirmation_status");
 
         entity.HasIndex(payer => new
             {
@@ -905,6 +950,12 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(payer => payer.UserProfileId)
             .HasConstraintName("fk_expense_bill_payers_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payer => payer.PayerFactsCreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(payer => payer.PayerFactsCreatedByUserProfileId)
+            .HasConstraintName("fk_expense_bill_payers_user_profiles_facts_created_by_user_profile_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
@@ -1061,6 +1112,365 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(attachment => attachment.CreatedByUserProfileId)
             .HasConstraintName("fk_expense_bill_attachments_user_profiles_created_by")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillRevision(EntityTypeBuilder<ExpenseBillRevision> entity)
+    {
+        entity.ToTable("expense_bill_revisions", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_status",
+                "status IN ('draft_revision', 'submitted_for_review', 'withdrawn_by_proposer', 'superseded_by_resubmission', 'rejected', 'accepted_applied', 'cancelled_by_authorized_editor')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_total_amount_non_negative",
+                "total_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_total_amount_upper_bound",
+                "total_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_total_currency_uppercase_iso",
+                "total_currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_calculation_hash_not_blank",
+                "length(btrim(calculation_hash)) > 0");
+        });
+
+        entity.HasKey(revision => revision.Id);
+
+        entity.Property(revision => revision.Id)
+            .HasColumnName("id");
+
+        entity.Property(revision => revision.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(revision => revision.ProposalCreatorUserProfileId)
+            .HasColumnName("proposal_creator_user_profile_id");
+
+        entity.Property(revision => revision.SupersedesExpenseBillRevisionId)
+            .HasColumnName("supersedes_expense_bill_revision_id");
+
+        entity.Property(revision => revision.SupersededByExpenseBillRevisionId)
+            .HasColumnName("superseded_by_expense_bill_revision_id");
+
+        entity.Property(revision => revision.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.TotalAmount)
+            .HasColumnName("total_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(revision => revision.TotalCurrency)
+            .HasColumnName("total_currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.CalculationHash)
+            .HasColumnName("calculation_hash")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionCalculationHashMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.SubmittedAtUtc)
+            .HasColumnName("submitted_at_utc");
+
+        entity.Property(revision => revision.WithdrawnAtUtc)
+            .HasColumnName("withdrawn_at_utc");
+
+        entity.Property(revision => revision.SupersededAtUtc)
+            .HasColumnName("superseded_at_utc");
+
+        entity.Property(revision => revision.RejectedAtUtc)
+            .HasColumnName("rejected_at_utc");
+
+        entity.Property(revision => revision.AppliedAtUtc)
+            .HasColumnName("applied_at_utc");
+
+        entity.Property(revision => revision.CancelledAtUtc)
+            .HasColumnName("cancelled_at_utc");
+
+        entity.Property(revision => revision.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(revision => revision.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(revision => revision.ProposalCreatorUserProfileId)
+            .HasDatabaseName("ix_expense_bill_revisions_creator_user_profile_id");
+
+        entity.HasIndex(revision => revision.Status)
+            .HasDatabaseName("ix_expense_bill_revisions_status");
+
+        entity.HasIndex(revision => revision.ExpenseBillId)
+            .IsUnique()
+            .HasFilter("status IN ('draft_revision', 'submitted_for_review')")
+            .HasDatabaseName("ux_expense_bill_revisions_one_active_pending_per_bill");
+
+        entity.HasOne(revision => revision.ExpenseBill)
+            .WithMany(bill => bill.Revisions)
+            .HasForeignKey(revision => revision.ExpenseBillId)
+            .HasConstraintName("fk_expense_bill_revisions_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(revision => revision.ProposalCreatorUserProfile)
+            .WithMany()
+            .HasForeignKey(revision => revision.ProposalCreatorUserProfileId)
+            .HasConstraintName("fk_expense_bill_revisions_user_profiles_creator_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillRevisionParticipant(EntityTypeBuilder<ExpenseBillRevisionParticipant> entity)
+    {
+        entity.ToTable("expense_bill_revision_participants", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_participants_share_amount_non_negative",
+                "resolved_share_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_participants_share_amount_upper_bound",
+                "resolved_share_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_participants_share_currency_iso",
+                "resolved_share_currency ~ '^[A-Z]{3}$'");
+        });
+
+        entity.HasKey(participant => new
+        {
+            participant.ExpenseBillRevisionId,
+            participant.UserProfileId
+        });
+
+        entity.Property(participant => participant.ExpenseBillRevisionId)
+            .HasColumnName("expense_bill_revision_id");
+
+        entity.Property(participant => participant.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(participant => participant.ResolvedShareAmount)
+            .HasColumnName("resolved_share_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(participant => participant.ResolvedShareCurrency)
+            .HasColumnName("resolved_share_currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(participant => participant.AffectedByRevision)
+            .HasColumnName("affected_by_revision")
+            .IsRequired();
+
+        entity.Property(participant => participant.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(participant => participant.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(participant => participant.UserProfileId)
+            .HasDatabaseName("ix_expense_bill_revision_participants_user_profile_id");
+
+        entity.HasIndex(participant => participant.AffectedByRevision)
+            .HasDatabaseName("ix_expense_bill_revision_participants_affected");
+
+        entity.HasOne(participant => participant.ExpenseBillRevision)
+            .WithMany(revision => revision.Participants)
+            .HasForeignKey(participant => participant.ExpenseBillRevisionId)
+            .HasConstraintName("fk_expense_bill_revision_participants_revisions_revision_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(participant => participant.UserProfile)
+            .WithMany()
+            .HasForeignKey(participant => participant.UserProfileId)
+            .HasConstraintName("fk_expense_bill_revision_participants_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillRevisionPayer(EntityTypeBuilder<ExpenseBillRevisionPayer> entity)
+    {
+        entity.ToTable("expense_bill_revision_payers", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_payers_amount_non_negative",
+                "amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_payers_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_payers_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_payers_confirmation_status",
+                "payer_confirmation_status IN ('pending_confirmation', 'confirmed', 'rejected')");
+        });
+
+        entity.HasKey(payer => new
+        {
+            payer.ExpenseBillRevisionId,
+            payer.UserProfileId
+        });
+
+        entity.Property(payer => payer.ExpenseBillRevisionId)
+            .HasColumnName("expense_bill_revision_id");
+
+        entity.Property(payer => payer.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(payer => payer.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(payer => payer.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(payer => payer.RequiresPayerConfirmation)
+            .HasColumnName("requires_payer_confirmation")
+            .IsRequired();
+
+        entity.Property(payer => payer.PayerConfirmationStatus)
+            .HasColumnName("payer_confirmation_status")
+            .HasMaxLength(ExpenseBillConstraints.PayerConfirmationStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(payer => payer.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(payer => payer.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(payer => payer.UserProfileId)
+            .HasDatabaseName("ix_expense_bill_revision_payers_user_profile_id");
+
+        entity.HasIndex(payer => payer.RequiresPayerConfirmation)
+            .HasDatabaseName("ix_expense_bill_revision_payers_requires_confirmation");
+
+        entity.HasOne(payer => payer.ExpenseBillRevision)
+            .WithMany(revision => revision.Payers)
+            .HasForeignKey(payer => payer.ExpenseBillRevisionId)
+            .HasConstraintName("fk_expense_bill_revision_payers_revisions_revision_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(payer => payer.UserProfile)
+            .WithMany()
+            .HasForeignKey(payer => payer.UserProfileId)
+            .HasConstraintName("fk_expense_bill_revision_payers_user_profiles_user_profile_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureExpenseBillRevisionApproval(EntityTypeBuilder<ExpenseBillRevisionApproval> entity)
+    {
+        entity.ToTable("expense_bill_revision_approvals", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_approvals_status",
+                "status IN ('pending_review', 'approved', 'rejected', 'invalidated_by_supersession')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_approvals_accepted_amount_non_negative",
+                "accepted_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_approvals_accepted_amount_upper_bound",
+                "accepted_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_approvals_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revision_approvals_calculation_hash_not_blank",
+                "length(btrim(calculation_hash)) > 0");
+        });
+
+        entity.HasKey(approval => approval.Id);
+
+        entity.Property(approval => approval.Id)
+            .HasColumnName("id");
+
+        entity.Property(approval => approval.ExpenseBillRevisionId)
+            .HasColumnName("expense_bill_revision_id");
+
+        entity.Property(approval => approval.ParticipantUserProfileId)
+            .HasColumnName("participant_user_profile_id");
+
+        entity.Property(approval => approval.AcceptedAmount)
+            .HasColumnName("accepted_amount")
+            .HasPrecision(
+                ExpenseBillConstraints.MoneyAmountPrecision,
+                ExpenseBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(approval => approval.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ExpenseBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(approval => approval.CalculationHash)
+            .HasColumnName("calculation_hash")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionCalculationHashMaxLength)
+            .IsRequired();
+
+        entity.Property(approval => approval.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionApprovalStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(approval => approval.ApprovedAtUtc)
+            .HasColumnName("approved_at_utc");
+
+        entity.Property(approval => approval.RejectedAtUtc)
+            .HasColumnName("rejected_at_utc");
+
+        entity.Property(approval => approval.InvalidatedAtUtc)
+            .HasColumnName("invalidated_at_utc");
+
+        entity.Property(approval => approval.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(approval => approval.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(approval => approval.ExpenseBillRevisionId)
+            .HasDatabaseName("ix_expense_bill_revision_approvals_revision_id");
+
+        entity.HasIndex(approval => approval.ParticipantUserProfileId)
+            .HasDatabaseName("ix_expense_bill_revision_approvals_participant_user_profile_id");
+
+        entity.HasIndex(approval => approval.Status)
+            .HasDatabaseName("ix_expense_bill_revision_approvals_status");
+
+        entity.HasIndex(approval => new
+            {
+                approval.ExpenseBillRevisionId,
+                approval.ParticipantUserProfileId
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_expense_bill_revision_approvals_revision_participant");
+
+        entity.HasOne(approval => approval.ExpenseBillRevision)
+            .WithMany(revision => revision.Approvals)
+            .HasForeignKey(approval => approval.ExpenseBillRevisionId)
+            .HasConstraintName("fk_expense_bill_revision_approvals_revisions_revision_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(approval => approval.ParticipantUserProfile)
+            .WithMany()
+            .HasForeignKey(approval => approval.ParticipantUserProfileId)
+            .HasConstraintName("fk_expense_bill_revision_approvals_user_profiles_participant_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
@@ -1370,6 +1780,9 @@ public sealed class SettleoraDbContext : DbContext
         entity.Property(line => line.SourceExpenseBillId)
             .HasColumnName("source_expense_bill_id");
 
+        entity.Property(line => line.SourceBillRevisionId)
+            .HasColumnName("source_bill_revision_id");
+
         entity.Property(line => line.SourceCandidateKey)
             .HasColumnName("source_candidate_key")
             .HasMaxLength(SettlementConstraints.SourceCandidateKeyMaxLength);
@@ -1409,6 +1822,9 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasIndex(line => line.SourceExpenseBillId)
             .HasDatabaseName("ix_settlement_request_lines_source_expense_bill_id");
 
+        entity.HasIndex(line => line.SourceBillRevisionId)
+            .HasDatabaseName("ix_settlement_request_lines_source_bill_revision_id");
+
         entity.HasIndex(line => line.Status)
             .HasDatabaseName("ix_settlement_request_lines_status");
 
@@ -1436,6 +1852,12 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(line => line.SourceExpenseBillId)
             .HasConstraintName("fk_settlement_request_lines_expense_bills_source_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(line => line.SourceBillRevision)
+            .WithMany()
+            .HasForeignKey(line => line.SourceBillRevisionId)
+            .HasConstraintName("fk_settlement_request_lines_expense_bill_revisions_source_revision_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

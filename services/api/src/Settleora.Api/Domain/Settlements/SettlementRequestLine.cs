@@ -14,6 +14,10 @@ public sealed class SettlementRequestLine
 
     public ExpenseBill SourceExpenseBill { get; set; } = null!;
 
+    public Guid? SourceBillRevisionId { get; set; }
+
+    public ExpenseBillRevision? SourceBillRevision { get; set; }
+
     public string? SourceCandidateKey { get; set; }
 
     public decimal ExactAmount { get; set; }

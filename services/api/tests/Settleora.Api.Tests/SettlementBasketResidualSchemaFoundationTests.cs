@@ -75,6 +75,7 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
         AssertColumn(entity, storeObject, "Id", "id", isNullable: false);
         AssertColumn(entity, storeObject, "SettlementRequestId", "settlement_request_id", isNullable: false);
         AssertColumn(entity, storeObject, "SourceExpenseBillId", "source_expense_bill_id", isNullable: false);
+        AssertColumn(entity, storeObject, "SourceBillRevisionId", "source_bill_revision_id", isNullable: true);
         AssertColumn(
             entity,
             storeObject,
@@ -91,6 +92,7 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
 
         AssertIndex(entity, "ix_settlement_request_lines_settlement_request_id", ["SettlementRequestId"]);
         AssertIndex(entity, "ix_settlement_request_lines_source_expense_bill_id", ["SourceExpenseBillId"]);
+        AssertIndex(entity, "ix_settlement_request_lines_source_bill_revision_id", ["SourceBillRevisionId"]);
         AssertIndex(entity, "ix_settlement_request_lines_status", ["Status"]);
         AssertIndex(
             entity,
@@ -103,6 +105,7 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
 
         AssertForeignKey(entity, typeof(SettlementRequest), ["SettlementRequestId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(ExpenseBill), ["SourceExpenseBillId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(ExpenseBillRevision), ["SourceBillRevisionId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(
             entity,

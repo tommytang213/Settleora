@@ -11,6 +11,12 @@ public sealed class ExpenseBill
 
     public UserProfile CreatedByUserProfile { get; set; } = null!;
 
+    public Guid BillOwnerUserProfileId { get; set; }
+
+    public UserProfile BillOwnerUserProfile { get; set; } = null!;
+
+    public Guid? ActiveAcceptedBillRevisionId { get; set; }
+
     public Guid? GroupId { get; set; }
 
     public UserGroup? Group { get; set; }
@@ -40,4 +46,6 @@ public sealed class ExpenseBill
     public ICollection<ExpenseBillAdjustment> Adjustments { get; } = new List<ExpenseBillAdjustment>();
 
     public ICollection<ExpenseBillAttachment> Attachments { get; } = new List<ExpenseBillAttachment>();
+
+    public ICollection<ExpenseBillRevision> Revisions { get; } = new List<ExpenseBillRevision>();
 }

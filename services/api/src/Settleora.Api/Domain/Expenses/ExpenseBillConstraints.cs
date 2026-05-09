@@ -4,11 +4,15 @@ public static class ExpenseBillConstraints
 {
     public const int MerchantNameMaxLength = 200;
     public const int BillStatusMaxLength = 32;
+    public const int BillRevisionStatusMaxLength = 40;
+    public const int BillRevisionApprovalStatusMaxLength = 40;
+    public const int BillRevisionCalculationHashMaxLength = 128;
     public const int ItemNameMaxLength = 240;
     public const int NoteMaxLength = 1000;
     public const int CurrencyMaxLength = 3;
     public const int ParticipantStatusMaxLength = 32;
     public const int ParticipantRejectionReasonCodeMaxLength = 32;
+    public const int PayerConfirmationStatusMaxLength = 32;
     public const int PayerPaymentMethodLabelSnapshotMaxLength = 120;
     public const int AdjustmentTypeMaxLength = 32;
     public const int AdjustmentDirectionMaxLength = 16;

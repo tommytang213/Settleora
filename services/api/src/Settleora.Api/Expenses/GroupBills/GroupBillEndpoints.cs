@@ -93,7 +93,7 @@ internal static class GroupBillEndpoints
         ApplyCalculation(bill, initialCalculation);
         if (createRequest.Payers.Count == 0)
         {
-            bill.Payers.Add(new ExpenseBillPayer
+            var payer = new ExpenseBillPayer
             {
                 Id = Guid.NewGuid(),
                 ExpenseBillId = bill.Id,
@@ -102,13 +102,15 @@ internal static class GroupBillEndpoints
                 Currency = initialCalculation.BillTotal.Currency.Value,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
-            });
+            };
+            ExpenseBillPayerConfirmationPolicy.ApplyCreatedBy(payer, actor.UserProfileId, now);
+            bill.Payers.Add(payer);
         }
         else
         {
             foreach (var payerRequest in createRequest.Payers)
             {
-                bill.Payers.Add(new ExpenseBillPayer
+                var payer = new ExpenseBillPayer
                 {
                     Id = Guid.NewGuid(),
                     ExpenseBillId = bill.Id,
@@ -118,7 +120,9 @@ internal static class GroupBillEndpoints
                     PaymentMethodLabelSnapshot = payerRequest.PaymentMethodLabelSnapshot,
                     CreatedAtUtc = now,
                     UpdatedAtUtc = now
-                });
+                };
+                ExpenseBillPayerConfirmationPolicy.ApplyCreatedBy(payer, actor.UserProfileId, now);
+                bill.Payers.Add(payer);
             }
         }
 
@@ -308,6 +312,7 @@ internal static class GroupBillEndpoints
         {
             Id = Guid.NewGuid(),
             CreatedByUserProfileId = actorUserProfileId,
+            BillOwnerUserProfileId = actorUserProfileId,
             GroupId = groupId,
             MerchantName = createRequest.MerchantName,
             BillDate = createRequest.BillDate,

@@ -220,6 +220,35 @@ public sealed class SettlementCandidateDerivationServiceTests
     }
 
     [Fact]
+    public void SettlementCandidateDerivationIgnoresPendingAndRejectedRevisionProposalTruth()
+    {
+        var bill = CreateConfirmedBill();
+        AddParticipant(bill, ParticipantOne, 50m);
+        AddParticipant(bill, ParticipantTwo, 50m);
+        AddPayer(bill, ParticipantOne, 100m);
+        AddRevisionProposal(
+            bill,
+            ExpenseBillRevisionStatuses.SubmittedForReview,
+            [(ParticipantOne, 10m), (ParticipantTwo, 90m)],
+            [(ParticipantTwo, 100m)]);
+        AddRevisionProposal(
+            bill,
+            ExpenseBillRevisionStatuses.Rejected,
+            [(ParticipantOne, 100m), (ParticipantTwo, 0m)],
+            [(ParticipantOne, 100m)]);
+
+        var result = service.DeriveCandidates(bill);
+
+        AssertSucceeded(result);
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(ParticipantTwo, candidate.DebtorUserProfileId);
+        Assert.Equal(ParticipantOne, candidate.CreditorUserProfileId);
+        Assert.Equal(50m, candidate.Amount);
+        AssertNetPosition(result, ParticipantOne, 100m, 50m, 50m, "creditor");
+        AssertNetPosition(result, ParticipantTwo, 0m, 50m, -50m, "debtor");
+    }
+
+    [Fact]
     public void SettlementCandidateRejectsMissingParticipantsOrPayers()
     {
         var noParticipantsBill = CreateConfirmedBill();
@@ -461,6 +490,55 @@ public sealed class SettlementCandidateDerivationServiceTests
             CreatedAtUtc = DateTimeOffset.UnixEpoch,
             UpdatedAtUtc = DateTimeOffset.UnixEpoch
         });
+    }
+
+    private static void AddRevisionProposal(
+        ExpenseBill bill,
+        string status,
+        IReadOnlyList<(Guid UserProfileId, decimal Amount)> participants,
+        IReadOnlyList<(Guid UserProfileId, decimal Amount)> payers)
+    {
+        var revision = new ExpenseBillRevision
+        {
+            Id = StableGuid(700 + bill.Revisions.Count),
+            ExpenseBillId = bill.Id,
+            ProposalCreatorUserProfileId = ParticipantOne,
+            Status = status,
+            TotalAmount = participants.Sum(participant => participant.Amount),
+            TotalCurrency = "USD",
+            CalculationHash = $"proposal-{bill.Revisions.Count}",
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+            UpdatedAtUtc = DateTimeOffset.UnixEpoch
+        };
+
+        foreach (var participant in participants)
+        {
+            revision.Participants.Add(new ExpenseBillRevisionParticipant
+            {
+                ExpenseBillRevisionId = revision.Id,
+                UserProfileId = participant.UserProfileId,
+                ResolvedShareAmount = participant.Amount,
+                ResolvedShareCurrency = "USD",
+                AffectedByRevision = true,
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                UpdatedAtUtc = DateTimeOffset.UnixEpoch
+            });
+        }
+
+        foreach (var payer in payers)
+        {
+            revision.Payers.Add(new ExpenseBillRevisionPayer
+            {
+                ExpenseBillRevisionId = revision.Id,
+                UserProfileId = payer.UserProfileId,
+                Amount = payer.Amount,
+                Currency = "USD",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                UpdatedAtUtc = DateTimeOffset.UnixEpoch
+            });
+        }
+
+        bill.Revisions.Add(revision);
     }
 
     private static void AssertSucceeded(SettlementCandidateDerivationResult result)
