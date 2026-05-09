@@ -1682,6 +1682,239 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}/proof:
+    post:
+      summary: Attach settlement payment proof
+      description: Uploads one purpose-specific proof file for an existing visible settlement payment claim. The authenticated actor is derived from the current session and must be the debtor/payer/created-by profile for the marked_paid payment. The parent settlement request must be partially_paid or marked_paid. The API validates a narrow proof content policy, writes bytes through the internal storage lifecycle foundation, creates a settlement_proof file object and active proof association, emits bounded audit, and returns safe proof metadata only. This is not a generic file API and never accepts or returns storage object keys, provider paths, provider URLs, original filenames, auth/session fields, payment handles, payment notes, request bodies, OCR text, thumbnails, or unrelated financial data.
+      operationId: attachSettlementPaymentProof
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID that should receive a proof attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AttachSettlementPaymentProofRequest"
+      responses:
+        "201":
+          description: Settlement proof attachment created for the visible payment claim.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentProofResponse"
+        "400":
+          description: The submitted multipart proof upload is malformed, unsupported, empty, too large, or has mismatched declared content type and bytes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment is missing, archived through its parent request, unrelated, not debtor/creator-owned by the actor, inactive, removed, corrupt, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement payment or parent request state is not proof-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement proof upload could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: List settlement payment proof metadata
+      description: Lists safe active proof attachment metadata for one visible settlement payment claim. Debtor and creditor can read proof metadata when the payment is visible through the existing settlement runtime policy; group-scoped payments additionally require active group visibility for the current actor and active required settlement parties. Responses expose stable file IDs, payment IDs, content type, size, and timestamps only, and exclude proof bytes, storage object keys, provider paths, provider URLs, original filenames, auth/session fields, payment details, bill merchant/item details, OCR text, thumbnails, audit internals, and unrelated users.
+      operationId: listSettlementPaymentProofs
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID whose active proof metadata should be listed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe proof attachment metadata visible to the authenticated actor. The list is empty when the payment is visible and has no active readable proof attachments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentProofListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment is missing, archived through its parent request, unrelated, inactive, removed, corrupt, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}/proof/{fileId}:
+    delete:
+      summary: Remove settlement payment proof
+      description: Soft-removes one actor-owned proof attachment from a visible proof-mutable settlement payment claim. The authenticated actor is derived from the current session and must be the debtor/payer/created-by profile that owns and created the linked settlement_proof file. The API sets the attachment removal timestamp, marks the file object deleted through the lifecycle service, emits bounded audit, and returns no proof bytes or storage internals. This endpoint is purpose-specific and does not expose or mutate generic files.
+      operationId: removeSettlementPaymentProof
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID whose proof attachment should be removed.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable proof file object ID to detach from the settlement payment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: The proof attachment is no longer active for the settlement payment.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment or proof file is missing, removed, deleted, wrong-purpose, wrong-owner, unrelated, not debtor/creator-owned by the actor, inactive, corrupt, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement payment or parent request state is not proof-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement proof removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content:
+    get:
+      summary: Read settlement payment proof content
+      description: Streams one active settlement proof attachment through API authorization every time. The authenticated actor must be able to read the settlement payment through the existing settlement runtime policy; group-scoped payments additionally require active group visibility for the actor and required parties. The linked file must be active, owned and created by the debtor/payer, purpose settlement_proof, and one of the allowed proof content types. The response uses conservative content headers and never exposes storage object keys, provider paths, provider URLs, original filenames, auth/session fields, payment details, OCR text, thumbnails, or unrelated data.
+      operationId: getSettlementPaymentProofContent
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID whose proof content should be read.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable proof file object ID to stream.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement proof bytes authorized through the settlement payment proof boundary.
+          headers:
+            X-Content-Type-Options:
+              schema:
+                type: string
+              description: Set to nosniff.
+            Content-Disposition:
+              schema:
+                type: string
+              description: Conservative attachment disposition with no submitted filename.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment or proof file is missing, removed, deleted, wrong-purpose, wrong-owner, inactive, corrupt, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement proof read audit could not be completed after content authorization.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/settlement-payments/{paymentId}/cancel:
     post:
       summary: Cancel settlement payment
@@ -3748,6 +3981,67 @@ components:
           format: date-time
         settlementRequestStatus:
           $ref: "#/components/schemas/SettlementRequestStatus"
+    SettlementPaymentProofListResponse:
+      type: object
+      description: Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
+      required:
+        - proofs
+      properties:
+        proofs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementPaymentProofResponse"
+    SettlementPaymentProofResponse:
+      type: object
+      description: Safe settlement payment proof file metadata. It exposes stable file and payment IDs plus content metadata only, and never contains storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, bytes, thumbnails, OCR text, or raw audit metadata.
+      required:
+        - fileId
+        - settlementPaymentId
+        - contentType
+        - sizeBytes
+        - uploadedAtUtc
+        - updatedAtUtc
+      properties:
+        fileId:
+          type: string
+          format: uuid
+          description: Stable file metadata identifier for the proof attachment.
+        settlementPaymentId:
+          type: string
+          format: uuid
+          description: Settlement payment claim ID that owns this proof association.
+        contentType:
+          type: string
+          enum:
+            - image/png
+            - image/jpeg
+            - image/webp
+            - application/pdf
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 5242880
+        uploadedAtUtc:
+          type: string
+          format: date-time
+          description: Timestamp when the proof association was created.
+        updatedAtUtc:
+          type: string
+          format: date-time
+          description: Timestamp when the underlying file metadata was last updated.
+    AttachSettlementPaymentProofRequest:
+      type: object
+      description: Multipart form used to upload one settlement payment proof file. The filename is treated as submitted transport metadata only and is not persisted into proof responses or audit metadata.
+      additionalProperties: false
+      required:
+        - file
+      properties:
+        file:
+          type: string
+          format: binary
+          maxLength: 5242880
+          description: Settlement proof file. Allowed content types are image/png, image/jpeg, image/webp, and application/pdf; the maximum accepted file size is 5 MB.
     CreateGroupBillRequest:
       type: object
       description: Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.

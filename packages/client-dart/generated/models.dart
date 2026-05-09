@@ -1563,6 +1563,94 @@ class SettlementPaymentResponse {
   }
 }
 
+/// Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
+class SettlementPaymentProofListResponse {
+  const SettlementPaymentProofListResponse({
+    required this.proofs,
+  });
+
+  final List<SettlementPaymentProofResponse> proofs;
+
+  factory SettlementPaymentProofListResponse.fromJson(JsonObject json) {
+    return SettlementPaymentProofListResponse(
+      proofs: (json["proofs"] as List<dynamic>).map((item) => SettlementPaymentProofResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "proofs": proofs.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe settlement payment proof file metadata. It exposes stable file and payment IDs plus content metadata only, and never contains storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, bytes, thumbnails, OCR text, or raw audit metadata.
+class SettlementPaymentProofResponse {
+  const SettlementPaymentProofResponse({
+    required this.fileId,
+    required this.settlementPaymentId,
+    required this.contentType,
+    required this.sizeBytes,
+    required this.uploadedAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable file metadata identifier for the proof attachment.
+  final String fileId;
+  /// Settlement payment claim ID that owns this proof association.
+  final String settlementPaymentId;
+  final String contentType;
+  final int sizeBytes;
+  /// Timestamp when the proof association was created.
+  final DateTime uploadedAtUtc;
+  /// Timestamp when the underlying file metadata was last updated.
+  final DateTime updatedAtUtc;
+
+  factory SettlementPaymentProofResponse.fromJson(JsonObject json) {
+    return SettlementPaymentProofResponse(
+      fileId: json["fileId"] as String,
+      settlementPaymentId: json["settlementPaymentId"] as String,
+      contentType: json["contentType"] as String,
+      sizeBytes: (json["sizeBytes"] as num).toInt(),
+      uploadedAtUtc: DateTime.parse(json["uploadedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "fileId": fileId,
+      "settlementPaymentId": settlementPaymentId,
+      "contentType": contentType,
+      "sizeBytes": sizeBytes,
+      "uploadedAtUtc": uploadedAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Multipart form used to upload one settlement payment proof file. The filename is treated as submitted transport metadata only and is not persisted into proof responses or audit metadata.
+class AttachSettlementPaymentProofRequest {
+  const AttachSettlementPaymentProofRequest({
+    required this.file,
+  });
+
+  /// Settlement proof file. Allowed content types are image/png, image/jpeg, image/webp, and application/pdf; the maximum accepted file size is 5 MB.
+  final List<int> file;
+
+  factory AttachSettlementPaymentProofRequest.fromJson(JsonObject json) {
+    return AttachSettlementPaymentProofRequest(
+      file: List<int>.from(json["file"] as List),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "file": file,
+    };
+  }
+}
+
 /// Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
 class CreateGroupBillRequest {
   static const Object _unsetMerchantName = Object();

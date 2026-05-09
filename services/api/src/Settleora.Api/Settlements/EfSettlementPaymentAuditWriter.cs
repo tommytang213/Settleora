@@ -69,7 +69,11 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
             RequireSafeMetadataAmount(auditEvent.ActivePaymentCoverageAmount, nameof(auditEvent.ActivePaymentCoverageAmount), allowZero: true),
             RequireSafeMetadataAmount(auditEvent.RequestAmount, nameof(auditEvent.RequestAmount)),
             RequireSafeMetadataCategory(auditEvent.Currency, nameof(auditEvent.Currency)),
-            auditEvent.PaymentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            auditEvent.PaymentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            auditEvent.FileObjectId?.ToString("D"),
+            auditEvent.ActionCategory is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.ActionCategory, nameof(auditEvent.ActionCategory)));
 
         var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         if (json.Length > SafeMetadataJsonMaxLength)
@@ -138,5 +142,7 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
         string ActivePaymentCoverageAmount,
         string RequestAmount,
         string Currency,
-        string PaymentDate);
+        string PaymentDate,
+        string? FileObjectId,
+        string? ActionCategory);
 }

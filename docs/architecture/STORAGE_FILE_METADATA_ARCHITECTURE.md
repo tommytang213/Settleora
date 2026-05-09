@@ -6,7 +6,7 @@ This document defines Settleora's Day 1 architecture direction for storage abstr
 
 Storage is a cross-cutting foundation for receipt images, OCR source files, settlement proof attachments, payment QR images, statement uploads, exports, and future vault-protected sensitive files. The goal is to avoid turning future upload/download endpoints into a generic public file server.
 
-This document began as a design gate. The current repository now includes the explicitly scoped file metadata schema, internal local storage provider foundation, and first subject-specific self payment QR linkage endpoints described below; generic public file APIs, counterparty QR reads, UI behavior, broader subject-specific file workflows, and non-local providers still require separate reviewed slices.
+This document began as a design gate. The current repository now includes the explicitly scoped file metadata schema, internal local storage provider foundation, self payment QR linkage endpoints, and purpose-specific settlement payment proof endpoints described below; generic public file APIs, UI behavior, broader subject-specific file workflows, and non-local providers still require separate reviewed slices.
 
 ## Current State
 
@@ -23,13 +23,13 @@ This document began as a design gate. The current repository now includes the ex
 - A metadata-only internal file object lifecycle service exists for pending creation, upload completion/failure, deleted, and purged status transitions.
 - The lifecycle service writes bounded `auth_audit_events` actions `file.upload_started`, `file.upload_completed`, `file.upload_failed`, `file.deleted`, and `file.purged` with safe metadata only.
 - No generic file upload/download API exists.
-- The OpenAPI contract includes purpose-specific self payment QR attach/remove/content-read paths only; no generic file upload/download path exists.
-- Generated clients expose the self payment QR methods, not a generic file API.
+- The OpenAPI contract includes purpose-specific self payment QR attach/remove/content-read paths and settlement payment proof attach/list/content/remove paths; no generic file upload/download path exists.
+- Generated clients expose the self payment QR and settlement payment proof methods, not a generic file API.
 - The payment-details foundation includes nullable `qr_file_object_id` linkage to `file_objects`.
 - The `user_payment_profiles` table has no storage path, vault key, provider URL, original filename, or object key.
 - Self payment QR upload/remove/content-read endpoints exist under `/api/v1/users/me/payment-details/qr`.
-- No counterparty payment-detail or QR read endpoint exists.
-- Receipt/OCR/proof/statement file flows are not implemented yet.
+- Settlement payment proof upload/list/content-read/remove endpoints exist under `/api/v1/settlement-payments/{paymentId}/proof`.
+- Receipt/OCR/statement file flows are not implemented yet.
 
 ## Architecture Principles
 
@@ -479,7 +479,7 @@ This architecture still does not authorize:
 - counterparty QR read
 - generic file API
 - receipt upload
-- settlement proof upload
+- generic settlement proof upload outside the purpose-specific payment proof endpoints
 - statement upload
 - OCR worker file processing
 - additional storage providers beyond the internal local filesystem foundation
@@ -492,10 +492,11 @@ The current implementation slices are:
 
 ```text
 file metadata schema + internal storage abstraction + metadata lifecycle/audit foundation,
-plus self-only payment QR linkage through purpose-specific payment-details endpoints
+self-only payment QR linkage through purpose-specific payment-details endpoints,
+plus settlement payment proof linkage through purpose-specific settlement endpoints
 ```
 
-Those slices add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, a metadata-only lifecycle service, bounded file lifecycle audit events, nullable `user_payment_profiles.qr_file_object_id`, self QR attach/remove/content-read endpoints, safe QR metadata in self payment-details responses, OpenAPI paths, generated client methods, and focused tests. They do not add generic public file endpoints, counterparty QR reads, receipt upload, settlement proof upload, statement upload, UI behavior, OCR worker file processing, physical purge/delete orchestration, or broader subject associations.
+Those slices add the `file_objects` schema, constrained purpose/status/encryption metadata, provider-neutral internal storage interfaces, local provider object-key/path-safety/read-write-delete behavior, a metadata-only lifecycle service, bounded file lifecycle audit events, nullable `user_payment_profiles.qr_file_object_id`, self QR attach/remove/content-read endpoints, safe QR metadata in self payment-details responses, purpose-specific settlement proof attach/list/content-read/remove endpoints, safe proof metadata responses, OpenAPI paths, generated client methods, and focused tests. They do not add generic public file endpoints, receipt upload, statement upload, UI behavior, OCR worker file processing, physical purge/delete orchestration, or broader subject associations.
 
 Next implementation candidates should remain separate:
 

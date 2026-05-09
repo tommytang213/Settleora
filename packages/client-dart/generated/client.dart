@@ -469,6 +469,48 @@ class SettleoraApiClient {
     return SettlementPaymentResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SettlementPaymentProofListResponse> listSettlementPaymentProofs(String paymentId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/proof',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementPaymentProofListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<SettlementPaymentProofResponse> attachSettlementPaymentProof(String paymentId, SettleoraMultipartFile file, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendMultipart(
+      "POST",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/proof',
+      fieldName: "file",
+      file: file,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementPaymentProofResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removeSettlementPaymentProof(String paymentId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/proof/${Uri.encodeComponent(fileId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<List<int>> getSettlementPaymentProofContent(String paymentId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      '/api/v1/settlement-payments/${Uri.encodeComponent(paymentId.toString())}/proof/${Uri.encodeComponent(fileId.toString())}/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<SettlementRequestListResponse> listSettlementRequests({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

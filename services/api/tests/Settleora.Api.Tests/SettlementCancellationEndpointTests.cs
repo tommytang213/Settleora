@@ -756,7 +756,7 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
     }
 
     [Fact]
-    public void OpenApiAndGeneratedClientsExposeCancellationWithoutSettlementProofBalanceOcrOrAiSurfaces()
+    public void OpenApiAndGeneratedClientsExposeCancellationWithoutBalanceOcrOrAiSurfaces()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var requestCancelBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlements/{settlementId}/cancel:");
@@ -776,8 +776,7 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
                 || line.StartsWith("  /api/v1/", StringComparison.Ordinal))
             .ToArray();
         Assert.DoesNotContain(pathHeaders, path => path.Contains("settlement", StringComparison.OrdinalIgnoreCase)
-            && (path.Contains("proof", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("balance", StringComparison.OrdinalIgnoreCase)
+            && (path.Contains("balance", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("ocr", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("recurring", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("forecast", StringComparison.OrdinalIgnoreCase)

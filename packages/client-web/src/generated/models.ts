@@ -547,6 +547,47 @@ export interface SettlementPaymentResponse {
 }
 
 /**
+ * Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
+ */
+export interface SettlementPaymentProofListResponse {
+  proofs: SettlementPaymentProofResponse[];
+}
+
+/**
+ * Safe settlement payment proof file metadata. It exposes stable file and payment IDs plus content metadata only, and never contains storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, bytes, thumbnails, OCR text, or raw audit metadata.
+ */
+export interface SettlementPaymentProofResponse {
+  /**
+   * Stable file metadata identifier for the proof attachment.
+   */
+  fileId: string;
+  /**
+   * Settlement payment claim ID that owns this proof association.
+   */
+  settlementPaymentId: string;
+  contentType: "image/png" | "image/jpeg" | "image/webp" | "application/pdf";
+  sizeBytes: number;
+  /**
+   * Timestamp when the proof association was created.
+   */
+  uploadedAtUtc: string;
+  /**
+   * Timestamp when the underlying file metadata was last updated.
+   */
+  updatedAtUtc: string;
+}
+
+/**
+ * Multipart form used to upload one settlement payment proof file. The filename is treated as submitted transport metadata only and is not persisted into proof responses or audit metadata.
+ */
+export interface AttachSettlementPaymentProofRequest {
+  /**
+   * Settlement proof file. Allowed content types are image/png, image/jpeg, image/webp, and application/pdf; the maximum accepted file size is 5 MB.
+   */
+  file: Blob;
+}
+
+/**
  * Minimal group bill creation request. Creator/current actor are derived server-side; the route groupId is authoritative and clients cannot submit creator, owner, auth account, session, group override, file, or authorization identity fields.
  */
 export interface CreateGroupBillRequest {

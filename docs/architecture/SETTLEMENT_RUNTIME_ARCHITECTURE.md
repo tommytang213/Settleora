@@ -6,7 +6,7 @@ This document is the Day 1 design gate for Settleora settlement runtime workflow
 
 It defines how implemented and future settlement request, payment claim, confirmation, dispute, cancellation, proof linkage, payment-detail visibility, and balance-projection branches must stay server-authoritative, decimal-safe, authorization-backed, and auditable.
 
-This document does not authorize unrelated runtime behavior, migrations, EF model changes, proof upload/download bytes, UI, notifications, OCR, reconciliation, FX, locks, refunds, governance, recurring workflows, forecasting, or AI behavior.
+This document does not authorize unrelated runtime behavior, migrations, EF model changes, generic file APIs, UI, notifications, OCR, reconciliation, FX, locks, refunds, governance, recurring workflows, forecasting, or AI behavior.
 
 ## Current State
 
@@ -22,15 +22,14 @@ The current repository state is:
 - Settlement candidate preview endpoints exist for personal and group bills.
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility.
-- Settlement proof rows are still persistence foundations only.
 - Settlement payment list/get endpoints exist for read-only payment visibility through visible settlement requests.
 - Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
 - Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
 - Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
 - Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
-- Settlement proof runtime endpoints do not exist.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, and payment cancellation.
-- Settlement proof upload/download bytes do not exist.
+- Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
+- Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - Balance projection runtime does not exist.
 
 ## Settlement Runtime Authority
@@ -46,7 +45,7 @@ Authoritative responsibilities include:
 - Confirming received payments.
 - Disputing payment claims or settlement requests.
 - Cancelling requests or claims where policy allows.
-- Linking proof metadata after authorized public file flows exist.
+- Linking proof metadata and bytes through purpose-specific settlement payment proof endpoints.
 - Emitting bounded audit events.
 - Producing balance projections from source records and policy.
 
@@ -98,7 +97,7 @@ Recommended first slices:
 8. Request and payment dispute. Landed.
 9. Cancel where policy allows. Landed for requester-owned unpaid requests and debtor-owned marked-paid payment claims.
 10. List/get settlement payment claims for visible settlements. Landed.
-11. Proof attachment linkage after authorized public file flows exist.
+11. Proof attachment upload, metadata list, content read, and removal for existing payment claims. Landed.
 
 Potential route concepts:
 
@@ -115,6 +114,8 @@ POST /api/v1/settlement-payments/{paymentId}/dispute
 POST /api/v1/settlements/{settlementId}/cancel
 POST /api/v1/settlement-payments/{paymentId}/cancel
 POST /api/v1/settlement-payments/{paymentId}/proof
+GET /api/v1/settlement-payments/{paymentId}/proof
+GET /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content
 DELETE /api/v1/settlement-payments/{paymentId}/proof/{fileId}
 ```
 
@@ -359,18 +360,17 @@ Denied attempts should be auditable where policy requires it, but denial audit m
 
 Settlement proof attachments reference stable file IDs only.
 
-The existing `settlement_proof_attachments` table associates a payment claim with a `file_objects.id`. It must not store or expose storage paths, object keys, provider URLs, local filesystem paths, original filenames beyond approved safe metadata, vault references, public URLs, or file bytes.
+The existing `settlement_proof_attachments` table associates a payment claim with a `file_objects.id`. It must not store or expose storage paths, object keys, provider URLs, local filesystem paths, original filenames, vault references, public URLs, or file bytes.
 
-Proof bytes remain out of scope until authorized public file upload/download flows exist. A proof attachment runtime branch must first prove:
+The current proof attachment runtime is purpose-specific to settlement payments:
 
-- The actor is a settlement party allowed to attach or remove proof.
-- The file has purpose `settlement_proof`.
-- The file is active or in an allowed lifecycle state.
-- The file owner/creator and settlement subject relationship are policy-approved.
-- The settlement payment is in a status that accepts proof.
-- Reads require API authorization every time.
-- Responses expose stable file IDs and safe metadata only.
-- No direct filesystem/object storage path appears in response, audit, logs, or validation output.
+- Debtor/payer/created-by may attach one proof file to a visible `marked_paid` payment while the parent request is `partially_paid` or `marked_paid`.
+- Debtor and creditor may list safe proof metadata and read proof content when the payment remains visible through settlement runtime policy.
+- Debtor/payer/created-by may remove their own active proof while the payment remains proof-mutable.
+- Files must have purpose `settlement_proof`, active lifecycle status, allowed content type, and debtor-owned owner/creator metadata.
+- Reads require API authorization every time and return conservative content headers.
+- Responses expose stable file IDs, payment IDs, content type, size, and timestamps only.
+- No direct filesystem/object storage path, provider URL, original filename, or raw provider detail appears in response, audit, logs, or validation output.
 
 Possessing a file ID, settlement ID, group ID, bill ID, payment ID, profile ID, generated client method, or cached UI route is not authorization.
 
@@ -444,14 +444,11 @@ Future runtime branches should include focused tests for:
 
 ## Non-Goals
 
-This design branch does not implement or authorize:
+This architecture still does not authorize:
 
-- Runtime settlement endpoints.
-- OpenAPI settlement paths.
-- Generated settlement clients.
 - Database migrations.
 - EF model changes.
-- Settlement proof upload/download bytes.
+- Generic public file APIs.
 - Receipt upload/download behavior.
 - OCR behavior.
 - Notifications.
