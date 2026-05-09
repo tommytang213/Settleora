@@ -56,6 +56,13 @@ Payment details must not be globally visible by default.
 - Notes/comments.
 - Multiple attachments per expense.
 - Receipt/photo sharing with authorization checks.
+- Bill creation on behalf of another payer, with separate `created_by`, responsible bill owner/editor, and `paid_by` confirmation.
+- Participant correction proposals through pending bill revisions.
+- One active pending official bill revision at a time in Day 1.
+- Proposal withdrawal, revision, and resubmission before acceptance/application.
+- Revision-specific approval based on accepted amount, currency, and calculation hash.
+- Only affected users re-approve money-impacting changes.
+- The paid-by person re-confirms if payer role, paid amount, payer contribution, or their financial share changes.
 
 Payment method on a bill is optional. It is a hint for statement reconciliation, not a mandatory input.
 
@@ -113,6 +120,11 @@ Resolved shares must be stored clearly so historical calculations remain stable.
 ### Settlement workflow
 
 - Settlement request/create.
+- Settlement baskets that include one or more outstanding bill/share lines.
+- Pay all outstanding for one counterparty.
+- Select all visible eligible outstanding lines after filters.
+- Exact selected total vs actual paid amount display.
+- Explicit residual handling for underpayment/overpayment.
 - Mark as paid.
 - Partial payments.
 - Receiver confirmation.
@@ -121,6 +133,8 @@ Resolved shares must be stored clearly so historical calculations remain stable.
 - Settlement notes.
 - Payment profile display to authorized counterparties.
 - Settlement audit events.
+- Pending bill revisions must not silently mutate settlement balances or selected outstanding lines.
+- Accepted/applied bill revisions that affect settlement amounts must flag, reopen, or adjust affected settlements only through explicit policy.
 
 Recommended settlement states:
 
@@ -141,6 +155,12 @@ Day 1 should support lightweight trust workflows:
 - Comments or notes on shared bills.
 - Change approval for money-impacting edits.
 - Dispute/correction request.
+- Participant correction proposals through pending bill revisions.
+- A single active pending official revision per bill in Day 1.
+- Proposal withdrawal/edit/resubmission by the proposer before acceptance/application.
+- Revision-specific approvals; rejected or superseded proposal approvals do not silently carry to another revision.
+- Affected-participant-only re-approval for money-impacting changes.
+- Paid-by confirmation when payer/payment facts are created or changed on behalf of another user.
 - Statuses such as `needs_review`, `disputed`, and `resolved`.
 
 ### Notifications
@@ -152,6 +172,7 @@ Required events:
 - New shared bill assigned to user.
 - Bill updated.
 - Bill requires acknowledgement/approval.
+- Bill correction proposed, revised, withdrawn, accepted, rejected, or applied.
 - Settlement requested.
 - Settlement marked paid.
 - Settlement confirmed/disputed.
@@ -254,3 +275,5 @@ Traditional Chinese support is planned for Day 2.
 - Investment tracking.
 - Automatic dispute filing with banks.
 - Silent AI or import-driven financial record mutation.
+- Multiple competing active official correction proposals per bill in Day 1.
+- Silent bill-revision-driven settlement mutation.
