@@ -30,16 +30,7 @@ internal static class SettlementCancellationEndpoints
     private const string SettlementPaymentCancellationWorkflowName = "settlement_payment_cancellation";
     private const string SettlementRequestCancelledAction = "settlement.request_cancelled";
     private const string SettlementPaymentCancelledAction = "settlement.payment_cancelled";
-    private const string PersonalGroupMode = "personal";
-    private const string GroupMode = "group";
     private const string RequestCancellationCandidateBasis = "request_status_transition";
-    private const decimal SettlementAmountMaxValue = 999_999_999_999_999.9999m;
-
-    private static readonly string[] ActivePaymentStatuses =
-    [
-        SettlementPaymentStatuses.MarkedPaid,
-        SettlementPaymentStatuses.Confirmed
-    ];
 
     public static WebApplication MapSettlementCancellationEndpoints(this WebApplication app)
     {
@@ -69,7 +60,7 @@ internal static class SettlementCancellationEndpoints
             return Unauthenticated();
         }
 
-        if (request.ContentLength.GetValueOrDefault() > 0)
+        if (SettlementRuntimePolicy.RequestHasBody(request))
         {
             return InvalidSettlementCancellation();
         }
@@ -121,7 +112,9 @@ internal static class SettlementCancellationEndpoints
                 settlementRequest.Id,
                 settlementRequest.SourceExpenseBillId!.Value,
                 settlementRequest.GroupId,
-                settlementRequest.GroupId.HasValue ? GroupMode : PersonalGroupMode,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
                 settlementRequest.Status,
@@ -164,7 +157,7 @@ internal static class SettlementCancellationEndpoints
             return Unauthenticated();
         }
 
-        if (request.ContentLength.GetValueOrDefault() > 0)
+        if (SettlementRuntimePolicy.RequestHasBody(request))
         {
             return InvalidSettlementPaymentCancellation();
         }
@@ -205,7 +198,7 @@ internal static class SettlementCancellationEndpoints
 
         var remainingActivePayments = settlementRequest.Payments
             .Where(candidate => candidate.Id != payment.Id
-                && ActivePaymentStatuses.Contains(candidate.Status, StringComparer.Ordinal))
+                && SettlementRuntimePolicy.IsActivePaymentStatus(candidate.Status))
             .ToArray();
         if (!HasValidCoverageData(settlementRequest, remainingActivePayments))
         {
@@ -224,7 +217,7 @@ internal static class SettlementCancellationEndpoints
 
         var previousPaymentStatus = payment.Status;
         var previousRequestStatus = settlementRequest.Status;
-        var newRequestStatus = RecomputeSettlementRequestStatus(
+        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
             settlementRequest.Amount,
             activePaymentCoverage,
             confirmedPaymentCoverage);
@@ -251,7 +244,9 @@ internal static class SettlementCancellationEndpoints
                 payment.Id,
                 settlementRequest.SourceExpenseBillId!.Value,
                 settlementRequest.GroupId,
-                settlementRequest.GroupId.HasValue ? GroupMode : PersonalGroupMode,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
                 previousRequestStatus,
@@ -354,7 +349,7 @@ internal static class SettlementCancellationEndpoints
     {
         return settlementRequest.Status == SettlementRequestStatuses.Requested
             && settlementRequest.Payments.Count == 0
-            && IsValidAmount(settlementRequest.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && !string.IsNullOrWhiteSpace(settlementRequest.Currency)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status);
     }
@@ -371,8 +366,8 @@ internal static class SettlementCancellationEndpoints
             && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
             && payment.PaidByUserProfileId == settlementRequest.DebtorUserProfileId
             && string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)
-            && IsValidAmount(payment.Amount)
-            && IsValidAmount(settlementRequest.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
             && SettlementPaymentStatuses.IsSupported(payment.Status);
     }
@@ -382,7 +377,7 @@ internal static class SettlementCancellationEndpoints
         IReadOnlyCollection<SettlementPayment> activePayments)
     {
         return activePayments.All(payment =>
-            IsValidAmount(payment.Amount)
+            SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
             && SettlementPaymentStatuses.IsSupported(payment.Status)
             && payment.PaidByUserProfileId == settlementRequest.DebtorUserProfileId
             && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
@@ -393,31 +388,6 @@ internal static class SettlementCancellationEndpoints
     {
         return status is SettlementRequestStatuses.PartiallyPaid
             or SettlementRequestStatuses.MarkedPaid;
-    }
-
-    private static bool IsValidAmount(decimal amount)
-    {
-        return amount is > 0m and <= SettlementAmountMaxValue;
-    }
-
-    private static string RecomputeSettlementRequestStatus(
-        decimal requestAmount,
-        decimal activePaymentCoverage,
-        decimal confirmedPaymentCoverage)
-    {
-        if (confirmedPaymentCoverage == requestAmount)
-        {
-            return SettlementRequestStatuses.Confirmed;
-        }
-
-        if (activePaymentCoverage == requestAmount)
-        {
-            return SettlementRequestStatuses.MarkedPaid;
-        }
-
-        return activePaymentCoverage > 0m
-            ? SettlementRequestStatuses.PartiallyPaid
-            : SettlementRequestStatuses.Requested;
     }
 
     private static IResult MapSettlementAuthorizationFailure(BusinessAuthorizationResult authorizationResult)

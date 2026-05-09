@@ -24,14 +24,6 @@ internal static class SettlementPaymentClaimEndpoints
     private const string SettlementPaymentClaimWorkflowName = "settlement_payment_claim";
     private const string SettlementPaymentMarkedPaidAction = "settlement.payment_marked_paid";
     private const string SettlementPaymentPartiallyPaidAction = "settlement.payment_partially_paid";
-    private const string PersonalGroupMode = "personal";
-    private const string GroupMode = "group";
-
-    private static readonly string[] ActivePaymentStatuses =
-    [
-        SettlementPaymentStatuses.MarkedPaid,
-        SettlementPaymentStatuses.Confirmed
-    ];
 
     public static WebApplication MapSettlementPaymentClaimEndpoints(this WebApplication app)
     {
@@ -103,14 +95,14 @@ internal static class SettlementPaymentClaimEndpoints
         }
 
         if (settlementRequest.Payments.Any(payment =>
-            ActivePaymentStatuses.Contains(payment.Status, StringComparer.Ordinal)
+            SettlementRuntimePolicy.IsActivePaymentStatus(payment.Status)
             && !string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)))
         {
             return SettlementPaymentConflict();
         }
 
         var activePaymentCoverage = settlementRequest.Payments
-            .Where(payment => ActivePaymentStatuses.Contains(payment.Status, StringComparer.Ordinal))
+            .Where(payment => SettlementRuntimePolicy.IsActivePaymentStatus(payment.Status))
             .Sum(payment => payment.Amount);
         var newPaymentCoverage = activePaymentCoverage + readResult.Request.Amount;
         if (newPaymentCoverage > settlementRequest.Amount)
@@ -155,7 +147,9 @@ internal static class SettlementPaymentClaimEndpoints
                 payment.Id,
                 settlementRequest.SourceExpenseBillId!.Value,
                 settlementRequest.GroupId,
-                settlementRequest.GroupId.HasValue ? GroupMode : PersonalGroupMode,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
                 previousRequestStatus,

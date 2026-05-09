@@ -24,8 +24,6 @@ internal static class SettlementRequestCreateEndpoints
     private const string SettlementRequestWriteFailedTitle = "Settlement request write failed";
     private const string SettlementRequestWriteFailedDetail = "Unable to complete settlement request write.";
     private const string SettlementRequestCreatedAction = "settlement.request_created";
-    private const string PersonalGroupMode = "personal";
-    private const string GroupMode = "group";
 
     private static readonly string[] DuplicateBlockingStatuses =
     [
@@ -96,7 +94,7 @@ internal static class SettlementRequestCreateEndpoints
             auditWriter,
             dbContext,
             timeProvider,
-            PersonalGroupMode,
+            SettlementRuntimePolicy.PersonalGroupMode,
             BillUnavailable,
             cancellationToken);
     }
@@ -149,7 +147,7 @@ internal static class SettlementRequestCreateEndpoints
             auditWriter,
             dbContext,
             timeProvider,
-            GroupMode,
+            SettlementRuntimePolicy.GroupMode,
             GroupBillUnavailable,
             cancellationToken);
     }

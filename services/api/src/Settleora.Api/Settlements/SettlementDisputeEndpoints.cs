@@ -30,16 +30,7 @@ internal static class SettlementDisputeEndpoints
     private const string SettlementPaymentDisputeWorkflowName = "settlement_payment_dispute";
     private const string SettlementRequestDisputedAction = "settlement.request_disputed";
     private const string SettlementPaymentDisputedAction = "settlement.payment_disputed";
-    private const string PersonalGroupMode = "personal";
-    private const string GroupMode = "group";
     private const string RequestDisputeCandidateBasis = "request_status_transition";
-    private const decimal SettlementAmountMaxValue = 999_999_999_999_999.9999m;
-
-    private static readonly string[] ActivePaymentStatuses =
-    [
-        SettlementPaymentStatuses.MarkedPaid,
-        SettlementPaymentStatuses.Confirmed
-    ];
 
     public static WebApplication MapSettlementDisputeEndpoints(this WebApplication app)
     {
@@ -69,7 +60,7 @@ internal static class SettlementDisputeEndpoints
             return Unauthenticated();
         }
 
-        if (request.ContentLength.GetValueOrDefault() > 0)
+        if (SettlementRuntimePolicy.RequestHasBody(request))
         {
             return InvalidSettlementDispute();
         }
@@ -121,7 +112,9 @@ internal static class SettlementDisputeEndpoints
                 settlementRequest.Id,
                 settlementRequest.SourceExpenseBillId!.Value,
                 settlementRequest.GroupId,
-                settlementRequest.GroupId.HasValue ? GroupMode : PersonalGroupMode,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
                 settlementRequest.Status,
@@ -164,7 +157,7 @@ internal static class SettlementDisputeEndpoints
             return Unauthenticated();
         }
 
-        if (request.ContentLength.GetValueOrDefault() > 0)
+        if (SettlementRuntimePolicy.RequestHasBody(request))
         {
             return InvalidSettlementPaymentDispute();
         }
@@ -206,7 +199,7 @@ internal static class SettlementDisputeEndpoints
         var previousPaymentStatus = payment.Status;
         var previousRequestStatus = settlementRequest.Status;
         var activePaymentCoverageAmount = settlementRequest.Payments
-            .Where(candidate => ActivePaymentStatuses.Contains(candidate.Status, StringComparer.Ordinal))
+            .Where(candidate => SettlementRuntimePolicy.IsActivePaymentStatus(candidate.Status))
             .Sum(candidate => candidate.Amount);
         var now = timeProvider.GetUtcNow();
 
@@ -227,7 +220,9 @@ internal static class SettlementDisputeEndpoints
                 payment.Id,
                 settlementRequest.SourceExpenseBillId!.Value,
                 settlementRequest.GroupId,
-                settlementRequest.GroupId.HasValue ? GroupMode : PersonalGroupMode,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
                 previousRequestStatus,
@@ -330,7 +325,7 @@ internal static class SettlementDisputeEndpoints
         Guid actorUserProfileId)
     {
         return CanDisputeRequestStatus(settlementRequest.Status)
-            && IsValidAmount(settlementRequest.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && !string.IsNullOrWhiteSpace(settlementRequest.Currency)
             && (settlementRequest.DebtorUserProfileId == actorUserProfileId
                 || settlementRequest.CreditorUserProfileId == actorUserProfileId)
@@ -350,8 +345,8 @@ internal static class SettlementDisputeEndpoints
             && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
             && payment.CreatedByUserProfileId == settlementRequest.DebtorUserProfileId
             && string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)
-            && IsValidAmount(payment.Amount)
-            && IsValidAmount(settlementRequest.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
+            && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
             && SettlementPaymentStatuses.IsSupported(payment.Status);
     }
@@ -361,11 +356,6 @@ internal static class SettlementDisputeEndpoints
         return status is SettlementRequestStatuses.Requested
             or SettlementRequestStatuses.PartiallyPaid
             or SettlementRequestStatuses.MarkedPaid;
-    }
-
-    private static bool IsValidAmount(decimal amount)
-    {
-        return amount is > 0m and <= SettlementAmountMaxValue;
     }
 
     private static IResult MapSettlementAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
