@@ -1919,7 +1919,7 @@ class CreateSettlementPaymentRequest {
   }
 }
 
-/// Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+/// Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and bounded allocation summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
 class SettlementPaymentListResponse {
   const SettlementPaymentListResponse({
     required this.payments,
@@ -1940,7 +1940,49 @@ class SettlementPaymentListResponse {
   }
 }
 
-/// Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+/// Bounded settlement payment allocation summary showing how a payment claim maps to selected settlement request lines. It excludes bill merchant/item details, proof/file/storage internals, payment details, auth/session data, raw audit metadata, private notes, and unrelated users.
+class SettlementPaymentAllocationResponse {
+  const SettlementPaymentAllocationResponse({
+    required this.id,
+    required this.settlementRequestLineId,
+    required this.clearedAmount,
+    required this.currency,
+    required this.allocationOrder,
+    required this.createdAtUtc,
+  });
+
+  final String id;
+  final String settlementRequestLineId;
+  /// Positive decimal-safe cleared amount represented as a string.
+  final String clearedAmount;
+  final CurrencyCode currency;
+  final int allocationOrder;
+  final DateTime createdAtUtc;
+
+  factory SettlementPaymentAllocationResponse.fromJson(JsonObject json) {
+    return SettlementPaymentAllocationResponse(
+      id: json["id"] as String,
+      settlementRequestLineId: json["settlementRequestLineId"] as String,
+      clearedAmount: json["clearedAmount"] as String,
+      currency: json["currency"] as String,
+      allocationOrder: (json["allocationOrder"] as num).toInt(),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "id": id,
+      "settlementRequestLineId": settlementRequestLineId,
+      "clearedAmount": clearedAmount,
+      "currency": currency,
+      "allocationOrder": allocationOrder,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
 class SettlementPaymentResponse {
   const SettlementPaymentResponse({
     required this.paymentId,
@@ -1954,6 +1996,7 @@ class SettlementPaymentResponse {
     required this.claimedAtUtc,
     required this.createdAtUtc,
     required this.updatedAtUtc,
+    required this.allocations,
     required this.settlementRequestStatus,
   });
 
@@ -1969,6 +2012,7 @@ class SettlementPaymentResponse {
   final DateTime claimedAtUtc;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
+  final List<SettlementPaymentAllocationResponse> allocations;
   final SettlementRequestStatus settlementRequestStatus;
 
   factory SettlementPaymentResponse.fromJson(JsonObject json) {
@@ -1984,6 +2028,7 @@ class SettlementPaymentResponse {
       claimedAtUtc: DateTime.parse(json["claimedAtUtc"] as String),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      allocations: (json["allocations"] as List<dynamic>).map((item) => SettlementPaymentAllocationResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       settlementRequestStatus: json["settlementRequestStatus"] as String,
     );
   }
@@ -2001,6 +2046,7 @@ class SettlementPaymentResponse {
       "claimedAtUtc": claimedAtUtc.toUtc().toIso8601String(),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "allocations": allocations.map((item) => item.toJson()).toList(growable: false),
       "settlementRequestStatus": settlementRequestStatus,
     };
   }

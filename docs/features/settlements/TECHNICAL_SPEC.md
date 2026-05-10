@@ -58,7 +58,7 @@ IBillRevisionSettlementImpactService
 
 ## Persistence direction
 
-Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, and request list/get responses expose bounded line summaries. Basket selection, payment allocations, and residuals remain future runtime slices and do not add public basket selection, residual confirmation, or balance projection endpoints.
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, and payment claim runtime persists allocation rows against the selected request line with bounded allocation summaries on payment responses. Basket selection, residuals, balance projection endpoints, and settlement reopen/adjustment policy remain future runtime slices.
 
 Current and future table categories include:
 

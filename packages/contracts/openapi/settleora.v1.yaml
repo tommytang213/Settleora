@@ -4810,7 +4810,7 @@ components:
           description: Claimed payment date as yyyy-MM-dd.
     SettlementPaymentListResponse:
       type: object
-      description: Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      description: Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and bounded allocation summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
       required:
         - payments
       properties:
@@ -4818,9 +4818,37 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SettlementPaymentResponse"
+    SettlementPaymentAllocationResponse:
+      type: object
+      description: Bounded settlement payment allocation summary showing how a payment claim maps to selected settlement request lines. It excludes bill merchant/item details, proof/file/storage internals, payment details, auth/session data, raw audit metadata, private notes, and unrelated users.
+      required:
+        - id
+        - settlementRequestLineId
+        - clearedAmount
+        - currency
+        - allocationOrder
+        - createdAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        settlementRequestLineId:
+          type: string
+          format: uuid
+        clearedAmount:
+          type: string
+          description: Positive decimal-safe cleared amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        allocationOrder:
+          type: integer
+          minimum: 0
+        createdAtUtc:
+          type: string
+          format: date-time
     SettlementPaymentResponse:
       type: object
-      description: Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+      description: Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
       required:
         - paymentId
         - settlementRequestId
@@ -4833,6 +4861,7 @@ components:
         - claimedAtUtc
         - createdAtUtc
         - updatedAtUtc
+        - allocations
         - settlementRequestStatus
       properties:
         paymentId:
@@ -4866,6 +4895,10 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+        allocations:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementPaymentAllocationResponse"
         settlementRequestStatus:
           $ref: "#/components/schemas/SettlementRequestStatus"
     SettlementPaymentProofListResponse:

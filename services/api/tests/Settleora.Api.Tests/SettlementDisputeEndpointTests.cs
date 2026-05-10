@@ -87,6 +87,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal(SettlementRequestStatuses.Disputed, settlementRequest.Status);
         Assert.Equal(ValidationTimestamp, settlementRequest.DisputedAtUtc);
         Assert.Equal(ValidationTimestamp, settlementRequest.UpdatedAtUtc);
+        Assert.Equal(SettlementRequestLineStatuses.Disputed, Assert.Single(persisted.RequestLines).Status);
         Assert.Empty(persisted.Payments);
         Assert.Empty(persisted.ProofAttachments);
         Assert.Equal(beforeCounts with { SettlementAuditEventCount = beforeCounts.SettlementAuditEventCount + 1 }, persisted.MutationCounts);
@@ -164,6 +165,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
 
         var persisted = await ReadSettlementStateAsync(testFactory);
         Assert.Equal(SettlementRequestStatuses.Disputed, Assert.Single(persisted.Requests).Status);
+        Assert.Equal(SettlementRequestLineStatuses.Disputed, Assert.Single(persisted.RequestLines).Status);
         var payment = Assert.Single(persisted.Payments);
         Assert.Equal(paymentId, payment.Id);
         Assert.Equal(SettlementPaymentStatuses.MarkedPaid, payment.Status);
@@ -246,16 +248,20 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal(SettlementPaymentStatuses.Disputed, payload.RootElement.GetProperty("status").GetString());
         Assert.Equal(ValidationTimestamp, payload.RootElement.GetProperty("updatedAtUtc").GetDateTimeOffset());
         Assert.Equal(SettlementRequestStatuses.Disputed, payload.RootElement.GetProperty("settlementRequestStatus").GetString());
+        var allocationPayload = Assert.Single(payload.RootElement.GetProperty("allocations").EnumerateArray());
+        Assert.Equal("40", allocationPayload.GetProperty("clearedAmount").GetString());
 
         var persisted = await ReadSettlementStateAsync(testFactory);
         var settlementRequest = Assert.Single(persisted.Requests);
         Assert.Equal(SettlementRequestStatuses.Disputed, settlementRequest.Status);
         Assert.Equal(ValidationTimestamp, settlementRequest.DisputedAtUtc);
         Assert.Equal(ValidationTimestamp, settlementRequest.UpdatedAtUtc);
+        Assert.Equal(SettlementRequestLineStatuses.Disputed, Assert.Single(persisted.RequestLines).Status);
         var payment = Assert.Single(persisted.Payments);
         Assert.Equal(SettlementPaymentStatuses.Disputed, payment.Status);
         Assert.Equal(ValidationTimestamp, payment.DisputedAtUtc);
         Assert.Equal(ValidationTimestamp, payment.UpdatedAtUtc);
+        Assert.Equal(40m, Assert.Single(persisted.PaymentAllocations).ClearedAmount);
         var proofAttachment = Assert.Single(persisted.ProofAttachments);
         Assert.Equal(fileObjectId, proofAttachment.FileObjectId);
         Assert.Equal(beforeCounts.FileObjectCount, persisted.MutationCounts.FileObjectCount);
@@ -278,7 +284,8 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             debtor.UserProfileId,
             creditorSession.UserProfileId,
             SettlementRequestStatuses.MarkedPaid,
-            "40");
+            "40",
+            "0");
     }
 
     [Fact]
@@ -842,7 +849,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var settlementId = Guid.NewGuid();
-        dbContext.Set<SettlementRequest>().Add(new SettlementRequest
+        var settlementRequest = new SettlementRequest
         {
             Id = settlementId,
             SourceExpenseBillId = billId,
@@ -857,7 +864,21 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             CreatedAtUtc = requestedAtUtc,
             UpdatedAtUtc = requestedAtUtc,
             ArchivedAtUtc = archivedAtUtc
+        };
+        settlementRequest.Lines.Add(new SettlementRequestLine
+        {
+            Id = Guid.NewGuid(),
+            SettlementRequestId = settlementId,
+            SourceExpenseBillId = billId,
+            SourceCandidateKey = $"seeded:{settlementId:D}",
+            ExactAmount = amount,
+            Currency = "USD",
+            AllocationOrder = 0,
+            Status = SettlementRequestLineStatuses.Open,
+            CreatedAtUtc = requestedAtUtc,
+            UpdatedAtUtc = requestedAtUtc
         });
+        dbContext.Set<SettlementRequest>().Add(settlementRequest);
 
         await dbContext.SaveChangesAsync();
         return settlementId;
@@ -875,7 +896,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var paymentId = Guid.NewGuid();
-        dbContext.Set<SettlementPayment>().Add(new SettlementPayment
+        var payment = new SettlementPayment
         {
             Id = paymentId,
             SettlementRequestId = settlementId,
@@ -889,7 +910,29 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             ClaimedAtUtc = createdAtUtc,
             CreatedAtUtc = createdAtUtc,
             UpdatedAtUtc = createdAtUtc
-        });
+        };
+        dbContext.Set<SettlementPayment>().Add(payment);
+
+        if (amount > 0m
+            && status is SettlementPaymentStatuses.MarkedPaid or SettlementPaymentStatuses.Confirmed)
+        {
+            var requestLine = await dbContext.Set<SettlementRequestLine>()
+                .Where(line => line.SettlementRequestId == settlementId)
+                .OrderBy(line => line.AllocationOrder)
+                .ThenBy(line => line.CreatedAtUtc)
+                .ThenBy(line => line.Id)
+                .FirstAsync();
+            dbContext.Set<SettlementPaymentAllocation>().Add(new SettlementPaymentAllocation
+            {
+                Id = Guid.NewGuid(),
+                SettlementPaymentId = paymentId,
+                SettlementRequestLineId = requestLine.Id,
+                ClearedAmount = amount,
+                Currency = "USD",
+                AllocationOrder = 0,
+                CreatedAtUtc = createdAtUtc
+            });
+        }
 
         await dbContext.SaveChangesAsync();
         return paymentId;
@@ -1008,11 +1051,21 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         return new SettlementState(
             await dbContext.Set<SettlementRequest>()
                 .AsNoTracking()
+                .Include(settlementRequest => settlementRequest.Lines)
                 .OrderBy(settlementRequest => settlementRequest.CreatedAtUtc)
                 .ToListAsync(),
             await dbContext.Set<SettlementPayment>()
                 .AsNoTracking()
+                .Include(payment => payment.Allocations)
                 .OrderBy(payment => payment.CreatedAtUtc)
+                .ToListAsync(),
+            await dbContext.Set<SettlementRequestLine>()
+                .AsNoTracking()
+                .OrderBy(line => line.CreatedAtUtc)
+                .ToListAsync(),
+            await dbContext.Set<SettlementPaymentAllocation>()
+                .AsNoTracking()
+                .OrderBy(allocation => allocation.CreatedAtUtc)
                 .ToListAsync(),
             await dbContext.Set<SettlementProofAttachment>()
                 .AsNoTracking()
@@ -1032,7 +1085,9 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
 
         return new MutationCounts(
             await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementRequestLine>().CountAsync(),
             await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<SettlementPaymentAllocation>().CountAsync(),
             await dbContext.Set<SettlementProofAttachment>().CountAsync(),
             await dbContext.Set<FileObject>().CountAsync(),
             await dbContext.Set<UserPaymentProfile>().CountAsync(),
@@ -1116,6 +1171,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
     {
         Assert.Equal(
             [
+                "allocations",
                 "amount",
                 "claimedAtUtc",
                 "createdAtUtc",
@@ -1246,7 +1302,8 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         Guid debtorUserProfileId,
         Guid creditorUserProfileId,
         string previousRequestStatus,
-        string paymentAmount)
+        string paymentAmount,
+        string activePaymentCoverageAmount)
     {
         Assert.NotNull(metadataJson);
         Assert.DoesNotContain("requestBody", metadataJson, StringComparison.OrdinalIgnoreCase);
@@ -1280,7 +1337,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal(SettlementPaymentStatuses.MarkedPaid, metadata.RootElement.GetProperty("previousPaymentStatus").GetString());
         Assert.Equal(SettlementPaymentStatuses.Disputed, metadata.RootElement.GetProperty("newPaymentStatus").GetString());
         Assert.Equal(paymentAmount, metadata.RootElement.GetProperty("paymentAmount").GetString());
-        Assert.Equal(paymentAmount, metadata.RootElement.GetProperty("activePaymentCoverageAmount").GetString());
+        Assert.Equal(activePaymentCoverageAmount, metadata.RootElement.GetProperty("activePaymentCoverageAmount").GetString());
         Assert.Equal(paymentAmount, metadata.RootElement.GetProperty("requestAmount").GetString());
         Assert.Equal("USD", metadata.RootElement.GetProperty("currency").GetString());
         Assert.Equal("2026-05-09", metadata.RootElement.GetProperty("paymentDate").GetString());
@@ -1417,7 +1474,9 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
 
     private sealed record MutationCounts(
         int SettlementRequestCount,
+        int SettlementRequestLineCount,
         int SettlementPaymentCount,
+        int SettlementPaymentAllocationCount,
         int SettlementProofAttachmentCount,
         int FileObjectCount,
         int UserPaymentProfileCount,
@@ -1426,6 +1485,8 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
     private sealed record SettlementState(
         IReadOnlyList<SettlementRequest> Requests,
         IReadOnlyList<SettlementPayment> Payments,
+        IReadOnlyList<SettlementRequestLine> RequestLines,
+        IReadOnlyList<SettlementPaymentAllocation> PaymentAllocations,
         IReadOnlyList<SettlementProofAttachment> ProofAttachments,
         IReadOnlyList<AuthAuditEvent> SettlementAuditEvents,
         MutationCounts MutationCounts);

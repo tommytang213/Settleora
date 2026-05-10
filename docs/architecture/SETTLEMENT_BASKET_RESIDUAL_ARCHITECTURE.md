@@ -9,7 +9,7 @@ The goal is to let users capture and split each bill when it happens, then settl
 ## Current State
 
 - EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
-- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, and supports purpose-specific settlement proof endpoints.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, and supports purpose-specific settlement proof endpoints.
 - Public basket selection, bulk pay-all, residual creation or confirmation behavior, balance projection endpoints, OpenAPI basket/residual contracts, generated-client basket/residual methods, UI behavior, and worker behavior do not exist yet.
 
 ## Product Problem
@@ -195,7 +195,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, while runtime basket selection, payment allocation, residual policy application, balance projection behavior, UI, and worker behavior remain future reviewed slices.
+The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, and current payment claim runtime writes allocations against that selected line. Runtime basket selection, residual policy application, balance projection behavior, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 

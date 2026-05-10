@@ -94,26 +94,7 @@ internal static class SettlementPaymentClaimEndpoints
             return SettlementPaymentConflict();
         }
 
-        if (settlementRequest.Payments.Any(payment =>
-            SettlementRuntimePolicy.IsActivePaymentStatus(payment.Status)
-            && !string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)))
-        {
-            return SettlementPaymentConflict();
-        }
-
-        var activePaymentCoverage = settlementRequest.Payments
-            .Where(payment => SettlementRuntimePolicy.IsActivePaymentStatus(payment.Status))
-            .Sum(payment => payment.Amount);
-        var newPaymentCoverage = activePaymentCoverage + readResult.Request.Amount;
-        if (newPaymentCoverage > settlementRequest.Amount)
-        {
-            return SettlementPaymentConflict();
-        }
-
         var previousRequestStatus = settlementRequest.Status;
-        var newRequestStatus = newPaymentCoverage == settlementRequest.Amount
-            ? SettlementRequestStatuses.MarkedPaid
-            : SettlementRequestStatuses.PartiallyPaid;
         var now = timeProvider.GetUtcNow();
         var payment = new SettlementPayment
         {
@@ -130,6 +111,18 @@ internal static class SettlementPaymentClaimEndpoints
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
+        if (!SettlementPaymentAllocationRuntime.TryCreatePaymentAllocations(
+                settlementRequest,
+                payment,
+                now,
+                out var allocationResult))
+        {
+            return SettlementPaymentConflict();
+        }
+
+        var newRequestStatus = allocationResult.ActivePaymentCoverage == settlementRequest.Amount
+            ? SettlementRequestStatuses.MarkedPaid
+            : SettlementRequestStatuses.PartiallyPaid;
 
         settlementRequest.Status = newRequestStatus;
         settlementRequest.UpdatedAtUtc = now;
@@ -156,7 +149,7 @@ internal static class SettlementPaymentClaimEndpoints
                 newRequestStatus,
                 payment.Status,
                 payment.Amount,
-                newPaymentCoverage,
+                allocationResult.ActivePaymentCoverage,
                 settlementRequest.Amount,
                 payment.Currency,
                 payment.PaymentDate,
@@ -184,6 +177,8 @@ internal static class SettlementPaymentClaimEndpoints
     {
         return dbContext.Set<SettlementRequest>()
             .Include(settlementRequest => settlementRequest.Payments)
+                .ThenInclude(payment => payment.Allocations)
+            .Include(settlementRequest => settlementRequest.Lines)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && settlementRequest.DebtorUserProfileId == actorUserProfileId

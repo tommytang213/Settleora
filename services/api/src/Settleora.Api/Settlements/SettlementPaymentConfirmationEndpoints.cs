@@ -85,35 +85,24 @@ internal static class SettlementPaymentConfirmationEndpoints
             return SettlementPaymentConflict();
         }
 
-        var activePayments = settlementRequest.Payments
-            .Where(candidate => SettlementRuntimePolicy.IsActivePaymentStatus(candidate.Status))
-            .ToArray();
-        if (!HasValidCoverageData(settlementRequest, activePayments))
-        {
-            return SettlementPaymentConflict();
-        }
-
-        var activePaymentCoverage = activePayments.Sum(candidate => candidate.Amount);
-        var confirmedPaymentCoverage = activePayments
-            .Where(candidate => candidate.Status == SettlementPaymentStatuses.Confirmed
-                || candidate.Id == payment.Id)
-            .Sum(candidate => candidate.Amount);
-        if (activePaymentCoverage > settlementRequest.Amount
-            || confirmedPaymentCoverage > settlementRequest.Amount)
-        {
-            return SettlementPaymentConflict();
-        }
-
         var previousRequestStatus = settlementRequest.Status;
-        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
-            settlementRequest.Amount,
-            activePaymentCoverage,
-            confirmedPaymentCoverage);
         var now = timeProvider.GetUtcNow();
 
         payment.Status = SettlementPaymentStatuses.Confirmed;
         payment.ConfirmedAtUtc = now;
         payment.UpdatedAtUtc = now;
+        if (!SettlementPaymentAllocationRuntime.TryRecomputeActiveLineCoverage(
+                settlementRequest,
+                now,
+                out var allocationResult))
+        {
+            return SettlementPaymentConflict();
+        }
+
+        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
+            settlementRequest.Amount,
+            allocationResult.ActivePaymentCoverage,
+            allocationResult.ConfirmedPaymentCoverage);
         settlementRequest.Status = newRequestStatus;
         settlementRequest.UpdatedAtUtc = now;
         if (newRequestStatus == SettlementRequestStatuses.Confirmed)
@@ -140,7 +129,7 @@ internal static class SettlementPaymentConfirmationEndpoints
                 newRequestStatus,
                 payment.Status,
                 payment.Amount,
-                activePaymentCoverage,
+                allocationResult.ActivePaymentCoverage,
                 settlementRequest.Amount,
                 payment.Currency,
                 payment.PaymentDate,
@@ -167,6 +156,10 @@ internal static class SettlementPaymentConfirmationEndpoints
         return dbContext.Set<SettlementPayment>()
             .Include(payment => payment.SettlementRequest)
                 .ThenInclude(settlementRequest => settlementRequest.Payments)
+                    .ThenInclude(candidate => candidate.Allocations)
+            .Include(payment => payment.SettlementRequest)
+                .ThenInclude(settlementRequest => settlementRequest.Lines)
+            .Include(payment => payment.Allocations)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.CreditorUserProfileId == actorUserProfileId
@@ -209,18 +202,6 @@ internal static class SettlementPaymentConfirmationEndpoints
             && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
             && SettlementPaymentStatuses.IsSupported(payment.Status);
-    }
-
-    private static bool HasValidCoverageData(
-        SettlementRequest settlementRequest,
-        IReadOnlyCollection<SettlementPayment> activePayments)
-    {
-        return activePayments.All(payment =>
-            SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
-            && SettlementPaymentStatuses.IsSupported(payment.Status)
-            && payment.PaidByUserProfileId == settlementRequest.DebtorUserProfileId
-            && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
-            && string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal));
     }
 
     private static bool CanConfirmRequestStatus(string status)

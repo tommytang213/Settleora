@@ -100,6 +100,14 @@ internal static class SettlementCancellationEndpoints
 
         var previousRequestStatus = settlementRequest.Status;
         var now = timeProvider.GetUtcNow();
+        if (!SettlementPaymentAllocationRuntime.TryMarkSelectedLines(
+                settlementRequest,
+                SettlementRequestLineStatuses.Cancelled,
+                now))
+        {
+            return SettlementCancellationConflict();
+        }
+
         settlementRequest.Status = SettlementRequestStatuses.Cancelled;
         settlementRequest.CancelledAtUtc = now;
         settlementRequest.UpdatedAtUtc = now;
@@ -196,36 +204,25 @@ internal static class SettlementCancellationEndpoints
             return SettlementPaymentCancellationConflict();
         }
 
-        var remainingActivePayments = settlementRequest.Payments
-            .Where(candidate => candidate.Id != payment.Id
-                && SettlementRuntimePolicy.IsActivePaymentStatus(candidate.Status))
-            .ToArray();
-        if (!HasValidCoverageData(settlementRequest, remainingActivePayments))
-        {
-            return SettlementPaymentCancellationConflict();
-        }
-
-        var activePaymentCoverage = remainingActivePayments.Sum(candidate => candidate.Amount);
-        var confirmedPaymentCoverage = remainingActivePayments
-            .Where(candidate => candidate.Status == SettlementPaymentStatuses.Confirmed)
-            .Sum(candidate => candidate.Amount);
-        if (activePaymentCoverage > settlementRequest.Amount
-            || confirmedPaymentCoverage > settlementRequest.Amount)
-        {
-            return SettlementPaymentCancellationConflict();
-        }
-
         var previousPaymentStatus = payment.Status;
         var previousRequestStatus = settlementRequest.Status;
-        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
-            settlementRequest.Amount,
-            activePaymentCoverage,
-            confirmedPaymentCoverage);
         var now = timeProvider.GetUtcNow();
 
         payment.Status = SettlementPaymentStatuses.Cancelled;
         payment.CancelledAtUtc = now;
         payment.UpdatedAtUtc = now;
+        if (!SettlementPaymentAllocationRuntime.TryRecomputeActiveLineCoverage(
+                settlementRequest,
+                now,
+                out var allocationResult))
+        {
+            return SettlementPaymentCancellationConflict();
+        }
+
+        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
+            settlementRequest.Amount,
+            allocationResult.ActivePaymentCoverage,
+            allocationResult.ConfirmedPaymentCoverage);
         settlementRequest.Status = newRequestStatus;
         settlementRequest.UpdatedAtUtc = now;
         if (newRequestStatus == SettlementRequestStatuses.Confirmed
@@ -253,7 +250,7 @@ internal static class SettlementCancellationEndpoints
                 newRequestStatus,
                 payment.Status,
                 payment.Amount,
-                activePaymentCoverage,
+                allocationResult.ActivePaymentCoverage,
                 settlementRequest.Amount,
                 payment.Currency,
                 payment.PaymentDate,
@@ -317,6 +314,10 @@ internal static class SettlementCancellationEndpoints
         return dbContext.Set<SettlementPayment>()
             .Include(payment => payment.SettlementRequest)
                 .ThenInclude(settlementRequest => settlementRequest.Payments)
+                    .ThenInclude(candidate => candidate.Allocations)
+            .Include(payment => payment.SettlementRequest)
+                .ThenInclude(settlementRequest => settlementRequest.Lines)
+            .Include(payment => payment.Allocations)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.SourceExpenseBill != null
@@ -371,18 +372,6 @@ internal static class SettlementCancellationEndpoints
             && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
             && SettlementPaymentStatuses.IsSupported(payment.Status);
-    }
-
-    private static bool HasValidCoverageData(
-        SettlementRequest settlementRequest,
-        IReadOnlyCollection<SettlementPayment> activePayments)
-    {
-        return activePayments.All(payment =>
-            SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
-            && SettlementPaymentStatuses.IsSupported(payment.Status)
-            && payment.PaidByUserProfileId == settlementRequest.DebtorUserProfileId
-            && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
-            && string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal));
     }
 
     private static bool CanCancelPaymentRequestStatus(string status)

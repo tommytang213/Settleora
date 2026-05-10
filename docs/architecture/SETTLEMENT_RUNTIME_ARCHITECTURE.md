@@ -23,13 +23,13 @@ The current repository state is:
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time and persist one server-derived request line for the selected candidate.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility and expose bounded selected request-line summaries.
 - Settlement payment list/get endpoints exist for read-only payment visibility through visible settlement requests.
-- Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
-- Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
+- Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims and persist server-derived payment allocations against the selected request line.
+- Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims while preserving active payment allocations and request-line clearing state.
 - Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
 - Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation summaries, payment claim creation with allocation summaries, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - Settlement basket/residual runtime and balance projection runtime do not exist.
 
 ## Settlement Runtime Authority
@@ -41,6 +41,7 @@ Authoritative responsibilities include:
 - Creating settlement requests.
 - Deriving debtor, creditor, amount, currency, and eligible bill/share/payment basis.
 - Creating full or partial payment claims.
+- Persisting same-currency payment allocations against server-derived selected request lines.
 - Advancing payment and request statuses.
 - Confirming received payments.
 - Disputing payment claims or settlement requests.
@@ -98,6 +99,7 @@ Recommended first slices:
 9. Cancel where policy allows. Landed for requester-owned unpaid requests and debtor-owned marked-paid payment claims.
 10. List/get settlement payment claims for visible settlements. Landed.
 11. Proof attachment upload, metadata list, content read, and removal for existing payment claims. Landed.
+12. Persist payment allocations for the current same-currency single selected request-line payment claim flow. Landed.
 
 Potential route concepts:
 
@@ -418,7 +420,7 @@ Recommended implementation sequence:
 9. Relationship-backed counterparty payment-details and QR reads. Landed.
 10. Read-only settlement payment list/get endpoints. Landed.
 11. Purpose-specific proof attachment upload, metadata list, content read, and removal. Landed.
-12. Balance projection read endpoints.
+13. Balance projection read endpoints.
 
 Keep schema, runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
