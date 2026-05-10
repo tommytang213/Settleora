@@ -168,7 +168,6 @@ public sealed class SettlementBasketPreviewEndpointTests : IClassFixture<WebAppl
             content,
             unrelated.UserProfileId.ToString("D"),
             duplicateBillId.ToString("D"),
-            "999",
             HiddenMerchantName,
             HiddenItemName,
             HiddenPaymentMethodLabel,
