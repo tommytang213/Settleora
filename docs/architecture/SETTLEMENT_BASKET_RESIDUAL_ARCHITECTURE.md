@@ -9,8 +9,8 @@ The goal is to let users capture and split each bill when it happens, then settl
 ## Current State
 
 - EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
-- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, and supports purpose-specific settlement proof endpoints.
-- Public basket selection, bulk pay-all, residual creation or confirmation behavior, balance projection endpoints, OpenAPI basket/residual contracts, generated-client basket/residual methods, UI behavior, and worker behavior do not exist yet.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, supports purpose-specific settlement proof endpoints, and exposes a first read-only current-actor balance projection over request lines and active payment allocations.
+- Public basket selection, bulk pay-all, residual creation or confirmation behavior, OpenAPI basket/residual contracts, generated-client basket/residual methods, UI behavior, and worker behavior do not exist yet.
 
 ## Product Problem
 
@@ -195,7 +195,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, and current payment claim runtime writes allocations against that selected line. Runtime basket selection, residual policy application, balance projection behavior, UI, and worker behavior remain future reviewed slices.
+The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, current payment claim runtime writes allocations against that selected line, and the current balance projection read uses those records without creating basket or residual state. Runtime basket selection, residual policy application, additional projection behavior beyond the current read endpoint, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 
@@ -388,6 +388,8 @@ credit amount
 ```
 
 Bulk selection and pay-all workflows must not create opaque balance shortcuts. The resulting request lines and payment allocations must remain rebuildable and auditable.
+
+The current `GET /api/v1/settlement-balances` slice is read-only and does not create baskets or residuals. It groups current-actor debtor/creditor rows by counterparty, direction, optional group, and currency, separates marked-paid pending coverage from confirmed cleared coverage, excludes cancelled/disputed requests and payments from normal active balances, and keeps unsafe allocation gaps out of the projection instead of guessing from unallocated payment sums.
 
 ## Authorization Rules
 

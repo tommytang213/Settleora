@@ -72,6 +72,7 @@ app.MapExpenseBillRevisionEndpoints();
 app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
+app.MapSettlementBalanceProjectionEndpoints();
 app.MapSettlementCounterpartyPaymentDetailsEndpoints();
 app.MapSettlementPaymentReadEndpoints();
 app.MapSettlementPaymentClaimEndpoints();

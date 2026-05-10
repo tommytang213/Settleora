@@ -785,8 +785,7 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
                 || line.StartsWith("  /api/v1/", StringComparison.Ordinal))
             .ToArray();
         Assert.DoesNotContain(pathHeaders, path => path.Contains("settlement", StringComparison.OrdinalIgnoreCase)
-            && (path.Contains("balance", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("ocr", StringComparison.OrdinalIgnoreCase)
+            && (path.Contains("ocr", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("recurring", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("forecast", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("reconciliation", StringComparison.OrdinalIgnoreCase)

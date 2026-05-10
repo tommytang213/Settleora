@@ -650,6 +650,65 @@ export interface SettlementRequestLineResponse {
 }
 
 /**
+ * Bounded read-only settlement balance projection list for the authenticated actor. It contains only debtor/creditor balance rows that can be safely rebuilt from settlement request lines and payment allocations, and excludes requester-only records, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users.
+ */
+export interface SettlementBalanceProjectionListResponse {
+  /**
+   * UTC timestamp when the projection was generated.
+   */
+  generatedAtUtc: string;
+  balances: SettlementBalanceProjectionResponse[];
+}
+
+/**
+ * One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+ */
+export interface SettlementBalanceProjectionResponse {
+  /**
+   * Debtor or creditor counterparty profile ID for this current-actor balance row.
+   */
+  counterpartyUserProfileId: string;
+  /**
+   * Route group ID for group-scoped settlement balances; null for personal settlement balances.
+   */
+  groupId: string | null;
+  direction: SettlementBalanceDirection;
+  currency: CurrencyCode;
+  /**
+   * Decimal-safe selected request-line total amount represented as a string.
+   */
+  selectedLineAmount: string;
+  /**
+   * Decimal-safe amount represented as a string for allocations from marked_paid payments.
+   */
+  pendingClaimedAmount: string;
+  /**
+   * Decimal-safe amount represented as a string for allocations from confirmed payments.
+   */
+  confirmedClearedAmount: string;
+  /**
+   * Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+   */
+  remainingUnclaimedAmount: string;
+  /**
+   * Count of settlement requests included in this grouped projection row.
+   */
+  requestCount: number;
+  /**
+   * Count of selected settlement request lines included in this grouped projection row.
+   */
+  lineCount: number;
+  /**
+   * Count of marked_paid payment claims contributing active pending allocation coverage.
+   */
+  pendingPaymentCount: number;
+  /**
+   * Count of confirmed payment claims contributing active cleared allocation coverage.
+   */
+  confirmedPaymentCount: number;
+}
+
+/**
  * Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
  */
 export interface CreateSettlementPaymentRequest {
@@ -1006,6 +1065,11 @@ export type SettlementRequestStatus = "requested" | "partially_paid" | "marked_p
  * Settlement request-line status returned by settlement request surfaces.
  */
 export type SettlementRequestLineStatus = "open" | "partially_cleared" | "cleared" | "waived" | "disputed" | "cancelled";
+
+/**
+ * Direction of a settlement balance projection from the authenticated actor's perspective.
+ */
+export type SettlementBalanceDirection = "incoming" | "outgoing";
 
 /**
  * Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

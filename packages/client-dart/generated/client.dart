@@ -524,6 +524,17 @@ class SettleoraApiClient {
     );
   }
 
+  Future<SettlementBalanceProjectionListResponse> listSettlementBalanceProjections({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/settlement-balances",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementBalanceProjectionListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementPaymentResponse> getSettlementPayment(String paymentId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

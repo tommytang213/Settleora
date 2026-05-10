@@ -19,7 +19,7 @@ info:
     settlement request list/get endpoints, settlement counterparty payment-details
     read endpoints, settlement-scoped counterparty payment QR content reads,
     settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
-    settlement dispute endpoints, and settlement cancellation endpoints,
+    settlement dispute endpoints, settlement cancellation endpoints, and settlement balance projection read endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
@@ -1777,6 +1777,38 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "409":
           description: Visible bill state, stale candidate key, non-party actor, duplicate active request, or persisted bill money basis blocks creation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-balances:
+    get:
+      summary: List settlement balance projections
+      description: Lists read-only current-actor settlement balance projection rows derived from durable settlement requests, selected request lines, settlement payments, and payment allocations. Only debtor/creditor balances involving the authenticated actor are returned; requester-only records, archived requests, cancelled requests, disputed requests, hidden groups, removed memberships, deleted profiles, unsafe allocation coverage, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users are excluded.
+      operationId: listSettlementBalanceProjections
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Settlement balance projections involving the authenticated actor as debtor or creditor. The list can be empty when no safe visible active balances involve the actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementBalanceProjectionListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Actor profile is missing, deleted, inactive, or otherwise unavailable.
           content:
             application/problem+json:
               schema:
@@ -4790,6 +4822,80 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    SettlementBalanceProjectionListResponse:
+      type: object
+      description: Bounded read-only settlement balance projection list for the authenticated actor. It contains only debtor/creditor balance rows that can be safely rebuilt from settlement request lines and payment allocations, and excludes requester-only records, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users.
+      required:
+        - generatedAtUtc
+        - balances
+      properties:
+        generatedAtUtc:
+          type: string
+          format: date-time
+          description: UTC timestamp when the projection was generated.
+        balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementBalanceProjectionResponse"
+    SettlementBalanceProjectionResponse:
+      type: object
+      description: One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+      required:
+        - counterpartyUserProfileId
+        - groupId
+        - direction
+        - currency
+        - selectedLineAmount
+        - pendingClaimedAmount
+        - confirmedClearedAmount
+        - remainingUnclaimedAmount
+        - requestCount
+        - lineCount
+        - pendingPaymentCount
+        - confirmedPaymentCount
+      properties:
+        counterpartyUserProfileId:
+          type: string
+          format: uuid
+          description: Debtor or creditor counterparty profile ID for this current-actor balance row.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group-scoped settlement balances; null for personal settlement balances.
+        direction:
+          $ref: "#/components/schemas/SettlementBalanceDirection"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        selectedLineAmount:
+          type: string
+          description: Decimal-safe selected request-line total amount represented as a string.
+        pendingClaimedAmount:
+          type: string
+          description: Decimal-safe amount represented as a string for allocations from marked_paid payments.
+        confirmedClearedAmount:
+          type: string
+          description: Decimal-safe amount represented as a string for allocations from confirmed payments.
+        remainingUnclaimedAmount:
+          type: string
+          description: Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+        requestCount:
+          type: integer
+          minimum: 0
+          description: Count of settlement requests included in this grouped projection row.
+        lineCount:
+          type: integer
+          minimum: 0
+          description: Count of selected settlement request lines included in this grouped projection row.
+        pendingPaymentCount:
+          type: integer
+          minimum: 0
+          description: Count of marked_paid payment claims contributing active pending allocation coverage.
+        confirmedPaymentCount:
+          type: integer
+          minimum: 0
+          description: Count of confirmed payment claims contributing active cleared allocation coverage.
     CreateSettlementPaymentRequest:
       type: object
       description: Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
@@ -5473,6 +5579,12 @@ components:
         - waived
         - disputed
         - cancelled
+    SettlementBalanceDirection:
+      type: string
+      description: Direction of a settlement balance projection from the authenticated actor's perspective.
+      enum:
+        - incoming
+        - outgoing
     SettlementPaymentStatus:
       type: string
       description: Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

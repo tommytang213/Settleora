@@ -58,7 +58,7 @@ IBillRevisionSettlementImpactService
 
 ## Persistence direction
 
-Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, and payment claim runtime persists allocation rows against the selected request line with bounded allocation summaries on payment responses. Basket selection, residuals, balance projection endpoints, and settlement reopen/adjustment policy remain future runtime slices.
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against the selected request line with bounded allocation summaries on payment responses, and the first read-only current-actor balance projection endpoint derives grouped rows from those durable request-line/allocation records. Basket selection, residuals, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
 
 Current and future table categories include:
 
@@ -102,6 +102,7 @@ Future endpoints may include:
 
 ```text
 POST /api/v1/settlements
+GET /api/v1/settlement-balances
 POST /api/v1/settlements/baskets/preview
 GET /api/v1/settlements/{id}
 POST /api/v1/settlements/{id}/mark-paid
@@ -213,6 +214,8 @@ waived amount
 credit amount
 revision_pending_review amount
 ```
+
+The current first balance projection slice covers only active request-line/allocation runtime. It returns current-actor rows for debtor/creditor relationships, separates `marked_paid` allocation coverage into `pendingClaimedAmount`, separates `confirmed` allocation coverage into `confirmedClearedAmount`, derives `remainingUnclaimedAmount` without going below zero, keeps currencies in separate rows, excludes cancelled/disputed requests and cancelled/disputed payments from normal active balances, and does not expose bill merchant/item details, payment details, proof/file/storage internals, raw audit data, auth/session data, raw request bodies, or unrelated users.
 
 ## Authorization rules
 

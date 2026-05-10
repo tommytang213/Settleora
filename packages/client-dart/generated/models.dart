@@ -1888,6 +1888,109 @@ class SettlementRequestLineResponse {
   }
 }
 
+/// Bounded read-only settlement balance projection list for the authenticated actor. It contains only debtor/creditor balance rows that can be safely rebuilt from settlement request lines and payment allocations, and excludes requester-only records, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users.
+class SettlementBalanceProjectionListResponse {
+  const SettlementBalanceProjectionListResponse({
+    required this.generatedAtUtc,
+    required this.balances,
+  });
+
+  /// UTC timestamp when the projection was generated.
+  final DateTime generatedAtUtc;
+  final List<SettlementBalanceProjectionResponse> balances;
+
+  factory SettlementBalanceProjectionListResponse.fromJson(JsonObject json) {
+    return SettlementBalanceProjectionListResponse(
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      balances: (json["balances"] as List<dynamic>).map((item) => SettlementBalanceProjectionResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "balances": balances.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+class SettlementBalanceProjectionResponse {
+  const SettlementBalanceProjectionResponse({
+    required this.counterpartyUserProfileId,
+    required this.groupId,
+    required this.direction,
+    required this.currency,
+    required this.selectedLineAmount,
+    required this.pendingClaimedAmount,
+    required this.confirmedClearedAmount,
+    required this.remainingUnclaimedAmount,
+    required this.requestCount,
+    required this.lineCount,
+    required this.pendingPaymentCount,
+    required this.confirmedPaymentCount,
+  });
+
+  /// Debtor or creditor counterparty profile ID for this current-actor balance row.
+  final String counterpartyUserProfileId;
+  /// Route group ID for group-scoped settlement balances; null for personal settlement balances.
+  final String? groupId;
+  final SettlementBalanceDirection direction;
+  final CurrencyCode currency;
+  /// Decimal-safe selected request-line total amount represented as a string.
+  final String selectedLineAmount;
+  /// Decimal-safe amount represented as a string for allocations from marked_paid payments.
+  final String pendingClaimedAmount;
+  /// Decimal-safe amount represented as a string for allocations from confirmed payments.
+  final String confirmedClearedAmount;
+  /// Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+  final String remainingUnclaimedAmount;
+  /// Count of settlement requests included in this grouped projection row.
+  final int requestCount;
+  /// Count of selected settlement request lines included in this grouped projection row.
+  final int lineCount;
+  /// Count of marked_paid payment claims contributing active pending allocation coverage.
+  final int pendingPaymentCount;
+  /// Count of confirmed payment claims contributing active cleared allocation coverage.
+  final int confirmedPaymentCount;
+
+  factory SettlementBalanceProjectionResponse.fromJson(JsonObject json) {
+    return SettlementBalanceProjectionResponse(
+      counterpartyUserProfileId: json["counterpartyUserProfileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      direction: json["direction"] as String,
+      currency: json["currency"] as String,
+      selectedLineAmount: json["selectedLineAmount"] as String,
+      pendingClaimedAmount: json["pendingClaimedAmount"] as String,
+      confirmedClearedAmount: json["confirmedClearedAmount"] as String,
+      remainingUnclaimedAmount: json["remainingUnclaimedAmount"] as String,
+      requestCount: (json["requestCount"] as num).toInt(),
+      lineCount: (json["lineCount"] as num).toInt(),
+      pendingPaymentCount: (json["pendingPaymentCount"] as num).toInt(),
+      confirmedPaymentCount: (json["confirmedPaymentCount"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "counterpartyUserProfileId": counterpartyUserProfileId,
+      "groupId": groupIdJsonValue,
+      "direction": direction,
+      "currency": currency,
+      "selectedLineAmount": selectedLineAmount,
+      "pendingClaimedAmount": pendingClaimedAmount,
+      "confirmedClearedAmount": confirmedClearedAmount,
+      "remainingUnclaimedAmount": remainingUnclaimedAmount,
+      "requestCount": requestCount,
+      "lineCount": lineCount,
+      "pendingPaymentCount": pendingPaymentCount,
+      "confirmedPaymentCount": confirmedPaymentCount,
+    };
+  }
+}
+
 /// Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
 class CreateSettlementPaymentRequest {
   const CreateSettlementPaymentRequest({
@@ -2916,6 +3019,15 @@ class SettlementRequestLineStatusValues {
   static const SettlementRequestLineStatus disputed = "disputed";
   static const SettlementRequestLineStatus cancelled = "cancelled";
   static const Set<SettlementRequestLineStatus> values = {open, partiallyCleared, cleared, waived, disputed, cancelled};
+}
+
+/// Direction of a settlement balance projection from the authenticated actor's perspective.
+typedef SettlementBalanceDirection = String;
+class SettlementBalanceDirectionValues {
+  const SettlementBalanceDirectionValues._();
+  static const SettlementBalanceDirection incoming = "incoming";
+  static const SettlementBalanceDirection outgoing = "outgoing";
+  static const Set<SettlementBalanceDirection> values = {incoming, outgoing};
 }
 
 /// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

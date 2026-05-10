@@ -943,7 +943,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("proofSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("/api/v1/files/{fileId}", openApi, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("settlementBalance", openApi, StringComparison.Ordinal);
+        Assert.Contains("listSettlementBalanceProjections", openApi, StringComparison.Ordinal);
 
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
         var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));
@@ -973,7 +973,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("proofSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("uploadSettlement", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("downloadSettlement", generatedContent, StringComparison.Ordinal);
-        Assert.DoesNotContain("settlementBalance", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("listSettlementBalanceProjections", generatedContent, StringComparison.Ordinal);
     }
 
     private FactoryTestContext CreateFactory()

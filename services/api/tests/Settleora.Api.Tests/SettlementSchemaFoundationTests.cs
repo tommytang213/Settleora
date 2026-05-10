@@ -428,9 +428,9 @@ public sealed class SettlementSchemaFoundationTests
         Assert.Contains("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.Contains("listSettlementBalanceProjections", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("settlementProof", openApi, StringComparison.Ordinal);
-        Assert.DoesNotContain("settlementBalance", openApi, StringComparison.Ordinal);
     }
 
     private static SettleoraDbContext CreateDbContext()

@@ -30,7 +30,8 @@ The current repository state is:
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
 - Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation summaries, payment claim creation with allocation summaries, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
-- Settlement basket/residual runtime and balance projection runtime do not exist.
+- The first read-only current-actor settlement balance projection endpoint exists at `GET /api/v1/settlement-balances`. It derives bounded rows from `settlement_requests`, `settlement_request_lines`, `settlement_payments`, and `settlement_payment_allocations`, separates marked-paid pending coverage from confirmed cleared coverage, and does not implement basket selection, residual creation/confirmation, settlement simplification, UI, or writes.
+- Settlement basket/residual runtime beyond the read-only projection does not exist.
 
 ## Settlement Runtime Authority
 
@@ -121,6 +122,7 @@ POST /api/v1/settlement-payments/{paymentId}/proof
 GET /api/v1/settlement-payments/{paymentId}/proof
 GET /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content
 DELETE /api/v1/settlement-payments/{paymentId}/proof/{fileId}
+GET /api/v1/settlement-balances
 ```
 
 An alternate nested group shape may be reviewed for group-only workflows:
@@ -405,6 +407,8 @@ Projection inputs should include:
 
 Projection outputs must be scoped to the current actor. They should not expose unrelated group-wide positions, hidden users, payment profiles, proof files, or bills outside the actor's authorization. Projections must remain rebuildable and deterministic.
 
+The first landed projection slice is intentionally narrower than the full future balance model. It includes only balances where the current actor is the debtor or creditor on active, non-archived, non-cancelled, non-disputed settlement requests; groups rows by counterparty, direction, optional group, and currency; uses allocation rows as the only payment coverage source; treats `marked_paid` allocations as pending claimed coverage and `confirmed` allocations as cleared coverage; ignores cancelled/disputed payments; and excludes unsafe rows rather than fabricating totals from loose payment sums.
+
 ## Implementation Slicing
 
 Recommended implementation sequence:
@@ -420,7 +424,7 @@ Recommended implementation sequence:
 9. Relationship-backed counterparty payment-details and QR reads. Landed.
 10. Read-only settlement payment list/get endpoints. Landed.
 11. Purpose-specific proof attachment upload, metadata list, content read, and removal. Landed.
-13. Balance projection read endpoints.
+13. Balance projection read endpoints. The first current-actor projection endpoint is now landed for request-line/allocation runtime only.
 
 Keep schema, runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 

@@ -295,7 +295,7 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
     }
 
     [Fact]
-    public void OpenApiAndGeneratedClientsDoNotExposeBasketResidualOrBalanceRuntimeSurfaces()
+    public void OpenApiAndGeneratedClientsDoNotExposeBasketOrResidualRuntimeSurfaces()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
@@ -308,7 +308,6 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
             Assert.DoesNotContain("/api/v1/balances", generatedOrContract, StringComparison.Ordinal);
             Assert.DoesNotContain("settlementBasket", generatedOrContract, StringComparison.Ordinal);
             Assert.DoesNotContain("settlementResidual", generatedOrContract, StringComparison.Ordinal);
-            Assert.DoesNotContain("settlementBalance", generatedOrContract, StringComparison.Ordinal);
         }
     }
 

@@ -573,7 +573,6 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             Assert.DoesNotContain("uploadSettlement", generatedClient, StringComparison.Ordinal);
             Assert.DoesNotContain("downloadSettlement", generatedClient, StringComparison.Ordinal);
             Assert.DoesNotContain("counterpartyPayment", generatedClient, StringComparison.Ordinal);
-            Assert.DoesNotContain("balanceProjection", generatedClient, StringComparison.Ordinal);
             Assert.DoesNotContain("ocr", generatedClient, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("recurring", generatedClient, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("aiInsights", generatedClient, StringComparison.OrdinalIgnoreCase);
