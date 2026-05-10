@@ -282,6 +282,7 @@ internal static class SettlementCancellationEndpoints
         Guid actorUserProfileId)
     {
         return dbContext.Set<SettlementRequest>()
+            .Include(settlementRequest => settlementRequest.Lines)
             .Include(settlementRequest => settlementRequest.Payments)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null

@@ -1730,7 +1730,7 @@ class CreateSettlementRequestRequest {
   }
 }
 
-/// Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+/// Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
 class SettlementRequestListResponse {
   const SettlementRequestListResponse({
     required this.settlements,
@@ -1751,7 +1751,7 @@ class SettlementRequestListResponse {
   }
 }
 
-/// Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
+/// Bounded settlement request response. It exposes request-level fields and selected request-line summaries only, and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
 class SettlementRequestResponse {
   const SettlementRequestResponse({
     required this.id,
@@ -1766,6 +1766,7 @@ class SettlementRequestResponse {
     required this.requestedAtUtc,
     required this.createdAtUtc,
     required this.updatedAtUtc,
+    required this.lines,
   });
 
   final String id;
@@ -1782,6 +1783,8 @@ class SettlementRequestResponse {
   final DateTime requestedAtUtc;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
+  /// Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+  final List<SettlementRequestLineResponse> lines;
 
   factory SettlementRequestResponse.fromJson(JsonObject json) {
     return SettlementRequestResponse(
@@ -1797,6 +1800,7 @@ class SettlementRequestResponse {
       requestedAtUtc: DateTime.parse(json["requestedAtUtc"] as String),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      lines: (json["lines"] as List<dynamic>).map((item) => SettlementRequestLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
     );
   }
 
@@ -1814,6 +1818,70 @@ class SettlementRequestResponse {
       "status": status,
       "requestedByUserProfileId": requestedByUserProfileId,
       "requestedAtUtc": requestedAtUtc.toUtc().toIso8601String(),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "lines": lines.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Bounded settlement request-line summary for the selected concrete bill candidate. It exposes stable source IDs, the already-public candidate key, exact amount/currency, order, status, and timestamps; it excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, and unrelated users.
+class SettlementRequestLineResponse {
+  const SettlementRequestLineResponse({
+    required this.id,
+    required this.sourceExpenseBillId,
+    required this.sourceBillRevisionId,
+    required this.sourceCandidateKey,
+    required this.exactAmount,
+    required this.currency,
+    required this.allocationOrder,
+    required this.status,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final String sourceExpenseBillId;
+  /// Active accepted bill revision ID used for the selected line when the source bill has one; otherwise null.
+  final String? sourceBillRevisionId;
+  /// Server-derived settlement candidate key selected into this request line.
+  final String? sourceCandidateKey;
+  /// Decimal-safe exact selected line amount represented as a string.
+  final String exactAmount;
+  final CurrencyCode currency;
+  final int allocationOrder;
+  final SettlementRequestLineStatus status;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory SettlementRequestLineResponse.fromJson(JsonObject json) {
+    return SettlementRequestLineResponse(
+      id: json["id"] as String,
+      sourceExpenseBillId: json["sourceExpenseBillId"] as String,
+      sourceBillRevisionId: json["sourceBillRevisionId"] == null ? null : json["sourceBillRevisionId"] as String,
+      sourceCandidateKey: json["sourceCandidateKey"] == null ? null : json["sourceCandidateKey"] as String,
+      exactAmount: json["exactAmount"] as String,
+      currency: json["currency"] as String,
+      allocationOrder: (json["allocationOrder"] as num).toInt(),
+      status: json["status"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final sourceBillRevisionIdJsonValue = sourceBillRevisionId;
+    final sourceCandidateKeyJsonValue = sourceCandidateKey;
+
+    return {
+      "id": id,
+      "sourceExpenseBillId": sourceExpenseBillId,
+      "sourceBillRevisionId": sourceBillRevisionIdJsonValue,
+      "sourceCandidateKey": sourceCandidateKeyJsonValue,
+      "exactAmount": exactAmount,
+      "currency": currency,
+      "allocationOrder": allocationOrder,
+      "status": status,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
@@ -2789,6 +2857,19 @@ class SettlementRequestStatusValues {
   static const SettlementRequestStatus disputed = "disputed";
   static const SettlementRequestStatus cancelled = "cancelled";
   static const Set<SettlementRequestStatus> values = {requested, partiallyPaid, markedPaid, confirmed, disputed, cancelled};
+}
+
+/// Settlement request-line status returned by settlement request surfaces.
+typedef SettlementRequestLineStatus = String;
+class SettlementRequestLineStatusValues {
+  const SettlementRequestLineStatusValues._();
+  static const SettlementRequestLineStatus open = "open";
+  static const SettlementRequestLineStatus partiallyCleared = "partially_cleared";
+  static const SettlementRequestLineStatus cleared = "cleared";
+  static const SettlementRequestLineStatus waived = "waived";
+  static const SettlementRequestLineStatus disputed = "disputed";
+  static const SettlementRequestLineStatus cancelled = "cancelled";
+  static const Set<SettlementRequestLineStatus> values = {open, partiallyCleared, cleared, waived, disputed, cancelled};
 }
 
 /// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

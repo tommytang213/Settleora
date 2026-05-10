@@ -1790,7 +1790,7 @@ paths:
   /api/v1/settlements:
     get:
       summary: List settlement requests
-      description: Lists read-only settlement requests involving the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties; group membership alone does not expose unrelated settlements. Responses include request-level fields only and exclude bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      description: Lists read-only settlement requests involving the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties; group membership alone does not expose unrelated settlements. Responses include request-level fields and selected request-line summaries only, and exclude bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, request bodies, and unrelated users.
       operationId: listSettlementRequests
       security:
         - SessionBearerAuth: []
@@ -1822,7 +1822,7 @@ paths:
   /api/v1/settlements/{settlementId}:
     get:
       summary: Get settlement request
-      description: Returns one read-only settlement request only when it involves the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties. Missing, archived, deleted, unrelated, inactive, removed, not-visible, or unavailable settlement requests return the same safe 404.
+      description: Returns one read-only settlement request with selected request-line summaries only when it involves the authenticated actor as debtor, creditor, or requester. Group-scoped requests additionally require active group visibility for the current actor and active group visibility for the request parties. Missing, archived, deleted, unrelated, inactive, removed, not-visible, or unavailable settlement requests return the same safe 404.
       operationId: getSettlementRequest
       security:
         - SessionBearerAuth: []
@@ -4672,7 +4672,7 @@ components:
           description: Server-derived candidate key from the current confirmed bill candidate basis.
     SettlementRequestListResponse:
       type: object
-      description: Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      description: Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
       required:
         - settlements
       properties:
@@ -4682,7 +4682,7 @@ components:
             $ref: "#/components/schemas/SettlementRequestResponse"
     SettlementRequestResponse:
       type: object
-      description: Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
+      description: Bounded settlement request response. It exposes request-level fields and selected request-line summaries only, and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
       required:
         - id
         - sourceExpenseBillId
@@ -4696,6 +4696,7 @@ components:
         - requestedAtUtc
         - createdAtUtc
         - updatedAtUtc
+        - lines
       properties:
         id:
           type: string
@@ -4728,6 +4729,61 @@ components:
         requestedAtUtc:
           type: string
           format: date-time
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          description: Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+          items:
+            $ref: "#/components/schemas/SettlementRequestLineResponse"
+    SettlementRequestLineResponse:
+      type: object
+      description: Bounded settlement request-line summary for the selected concrete bill candidate. It exposes stable source IDs, the already-public candidate key, exact amount/currency, order, status, and timestamps; it excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, and unrelated users.
+      required:
+        - id
+        - sourceExpenseBillId
+        - sourceBillRevisionId
+        - sourceCandidateKey
+        - exactAmount
+        - currency
+        - allocationOrder
+        - status
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceExpenseBillId:
+          type: string
+          format: uuid
+        sourceBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Active accepted bill revision ID used for the selected line when the source bill has one; otherwise null.
+        sourceCandidateKey:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 240
+            - type: "null"
+          description: Server-derived settlement candidate key selected into this request line.
+        exactAmount:
+          type: string
+          description: Decimal-safe exact selected line amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        allocationOrder:
+          type: integer
+          minimum: 0
+        status:
+          $ref: "#/components/schemas/SettlementRequestLineStatus"
         createdAtUtc:
           type: string
           format: date-time
@@ -5372,6 +5428,16 @@ components:
         - partially_paid
         - marked_paid
         - confirmed
+        - disputed
+        - cancelled
+    SettlementRequestLineStatus:
+      type: string
+      description: Settlement request-line status returned by settlement request surfaces.
+      enum:
+        - open
+        - partially_cleared
+        - cleared
+        - waived
         - disputed
         - cancelled
     SettlementPaymentStatus:

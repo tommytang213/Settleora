@@ -258,6 +258,7 @@ internal static class SettlementDisputeEndpoints
         Guid actorUserProfileId)
     {
         return dbContext.Set<SettlementRequest>()
+            .Include(settlementRequest => settlementRequest.Lines)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && (settlementRequest.DebtorUserProfileId == actorUserProfileId

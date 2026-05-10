@@ -397,6 +397,7 @@ public sealed class SettlementCandidateDerivationServiceTests
         Assert.Contains("CreateSettlementRequestRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", openApi, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestResponse", openApi, StringComparison.Ordinal);
+        Assert.Contains("SettlementRequestLineResponse", openApi, StringComparison.Ordinal);
         Assert.Contains("CreateSettlementPaymentRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlement", openApi, StringComparison.Ordinal);
@@ -423,6 +424,7 @@ public sealed class SettlementCandidateDerivationServiceTests
         Assert.Contains("createGroupBillSettlementRequest", generatedContent, StringComparison.Ordinal);
         Assert.Contains("listSettlementRequests", generatedContent, StringComparison.Ordinal);
         Assert.Contains("getSettlementRequest", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementRequestLineResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("createSettlementPaymentClaim", generatedContent, StringComparison.Ordinal);
         Assert.Contains("confirmSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementRequest", generatedContent, StringComparison.Ordinal);

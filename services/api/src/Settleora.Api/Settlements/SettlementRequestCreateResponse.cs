@@ -15,7 +15,8 @@ internal sealed record SettlementRequestResponse(
     Guid RequestedByUserProfileId,
     DateTimeOffset RequestedAtUtc,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc)
+    DateTimeOffset UpdatedAtUtc,
+    IReadOnlyList<SettlementRequestLineResponse> Lines)
 {
     public static SettlementRequestResponse From(SettlementRequest settlementRequest)
     {
@@ -31,7 +32,46 @@ internal sealed record SettlementRequestResponse(
             settlementRequest.RequestedByUserProfileId,
             settlementRequest.RequestedAtUtc,
             settlementRequest.CreatedAtUtc,
-            settlementRequest.UpdatedAtUtc);
+            settlementRequest.UpdatedAtUtc,
+            settlementRequest.Lines
+                .OrderBy(line => line.AllocationOrder)
+                .ThenBy(line => line.CreatedAtUtc)
+                .ThenBy(line => line.Id)
+                .Select(SettlementRequestLineResponse.From)
+                .ToArray());
+    }
+
+    private static string FormatAmount(decimal amount)
+    {
+        return amount.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+}
+
+internal sealed record SettlementRequestLineResponse(
+    Guid Id,
+    Guid SourceExpenseBillId,
+    Guid? SourceBillRevisionId,
+    string? SourceCandidateKey,
+    string ExactAmount,
+    string Currency,
+    int AllocationOrder,
+    string Status,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc)
+{
+    public static SettlementRequestLineResponse From(SettlementRequestLine line)
+    {
+        return new SettlementRequestLineResponse(
+            line.Id,
+            line.SourceExpenseBillId,
+            line.SourceBillRevisionId,
+            line.SourceCandidateKey,
+            FormatAmount(line.ExactAmount),
+            line.Currency,
+            line.AllocationOrder,
+            line.Status,
+            line.CreatedAtUtc,
+            line.UpdatedAtUtc);
     }
 
     private static string FormatAmount(decimal amount)

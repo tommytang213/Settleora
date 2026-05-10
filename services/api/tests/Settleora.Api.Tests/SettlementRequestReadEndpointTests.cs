@@ -142,6 +142,15 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Equal("USD", settlements[0].GetProperty("currency").GetString());
         Assert.Equal(SettlementRequestStatuses.Disputed, settlements[0].GetProperty("status").GetString());
         Assert.Equal(debtorSession.UserProfileId, settlements[0].GetProperty("requestedByUserProfileId").GetGuid());
+        var requesterOnlyLine = Assert.Single(settlements[0].GetProperty("lines").EnumerateArray());
+        AssertSettlementRequestLineResponseShape(requesterOnlyLine);
+        Assert.Equal(requesterOnlyBillId, requesterOnlyLine.GetProperty("sourceExpenseBillId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, requesterOnlyLine.GetProperty("sourceBillRevisionId").ValueKind);
+        Assert.Equal($"seeded:{requesterOnlySettlementId:D}", requesterOnlyLine.GetProperty("sourceCandidateKey").GetString());
+        Assert.Equal("7.89", requesterOnlyLine.GetProperty("exactAmount").GetString());
+        Assert.Equal("USD", requesterOnlyLine.GetProperty("currency").GetString());
+        Assert.Equal(0, requesterOnlyLine.GetProperty("allocationOrder").GetInt32());
+        Assert.Equal(SettlementRequestLineStatuses.Open, requesterOnlyLine.GetProperty("status").GetString());
 
         using var getRequest = CreateBearerRequest(HttpMethod.Get, SettlementPath(visibleSettlementId), debtorSession.RawSessionToken);
         using var getResponse = await client.SendAsync(getRequest);
@@ -160,6 +169,11 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Equal(visibleSettlementId, getPayload.RootElement.GetProperty("id").GetGuid());
         Assert.Equal(visibleBillId, getPayload.RootElement.GetProperty("sourceExpenseBillId").GetGuid());
         Assert.Equal("12.34", getPayload.RootElement.GetProperty("amount").GetString());
+        var visibleLine = Assert.Single(getPayload.RootElement.GetProperty("lines").EnumerateArray());
+        AssertSettlementRequestLineResponseShape(visibleLine);
+        Assert.Equal(visibleBillId, visibleLine.GetProperty("sourceExpenseBillId").GetGuid());
+        Assert.Equal($"seeded:{visibleSettlementId:D}", visibleLine.GetProperty("sourceCandidateKey").GetString());
+        Assert.Equal("12.34", visibleLine.GetProperty("exactAmount").GetString());
     }
 
     [Fact]
@@ -876,6 +890,8 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         var settlementPaymentDisputePathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/dispute:");
         var settlementPaymentCancellationPathBlock = ExtractOpenApiPathBlock(openApi, "  /api/v1/settlement-payments/{paymentId}/cancel:");
         var listSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementRequestListResponse:");
+        var requestSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementRequestResponse:");
+        var requestLineSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementRequestLineResponse:");
         var paymentListSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentListResponse:");
 
         Assert.Contains("operationId: listSettlementRequests", settlementsPathBlock, StringComparison.Ordinal);
@@ -907,6 +923,10 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("requestBody:", settlementPaymentCancellationPathBlock, StringComparison.Ordinal);
         Assert.Contains("settlements", listSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestResponse", listSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("lines", requestSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementRequestLineResponse", requestSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("sourceCandidateKey", requestLineSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("sourceBillRevisionId", requestLineSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("payments", paymentListSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", paymentListSchemaBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
@@ -931,6 +951,8 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("cancelSettlementRequest", generatedContent, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementPayment", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementRequestLineResponse", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("sourceCandidateKey", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentListResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", generatedContent, StringComparison.Ordinal);
@@ -1179,7 +1201,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var settlementId = Guid.NewGuid();
-        dbContext.Set<SettlementRequest>().Add(new SettlementRequest
+        var settlementRequest = new SettlementRequest
         {
             Id = settlementId,
             SourceExpenseBillId = billId,
@@ -1194,7 +1216,21 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             CreatedAtUtc = requestedAtUtc,
             UpdatedAtUtc = requestedAtUtc,
             ArchivedAtUtc = archivedAtUtc
+        };
+        settlementRequest.Lines.Add(new SettlementRequestLine
+        {
+            Id = Guid.NewGuid(),
+            SettlementRequestId = settlementId,
+            SourceExpenseBillId = billId,
+            SourceCandidateKey = $"seeded:{settlementId:D}",
+            ExactAmount = amount,
+            Currency = "USD",
+            AllocationOrder = 0,
+            Status = SettlementRequestLineStatuses.Open,
+            CreatedAtUtc = requestedAtUtc,
+            UpdatedAtUtc = requestedAtUtc
         });
+        dbContext.Set<SettlementRequest>().Add(settlementRequest);
 
         await dbContext.SaveChangesAsync();
         return settlementId;
@@ -1347,6 +1383,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
 
         return new ReadSideEffectCounts(
             await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementRequestLine>().CountAsync(),
             await dbContext.Set<SettlementPayment>().CountAsync(),
             await dbContext.Set<SettlementProofAttachment>().CountAsync(),
             await dbContext.Set<FileObject>().CountAsync(),
@@ -1400,8 +1437,30 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
                 "debtorUserProfileId",
                 "groupId",
                 "id",
+                "lines",
                 "requestedAtUtc",
                 "requestedByUserProfileId",
+                "sourceExpenseBillId",
+                "status",
+                "updatedAtUtc"
+            ],
+            response.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static void AssertSettlementRequestLineResponseShape(JsonElement response)
+    {
+        Assert.Equal(
+            [
+                "allocationOrder",
+                "createdAtUtc",
+                "currency",
+                "exactAmount",
+                "id",
+                "sourceBillRevisionId",
+                "sourceCandidateKey",
                 "sourceExpenseBillId",
                 "status",
                 "updatedAtUtc"
@@ -1617,6 +1676,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
 
     private sealed record ReadSideEffectCounts(
         int SettlementRequestCount,
+        int SettlementRequestLineCount,
         int SettlementPaymentCount,
         int SettlementProofAttachmentCount,
         int FileObjectCount,

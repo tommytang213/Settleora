@@ -88,6 +88,19 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         Assert.Equal(ValidationTimestamp, payload.RootElement.GetProperty("requestedAtUtc").GetDateTimeOffset());
         Assert.Equal(ValidationTimestamp, payload.RootElement.GetProperty("createdAtUtc").GetDateTimeOffset());
         Assert.Equal(ValidationTimestamp, payload.RootElement.GetProperty("updatedAtUtc").GetDateTimeOffset());
+        var linePayload = Assert.Single(payload.RootElement.GetProperty("lines").EnumerateArray());
+        AssertSettlementRequestLineResponseShape(linePayload);
+        var responseLineId = linePayload.GetProperty("id").GetGuid();
+        Assert.NotEqual(Guid.Empty, responseLineId);
+        Assert.Equal(billId, linePayload.GetProperty("sourceExpenseBillId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, linePayload.GetProperty("sourceBillRevisionId").ValueKind);
+        Assert.Equal(candidateKey, linePayload.GetProperty("sourceCandidateKey").GetString());
+        Assert.Equal("50", linePayload.GetProperty("exactAmount").GetString());
+        Assert.Equal("USD", linePayload.GetProperty("currency").GetString());
+        Assert.Equal(0, linePayload.GetProperty("allocationOrder").GetInt32());
+        Assert.Equal(SettlementRequestLineStatuses.Open, linePayload.GetProperty("status").GetString());
+        Assert.Equal(ValidationTimestamp, linePayload.GetProperty("createdAtUtc").GetDateTimeOffset());
+        Assert.Equal(ValidationTimestamp, linePayload.GetProperty("updatedAtUtc").GetDateTimeOffset());
 
         var persisted = await ReadSettlementStateAsync(testFactory);
         var settlementRequest = Assert.Single(persisted.Requests);
@@ -101,6 +114,18 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         Assert.Equal(SettlementRequestStatuses.Requested, settlementRequest.Status);
         Assert.Equal(debtorSession.UserProfileId, settlementRequest.RequestedByUserProfileId);
         Assert.Equal(ValidationTimestamp, settlementRequest.RequestedAtUtc);
+        var settlementLine = Assert.Single(persisted.Lines);
+        Assert.Equal(responseLineId, settlementLine.Id);
+        Assert.Equal(settlementRequest.Id, settlementLine.SettlementRequestId);
+        Assert.Equal(billId, settlementLine.SourceExpenseBillId);
+        Assert.Null(settlementLine.SourceBillRevisionId);
+        Assert.Equal(candidateKey, settlementLine.SourceCandidateKey);
+        Assert.Equal(50m, settlementLine.ExactAmount);
+        Assert.Equal("USD", settlementLine.Currency);
+        Assert.Equal(0, settlementLine.AllocationOrder);
+        Assert.Equal(SettlementRequestLineStatuses.Open, settlementLine.Status);
+        Assert.Equal(ValidationTimestamp, settlementLine.CreatedAtUtc);
+        Assert.Equal(ValidationTimestamp, settlementLine.UpdatedAtUtc);
         Assert.Empty(persisted.Payments);
         Assert.Empty(persisted.ProofAttachments);
 
@@ -165,10 +190,27 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         Assert.Equal(debtor.UserProfileId, payload.RootElement.GetProperty("debtorUserProfileId").GetGuid());
         Assert.Equal(creditorSession.UserProfileId, payload.RootElement.GetProperty("creditorUserProfileId").GetGuid());
         Assert.Equal("40", payload.RootElement.GetProperty("amount").GetString());
+        var linePayload = Assert.Single(payload.RootElement.GetProperty("lines").EnumerateArray());
+        Assert.Equal(billId, linePayload.GetProperty("sourceExpenseBillId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, linePayload.GetProperty("sourceBillRevisionId").ValueKind);
+        Assert.Equal(candidateKey, linePayload.GetProperty("sourceCandidateKey").GetString());
+        Assert.Equal("40", linePayload.GetProperty("exactAmount").GetString());
+        Assert.Equal("USD", linePayload.GetProperty("currency").GetString());
+        Assert.Equal(0, linePayload.GetProperty("allocationOrder").GetInt32());
+        Assert.Equal(SettlementRequestLineStatuses.Open, linePayload.GetProperty("status").GetString());
 
         var persisted = await ReadSettlementStateAsync(testFactory);
         var settlementRequest = Assert.Single(persisted.Requests);
         Assert.Equal(groupId, settlementRequest.GroupId);
+        var settlementLine = Assert.Single(persisted.Lines);
+        Assert.Equal(settlementRequest.Id, settlementLine.SettlementRequestId);
+        Assert.Equal(billId, settlementLine.SourceExpenseBillId);
+        Assert.Null(settlementLine.SourceBillRevisionId);
+        Assert.Equal(candidateKey, settlementLine.SourceCandidateKey);
+        Assert.Equal(40m, settlementLine.ExactAmount);
+        Assert.Equal("USD", settlementLine.Currency);
+        Assert.Equal(0, settlementLine.AllocationOrder);
+        Assert.Equal(SettlementRequestLineStatuses.Open, settlementLine.Status);
         Assert.Empty(persisted.Payments);
         Assert.Empty(persisted.ProofAttachments);
         var auditEvent = Assert.Single(persisted.SettlementAuditEvents);
@@ -182,6 +224,60 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
             creditorSession.UserProfileId,
             "40",
             "USD");
+    }
+
+    [Fact]
+    public async Task RequestCreatedAfterAppliedBillRevisionPersistsRevisionTraceLine()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Applied Revision Settlement Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Applied Revision Settlement Creditor", InitialTimestamp.AddMinutes(1));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditor.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(debtorSession.UserProfileId, 60m),
+                new ParticipantSeed(creditor.UserProfileId, 40m)
+            ],
+            [new PayerSeed(creditor.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await SeedAcceptedAppliedRevisionAsync(
+            testFactory,
+            billId,
+            creditor.UserProfileId,
+            [
+                new ParticipantSeed(debtorSession.UserProfileId, 60m),
+                new ParticipantSeed(creditor.UserProfileId, 40m)
+            ],
+            [new PayerSeed(creditor.UserProfileId, 100m)],
+            InitialTimestamp.AddMinutes(2));
+        var candidateKey = CandidateKey(billId, debtorSession.UserProfileId, creditor.UserProfileId, 60m);
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            PersonalSettlementRequestsPath(billId),
+            debtorSession.RawSessionToken,
+            $$"""{"candidateKey":"{{candidateKey}}"}""");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        var linePayload = Assert.Single(payload.RootElement.GetProperty("lines").EnumerateArray());
+        Assert.Equal(revisionId, linePayload.GetProperty("sourceBillRevisionId").GetGuid());
+        Assert.Equal("60", linePayload.GetProperty("exactAmount").GetString());
+
+        var persisted = await ReadSettlementStateAsync(testFactory);
+        var line = Assert.Single(persisted.Lines);
+        Assert.Equal(revisionId, line.SourceBillRevisionId);
+        Assert.Equal(candidateKey, line.SourceCandidateKey);
+        Assert.Equal(60m, line.ExactAmount);
+        Assert.Equal(0, line.AllocationOrder);
+        Assert.Equal(SettlementRequestLineStatuses.Open, line.Status);
     }
 
     [Fact]
@@ -443,6 +539,7 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         await AssertSettlementRequestConflictProblemAsync(response);
         var persisted = await ReadSettlementStateAsync(testFactory);
         Assert.Single(persisted.Requests);
+        Assert.Empty(persisted.Lines);
         Assert.Empty(persisted.SettlementAuditEvents);
     }
 
@@ -671,6 +768,7 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         await AssertSettlementRequestConflictProblemAsync(response);
         var after = await ReadSettlementStateAsync(testFactory);
         Assert.Equal(before.Requests.Count, after.Requests.Count);
+        Assert.Equal(before.Lines.Count, after.Lines.Count);
         Assert.Equal(before.Payments.Count, after.Payments.Count);
         Assert.Equal(before.ProofAttachments.Count, after.ProofAttachments.Count);
         Assert.Equal(before.SettlementAuditEvents.Count, after.SettlementAuditEvents.Count);
@@ -904,6 +1002,66 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
         return billId;
     }
 
+    private static async Task<Guid> SeedAcceptedAppliedRevisionAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid proposalCreatorUserProfileId,
+        IReadOnlyList<ParticipantSeed> participants,
+        IReadOnlyList<PayerSeed> payers,
+        DateTimeOffset createdAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var bill = await dbContext.Set<ExpenseBill>().SingleAsync(candidate => candidate.Id == billId);
+        var revisionId = Guid.NewGuid();
+        var revision = new ExpenseBillRevision
+        {
+            Id = revisionId,
+            ExpenseBillId = billId,
+            ProposalCreatorUserProfileId = proposalCreatorUserProfileId,
+            Status = ExpenseBillRevisionStatuses.AcceptedApplied,
+            TotalAmount = participants.Sum(participant => participant.ResolvedShareAmount),
+            TotalCurrency = "USD",
+            CalculationHash = $"applied-{revisionId:N}",
+            SubmittedAtUtc = createdAtUtc,
+            AppliedAtUtc = createdAtUtc,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        };
+
+        foreach (var participant in participants)
+        {
+            revision.Participants.Add(new ExpenseBillRevisionParticipant
+            {
+                ExpenseBillRevisionId = revisionId,
+                UserProfileId = participant.UserProfileId,
+                ResolvedShareAmount = participant.ResolvedShareAmount,
+                ResolvedShareCurrency = "USD",
+                AffectedByRevision = true,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
+        foreach (var payer in payers)
+        {
+            revision.Payers.Add(new ExpenseBillRevisionPayer
+            {
+                ExpenseBillRevisionId = revisionId,
+                UserProfileId = payer.UserProfileId,
+                Amount = payer.Amount,
+                Currency = "USD",
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
+        bill.ActiveAcceptedBillRevisionId = revisionId;
+        dbContext.Set<ExpenseBillRevision>().Add(revision);
+        await dbContext.SaveChangesAsync();
+        return revisionId;
+    }
+
     private static async Task SeedSettlementRequestAsync(
         WebApplicationFactory<Program> testFactory,
         Guid billId,
@@ -961,6 +1119,11 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
                 .AsNoTracking()
                 .OrderBy(settlementRequest => settlementRequest.CreatedAtUtc)
                 .ToListAsync(),
+            await dbContext.Set<SettlementRequestLine>()
+                .AsNoTracking()
+                .OrderBy(line => line.CreatedAtUtc)
+                .ThenBy(line => line.Id)
+                .ToListAsync(),
             await dbContext.Set<SettlementPayment>()
                 .AsNoTracking()
                 .ToListAsync(),
@@ -978,6 +1141,7 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
     {
         var persisted = await ReadSettlementStateAsync(testFactory);
         Assert.Empty(persisted.Requests);
+        Assert.Empty(persisted.Lines);
         Assert.Empty(persisted.Payments);
         Assert.Empty(persisted.ProofAttachments);
         Assert.Empty(persisted.SettlementAuditEvents);
@@ -1037,8 +1201,30 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
                 "debtorUserProfileId",
                 "groupId",
                 "id",
+                "lines",
                 "requestedAtUtc",
                 "requestedByUserProfileId",
+                "sourceExpenseBillId",
+                "status",
+                "updatedAtUtc"
+            ],
+            response.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static void AssertSettlementRequestLineResponseShape(JsonElement response)
+    {
+        Assert.Equal(
+            [
+                "allocationOrder",
+                "createdAtUtc",
+                "currency",
+                "exactAmount",
+                "id",
+                "sourceBillRevisionId",
+                "sourceCandidateKey",
                 "sourceExpenseBillId",
                 "status",
                 "updatedAtUtc"
@@ -1240,6 +1426,7 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
 
     private sealed record SettlementState(
         IReadOnlyList<SettlementRequest> Requests,
+        IReadOnlyList<SettlementRequestLine> Lines,
         IReadOnlyList<SettlementPayment> Payments,
         IReadOnlyList<SettlementProofAttachment> ProofAttachments,
         IReadOnlyList<AuthAuditEvent> SettlementAuditEvents);

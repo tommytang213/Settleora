@@ -1386,6 +1386,7 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
                 "debtorUserProfileId",
                 "groupId",
                 "id",
+                "lines",
                 "requestedAtUtc",
                 "requestedByUserProfileId",
                 "sourceExpenseBillId",

@@ -590,14 +590,14 @@ export interface CreateSettlementRequestRequest {
 }
 
 /**
- * Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+ * Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
  */
 export interface SettlementRequestListResponse {
   settlements: SettlementRequestResponse[];
 }
 
 /**
- * Bounded settlement request response. It exposes request-level fields only and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
+ * Bounded settlement request response. It exposes request-level fields and selected request-line summaries only, and excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, unrelated candidates, unrelated users, and raw request bodies.
  */
 export interface SettlementRequestResponse {
   id: string;
@@ -616,6 +616,35 @@ export interface SettlementRequestResponse {
   status: SettlementRequestStatus;
   requestedByUserProfileId: string;
   requestedAtUtc: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  /**
+   * Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+   */
+  lines: SettlementRequestLineResponse[];
+}
+
+/**
+ * Bounded settlement request-line summary for the selected concrete bill candidate. It exposes stable source IDs, the already-public candidate key, exact amount/currency, order, status, and timestamps; it excludes bill merchant/item details, payment details, proof/file internals, auth/session data, raw audit metadata, and unrelated users.
+ */
+export interface SettlementRequestLineResponse {
+  id: string;
+  sourceExpenseBillId: string;
+  /**
+   * Active accepted bill revision ID used for the selected line when the source bill has one; otherwise null.
+   */
+  sourceBillRevisionId: string | null;
+  /**
+   * Server-derived settlement candidate key selected into this request line.
+   */
+  sourceCandidateKey: string | null;
+  /**
+   * Decimal-safe exact selected line amount represented as a string.
+   */
+  exactAmount: string;
+  currency: CurrencyCode;
+  allocationOrder: number;
+  status: SettlementRequestLineStatus;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -956,6 +985,11 @@ export type GroupBillAdjustmentAllocationMethod = "equal" | "proportional_by_ite
  * Settlement request status returned by settlement request surfaces.
  */
 export type SettlementRequestStatus = "requested" | "partially_paid" | "marked_paid" | "confirmed" | "disputed" | "cancelled";
+
+/**
+ * Settlement request-line status returned by settlement request surfaces.
+ */
+export type SettlementRequestLineStatus = "open" | "partially_cleared" | "cleared" | "waived" | "disputed" | "cancelled";
 
 /**
  * Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

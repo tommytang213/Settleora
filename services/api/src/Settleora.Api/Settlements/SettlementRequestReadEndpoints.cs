@@ -91,6 +91,7 @@ internal static class SettlementRequestReadEndpoints
     {
         return dbContext.Set<SettlementRequest>()
             .AsNoTracking()
+            .Include(settlementRequest => settlementRequest.Lines)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && settlementRequest.DebtorUserProfile.DeletedAtUtc == null

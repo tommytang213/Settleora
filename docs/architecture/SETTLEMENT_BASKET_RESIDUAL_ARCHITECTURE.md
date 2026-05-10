@@ -195,7 +195,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-The core request-line, allocation, and residual persistence tables have landed as a schema-only foundation. Runtime basket selection, residual policy application, balance projection behavior, OpenAPI changes, generated clients, UI, and worker behavior remain future reviewed slices.
+The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, while runtime basket selection, payment allocation, residual policy application, balance projection behavior, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 

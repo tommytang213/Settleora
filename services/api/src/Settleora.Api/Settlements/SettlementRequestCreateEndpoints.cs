@@ -205,6 +205,20 @@ internal static class SettlementRequestCreateEndpoints
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
+        settlementRequest.Lines.Add(new SettlementRequestLine
+        {
+            Id = Guid.NewGuid(),
+            SettlementRequestId = settlementRequest.Id,
+            SourceExpenseBillId = matchedCandidate.SourceExpenseBillId,
+            SourceBillRevisionId = bill.ActiveAcceptedBillRevisionId,
+            SourceCandidateKey = matchedCandidate.CandidateKey,
+            ExactAmount = matchedCandidate.Amount,
+            Currency = matchedCandidate.Currency,
+            AllocationOrder = 0,
+            Status = SettlementRequestLineStatuses.Open,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        });
 
         dbContext.Set<SettlementRequest>().Add(settlementRequest);
         await auditWriter.WriteAsync(

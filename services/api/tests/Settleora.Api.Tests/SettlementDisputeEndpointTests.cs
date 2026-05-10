@@ -1099,6 +1099,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
                 "debtorUserProfileId",
                 "groupId",
                 "id",
+                "lines",
                 "requestedAtUtc",
                 "requestedByUserProfileId",
                 "sourceExpenseBillId",

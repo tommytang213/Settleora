@@ -20,8 +20,8 @@ The current repository state is:
 - The internal money, rounding, allocation, and bill calculation service exists for same-currency bill calculations.
 - Settlement schema rows exist for `settlement_requests`, `settlement_payments`, `settlement_proof_attachments`, `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals`.
 - Settlement candidate preview endpoints exist for personal and group bills.
-- Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time.
-- Settlement request list/get endpoints exist for read-only current-actor request visibility.
+- Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time and persist one server-derived request line for the selected candidate.
+- Settlement request list/get endpoints exist for read-only current-actor request visibility and expose bounded selected request-line summaries.
 - Settlement payment list/get endpoints exist for read-only payment visibility through visible settlement requests.
 - Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims.
 - Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims.
@@ -29,7 +29,7 @@ The current repository state is:
 - Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get, payment claim creation, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - Settlement basket/residual runtime and balance projection runtime do not exist.
 
 ## Settlement Runtime Authority
