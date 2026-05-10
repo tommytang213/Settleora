@@ -9,8 +9,9 @@ The goal is to let users capture and split each bill when it happens, then settl
 ## Current State
 
 - EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
-- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, supports purpose-specific settlement proof endpoints, and exposes a first read-only current-actor balance projection over request lines and active payment allocations.
-- Public basket selection, bulk pay-all, residual creation or confirmation behavior, OpenAPI basket/residual contracts, generated-client basket/residual methods, UI behavior, and worker behavior do not exist yet.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, supports purpose-specific settlement proof endpoints, exposes a first read-only current-actor balance projection over request lines and active payment allocations, and exposes a first read-only basket preview at `POST /api/v1/settlements/baskets/preview`.
+- The basket preview expands `pay_all_outstanding_for_counterparty` for one current-actor/counterparty direction, optional group, and same-currency scope without writing settlement requests, request lines, payments, allocations, residuals, proof files, notifications, jobs, UI behavior, or projection rows.
+- Public basket creation, bulk pay-all writes, residual creation or confirmation behavior, UI behavior, and worker behavior do not exist yet.
 
 ## Product Problem
 
@@ -389,7 +390,7 @@ credit amount
 
 Bulk selection and pay-all workflows must not create opaque balance shortcuts. The resulting request lines and payment allocations must remain rebuildable and auditable.
 
-The current `GET /api/v1/settlement-balances` slice is read-only and does not create baskets or residuals. It groups current-actor debtor/creditor rows by counterparty, direction, optional group, and currency, separates marked-paid pending coverage from confirmed cleared coverage, excludes cancelled/disputed requests and payments from normal active balances, and keeps unsafe allocation gaps out of the projection instead of guessing from unallocated payment sums.
+The current `GET /api/v1/settlement-balances` slice is read-only and does not create baskets or residuals. It groups current-actor debtor/creditor rows by counterparty, direction, optional group, and currency, separates marked-paid pending coverage from confirmed cleared coverage, excludes cancelled/disputed requests and payments from normal active balances, and keeps unsafe allocation gaps out of the projection instead of guessing from unallocated payment sums. The current `POST /api/v1/settlements/baskets/preview` slice is also read-only; it previews concrete eligible candidate lines and exact selected total but does not persist the basket.
 
 ## Authorization Rules
 

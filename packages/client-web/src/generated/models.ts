@@ -590,6 +590,77 @@ export interface CreateSettlementRequestRequest {
 }
 
 /**
+ * Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
+ */
+export interface SettlementBasketPreviewRequest {
+  /**
+   * Counterparty profile ID for the current actor's preview scope.
+   */
+  counterpartyUserProfileId: string;
+  direction: SettlementBalanceDirection;
+  currency: CurrencyCode;
+  /**
+   * Optional group scope. Null or omission previews personal/non-group candidates only.
+   */
+  groupId?: string | null;
+  selectionMode: SettlementBasketSelectionMode;
+}
+
+/**
+ * Bounded read-only settlement basket preview for one current-actor/counterparty direction, optional group, and currency. Amounts are decimal-safe strings; line keys and amounts are server-derived from eligible confirmed bill candidates. The response excludes merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, unrelated users, and receipt/OCR contents.
+ */
+export interface SettlementBasketPreviewResponse {
+  /**
+   * UTC timestamp when the read-only preview was generated.
+   */
+  generatedAtUtc: string;
+  selectionMode: SettlementBasketSelectionMode;
+  direction: SettlementBalanceDirection;
+  debtorUserProfileId: string;
+  creditorUserProfileId: string;
+  counterpartyUserProfileId: string;
+  /**
+   * Group scope for group basket previews; null for personal previews.
+   */
+  groupId: string | null;
+  currency: CurrencyCode;
+  /**
+   * Decimal-safe sum of all selected preview line exact amounts represented as a string.
+   */
+  exactSelectedTotal: string;
+  lineCount: number;
+  lines: SettlementBasketPreviewLineResponse[];
+}
+
+/**
+ * One bounded server-derived outstanding source line included in a settlement basket preview. It exposes source bill ID, active accepted bill revision trace where available, deterministic candidate key, exact amount/currency, candidate basis, and source bill creation timestamp only.
+ */
+export interface SettlementBasketPreviewLineResponse {
+  sourceExpenseBillId: string;
+  /**
+   * Active accepted bill revision ID used by the current bill state when available; otherwise null.
+   */
+  sourceBillRevisionId: string | null;
+  /**
+   * Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+   */
+  sourceCandidateKey: string;
+  /**
+   * Decimal-safe exact outstanding amount represented as a string.
+   */
+  exactAmount: string;
+  currency: CurrencyCode;
+  /**
+   * Server policy basis used to derive the candidate.
+   */
+  candidateBasis: "confirmed_bill_net_position_v1";
+  /**
+   * Source bill creation timestamp used for deterministic preview ordering.
+   */
+  createdAtUtc: string;
+}
+
+/**
  * Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
  */
 export interface SettlementRequestListResponse {
@@ -1070,6 +1141,11 @@ export type SettlementRequestLineStatus = "open" | "partially_cleared" | "cleare
  * Direction of a settlement balance projection from the authenticated actor's perspective.
  */
 export type SettlementBalanceDirection = "incoming" | "outgoing";
+
+/**
+ * Supported settlement basket preview selection mode for the first read-only basket slice.
+ */
+export type SettlementBasketSelectionMode = "pay_all_outstanding_for_counterparty";
 
 /**
  * Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

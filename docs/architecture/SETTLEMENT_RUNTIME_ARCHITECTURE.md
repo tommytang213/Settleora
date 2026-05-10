@@ -31,7 +31,8 @@ The current repository state is:
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
 - Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation summaries, payment claim creation with allocation summaries, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - The first read-only current-actor settlement balance projection endpoint exists at `GET /api/v1/settlement-balances`. It derives bounded rows from `settlement_requests`, `settlement_request_lines`, `settlement_payments`, and `settlement_payment_allocations`, separates marked-paid pending coverage from confirmed cleared coverage, and does not implement basket selection, residual creation/confirmation, settlement simplification, UI, or writes.
-- Settlement basket/residual runtime beyond the read-only projection does not exist.
+- The first read-only settlement basket preview endpoint exists at `POST /api/v1/settlements/baskets/preview`. It expands eligible same-currency confirmed bill candidates for one current-actor/counterparty direction and optional group, excludes active duplicate requests, preserves active accepted bill revision trace where available, and does not create settlement requests, request lines, payments, allocations, residuals, projection rows, proof files, notifications, jobs, or UI behavior.
+- Settlement basket creation/pay-all writes, residual creation/confirmation, settlement simplification, UI, and worker behavior do not exist yet.
 
 ## Settlement Runtime Authority
 
@@ -123,6 +124,7 @@ GET /api/v1/settlement-payments/{paymentId}/proof
 GET /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content
 DELETE /api/v1/settlement-payments/{paymentId}/proof/{fileId}
 GET /api/v1/settlement-balances
+POST /api/v1/settlements/baskets/preview
 ```
 
 An alternate nested group shape may be reviewed for group-only workflows:
@@ -425,8 +427,9 @@ Recommended implementation sequence:
 10. Read-only settlement payment list/get endpoints. Landed.
 11. Purpose-specific proof attachment upload, metadata list, content read, and removal. Landed.
 13. Balance projection read endpoints. The first current-actor projection endpoint is now landed for request-line/allocation runtime only.
+14. Basket preview read endpoint. The first current-actor/counterparty same-currency pay-all-outstanding preview endpoint is now landed as read-only expansion only.
 
-Keep schema, runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
+Keep schema, write runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, basket creation/residual behavior, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
 ## Validation Expectations
 

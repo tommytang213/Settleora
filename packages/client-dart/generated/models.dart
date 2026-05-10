@@ -1730,6 +1730,172 @@ class CreateSettlementRequestRequest {
   }
 }
 
+/// Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
+class SettlementBasketPreviewRequest {
+  static const Object _unsetGroupId = Object();
+
+  SettlementBasketPreviewRequest({
+    required this.counterpartyUserProfileId,
+    required this.direction,
+    required this.currency,
+    Object? groupId = _unsetGroupId,
+    required this.selectionMode,
+  })
+      : groupId = identical(groupId, _unsetGroupId) ? null : groupId as String?,
+        _hasGroupId = !identical(groupId, _unsetGroupId);
+
+  /// Counterparty profile ID for the current actor's preview scope.
+  final String counterpartyUserProfileId;
+  final SettlementBalanceDirection direction;
+  final CurrencyCode currency;
+  /// Optional group scope. Null or omission previews personal/non-group candidates only.
+  final String? groupId;
+  final bool _hasGroupId;
+  final SettlementBasketSelectionMode selectionMode;
+
+  factory SettlementBasketPreviewRequest.fromJson(JsonObject json) {
+    return SettlementBasketPreviewRequest(
+      counterpartyUserProfileId: json["counterpartyUserProfileId"] as String,
+      direction: json["direction"] as String,
+      currency: json["currency"] as String,
+      groupId: json.containsKey("groupId")
+          ? json["groupId"] == null ? null : json["groupId"] as String
+          : _unsetGroupId,
+      selectionMode: json["selectionMode"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "counterpartyUserProfileId": counterpartyUserProfileId,
+      "direction": direction,
+      "currency": currency,
+      if (_hasGroupId) "groupId": groupIdJsonValue,
+      "selectionMode": selectionMode,
+    };
+  }
+}
+
+/// Bounded read-only settlement basket preview for one current-actor/counterparty direction, optional group, and currency. Amounts are decimal-safe strings; line keys and amounts are server-derived from eligible confirmed bill candidates. The response excludes merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, unrelated users, and receipt/OCR contents.
+class SettlementBasketPreviewResponse {
+  const SettlementBasketPreviewResponse({
+    required this.generatedAtUtc,
+    required this.selectionMode,
+    required this.direction,
+    required this.debtorUserProfileId,
+    required this.creditorUserProfileId,
+    required this.counterpartyUserProfileId,
+    required this.groupId,
+    required this.currency,
+    required this.exactSelectedTotal,
+    required this.lineCount,
+    required this.lines,
+  });
+
+  /// UTC timestamp when the read-only preview was generated.
+  final DateTime generatedAtUtc;
+  final SettlementBasketSelectionMode selectionMode;
+  final SettlementBalanceDirection direction;
+  final String debtorUserProfileId;
+  final String creditorUserProfileId;
+  final String counterpartyUserProfileId;
+  /// Group scope for group basket previews; null for personal previews.
+  final String? groupId;
+  final CurrencyCode currency;
+  /// Decimal-safe sum of all selected preview line exact amounts represented as a string.
+  final String exactSelectedTotal;
+  final int lineCount;
+  final List<SettlementBasketPreviewLineResponse> lines;
+
+  factory SettlementBasketPreviewResponse.fromJson(JsonObject json) {
+    return SettlementBasketPreviewResponse(
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      selectionMode: json["selectionMode"] as String,
+      direction: json["direction"] as String,
+      debtorUserProfileId: json["debtorUserProfileId"] as String,
+      creditorUserProfileId: json["creditorUserProfileId"] as String,
+      counterpartyUserProfileId: json["counterpartyUserProfileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      currency: json["currency"] as String,
+      exactSelectedTotal: json["exactSelectedTotal"] as String,
+      lineCount: (json["lineCount"] as num).toInt(),
+      lines: (json["lines"] as List<dynamic>).map((item) => SettlementBasketPreviewLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "selectionMode": selectionMode,
+      "direction": direction,
+      "debtorUserProfileId": debtorUserProfileId,
+      "creditorUserProfileId": creditorUserProfileId,
+      "counterpartyUserProfileId": counterpartyUserProfileId,
+      "groupId": groupIdJsonValue,
+      "currency": currency,
+      "exactSelectedTotal": exactSelectedTotal,
+      "lineCount": lineCount,
+      "lines": lines.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// One bounded server-derived outstanding source line included in a settlement basket preview. It exposes source bill ID, active accepted bill revision trace where available, deterministic candidate key, exact amount/currency, candidate basis, and source bill creation timestamp only.
+class SettlementBasketPreviewLineResponse {
+  const SettlementBasketPreviewLineResponse({
+    required this.sourceExpenseBillId,
+    required this.sourceBillRevisionId,
+    required this.sourceCandidateKey,
+    required this.exactAmount,
+    required this.currency,
+    required this.candidateBasis,
+    required this.createdAtUtc,
+  });
+
+  final String sourceExpenseBillId;
+  /// Active accepted bill revision ID used by the current bill state when available; otherwise null.
+  final String? sourceBillRevisionId;
+  /// Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+  final String sourceCandidateKey;
+  /// Decimal-safe exact outstanding amount represented as a string.
+  final String exactAmount;
+  final CurrencyCode currency;
+  /// Server policy basis used to derive the candidate.
+  final String candidateBasis;
+  /// Source bill creation timestamp used for deterministic preview ordering.
+  final DateTime createdAtUtc;
+
+  factory SettlementBasketPreviewLineResponse.fromJson(JsonObject json) {
+    return SettlementBasketPreviewLineResponse(
+      sourceExpenseBillId: json["sourceExpenseBillId"] as String,
+      sourceBillRevisionId: json["sourceBillRevisionId"] == null ? null : json["sourceBillRevisionId"] as String,
+      sourceCandidateKey: json["sourceCandidateKey"] as String,
+      exactAmount: json["exactAmount"] as String,
+      currency: json["currency"] as String,
+      candidateBasis: json["candidateBasis"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final sourceBillRevisionIdJsonValue = sourceBillRevisionId;
+
+    return {
+      "sourceExpenseBillId": sourceExpenseBillId,
+      "sourceBillRevisionId": sourceBillRevisionIdJsonValue,
+      "sourceCandidateKey": sourceCandidateKey,
+      "exactAmount": exactAmount,
+      "currency": currency,
+      "candidateBasis": candidateBasis,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
 class SettlementRequestListResponse {
   const SettlementRequestListResponse({
@@ -3028,6 +3194,14 @@ class SettlementBalanceDirectionValues {
   static const SettlementBalanceDirection incoming = "incoming";
   static const SettlementBalanceDirection outgoing = "outgoing";
   static const Set<SettlementBalanceDirection> values = {incoming, outgoing};
+}
+
+/// Supported settlement basket preview selection mode for the first read-only basket slice.
+typedef SettlementBasketSelectionMode = String;
+class SettlementBasketSelectionModeValues {
+  const SettlementBasketSelectionModeValues._();
+  static const SettlementBasketSelectionMode payAllOutstandingForCounterparty = "pay_all_outstanding_for_counterparty";
+  static const Set<SettlementBasketSelectionMode> values = {payAllOutstandingForCounterparty};
 }
 
 /// Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.

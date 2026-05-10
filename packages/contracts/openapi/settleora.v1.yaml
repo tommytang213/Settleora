@@ -1787,6 +1787,50 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/baskets/preview:
+    post:
+      summary: Preview settlement basket
+      description: Returns a read-only same-currency basket preview for all eligible outstanding confirmed bill settlement candidate lines between the authenticated actor and one counterparty. The current actor, debtor/creditor direction, eligible source bills, candidate keys, amounts, active accepted bill revision trace, duplicate active request exclusion, and group visibility are derived server-side. The endpoint does not create settlement requests, request lines, payments, allocations, residuals, proof files, notifications, jobs, or projection rows, and it excludes merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, unrelated users, and receipt/OCR contents.
+      operationId: previewSettlementBasket
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettlementBasketPreviewRequest"
+      responses:
+        "200":
+          description: Read-only concrete line preview for the selected current-actor/counterparty scope. The line list can be empty when no eligible outstanding same-currency candidates exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementBasketPreviewResponse"
+        "400":
+          description: Request body is malformed, contains unsupported fields, unsupported direction or selection mode values, invalid UUIDs, or invalid currency.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Actor profile, counterparty profile, group, or required active group membership visibility is missing, deleted, inactive, removed, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/settlement-balances:
     get:
       summary: List settlement balance projections
@@ -4702,6 +4746,123 @@ components:
           minLength: 1
           maxLength: 240
           description: Server-derived candidate key from the current confirmed bill candidate basis.
+    SettlementBasketPreviewRequest:
+      type: object
+      description: Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
+      additionalProperties: false
+      required:
+        - counterpartyUserProfileId
+        - direction
+        - currency
+        - selectionMode
+      properties:
+        counterpartyUserProfileId:
+          type: string
+          format: uuid
+          description: Counterparty profile ID for the current actor's preview scope.
+        direction:
+          $ref: "#/components/schemas/SettlementBalanceDirection"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional group scope. Null or omission previews personal/non-group candidates only.
+        selectionMode:
+          $ref: "#/components/schemas/SettlementBasketSelectionMode"
+    SettlementBasketPreviewResponse:
+      type: object
+      description: Bounded read-only settlement basket preview for one current-actor/counterparty direction, optional group, and currency. Amounts are decimal-safe strings; line keys and amounts are server-derived from eligible confirmed bill candidates. The response excludes merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, unrelated users, and receipt/OCR contents.
+      required:
+        - generatedAtUtc
+        - selectionMode
+        - direction
+        - debtorUserProfileId
+        - creditorUserProfileId
+        - counterpartyUserProfileId
+        - groupId
+        - currency
+        - exactSelectedTotal
+        - lineCount
+        - lines
+      properties:
+        generatedAtUtc:
+          type: string
+          format: date-time
+          description: UTC timestamp when the read-only preview was generated.
+        selectionMode:
+          $ref: "#/components/schemas/SettlementBasketSelectionMode"
+        direction:
+          $ref: "#/components/schemas/SettlementBalanceDirection"
+        debtorUserProfileId:
+          type: string
+          format: uuid
+        creditorUserProfileId:
+          type: string
+          format: uuid
+        counterpartyUserProfileId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Group scope for group basket previews; null for personal previews.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        exactSelectedTotal:
+          type: string
+          description: Decimal-safe sum of all selected preview line exact amounts represented as a string.
+        lineCount:
+          type: integer
+          minimum: 0
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementBasketPreviewLineResponse"
+    SettlementBasketPreviewLineResponse:
+      type: object
+      description: One bounded server-derived outstanding source line included in a settlement basket preview. It exposes source bill ID, active accepted bill revision trace where available, deterministic candidate key, exact amount/currency, candidate basis, and source bill creation timestamp only.
+      required:
+        - sourceExpenseBillId
+        - sourceBillRevisionId
+        - sourceCandidateKey
+        - exactAmount
+        - currency
+        - candidateBasis
+        - createdAtUtc
+      properties:
+        sourceExpenseBillId:
+          type: string
+          format: uuid
+        sourceBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Active accepted bill revision ID used by the current bill state when available; otherwise null.
+        sourceCandidateKey:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Deterministic server-derived candidate key for this bill/counterparty/amount/currency basis.
+        exactAmount:
+          type: string
+          description: Decimal-safe exact outstanding amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        candidateBasis:
+          type: string
+          enum:
+            - confirmed_bill_net_position_v1
+          description: Server policy basis used to derive the candidate.
+        createdAtUtc:
+          type: string
+          format: date-time
+          description: Source bill creation timestamp used for deterministic preview ordering.
     SettlementRequestListResponse:
       type: object
       description: Bounded read-only settlement request list for the authenticated actor. It includes only requests where the actor is debtor, creditor, or requester, includes selected request-line summaries, and excludes payment details, proof/file internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
@@ -5585,6 +5746,11 @@ components:
       enum:
         - incoming
         - outgoing
+    SettlementBasketSelectionMode:
+      type: string
+      description: Supported settlement basket preview selection mode for the first read-only basket slice.
+      enum:
+        - pay_all_outstanding_for_counterparty
     SettlementPaymentStatus:
       type: string
       description: Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.
