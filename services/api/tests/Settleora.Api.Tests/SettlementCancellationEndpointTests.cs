@@ -1468,6 +1468,7 @@ public sealed class SettlementCancellationEndpointTests : IClassFixture<WebAppli
                 "paymentDate",
                 "paymentId",
                 "receivedByUserProfileId",
+                "residuals",
                 "settlementRequestId",
                 "settlementRequestStatus",
                 "status",

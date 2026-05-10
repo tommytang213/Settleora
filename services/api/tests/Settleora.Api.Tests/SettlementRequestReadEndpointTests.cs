@@ -900,6 +900,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         var paymentListSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentListResponse:");
         var paymentSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentResponse:");
         var paymentAllocationSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentAllocationResponse:");
+        var paymentResidualSchemaBlock = ExtractOpenApiSchemaBlock(openApi, "SettlementPaymentResidualResponse:");
 
         Assert.Contains("operationId: listSettlementRequests", settlementsPathBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementRequestListResponse", settlementsPathBlock, StringComparison.Ordinal);
@@ -938,8 +939,12 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("SettlementPaymentResponse", paymentListSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("allocations", paymentSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentAllocationResponse", paymentSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("residuals", paymentSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentResidualResponse", paymentSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("settlementRequestLineId", paymentAllocationSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("clearedAmount", paymentAllocationSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementResidualPolicy", paymentResidualSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("SettlementResidualStatus", paymentResidualSchemaBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("proofSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.DoesNotContain("/api/v1/files/{fileId}", openApi, StringComparison.OrdinalIgnoreCase);
@@ -967,6 +972,9 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.Contains("SettlementPaymentListResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementPaymentAllocationResponse", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementPaymentResidualResponse", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementResidualPolicy", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("SettlementResidualStatus", generatedContent, StringComparison.Ordinal);
         Assert.Contains("settlementRequestLineId", generatedContent, StringComparison.Ordinal);
         Assert.Contains("clearedAmount", generatedContent, StringComparison.Ordinal);
         Assert.DoesNotContain("markSettlementPaid", generatedContent, StringComparison.Ordinal);
@@ -1520,6 +1528,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
                 "paymentDate",
                 "paymentId",
                 "receivedByUserProfileId",
+                "residuals",
                 "settlementRequestId",
                 "settlementRequestStatus",
                 "status",

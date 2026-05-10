@@ -188,6 +188,7 @@ internal static class SettlementPaymentReadEndpoints
             .AsNoTracking()
             .Include(payment => payment.SettlementRequest)
             .Include(payment => payment.Allocations)
+            .Include(payment => payment.Residuals)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.DebtorUserProfile.DeletedAtUtc == null

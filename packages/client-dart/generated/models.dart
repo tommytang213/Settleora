@@ -2205,38 +2205,44 @@ class SettlementBalanceProjectionResponse {
   }
 }
 
-/// Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+/// Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, paymentDate is a yyyy-MM-dd calendar date, and proposedResidualPolicy may be supplied only for explicit non-exact residual proposals. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, residual direction/status, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
 class CreateSettlementPaymentRequest {
   const CreateSettlementPaymentRequest({
     required this.amount,
     required this.currency,
     required this.paymentDate,
+    this.proposedResidualPolicy,
   });
 
-  /// Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+  /// Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment unless an explicit supported residual policy is supplied.
   final String amount;
   final CurrencyCode currency;
   /// Claimed payment date as yyyy-MM-dd.
   final String paymentDate;
+  final SettlementResidualPolicy? proposedResidualPolicy;
 
   factory CreateSettlementPaymentRequest.fromJson(JsonObject json) {
     return CreateSettlementPaymentRequest(
       amount: json["amount"] as String,
       currency: json["currency"] as String,
       paymentDate: json["paymentDate"] as String,
+      proposedResidualPolicy: json["proposedResidualPolicy"] == null ? null : json["proposedResidualPolicy"] as String,
     );
   }
 
   JsonObject toJson() {
+    final proposedResidualPolicyJsonValue = proposedResidualPolicy;
+
     return {
       "amount": amount,
       "currency": currency,
       "paymentDate": paymentDate,
+      if (proposedResidualPolicyJsonValue != null) "proposedResidualPolicy": proposedResidualPolicyJsonValue,
     };
   }
 }
 
-/// Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and bounded allocation summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+/// Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims, bounded allocation summaries, and bounded residual summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
 class SettlementPaymentListResponse {
   const SettlementPaymentListResponse({
     required this.payments,
@@ -2299,7 +2305,74 @@ class SettlementPaymentAllocationResponse {
   }
 }
 
-/// Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+/// Bounded settlement residual summary tied to one payment claim. It exposes only stable IDs, direction, amount, currency, policy, status, and lifecycle timestamps, and excludes payment details, proof/file/storage internals, auth/session data, raw request bodies, audit metadata, bill merchant/item details, OCR text, and unrelated users.
+class SettlementPaymentResidualResponse {
+  static const Object _unsetResolvedAtUtc = Object();
+
+  SettlementPaymentResidualResponse({
+    required this.id,
+    required this.settlementPaymentId,
+    required this.settlementRequestId,
+    required this.direction,
+    required this.amount,
+    required this.currency,
+    required this.policy,
+    required this.status,
+    required this.createdAtUtc,
+    Object? resolvedAtUtc = _unsetResolvedAtUtc,
+  })
+      : resolvedAtUtc = identical(resolvedAtUtc, _unsetResolvedAtUtc) ? null : resolvedAtUtc as DateTime?,
+        _hasResolvedAtUtc = !identical(resolvedAtUtc, _unsetResolvedAtUtc);
+
+  final String id;
+  final String settlementPaymentId;
+  final String settlementRequestId;
+  final SettlementResidualDirection direction;
+  /// Positive decimal-safe residual amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final SettlementResidualPolicy policy;
+  final SettlementResidualStatus status;
+  final DateTime createdAtUtc;
+  final DateTime? resolvedAtUtc;
+  final bool _hasResolvedAtUtc;
+
+  factory SettlementPaymentResidualResponse.fromJson(JsonObject json) {
+    return SettlementPaymentResidualResponse(
+      id: json["id"] as String,
+      settlementPaymentId: json["settlementPaymentId"] as String,
+      settlementRequestId: json["settlementRequestId"] as String,
+      direction: json["direction"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      policy: json["policy"] as String,
+      status: json["status"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      resolvedAtUtc: json.containsKey("resolvedAtUtc")
+          ? json["resolvedAtUtc"] == null ? null : DateTime.parse(json["resolvedAtUtc"] as String)
+          : _unsetResolvedAtUtc,
+    );
+  }
+
+  JsonObject toJson() {
+    final resolvedAtUtcJsonValue = resolvedAtUtc;
+
+    return {
+      "id": id,
+      "settlementPaymentId": settlementPaymentId,
+      "settlementRequestId": settlementRequestId,
+      "direction": direction,
+      "amount": amount,
+      "currency": currency,
+      "policy": policy,
+      "status": status,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      if (_hasResolvedAtUtc) "resolvedAtUtc": resolvedAtUtcJsonValue == null ? null : resolvedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, bounded residual summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, OCR text, and unrelated users.
 class SettlementPaymentResponse {
   const SettlementPaymentResponse({
     required this.paymentId,
@@ -2314,6 +2387,7 @@ class SettlementPaymentResponse {
     required this.createdAtUtc,
     required this.updatedAtUtc,
     required this.allocations,
+    required this.residuals,
     required this.settlementRequestStatus,
   });
 
@@ -2330,6 +2404,7 @@ class SettlementPaymentResponse {
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
   final List<SettlementPaymentAllocationResponse> allocations;
+  final List<SettlementPaymentResidualResponse> residuals;
   final SettlementRequestStatus settlementRequestStatus;
 
   factory SettlementPaymentResponse.fromJson(JsonObject json) {
@@ -2346,6 +2421,7 @@ class SettlementPaymentResponse {
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
       allocations: (json["allocations"] as List<dynamic>).map((item) => SettlementPaymentAllocationResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      residuals: (json["residuals"] as List<dynamic>).map((item) => SettlementPaymentResidualResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       settlementRequestStatus: json["settlementRequestStatus"] as String,
     );
   }
@@ -2364,6 +2440,7 @@ class SettlementPaymentResponse {
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
       "allocations": allocations.map((item) => item.toJson()).toList(growable: false),
+      "residuals": residuals.map((item) => item.toJson()).toList(growable: false),
       "settlementRequestStatus": settlementRequestStatus,
     };
   }
@@ -3261,6 +3338,42 @@ class SettlementPaymentStatusValues {
   static const SettlementPaymentStatus disputed = "disputed";
   static const SettlementPaymentStatus cancelled = "cancelled";
   static const Set<SettlementPaymentStatus> values = {markedPaid, confirmed, disputed, cancelled};
+}
+
+/// Direction of a proposed settlement residual relative to the exact selected outstanding total.
+typedef SettlementResidualDirection = String;
+class SettlementResidualDirectionValues {
+  const SettlementResidualDirectionValues._();
+  static const SettlementResidualDirection underpayment = "underpayment";
+  static const SettlementResidualDirection overpayment = "overpayment";
+  static const Set<SettlementResidualDirection> values = {underpayment, overpayment};
+}
+
+/// Supported residual policy values for explicit payment-claim-time residual proposals.
+typedef SettlementResidualPolicy = String;
+class SettlementResidualPolicyValues {
+  const SettlementResidualPolicyValues._();
+  static const SettlementResidualPolicy remainingBalance = "remaining_balance";
+  static const SettlementResidualPolicy carriedForward = "carried_forward";
+  static const SettlementResidualPolicy waived = "waived";
+  static const SettlementResidualPolicy creditForward = "credit_forward";
+  static const SettlementResidualPolicy waivedByPayer = "waived_by_payer";
+  static const SettlementResidualPolicy appliedToOtherLine = "applied_to_other_line";
+  static const Set<SettlementResidualPolicy> values = {remainingBalance, carriedForward, waived, creditForward, waivedByPayer, appliedToOtherLine};
+}
+
+/// Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+typedef SettlementResidualStatus = String;
+class SettlementResidualStatusValues {
+  const SettlementResidualStatusValues._();
+  static const SettlementResidualStatus pendingReceiverConfirmation = "pending_receiver_confirmation";
+  static const SettlementResidualStatus confirmed = "confirmed";
+  static const SettlementResidualStatus carriedForward = "carried_forward";
+  static const SettlementResidualStatus waived = "waived";
+  static const SettlementResidualStatus credited = "credited";
+  static const SettlementResidualStatus disputed = "disputed";
+  static const SettlementResidualStatus cancelled = "cancelled";
+  static const Set<SettlementResidualStatus> values = {pendingReceiverConfirmation, confirmed, carriedForward, waived, credited, disputed, cancelled};
 }
 
 /// Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

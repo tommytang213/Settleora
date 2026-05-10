@@ -2264,7 +2264,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     post:
       summary: Create settlement payment claim
-      description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state. The request body intentionally accepts only amount, currency, and paymentDate; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency partial payments, rejects overpayment, and does not perform receiver confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
+      description: Creates one debtor-authored payment claim for an existing settlement request. The authenticated actor must be the request debtor, the server derives payer, receiver, created-by profile, payment status, request status transition, remaining amount, residual decision state, and partial-vs-covered state. The request body intentionally accepts only amount, currency, paymentDate, and an optional bounded proposedResidualPolicy; payer, receiver, debtor, creditor, status, settlement request ID, group ID, bill ID, proof file IDs, payment details, auth/session/account IDs, payment handles, notes, and arbitrary identity fields are not accepted. This endpoint supports same-currency exact and ordinary partial payments without residual rows, supports explicit same-currency underpayment/overpayment residual proposals, still rejects overpayment without a supported residual policy, and does not perform receiver residual confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projection writes, or file byte behavior.
       operationId: createSettlementPaymentClaim
       security:
         - SessionBearerAuth: []
@@ -2601,7 +2601,7 @@ paths:
   /api/v1/settlement-payments/{paymentId}/cancel:
     post:
       summary: Cancel settlement payment
-      description: Cancels one visible debtor-authored marked_paid settlement payment claim without accepting a request body. The authenticated actor must be the debtor who paid and created the claim, and the server derives actor identity, payment visibility, cancellation timestamp, payment status transition, parent request status recomputation, and audit metadata. This operation accepts no client-submitted actor, debtor, creditor, requester, request, group, amount, currency, status, auth, session, file, proof, payment-detail, QR, or audit fields; it does not delete rows, rewrite proof attachments, expose payment handles, expose storage internals, or perform proof bytes, balance projection, OCR, recurring, forecasting, reconciliation, FX, refund, governance, notification, or UI behavior.
+      description: Cancels one visible debtor-authored marked_paid settlement payment claim without accepting a request body. The authenticated actor must be the debtor who paid and created the claim, and the server derives actor identity, payment visibility, cancellation timestamp, payment status transition, pending residual cancellation, parent request status recomputation, and audit metadata. This operation accepts no client-submitted actor, debtor, creditor, requester, request, group, amount, currency, status, auth, session, file, proof, payment-detail, QR, or audit fields; it does not delete rows, rewrite proof attachments, expose payment handles, expose storage internals, or perform proof bytes, residual confirmation, balance projection writes, OCR, recurring, forecasting, reconciliation, FX, refund, governance, notification, or UI behavior.
       operationId: cancelSettlementPayment
       security:
         - SessionBearerAuth: []
@@ -2659,7 +2659,7 @@ paths:
   /api/v1/settlement-payments/{paymentId}/confirm:
     post:
       summary: Confirm settlement payment
-      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments, rejects corrupt coverage or currency state, and does not perform dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projections, or file byte behavior.
+      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments without pending residuals, rejects corrupt coverage or currency state, blocks pending residual proposals until a future receiver residual confirmation runtime exists, and does not perform dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projection writes, or file byte behavior.
       operationId: confirmSettlementPayment
       security:
         - SessionBearerAuth: []
@@ -2717,7 +2717,7 @@ paths:
   /api/v1/settlement-payments/{paymentId}/dispute:
     post:
       summary: Dispute settlement payment
-      description: Disputes one visible debtor-authored settlement payment claim without accepting a request body. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, payment visibility, payment dispute timestamp, parent request dispute transition, and audit metadata. This operation can move only marked_paid payments to disputed and moves the parent request to disputed. It does not delete or rewrite other payment claims, proof attachment rows, bill rows, payment details, file metadata, proof bytes, QR contents, storage internals, auth/session data, raw request bodies, or raw audit metadata.
+      description: Disputes one visible debtor-authored settlement payment claim without accepting a request body. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, payment visibility, payment dispute timestamp, pending residual dispute state, parent request dispute transition, and audit metadata. This operation can move only marked_paid payments to disputed and moves the parent request to disputed. It does not delete or rewrite other payment claims, proof attachment rows, bill rows, payment details, file metadata, proof bytes, QR contents, storage internals, auth/session data, raw request bodies, residual confirmation state, or raw audit metadata.
       operationId: disputeSettlementPayment
       security:
         - SessionBearerAuth: []
@@ -5141,7 +5141,7 @@ components:
           description: Count of confirmed payment claims contributing active cleared allocation coverage.
     CreateSettlementPaymentRequest:
       type: object
-      description: Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+      description: Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, paymentDate is a yyyy-MM-dd calendar date, and proposedResidualPolicy may be supplied only for explicit non-exact residual proposals. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, residual direction/status, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
       additionalProperties: false
       required:
         - amount
@@ -5150,16 +5150,18 @@ components:
       properties:
         amount:
           type: string
-          description: Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+          description: Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment unless an explicit supported residual policy is supplied.
         currency:
           $ref: "#/components/schemas/CurrencyCode"
         paymentDate:
           type: string
           format: date
           description: Claimed payment date as yyyy-MM-dd.
+        proposedResidualPolicy:
+          $ref: "#/components/schemas/SettlementResidualPolicy"
     SettlementPaymentListResponse:
       type: object
-      description: Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and bounded allocation summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+      description: Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims, bounded allocation summaries, and bounded residual summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
       required:
         - payments
       properties:
@@ -5195,9 +5197,51 @@ components:
         createdAtUtc:
           type: string
           format: date-time
+    SettlementPaymentResidualResponse:
+      type: object
+      description: Bounded settlement residual summary tied to one payment claim. It exposes only stable IDs, direction, amount, currency, policy, status, and lifecycle timestamps, and excludes payment details, proof/file/storage internals, auth/session data, raw request bodies, audit metadata, bill merchant/item details, OCR text, and unrelated users.
+      required:
+        - id
+        - settlementPaymentId
+        - settlementRequestId
+        - direction
+        - amount
+        - currency
+        - policy
+        - status
+        - createdAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        settlementPaymentId:
+          type: string
+          format: uuid
+        settlementRequestId:
+          type: string
+          format: uuid
+        direction:
+          $ref: "#/components/schemas/SettlementResidualDirection"
+        amount:
+          type: string
+          description: Positive decimal-safe residual amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        policy:
+          $ref: "#/components/schemas/SettlementResidualPolicy"
+        status:
+          $ref: "#/components/schemas/SettlementResidualStatus"
+        createdAtUtc:
+          type: string
+          format: date-time
+        resolvedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     SettlementPaymentResponse:
       type: object
-      description: Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+      description: Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, bounded residual summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, OCR text, and unrelated users.
       required:
         - paymentId
         - settlementRequestId
@@ -5211,6 +5255,7 @@ components:
         - createdAtUtc
         - updatedAtUtc
         - allocations
+        - residuals
         - settlementRequestStatus
       properties:
         paymentId:
@@ -5248,6 +5293,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SettlementPaymentAllocationResponse"
+        residuals:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementPaymentResidualResponse"
         settlementRequestStatus:
           $ref: "#/components/schemas/SettlementRequestStatus"
     SettlementPaymentProofListResponse:
@@ -5839,6 +5888,33 @@ components:
       enum:
         - marked_paid
         - confirmed
+        - disputed
+        - cancelled
+    SettlementResidualDirection:
+      type: string
+      description: Direction of a proposed settlement residual relative to the exact selected outstanding total.
+      enum:
+        - underpayment
+        - overpayment
+    SettlementResidualPolicy:
+      type: string
+      description: Supported residual policy values for explicit payment-claim-time residual proposals.
+      enum:
+        - remaining_balance
+        - carried_forward
+        - waived
+        - credit_forward
+        - waived_by_payer
+        - applied_to_other_line
+    SettlementResidualStatus:
+      type: string
+      description: Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+      enum:
+        - pending_receiver_confirmation
+        - confirmed
+        - carried_forward
+        - waived
+        - credited
         - disputed
         - cancelled
     PaymentDetailsVisibility:

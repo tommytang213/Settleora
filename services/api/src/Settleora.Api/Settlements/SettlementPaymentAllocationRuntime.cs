@@ -10,16 +10,33 @@ internal static class SettlementPaymentAllocationRuntime
         DateTimeOffset now,
         out SettlementAllocationRuntimeResult result)
     {
+        return TryCreatePaymentAllocations(
+            settlementRequest,
+            payment,
+            payment.Amount,
+            now,
+            out result);
+    }
+
+    public static bool TryCreatePaymentAllocations(
+        SettlementRequest settlementRequest,
+        SettlementPayment payment,
+        decimal amountToAllocate,
+        DateTimeOffset now,
+        out SettlementAllocationRuntimeResult result)
+    {
         result = default;
 
         if (!SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
+            || !SettlementRuntimePolicy.IsValidSettlementAmount(amountToAllocate)
+            || amountToAllocate > payment.Amount
             || !string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)
             || !TryComputeActiveCoverage(settlementRequest, out var coverage))
         {
             return false;
         }
 
-        if (coverage.ActivePaymentCoverage + payment.Amount > settlementRequest.Amount)
+        if (coverage.ActivePaymentCoverage + amountToAllocate > settlementRequest.Amount)
         {
             return false;
         }
@@ -27,7 +44,7 @@ internal static class SettlementPaymentAllocationRuntime
         var lineCoverage = coverage.LineCoverage.ToDictionary(
             pair => pair.Key,
             pair => pair.Value);
-        var remainingPaymentAmount = payment.Amount;
+        var remainingPaymentAmount = amountToAllocate;
         var allocationOrder = 0;
 
         foreach (var line in coverage.OrderedLines)
@@ -84,9 +101,24 @@ internal static class SettlementPaymentAllocationRuntime
         ApplyLineCoverageStatuses(coverage.OrderedLines, lineCoverage, now);
 
         result = new SettlementAllocationRuntimeResult(
-            coverage.ActivePaymentCoverage + payment.Amount,
+            coverage.ActivePaymentCoverage + amountToAllocate,
             coverage.ConfirmedPaymentCoverage);
         return true;
+    }
+
+    public static bool TryGetOutstandingSelectedAmount(
+        SettlementRequest settlementRequest,
+        out decimal outstandingAmount)
+    {
+        outstandingAmount = 0m;
+
+        if (!TryComputeActiveCoverage(settlementRequest, out var coverage))
+        {
+            return false;
+        }
+
+        outstandingAmount = settlementRequest.Amount - coverage.ActivePaymentCoverage;
+        return outstandingAmount > 0m;
     }
 
     public static bool TryRecomputeActiveLineCoverage(
@@ -180,15 +212,17 @@ internal static class SettlementPaymentAllocationRuntime
                 lineCoverage[allocation.SettlementRequestLineId] += allocation.ClearedAmount;
             }
 
-            if (paymentAllocationTotal != payment.Amount)
+            if (!SettlementResidualRuntime.IsValidAllocationTotalForActivePayment(
+                    payment,
+                    paymentAllocationTotal))
             {
                 return false;
             }
 
-            activePaymentCoverage += payment.Amount;
+            activePaymentCoverage += paymentAllocationTotal;
             if (payment.Status == SettlementPaymentStatuses.Confirmed)
             {
-                confirmedPaymentCoverage += payment.Amount;
+                confirmedPaymentCoverage += paymentAllocationTotal;
             }
         }
 

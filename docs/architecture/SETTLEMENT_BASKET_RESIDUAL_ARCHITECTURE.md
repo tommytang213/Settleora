@@ -9,9 +9,9 @@ The goal is to let users capture and split each bill when it happens, then settl
 ## Current State
 
 - EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
-- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for selected request lines, supports purpose-specific settlement proof endpoints, exposes a first read-only current-actor balance projection over request lines and active payment allocations, exposes a first read-only basket preview at `POST /api/v1/settlements/baskets/preview`, and exposes a first pay-all basket creation endpoint at `POST /api/v1/settlements/baskets`.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for selected request lines, persists pending residual proposals at payment-claim time for explicit same-currency underpayment/overpayment policies, supports purpose-specific settlement proof endpoints, exposes a first read-only current-actor balance projection over request lines and active payment allocations, exposes a first read-only basket preview at `POST /api/v1/settlements/baskets/preview`, and exposes a first pay-all basket creation endpoint at `POST /api/v1/settlements/baskets`.
 - The basket preview expands `pay_all_outstanding_for_counterparty` for one current-actor/counterparty direction, optional group, and same-currency scope without writing settlement requests, request lines, payments, allocations, residuals, proof files, notifications, jobs, UI behavior, or projection rows. The basket create endpoint reuses that server-side expansion to write one settlement request plus concrete request lines only.
-- An internal residual policy decision service now classifies exact payment, underpayment, and overpayment deltas, maps safe residual policy/direction combinations to bounded status expectations, and keeps receiver confirmation requirements explicit. Residual creation or confirmation endpoints, residual persistence writes, UI behavior, and worker behavior do not exist yet.
+- An internal residual policy decision service classifies exact payment, underpayment, and overpayment deltas, maps safe residual policy/direction combinations to bounded status expectations, and keeps receiver confirmation requirements explicit. Payment claim creation now uses that service to create pending residual rows and bounded response summaries. Receiver residual confirmation, confirmed credit/waiver/remaining-balance finalization, UI behavior, and worker behavior do not exist yet.
 
 ## Product Problem
 
@@ -196,7 +196,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-The core request-line, allocation, and residual persistence tables have landed. Current single-bill settlement request creation uses one request line for the selected candidate, current basket creation writes concrete request lines for the supported pay-all-outstanding selection mode, current payment claim runtime writes allocations against selected lines, and the current balance projection read uses those records without creating residual state. Residual persistence application, additional projection behavior beyond the current read endpoint, UI, and worker behavior remain future reviewed slices.
+The core request-line, allocation, and residual persistence tables have landed. Current single-bill settlement request creation uses one request line for the selected candidate, current basket creation writes concrete request lines for the supported pay-all-outstanding selection mode, current payment claim runtime writes allocations against selected lines, and payment-claim-time residual runtime writes pending residual proposal rows for explicit same-currency underpayment/overpayment policies. The current balance projection read uses request-line/allocation records and does not treat pending residuals as confirmed credits, waivers, or cleared debt. Receiver residual confirmation, additional projection behavior beyond the current read endpoint, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 
@@ -390,7 +390,7 @@ credit amount
 
 Bulk selection and pay-all workflows must not create opaque balance shortcuts. The resulting request lines and payment allocations must remain rebuildable and auditable.
 
-The current `GET /api/v1/settlement-balances` slice is read-only and does not create baskets or residuals. It groups current-actor debtor/creditor rows by counterparty, direction, optional group, and currency, separates marked-paid pending coverage from confirmed cleared coverage, excludes cancelled/disputed requests and payments from normal active balances, and keeps unsafe allocation gaps out of the projection instead of guessing from unallocated payment sums. The current `POST /api/v1/settlements/baskets/preview` slice is also read-only; it previews concrete eligible candidate lines and exact selected total but does not persist the basket.
+The current `GET /api/v1/settlement-balances` slice is read-only and does not create baskets or residuals. It groups current-actor debtor/creditor rows by counterparty, direction, optional group, and currency, separates marked-paid pending coverage from confirmed cleared coverage, excludes cancelled/disputed requests and payments from normal active balances, ignores pending residuals as confirmed balance effects, and keeps unsafe allocation gaps out of the projection instead of guessing from unallocated payment sums. The current `POST /api/v1/settlements/baskets/preview` slice is also read-only; it previews concrete eligible candidate lines and exact selected total but does not persist the basket.
 
 ## Authorization Rules
 
@@ -494,15 +494,12 @@ Audit metadata must stay bounded and must avoid raw payment notes, raw receipt O
 
 ## Non-goals
 
-This document does not implement or authorize by itself:
+Current implementation still does not include:
 
-- EF migrations.
-- Runtime endpoint changes.
-- OpenAPI schema changes.
-- Generated client changes.
 - UI implementation.
 - FX conversion runtime.
 - Bank/card sync.
 - Automatic group-wide debt simplification across multiple counterparties.
 - Automatic residual expiry.
+- Receiver residual confirmation and confirmed credit/waiver finalization.
 - Hidden mutable balance source-of-truth tables.

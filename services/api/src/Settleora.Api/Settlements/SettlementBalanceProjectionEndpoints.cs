@@ -100,6 +100,8 @@ internal static class SettlementBalanceProjectionEndpoints
             .Include(settlementRequest => settlementRequest.Lines)
             .Include(settlementRequest => settlementRequest.Payments)
                 .ThenInclude(payment => payment.Allocations)
+            .Include(settlementRequest => settlementRequest.Payments)
+                .ThenInclude(payment => payment.Residuals)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && ActiveProjectionRequestStatuses.Contains(settlementRequest.Status)
@@ -226,7 +228,9 @@ internal static class SettlementBalanceProjectionEndpoints
                 }
             }
 
-            if (paymentAllocationTotal != payment.Amount)
+            if (!SettlementResidualRuntime.IsValidAllocationTotalForActivePayment(
+                    payment,
+                    paymentAllocationTotal))
             {
                 return false;
             }

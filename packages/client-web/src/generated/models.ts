@@ -797,11 +797,11 @@ export interface SettlementBalanceProjectionResponse {
 }
 
 /**
- * Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, and paymentDate is a yyyy-MM-dd calendar date. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
+ * Minimal settlement payment claim body. Amount is a decimal-safe string, currency must match the settlement request currency, paymentDate is a yyyy-MM-dd calendar date, and proposedResidualPolicy may be supplied only for explicit non-exact residual proposals. The server derives settlement request, payer/debtor, receiver/creditor, created-by profile, payment status, request status transition, remaining amount, residual direction/status, and partial-vs-covered state; proof files, payment details, payment handles, notes, and auth/session/account identity fields are not accepted.
  */
 export interface CreateSettlementPaymentRequest {
   /**
-   * Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment.
+   * Positive decimal-safe payment amount represented as a string. The API rejects zero, negative values, malformed decimals, unsupported precision, and overpayment unless an explicit supported residual policy is supplied.
    */
   amount: string;
   currency: CurrencyCode;
@@ -809,10 +809,11 @@ export interface CreateSettlementPaymentRequest {
    * Claimed payment date as yyyy-MM-dd.
    */
   paymentDate: string;
+  proposedResidualPolicy?: SettlementResidualPolicy;
 }
 
 /**
- * Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims and bounded allocation summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
+ * Bounded read-only settlement payment list for one visible settlement request. It includes only visible payment claims, bounded allocation summaries, and bounded residual summaries, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, bill merchant/item details, auth/session data, raw audit metadata, request bodies, and unrelated users.
  */
 export interface SettlementPaymentListResponse {
   payments: SettlementPaymentResponse[];
@@ -834,7 +835,26 @@ export interface SettlementPaymentAllocationResponse {
 }
 
 /**
- * Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, and unrelated users.
+ * Bounded settlement residual summary tied to one payment claim. It exposes only stable IDs, direction, amount, currency, policy, status, and lifecycle timestamps, and excludes payment details, proof/file/storage internals, auth/session data, raw request bodies, audit metadata, bill merchant/item details, OCR text, and unrelated users.
+ */
+export interface SettlementPaymentResidualResponse {
+  id: string;
+  settlementPaymentId: string;
+  settlementRequestId: string;
+  direction: SettlementResidualDirection;
+  /**
+   * Positive decimal-safe residual amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  policy: SettlementResidualPolicy;
+  status: SettlementResidualStatus;
+  createdAtUtc: string;
+  resolvedAtUtc?: string | null;
+}
+
+/**
+ * Bounded settlement payment response for payment read, claim, confirmation, dispute, and cancellation surfaces. It exposes payment fields, bounded allocation summaries, bounded residual summaries, and resulting settlement request status only, and excludes payment details, payment handles, payment notes, QR data, proof/file/storage internals, auth/session/credential/token data, raw request bodies, bill merchant/item details, OCR text, and unrelated users.
  */
 export interface SettlementPaymentResponse {
   paymentId: string;
@@ -852,6 +872,7 @@ export interface SettlementPaymentResponse {
   createdAtUtc: string;
   updatedAtUtc: string;
   allocations: SettlementPaymentAllocationResponse[];
+  residuals: SettlementPaymentResidualResponse[];
   settlementRequestStatus: SettlementRequestStatus;
 }
 
@@ -1168,6 +1189,21 @@ export type SettlementBasketSelectionMode = "pay_all_outstanding_for_counterpart
  * Settlement payment status returned by settlement payment surfaces. Day 1 payment claim creates marked_paid payments, receiver confirmation moves them to confirmed, receiver dispute moves eligible marked_paid claims to disputed, and debtor cancellation moves eligible own marked_paid claims to cancelled.
  */
 export type SettlementPaymentStatus = "marked_paid" | "confirmed" | "disputed" | "cancelled";
+
+/**
+ * Direction of a proposed settlement residual relative to the exact selected outstanding total.
+ */
+export type SettlementResidualDirection = "underpayment" | "overpayment";
+
+/**
+ * Supported residual policy values for explicit payment-claim-time residual proposals.
+ */
+export type SettlementResidualPolicy = "remaining_balance" | "carried_forward" | "waived" | "credit_forward" | "waived_by_payer" | "applied_to_other_line";
+
+/**
+ * Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+ */
+export type SettlementResidualStatus = "pending_receiver_confirmation" | "confirmed" | "carried_forward" | "waived" | "credited" | "disputed" | "cancelled";
 
 /**
  * Payment details visibility policy value. The default app behavior is settlement_counterparties_only.

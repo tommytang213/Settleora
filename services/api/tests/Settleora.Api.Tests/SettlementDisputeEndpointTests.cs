@@ -1179,6 +1179,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
                 "paymentDate",
                 "paymentId",
                 "receivedByUserProfileId",
+                "residuals",
                 "settlementRequestId",
                 "settlementRequestStatus",
                 "status",

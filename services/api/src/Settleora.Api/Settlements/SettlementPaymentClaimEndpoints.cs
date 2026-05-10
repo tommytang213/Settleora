@@ -41,6 +41,7 @@ internal static class SettlementPaymentClaimEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementPaymentAuditWriter auditWriter,
+        SettlementResidualPolicyService residualPolicyService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -94,6 +95,39 @@ internal static class SettlementPaymentClaimEndpoints
             return SettlementPaymentConflict();
         }
 
+        if (!SettlementPaymentAllocationRuntime.TryGetOutstandingSelectedAmount(
+                settlementRequest,
+                out var selectedOutstandingTotal))
+        {
+            return SettlementPaymentConflict();
+        }
+
+        var amountToAllocate = readResult.Request.Amount;
+        SettlementResidualDecision? residualDecision = null;
+        if (readResult.Request.ProposedResidualPolicy is not null
+            || readResult.Request.Amount > selectedOutstandingTotal)
+        {
+            var policyResult = residualPolicyService.Decide(
+                selectedOutstandingTotal,
+                settlementRequest.Currency,
+                readResult.Request.Amount,
+                readResult.Request.Currency,
+                readResult.Request.ProposedResidualPolicy);
+            if (!policyResult.Succeeded || policyResult.Decision is null)
+            {
+                return policyResult.Failure?.Reason is SettlementResidualPolicyFailureReason.MissingResidualPolicy
+                    && readResult.Request.Amount > selectedOutstandingTotal
+                    ? SettlementPaymentConflict()
+                    : InvalidSettlementPayment(ToErrorDictionary(policyResult.Failure));
+            }
+
+            residualDecision = policyResult.Decision.Residual;
+            if (policyResult.Decision.Classification == SettlementResidualPaymentClassification.Overpayment)
+            {
+                amountToAllocate = selectedOutstandingTotal;
+            }
+        }
+
         var previousRequestStatus = settlementRequest.Status;
         var now = timeProvider.GetUtcNow();
         var payment = new SettlementPayment
@@ -111,9 +145,34 @@ internal static class SettlementPaymentClaimEndpoints
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
+
+        SettlementResidual? residual = null;
+        if (residualDecision is not null)
+        {
+            residual = new SettlementResidual
+            {
+                Id = Guid.NewGuid(),
+                SettlementPaymentId = payment.Id,
+                SettlementPayment = payment,
+                SettlementRequestId = settlementRequest.Id,
+                SettlementRequest = settlementRequest,
+                DebtorUserProfileId = settlementRequest.DebtorUserProfileId,
+                CreditorUserProfileId = settlementRequest.CreditorUserProfileId,
+                Direction = residualDecision.Direction,
+                Amount = residualDecision.Amount,
+                Currency = residualDecision.Currency,
+                Policy = residualDecision.Policy,
+                Status = residualDecision.InitialStatus,
+                CreatedAtUtc = now
+            };
+            payment.Residuals.Add(residual);
+            settlementRequest.Residuals.Add(residual);
+        }
+
         if (!SettlementPaymentAllocationRuntime.TryCreatePaymentAllocations(
                 settlementRequest,
                 payment,
+                amountToAllocate,
                 now,
                 out var allocationResult))
         {
@@ -127,6 +186,10 @@ internal static class SettlementPaymentClaimEndpoints
         settlementRequest.Status = newRequestStatus;
         settlementRequest.UpdatedAtUtc = now;
         dbContext.Set<SettlementPayment>().Add(payment);
+        if (residual is not null)
+        {
+            dbContext.Set<SettlementResidual>().Add(residual);
+        }
 
         await auditWriter.WriteAsync(
             new SettlementPaymentAuditEvent(
@@ -178,6 +241,8 @@ internal static class SettlementPaymentClaimEndpoints
         return dbContext.Set<SettlementRequest>()
             .Include(settlementRequest => settlementRequest.Payments)
                 .ThenInclude(payment => payment.Allocations)
+            .Include(settlementRequest => settlementRequest.Payments)
+                .ThenInclude(payment => payment.Residuals)
             .Include(settlementRequest => settlementRequest.Lines)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
@@ -244,9 +309,11 @@ internal static class SettlementPaymentClaimEndpoints
             JsonElement amountElement = default;
             JsonElement currencyElement = default;
             JsonElement paymentDateElement = default;
+            JsonElement proposedResidualPolicyElement = default;
             var hasAmount = false;
             var hasCurrency = false;
             var hasPaymentDate = false;
+            var hasProposedResidualPolicy = false;
 
             foreach (var property in document.RootElement.EnumerateObject())
             {
@@ -263,6 +330,10 @@ internal static class SettlementPaymentClaimEndpoints
                     case "paymentDate":
                         hasPaymentDate = true;
                         paymentDateElement = property.Value;
+                        break;
+                    case "proposedResidualPolicy":
+                        hasProposedResidualPolicy = true;
+                        proposedResidualPolicyElement = property.Value;
                         break;
                     default:
                         AddUnsupportedFieldError(errors);
@@ -288,12 +359,16 @@ internal static class SettlementPaymentClaimEndpoints
             var currencyCode = hasCurrency ? ReadCurrency(currencyElement, errors) : null;
             var amount = hasAmount ? ReadMoneyAmount(amountElement, currencyCode, errors) : null;
             var paymentDate = hasPaymentDate ? ReadPaymentDate(paymentDateElement, errors) : null;
+            var proposedResidualPolicy = hasProposedResidualPolicy
+                ? ReadProposedResidualPolicy(proposedResidualPolicyElement, errors)
+                : null;
 
             return errors.Count == 0 && amount.HasValue && currencyCode is not null && paymentDate.HasValue
                 ? SettlementPaymentClaimReadResult.Valid(new SettlementPaymentClaimRequest(
                     amount.Value,
                     currencyCode.Value,
-                    paymentDate.Value))
+                    paymentDate.Value,
+                    proposedResidualPolicy))
                 : SettlementPaymentClaimReadResult.Invalid(ToErrorDictionary(errors));
         }
     }
@@ -386,6 +461,26 @@ internal static class SettlementPaymentClaimEndpoints
         return paymentDate;
     }
 
+    private static string? ReadProposedResidualPolicy(
+        JsonElement value,
+        Dictionary<string, List<string>> errors)
+    {
+        if (value.ValueKind is not JsonValueKind.String)
+        {
+            AddError(errors, "proposedResidualPolicy", "Proposed residual policy must be a string.");
+            return null;
+        }
+
+        var proposedResidualPolicy = value.GetString() ?? string.Empty;
+        if (proposedResidualPolicy.Length > SettlementConstraints.ResidualPolicyMaxLength)
+        {
+            AddError(errors, "proposedResidualPolicy", "Proposed residual policy is too long.");
+            return null;
+        }
+
+        return proposedResidualPolicy;
+    }
+
     private static bool CanClaimPayment(string status)
     {
         return status is SettlementRequestStatuses.Requested
@@ -471,10 +566,28 @@ internal static class SettlementPaymentClaimEndpoints
             StringComparer.Ordinal);
     }
 
+    private static IDictionary<string, string[]> ToErrorDictionary(
+        SettlementResidualPolicyFailure? failure)
+    {
+        if (failure is null)
+        {
+            return new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["proposedResidualPolicy"] = ["Residual policy is invalid."]
+            };
+        }
+
+        return new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            [failure.Field] = [failure.Message]
+        };
+    }
+
     private sealed record SettlementPaymentClaimRequest(
         decimal Amount,
         string Currency,
-        DateOnly PaymentDate);
+        DateOnly PaymentDate,
+        string? ProposedResidualPolicy);
 
     private sealed class SettlementPaymentClaimReadResult
     {

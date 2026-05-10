@@ -158,8 +158,12 @@ internal static class SettlementPaymentConfirmationEndpoints
                 .ThenInclude(settlementRequest => settlementRequest.Payments)
                     .ThenInclude(candidate => candidate.Allocations)
             .Include(payment => payment.SettlementRequest)
+                .ThenInclude(settlementRequest => settlementRequest.Payments)
+                    .ThenInclude(candidate => candidate.Residuals)
+            .Include(payment => payment.SettlementRequest)
                 .ThenInclude(settlementRequest => settlementRequest.Lines)
             .Include(payment => payment.Allocations)
+            .Include(payment => payment.Residuals)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.CreditorUserProfileId == actorUserProfileId
@@ -201,7 +205,8 @@ internal static class SettlementPaymentConfirmationEndpoints
             && SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
             && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
-            && SettlementPaymentStatuses.IsSupported(payment.Status);
+            && SettlementPaymentStatuses.IsSupported(payment.Status)
+            && !SettlementResidualRuntime.HasPendingResidual(payment);
     }
 
     private static bool CanConfirmRequestStatus(string status)

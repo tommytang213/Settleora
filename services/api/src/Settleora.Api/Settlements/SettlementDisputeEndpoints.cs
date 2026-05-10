@@ -111,6 +111,10 @@ internal static class SettlementDisputeEndpoints
         settlementRequest.Status = SettlementRequestStatuses.Disputed;
         settlementRequest.DisputedAtUtc = now;
         settlementRequest.UpdatedAtUtc = now;
+        SettlementResidualRuntime.ResolvePendingResiduals(
+            settlementRequest.Residuals,
+            SettlementResidualStatuses.Disputed,
+            now);
 
         await auditWriter.WriteAsync(
             new SettlementRequestAuditEvent(
@@ -211,6 +215,10 @@ internal static class SettlementDisputeEndpoints
         payment.Status = SettlementPaymentStatuses.Disputed;
         payment.DisputedAtUtc = now;
         payment.UpdatedAtUtc = now;
+        SettlementResidualRuntime.ResolvePendingResiduals(
+            payment.Residuals,
+            SettlementResidualStatuses.Disputed,
+            now);
         if (!SettlementPaymentAllocationRuntime.TryRecomputeActiveLineCoverage(
                 settlementRequest,
                 now,
@@ -276,6 +284,7 @@ internal static class SettlementDisputeEndpoints
     {
         return dbContext.Set<SettlementRequest>()
             .Include(settlementRequest => settlementRequest.Lines)
+            .Include(settlementRequest => settlementRequest.Residuals)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && (settlementRequest.DebtorUserProfileId == actorUserProfileId
@@ -311,8 +320,12 @@ internal static class SettlementDisputeEndpoints
                 .ThenInclude(settlementRequest => settlementRequest.Payments)
                     .ThenInclude(candidate => candidate.Allocations)
             .Include(payment => payment.SettlementRequest)
+                .ThenInclude(settlementRequest => settlementRequest.Payments)
+                    .ThenInclude(candidate => candidate.Residuals)
+            .Include(payment => payment.SettlementRequest)
                 .ThenInclude(settlementRequest => settlementRequest.Lines)
             .Include(payment => payment.Allocations)
+            .Include(payment => payment.Residuals)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.CreditorUserProfileId == actorUserProfileId

@@ -111,6 +111,10 @@ internal static class SettlementCancellationEndpoints
         settlementRequest.Status = SettlementRequestStatuses.Cancelled;
         settlementRequest.CancelledAtUtc = now;
         settlementRequest.UpdatedAtUtc = now;
+        SettlementResidualRuntime.ResolvePendingResiduals(
+            settlementRequest.Residuals,
+            SettlementResidualStatuses.Cancelled,
+            now);
 
         await auditWriter.WriteAsync(
             new SettlementRequestAuditEvent(
@@ -211,6 +215,10 @@ internal static class SettlementCancellationEndpoints
         payment.Status = SettlementPaymentStatuses.Cancelled;
         payment.CancelledAtUtc = now;
         payment.UpdatedAtUtc = now;
+        SettlementResidualRuntime.ResolvePendingResiduals(
+            payment.Residuals,
+            SettlementResidualStatuses.Cancelled,
+            now);
         if (!SettlementPaymentAllocationRuntime.TryRecomputeActiveLineCoverage(
                 settlementRequest,
                 now,
@@ -281,6 +289,7 @@ internal static class SettlementCancellationEndpoints
         return dbContext.Set<SettlementRequest>()
             .Include(settlementRequest => settlementRequest.Lines)
             .Include(settlementRequest => settlementRequest.Payments)
+            .Include(settlementRequest => settlementRequest.Residuals)
             .Where(settlementRequest => settlementRequest.ArchivedAtUtc == null
                 && settlementRequest.SourceExpenseBillId != null
                 && settlementRequest.SourceExpenseBill != null
@@ -316,8 +325,12 @@ internal static class SettlementCancellationEndpoints
                 .ThenInclude(settlementRequest => settlementRequest.Payments)
                     .ThenInclude(candidate => candidate.Allocations)
             .Include(payment => payment.SettlementRequest)
+                .ThenInclude(settlementRequest => settlementRequest.Payments)
+                    .ThenInclude(candidate => candidate.Residuals)
+            .Include(payment => payment.SettlementRequest)
                 .ThenInclude(settlementRequest => settlementRequest.Lines)
             .Include(payment => payment.Allocations)
+            .Include(payment => payment.Residuals)
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.SourceExpenseBill != null

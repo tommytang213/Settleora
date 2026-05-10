@@ -42,6 +42,7 @@ builder.Services.AddSettlementPaymentAudit();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.AddSingleton<ExpenseBillRevisionProposalService>();
 builder.Services.AddSingleton<SettlementCandidateDerivationService>();
+builder.Services.AddSingleton<SettlementResidualPolicyService>();
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StorageOptions>(

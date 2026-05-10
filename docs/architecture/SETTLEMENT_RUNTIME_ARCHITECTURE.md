@@ -23,17 +23,17 @@ The current repository state is:
 - Settlement request creation endpoints exist for one confirmed personal or group bill candidate at a time and persist one server-derived request line for the selected candidate.
 - Settlement request list/get endpoints exist for read-only current-actor request visibility and expose bounded selected request-line summaries.
 - Settlement payment list/get endpoints exist for read-only payment visibility through visible settlement requests.
-- Settlement payment claim endpoints exist for debtor-authored same-currency full and partial payment claims and persist server-derived payment allocations against the selected request line.
-- Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims while preserving active payment allocations and request-line clearing state.
-- Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions.
-- Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim.
+- Settlement payment claim endpoints exist for debtor-authored same-currency full and ordinary partial payment claims, persist server-derived payment allocations against selected request lines, and can persist explicit pending residual rows for supported underpayment/overpayment policies supplied as `proposedResidualPolicy`.
+- Settlement payment confirmation endpoints exist for receiver-authored confirmation of eligible payment claims while preserving active payment allocations and request-line clearing state. Confirmation currently blocks payments that still have pending residual proposals.
+- Settlement request dispute and settlement payment dispute endpoints exist for bounded no-body dispute transitions and neutralize pending residual rows to disputed status where present.
+- Settlement request cancellation and settlement payment cancellation endpoints exist for bounded no-body cancellation transitions where the requester owns an unpaid requested request or the debtor cancels their own marked-paid claim. Cancellation neutralizes pending residual rows to cancelled status where present.
 - Settlement proof rows now back purpose-specific proof attach/list/content/remove endpoints for existing visible payment claims.
 - Settlement proof endpoints use `settlement_proof` file objects, storage/lifecycle services, safe metadata responses, conservative content headers, and bounded `settlement.proof_*` audit actions. They do not create a generic file API.
-- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation summaries, payment claim creation with allocation summaries, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
-- The first read-only current-actor settlement balance projection endpoint exists at `GET /api/v1/settlement-balances`. It derives bounded rows from `settlement_requests`, `settlement_request_lines`, `settlement_payments`, and `settlement_payment_allocations`, separates marked-paid pending coverage from confirmed cleared coverage, and does not implement basket selection, residual creation/confirmation, settlement simplification, UI, or writes.
+- Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation and residual summaries, payment claim creation with optional residual policy, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
+- The first read-only current-actor settlement balance projection endpoint exists at `GET /api/v1/settlement-balances`. It derives bounded rows from `settlement_requests`, `settlement_request_lines`, `settlement_payments`, and `settlement_payment_allocations`, separates marked-paid pending coverage from confirmed cleared coverage, and does not implement basket selection, confirmed residual balance effects, settlement simplification, UI, or writes.
 - The first read-only settlement basket preview endpoint exists at `POST /api/v1/settlements/baskets/preview`. It expands eligible same-currency confirmed bill candidates for one current-actor/counterparty direction and optional group, excludes active duplicate requests, preserves active accepted bill revision trace where available, and does not create settlement requests, request lines, payments, allocations, residuals, projection rows, proof files, notifications, jobs, or UI behavior.
 - The first settlement basket creation endpoint exists at `POST /api/v1/settlements/baskets`. It reuses the same pay-all-outstanding expansion policy, writes one server-derived settlement request plus concrete request lines, and does not create payments, allocations, residuals, proof files, projection rows, notifications, jobs, or UI behavior.
-- The first internal settlement residual policy decision service exists. It classifies exact payment, underpayment, and overpayment deltas for same-currency selected totals, maps supported residual policies to bounded directions/status expectations, and keeps receiver confirmation requirements explicit for future runtime. Residual creation/confirmation endpoints, residual persistence writes, settlement simplification, UI, and worker behavior do not exist yet.
+- The first internal settlement residual policy decision service exists. It classifies exact payment, underpayment, and overpayment deltas for same-currency selected totals, maps supported residual policies to bounded directions/status expectations, and keeps receiver confirmation requirements explicit. The first public residual runtime slice now persists pending residual proposals during payment claim creation and exposes bounded residual summaries on payment responses. Receiver residual confirmation, confirmed residual credit/waiver semantics, settlement simplification, UI, and worker behavior do not exist yet.
 
 ## Settlement Runtime Authority
 
@@ -248,12 +248,13 @@ Partial payment policy:
 - Multiple partial claims may exist.
 - Confirmed partial payments reduce the remaining amount for projection.
 - Pending marked-paid partial claims may move the request to `partially_paid` but should not clear the request until confirmation policy says so.
-- Overpayment must be rejected unless a later reviewed policy adds explicit overpayment/refund behavior.
+- Overpayment must be rejected unless the payment claim includes an explicit supported same-currency residual policy. Current runtime can persist the pending residual proposal but does not finalize credit, waiver, refund, or receiver-confirmed residual semantics.
 
 Confirmation policy:
 
 - Receiver confirmation is the authoritative transition that clears the confirmed portion.
 - A request becomes `confirmed` only when confirmed payment coverage equals the request amount under server rounding policy.
+- Receiver confirmation currently returns a bounded conflict for payments with pending residual rows. A future receiver residual confirmation slice must decide whether the proposed remaining-balance, carry-forward, waiver, credit-forward, or waived-by-payer outcome becomes final.
 - Dispute must not delete previous payments, proof links, or audit.
 - Reopen, reversal, refund, or correction behavior requires a later explicit design. If reopen is needed, it should be a bounded transition from `disputed` or a later review state, not a hidden overwrite.
 
@@ -411,7 +412,7 @@ Projection inputs should include:
 
 Projection outputs must be scoped to the current actor. They should not expose unrelated group-wide positions, hidden users, payment profiles, proof files, or bills outside the actor's authorization. Projections must remain rebuildable and deterministic.
 
-The first landed projection slice is intentionally narrower than the full future balance model. It includes only balances where the current actor is the debtor or creditor on active, non-archived, non-cancelled, non-disputed settlement requests; groups rows by counterparty, direction, optional group, and currency; uses allocation rows as the only payment coverage source; treats `marked_paid` allocations as pending claimed coverage and `confirmed` allocations as cleared coverage; ignores cancelled/disputed payments; and excludes unsafe rows rather than fabricating totals from loose payment sums.
+The first landed projection slice is intentionally narrower than the full future balance model. It includes only balances where the current actor is the debtor or creditor on active, non-archived, non-cancelled, non-disputed settlement requests; groups rows by counterparty, direction, optional group, and currency; uses allocation rows as the only payment coverage source; treats `marked_paid` allocations as pending claimed coverage and `confirmed` allocations as cleared coverage; ignores cancelled/disputed payments; does not add pending residual rows as confirmed credits, waivers, or cleared debt; and excludes unsafe rows rather than fabricating totals from loose payment sums.
 
 ## Implementation Slicing
 
@@ -431,9 +432,10 @@ Recommended implementation sequence:
 13. Balance projection read endpoints. The first current-actor projection endpoint is now landed for request-line/allocation runtime only.
 14. Basket preview read endpoint. The first current-actor/counterparty same-currency pay-all-outstanding preview endpoint is now landed as read-only expansion only.
 15. Basket creation endpoint. The first same-currency pay-all-outstanding create endpoint is now landed and writes one request plus concrete request lines.
-16. Internal residual policy foundation. The first pure same-currency residual decision service is now landed for future payment-claim and receiver-confirmation runtime, without public residual endpoints or residual writes.
+16. Internal residual policy foundation. The first pure same-currency residual decision service is now landed.
+17. Payment-claim-time residual proposal persistence. The first public residual runtime slice is now landed for explicit same-currency underpayment/overpayment proposals, bounded payment response summaries, confirmation blocking while residuals are pending, and dispute/cancellation neutralization.
 
-Keep schema, write runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, residual behavior beyond the internal decision foundation, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
+Keep receiver residual confirmation, confirmed residual credit/waiver balance effects, settlement simplification, reopen/adjustment policy, file bytes, new payment-details counterparty surfaces, balance projection writes/caches, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
 ## Validation Expectations
 
