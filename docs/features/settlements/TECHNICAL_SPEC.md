@@ -58,7 +58,7 @@ IBillRevisionSettlementImpactService
 
 ## Persistence direction
 
-Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against the selected request line with bounded allocation summaries on payment responses, the first read-only current-actor balance projection endpoint derives grouped rows from those durable request-line/allocation records, and the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes. Basket creation, pay-all writes, residuals, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against selected request lines with bounded allocation summaries on payment responses, the first read-only current-actor balance projection endpoint derives grouped rows from those durable request-line/allocation records, the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes, and the first pay-all basket creation endpoint writes one server-derived request plus concrete request lines. The internal residual policy foundation classifies exact payment, underpayment, and overpayment deltas for future runtime. Residual persistence writes, public residual workflows, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
 
 Current and future table categories include:
 
@@ -172,6 +172,8 @@ disputed
 ```
 
 The payer may propose residual handling, but receiver confirmation is required where policy requires it. Underpayment waiver must not be unilateral by the payer.
+
+The current internal residual policy foundation returns bounded decisions for exact payment, underpayment, and overpayment. Non-exact deltas require an explicit supported residual policy, start as receiver-confirmation-sensitive decisions, and reject unsupported policy/direction combinations instead of allowing endpoint-local magic strings.
 
 ## Bill revision interaction
 

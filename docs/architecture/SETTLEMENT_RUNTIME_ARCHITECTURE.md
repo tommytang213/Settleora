@@ -32,7 +32,8 @@ The current repository state is:
 - Settlement OpenAPI paths and generated settlement clients exist for candidate preview, request creation with selected line summaries, read-only current-actor request list/get, settlement-scoped counterparty payment-details/QR reads, read-only payment list/get with allocation summaries, payment claim creation with allocation summaries, payment confirmation, request dispute, payment dispute, request cancellation, payment cancellation, and settlement payment proof attachment flows.
 - The first read-only current-actor settlement balance projection endpoint exists at `GET /api/v1/settlement-balances`. It derives bounded rows from `settlement_requests`, `settlement_request_lines`, `settlement_payments`, and `settlement_payment_allocations`, separates marked-paid pending coverage from confirmed cleared coverage, and does not implement basket selection, residual creation/confirmation, settlement simplification, UI, or writes.
 - The first read-only settlement basket preview endpoint exists at `POST /api/v1/settlements/baskets/preview`. It expands eligible same-currency confirmed bill candidates for one current-actor/counterparty direction and optional group, excludes active duplicate requests, preserves active accepted bill revision trace where available, and does not create settlement requests, request lines, payments, allocations, residuals, projection rows, proof files, notifications, jobs, or UI behavior.
-- Settlement basket creation/pay-all writes, residual creation/confirmation, settlement simplification, UI, and worker behavior do not exist yet.
+- The first settlement basket creation endpoint exists at `POST /api/v1/settlements/baskets`. It reuses the same pay-all-outstanding expansion policy, writes one server-derived settlement request plus concrete request lines, and does not create payments, allocations, residuals, proof files, projection rows, notifications, jobs, or UI behavior.
+- The first internal settlement residual policy decision service exists. It classifies exact payment, underpayment, and overpayment deltas for same-currency selected totals, maps supported residual policies to bounded directions/status expectations, and keeps receiver confirmation requirements explicit for future runtime. Residual creation/confirmation endpoints, residual persistence writes, settlement simplification, UI, and worker behavior do not exist yet.
 
 ## Settlement Runtime Authority
 
@@ -124,6 +125,7 @@ GET /api/v1/settlement-payments/{paymentId}/proof
 GET /api/v1/settlement-payments/{paymentId}/proof/{fileId}/content
 DELETE /api/v1/settlement-payments/{paymentId}/proof/{fileId}
 GET /api/v1/settlement-balances
+POST /api/v1/settlements/baskets
 POST /api/v1/settlements/baskets/preview
 ```
 
@@ -428,8 +430,10 @@ Recommended implementation sequence:
 11. Purpose-specific proof attachment upload, metadata list, content read, and removal. Landed.
 13. Balance projection read endpoints. The first current-actor projection endpoint is now landed for request-line/allocation runtime only.
 14. Basket preview read endpoint. The first current-actor/counterparty same-currency pay-all-outstanding preview endpoint is now landed as read-only expansion only.
+15. Basket creation endpoint. The first same-currency pay-all-outstanding create endpoint is now landed and writes one request plus concrete request lines.
+16. Internal residual policy foundation. The first pure same-currency residual decision service is now landed for future payment-claim and receiver-confirmation runtime, without public residual endpoints or residual writes.
 
-Keep schema, write runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, basket creation/residual behavior, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
+Keep schema, write runtime, OpenAPI, generated clients, file bytes, new payment-details counterparty surfaces, balance projections, residual behavior beyond the internal decision foundation, notifications, and UI in separate reviewed slices unless a future task explicitly approves a combined branch.
 
 ## Validation Expectations
 

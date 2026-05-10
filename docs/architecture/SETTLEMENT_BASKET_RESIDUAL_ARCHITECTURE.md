@@ -9,9 +9,9 @@ The goal is to let users capture and split each bill when it happens, then settl
 ## Current State
 
 - EF Core schema foundation now includes `settlement_request_lines`, `settlement_payment_allocations`, and `settlement_residuals` with decimal-safe amount/currency columns, constrained statuses/policies, restrictive foreign keys, and projection-oriented indexes.
-- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for the selected request line, supports purpose-specific settlement proof endpoints, exposes a first read-only current-actor balance projection over request lines and active payment allocations, and exposes a first read-only basket preview at `POST /api/v1/settlements/baskets/preview`.
-- The basket preview expands `pay_all_outstanding_for_counterparty` for one current-actor/counterparty direction, optional group, and same-currency scope without writing settlement requests, request lines, payments, allocations, residuals, proof files, notifications, jobs, UI behavior, or projection rows.
-- Public basket creation, bulk pay-all writes, residual creation or confirmation behavior, UI behavior, and worker behavior do not exist yet.
+- The current public settlement runtime still creates one settlement request from one confirmed bill candidate at a time, supports payment claims/confirmation/dispute/cancellation, persists payment allocations for selected request lines, supports purpose-specific settlement proof endpoints, exposes a first read-only current-actor balance projection over request lines and active payment allocations, exposes a first read-only basket preview at `POST /api/v1/settlements/baskets/preview`, and exposes a first pay-all basket creation endpoint at `POST /api/v1/settlements/baskets`.
+- The basket preview expands `pay_all_outstanding_for_counterparty` for one current-actor/counterparty direction, optional group, and same-currency scope without writing settlement requests, request lines, payments, allocations, residuals, proof files, notifications, jobs, UI behavior, or projection rows. The basket create endpoint reuses that server-side expansion to write one settlement request plus concrete request lines only.
+- An internal residual policy decision service now classifies exact payment, underpayment, and overpayment deltas, maps safe residual policy/direction combinations to bounded status expectations, and keeps receiver confirmation requirements explicit. Residual creation or confirmation endpoints, residual persistence writes, UI behavior, and worker behavior do not exist yet.
 
 ## Product Problem
 
@@ -196,7 +196,7 @@ Overpayment behavior must be explicit. It must not be silently discarded.
 
 ## Suggested Data Model Direction
 
-The core request-line, allocation, and residual persistence tables have landed. Current settlement request creation uses one request line for the selected single-bill candidate, current payment claim runtime writes allocations against that selected line, and the current balance projection read uses those records without creating basket or residual state. Runtime basket selection, residual policy application, additional projection behavior beyond the current read endpoint, UI, and worker behavior remain future reviewed slices.
+The core request-line, allocation, and residual persistence tables have landed. Current single-bill settlement request creation uses one request line for the selected candidate, current basket creation writes concrete request lines for the supported pay-all-outstanding selection mode, current payment claim runtime writes allocations against selected lines, and the current balance projection read uses those records without creating residual state. Residual persistence application, additional projection behavior beyond the current read endpoint, UI, and worker behavior remain future reviewed slices.
 
 ### Settlement Request
 
