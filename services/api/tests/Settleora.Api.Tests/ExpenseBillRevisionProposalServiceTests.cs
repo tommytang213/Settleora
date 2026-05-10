@@ -162,7 +162,7 @@ public sealed class ExpenseBillRevisionProposalServiceTests
                 Assert.Equal(ExpenseBillRevisionApprovalStatuses.InvalidatedBySupersession, previousApproval.Status);
                 Assert.Equal(InitialTimestamp.AddMinutes(3), previousApproval.InvalidatedAtUtc);
             });
-        Assert.False(service.ApplyProposal(bill, firstRevision, InitialTimestamp.AddMinutes(4)).Succeeded);
+        Assert.False(service.ApplyProposal(bill, firstRevision, Creator, InitialTimestamp.AddMinutes(4)).Succeeded);
 
         var secondRevision = result.Revision!;
         Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, secondRevision.Status);
@@ -276,7 +276,7 @@ public sealed class ExpenseBillRevisionProposalServiceTests
         Assert.Null(revision.AppliedAtUtc);
         Assert.Equal(ExpenseBillRevisionStatuses.Rejected, revision.Status);
         Assert.Equal(ExpenseBillRevisionApprovalStatuses.Rejected, participantApproval.Status);
-        Assert.False(service.ApplyProposal(bill, revision, InitialTimestamp.AddMinutes(4)).Succeeded);
+        Assert.False(service.ApplyProposal(bill, revision, Creator, InitialTimestamp.AddMinutes(4)).Succeeded);
         Assert.Equal(activeRevisionId, bill.ActiveAcceptedBillRevisionId);
     }
 

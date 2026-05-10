@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -23,6 +24,8 @@ internal static class ExpenseBillRevisionEndpoints
     private const string InvalidBillRevisionNoBodyDetail = "This bill revision action does not accept a request body.";
     private const string BillRevisionConflictTitle = "Bill revision conflict";
     private const string BillRevisionConflictDetail = "The requested bill revision transition is not allowed.";
+    private const string BillRevisionSettlementConflictTitle = "Bill revision settlement conflict";
+    private const string BillRevisionSettlementConflictDetail = "The bill revision cannot be applied because settlement adjustment or reopen policy is not implemented for existing settlement state.";
     private const string BillRevisionWriteFailedTitle = "Bill revision write failed";
     private const string BillRevisionWriteFailedDetail = "Unable to complete bill revision write.";
     private const string PersonalGroupMode = "personal";
@@ -33,6 +36,7 @@ internal static class ExpenseBillRevisionEndpoints
     private const string RevisionWithdrawnAction = "bill.revision_withdrawn";
     private const string RevisionApprovedAction = "bill.revision_approved";
     private const string RevisionRejectedAction = "bill.revision_rejected";
+    private const string RevisionAppliedAction = "bill.revision_applied";
 
     public static WebApplication MapExpenseBillRevisionEndpoints(this WebApplication app)
     {
@@ -47,6 +51,7 @@ internal static class ExpenseBillRevisionEndpoints
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/withdraw", WithdrawBillRevisionAsync);
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/approve", ApproveBillRevisionAsync);
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/reject", RejectBillRevisionAsync);
+        bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/apply", ApplyBillRevisionAsync);
 
         return app;
     }
@@ -527,6 +532,79 @@ internal static class ExpenseBillRevisionEndpoints
             cancellationToken);
     }
 
+    private static async Task<IResult> ApplyBillRevisionAsync(
+        Guid billId,
+        Guid revisionId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillRevisionProposalService revisionProposalService,
+        IExpenseBillRevisionAuditWriter auditWriter,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidBillRevisionNoBody();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var bill = await LoadVisibleBillAsync(dbContext, billId, actor.UserProfileId, cancellationToken);
+        var revision = bill?.Revisions.SingleOrDefault(candidate => candidate.Id == revisionId);
+        if (bill is null || revision is null)
+        {
+            return BillRevisionUnavailable();
+        }
+
+        if (await HasSettlementStateAsync(dbContext, bill, revision, cancellationToken))
+        {
+            return BillRevisionSettlementConflict();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var previousStatus = revision.Status;
+        var result = revisionProposalService.ApplyProposal(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now);
+        if (!result.Succeeded || result.Revision is null)
+        {
+            return MapOperationFailure(result);
+        }
+
+        SynchronizeAppliedPayers(dbContext, bill, revision, now);
+
+        await auditWriter.WriteAsync(
+            CreateAuditEvent(
+                RevisionAppliedAction,
+                actor,
+                bill,
+                revision,
+                previousStatus,
+                participantUserProfileId: null,
+                now),
+            cancellationToken);
+
+        return await SaveAndRespondAsync(
+            dbContext,
+            Results.Ok(MapRevision(bill, revision)),
+            cancellationToken);
+    }
+
     private static async Task<ExpenseBill?> LoadVisibleBillAsync(
         SettleoraDbContext dbContext,
         Guid billId,
@@ -581,6 +659,149 @@ internal static class ExpenseBillRevisionEndpoints
                                 membership.GroupId == bill.GroupId.Value
                                 && membership.Status == GroupMembershipStatuses.Active))),
                 cancellationToken);
+    }
+
+    private static async Task<bool> HasSettlementStateAsync(
+        SettleoraDbContext dbContext,
+        ExpenseBill bill,
+        ExpenseBillRevision revision,
+        CancellationToken cancellationToken)
+    {
+        if (bill.Participants.Any(participant => participant.SettledAtUtc is not null))
+        {
+            return true;
+        }
+
+        var billId = bill.Id;
+        var revisionId = revision.Id;
+        if (await dbContext.Set<SettlementRequest>()
+            .AsNoTracking()
+            .AnyAsync(
+                settlementRequest => settlementRequest.SourceExpenseBillId == billId,
+                cancellationToken))
+        {
+            return true;
+        }
+
+        if (await dbContext.Set<SettlementRequestLine>()
+            .AsNoTracking()
+            .AnyAsync(
+                line => line.SourceExpenseBillId == billId
+                    || line.SourceBillRevisionId == revisionId,
+                cancellationToken))
+        {
+            return true;
+        }
+
+        if (await dbContext.Set<SettlementPayment>()
+            .AsNoTracking()
+            .AnyAsync(
+                payment => payment.SettlementRequest.SourceExpenseBillId == billId
+                    || payment.SettlementRequest.Lines.Any(line =>
+                        line.SourceExpenseBillId == billId
+                        || line.SourceBillRevisionId == revisionId),
+                cancellationToken))
+        {
+            return true;
+        }
+
+        if (await dbContext.Set<SettlementPaymentAllocation>()
+            .AsNoTracking()
+            .AnyAsync(
+                allocation => allocation.SettlementRequestLine.SourceExpenseBillId == billId
+                    || allocation.SettlementRequestLine.SourceBillRevisionId == revisionId
+                    || allocation.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId,
+                cancellationToken))
+        {
+            return true;
+        }
+
+        if (await dbContext.Set<SettlementResidual>()
+            .AsNoTracking()
+            .AnyAsync(
+                residual => residual.SettlementRequest != null
+                    && residual.SettlementRequest.SourceExpenseBillId == billId
+                    || residual.SettlementPayment != null
+                    && residual.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId,
+                cancellationToken))
+        {
+            return true;
+        }
+
+        return await dbContext.Set<SettlementProofAttachment>()
+            .AsNoTracking()
+            .AnyAsync(
+                attachment => attachment.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId
+                    || attachment.SettlementPayment.SettlementRequest.Lines.Any(line =>
+                        line.SourceExpenseBillId == billId
+                        || line.SourceBillRevisionId == revisionId),
+                cancellationToken);
+    }
+
+    private static void SynchronizeAppliedPayers(
+        SettleoraDbContext dbContext,
+        ExpenseBill bill,
+        ExpenseBillRevision revision,
+        DateTimeOffset now)
+    {
+        var revisionPayers = revision.Payers
+            .OrderBy(payer => payer.UserProfileId)
+            .ToArray();
+        var revisionPayerIds = revisionPayers
+            .Select(payer => payer.UserProfileId)
+            .ToHashSet();
+        var activePayersByProfile = bill.Payers
+            .GroupBy(payer => payer.UserProfileId)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderBy(payer => payer.CreatedAtUtc)
+                    .ThenBy(payer => payer.Id)
+                    .ToList());
+
+        foreach (var activePayer in activePayersByProfile
+            .Where(pair => !revisionPayerIds.Contains(pair.Key))
+            .SelectMany(pair => pair.Value))
+        {
+            dbContext.Set<ExpenseBillPayer>().Remove(activePayer);
+        }
+
+        foreach (var revisionPayer in revisionPayers)
+        {
+            ExpenseBillPayer activePayer;
+            if (activePayersByProfile.TryGetValue(revisionPayer.UserProfileId, out var existingPayers)
+                && existingPayers.Count > 0)
+            {
+                activePayer = existingPayers[0];
+                foreach (var duplicatePayer in existingPayers.Skip(1))
+                {
+                    dbContext.Set<ExpenseBillPayer>().Remove(duplicatePayer);
+                }
+            }
+            else
+            {
+                activePayer = new ExpenseBillPayer
+                {
+                    Id = Guid.NewGuid(),
+                    ExpenseBillId = bill.Id,
+                    UserProfileId = revisionPayer.UserProfileId,
+                    CreatedAtUtc = now
+                };
+                dbContext.Set<ExpenseBillPayer>().Add(activePayer);
+            }
+
+            activePayer.PayerFactsCreatedByUserProfileId = revision.ProposalCreatorUserProfileId;
+            activePayer.Amount = revisionPayer.Amount;
+            activePayer.Currency = revisionPayer.Currency;
+            activePayer.PayerConfirmationStatus = revisionPayer.PayerConfirmationStatus;
+            activePayer.PayerConfirmedAtUtc = revisionPayer.PayerConfirmationStatus == ExpenseBillPayerConfirmationStatuses.Confirmed
+                ? now
+                : null;
+            activePayer.PayerRejectedAtUtc = revisionPayer.PayerConfirmationStatus == ExpenseBillPayerConfirmationStatuses.Rejected
+                ? now
+                : null;
+            activePayer.UpdatedAtUtc = now;
+        }
     }
 
     private static async Task<RevisionSnapshotReadResult> ReadRevisionSnapshotRequestAsync(
@@ -1363,6 +1584,14 @@ internal static class ExpenseBillRevisionEndpoints
         return Results.Problem(
             title: BillRevisionConflictTitle,
             detail: BillRevisionConflictDetail,
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    private static IResult BillRevisionSettlementConflict()
+    {
+        return Results.Problem(
+            title: BillRevisionSettlementConflictTitle,
+            detail: BillRevisionSettlementConflictDetail,
             statusCode: StatusCodes.Status409Conflict);
     }
 

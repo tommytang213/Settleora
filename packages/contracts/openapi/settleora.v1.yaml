@@ -1186,6 +1186,71 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/apply:
+    post:
+      summary: Apply bill revision
+      description: Applies the latest eligible submitted bill revision to the active bill state for an owner/responsible editor. The authenticated actor is derived from SettleoraSession; the request accepts no body. The server requires exact revision-specific approvals, confirmed required payer confirmation, visible bill access, and no existing settlement request, request-line, payment, allocation, residual, proof, or settled-participant state. This first safe apply slice does not mutate settlement rows, proof files, receipt files, storage objects, OCR data, or audit history.
+      operationId: applyBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Submitted bill revision proposal ID to apply.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Revision applied to active bill state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: A request body was submitted even though revision apply accepts no body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state, owner/responsible-editor policy, approval basis, payer confirmation state, latest-submitted policy, or existing settlement state blocks apply. Existing settlement state is a bounded conflict because settlement adjustment/reopen policy is not implemented in this slice.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/settlement-candidates:
     get:
       summary: List personal bill settlement candidates

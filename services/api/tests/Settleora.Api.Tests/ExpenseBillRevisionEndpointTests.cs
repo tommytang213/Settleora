@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -132,7 +133,8 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             CreateBearerRequest(HttpMethod.Post, SubmitPath(billId, revisionId), unrelatedSession.RawSessionToken),
             CreateBearerRequest(HttpMethod.Post, WithdrawPath(billId, revisionId), unrelatedSession.RawSessionToken),
             CreateJsonRequest(HttpMethod.Post, ApprovePath(billId, revisionId), unrelatedSession.RawSessionToken, approvalBody),
-            CreateBearerRequest(HttpMethod.Post, RejectPath(billId, revisionId), unrelatedSession.RawSessionToken)
+            CreateBearerRequest(HttpMethod.Post, RejectPath(billId, revisionId), unrelatedSession.RawSessionToken),
+            CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), unrelatedSession.RawSessionToken)
         };
 
         foreach (var request in requests)
@@ -568,6 +570,371 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         await AssertSettlementCandidateAmountAsync(client, billId, payerSession.RawSessionToken, "50");
     }
 
+    [Fact]
+    public async Task OwnerCanApplyApprovedRevisionAndSettlementCandidatesUseAppliedState()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Owner");
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Debtor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(debtorSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 40m), (debtorSession.UserProfileId, 60m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [debtorSession.UserProfileId] = debtorSession.RawSessionToken
+            });
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(10));
+        using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var applyResponse = await client.SendAsync(applyRequest);
+        var applyContent = await applyResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+        using (var applyPayload = JsonDocument.Parse(applyContent))
+        {
+            Assert.Equal(ExpenseBillRevisionStatuses.AcceptedApplied, applyPayload.RootElement.GetProperty("status").GetString());
+            Assert.Equal(WriteTimestamp.AddMinutes(10), applyPayload.RootElement.GetProperty("appliedAtUtc").GetDateTimeOffset());
+        }
+
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(revisionId, bill.ActiveAcceptedBillRevisionId);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, bill.Status);
+        Assert.Equal(40m, bill.Participants.Single(participant => participant.UserProfileId == ownerSession.UserProfileId).ResolvedShareAmount);
+        Assert.Equal(60m, bill.Participants.Single(participant => participant.UserProfileId == debtorSession.UserProfileId).ResolvedShareAmount);
+        Assert.Equal(100m, Assert.Single(bill.Payers).Amount);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "60");
+
+        var auditEvent = Assert.Single(await ReadRevisionAuditEventsAsync(testFactory), audit => audit.Action == "bill.revision_applied");
+        AssertBoundedRevisionAuditMetadata(
+            auditEvent,
+            billId,
+            revisionId,
+            previousRevisionStatus: ExpenseBillRevisionStatuses.SubmittedForReview,
+            newRevisionStatus: ExpenseBillRevisionStatuses.AcceptedApplied,
+            expectedPendingApprovalCount: 0,
+            expectedApprovedCount: 2);
+    }
+
+    [Fact]
+    public async Task VisibleNonOwnerParticipantCannotApplyApprovedRevision()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Non Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 45m), (participantSession.UserProfileId, 55m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [participantSession.UserProfileId] = participantSession.RawSessionToken
+            });
+        using var client = testFactory.CreateClient();
+
+        using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), participantSession.RawSessionToken);
+        using var applyResponse = await client.SendAsync(applyRequest);
+
+        await AssertBillRevisionConflictProblemAsync(applyResponse);
+        var revision = await ReadRevisionAsync(testFactory, revisionId);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
+    [Fact]
+    public async Task RemovedAndNonMemberGroupActorsCannotApplyRevision()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Group Owner");
+        var removedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Removed");
+        var nonMemberSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Non Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Revision Apply Hidden Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(removedSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Removed));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(removedSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        foreach (var rawSessionToken in new[] { removedSession.RawSessionToken, nonMemberSession.RawSessionToken })
+        {
+            using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, Guid.NewGuid()), rawSessionToken);
+            using var applyResponse = await client.SendAsync(applyRequest);
+            Assert.Equal(HttpStatusCode.NotFound, applyResponse.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task NonSubmittedRevisionStatusesCannotApply()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Status Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Status Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionIds = new[]
+        {
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.DraftRevision, WriteTimestamp.AddMinutes(1)),
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.WithdrawnByProposer, WriteTimestamp.AddMinutes(2)),
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.SupersededByResubmission, WriteTimestamp.AddMinutes(3)),
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.Rejected, WriteTimestamp.AddMinutes(4)),
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.AcceptedApplied, WriteTimestamp.AddMinutes(5)),
+            await SeedRevisionWithStatusAsync(testFactory, billId, ownerSession.UserProfileId, ExpenseBillRevisionStatuses.CancelledByAuthorizedEditor, WriteTimestamp.AddMinutes(6))
+        };
+        using var client = testFactory.CreateClient();
+
+        foreach (var revisionId in revisionIds)
+        {
+            using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+            using var applyResponse = await client.SendAsync(applyRequest);
+            await AssertBillRevisionConflictProblemAsync(applyResponse);
+        }
+
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
+    [Fact]
+    public async Task MissingOrMismatchedApprovalBlocksApply()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Approval Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Approval Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 40m), (participantSession.UserProfileId, 60m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        await ApproveRevisionApprovalAsync(testFactory, billId, revisionId, ownerSession.UserProfileId, ownerSession.RawSessionToken);
+        using var client = testFactory.CreateClient();
+
+        using (var missingApprovalRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken))
+        using (var missingApprovalResponse = await client.SendAsync(missingApprovalRequest))
+        {
+            await AssertBillRevisionConflictProblemAsync(missingApprovalResponse);
+        }
+
+        await ForceApprovalStatusAsync(
+            testFactory,
+            revisionId,
+            participantSession.UserProfileId,
+            ExpenseBillRevisionApprovalStatuses.Approved,
+            new string('c', 64));
+        using var mismatchedApprovalRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var mismatchedApprovalResponse = await client.SendAsync(mismatchedApprovalRequest);
+
+        await AssertBillRevisionConflictProblemAsync(mismatchedApprovalResponse);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
+    [Fact]
+    public async Task PendingOrRejectedRequiredPayerConfirmationBlocksApply()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Payer Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Payer Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 50m), (participantSession.UserProfileId, 50m)],
+                [(participantSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [participantSession.UserProfileId] = participantSession.RawSessionToken
+            });
+        using var client = testFactory.CreateClient();
+
+        using (var pendingConfirmationRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken))
+        using (var pendingConfirmationResponse = await client.SendAsync(pendingConfirmationRequest))
+        {
+            await AssertBillRevisionConflictProblemAsync(pendingConfirmationResponse);
+        }
+
+        await SetRevisionPayerConfirmationStatusAsync(
+            testFactory,
+            revisionId,
+            participantSession.UserProfileId,
+            ExpenseBillPayerConfirmationStatuses.Rejected);
+        using var rejectedConfirmationRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var rejectedConfirmationResponse = await client.SendAsync(rejectedConfirmationRequest);
+
+        await AssertBillRevisionConflictProblemAsync(rejectedConfirmationResponse);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
+    [Fact]
+    public async Task ExistingSettlementStateBlocksApplyWithoutMutatingSettlementTruth()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Settlement Owner");
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Settlement Debtor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(debtorSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 40m), (debtorSession.UserProfileId, 60m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [debtorSession.UserProfileId] = debtorSession.RawSessionToken
+            });
+        await SeedSettlementStateAsync(testFactory, billId, revisionId, debtorSession.UserProfileId, ownerSession.UserProfileId);
+        var beforeCounts = await ReadSettlementMutationCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+
+        using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var applyResponse = await client.SendAsync(applyRequest);
+        var applyContent = await applyResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, applyResponse.StatusCode);
+        Assert.Equal("application/problem+json", applyResponse.Content.Headers.ContentType?.MediaType);
+        using (var payload = JsonDocument.Parse(applyContent))
+        {
+            Assert.Equal("Bill revision settlement conflict", payload.RootElement.GetProperty("title").GetString());
+            Assert.Equal(409, payload.RootElement.GetProperty("status").GetInt32());
+            Assert.Equal(
+                "The bill revision cannot be applied because settlement adjustment or reopen policy is not implemented for existing settlement state.",
+                payload.RootElement.GetProperty("detail").GetString());
+        }
+
+        var afterCounts = await ReadSettlementMutationCountsAsync(testFactory);
+        Assert.Equal(beforeCounts, afterCounts);
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Null(bill.ActiveAcceptedBillRevisionId);
+        Assert.Equal(50m, bill.Participants.Single(participant => participant.UserProfileId == debtorSession.UserProfileId).ResolvedShareAmount);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, (await ReadRevisionAsync(testFactory, revisionId)).Status);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -824,6 +1191,294 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         return payload.RootElement.GetProperty("id").GetGuid();
     }
 
+    private static async Task<Guid> CreateSubmittedRevisionAsync(
+        WebApplicationFactory<Program> testFactory,
+        ExpenseBillRevisionTestTimeProvider timeProvider,
+        Guid billId,
+        string rawSessionToken,
+        string snapshotJson)
+    {
+        timeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            rawSessionToken,
+            snapshotJson);
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+        Assert.True(createResponse.StatusCode == HttpStatusCode.Created, createContent);
+        using var createPayload = JsonDocument.Parse(createContent);
+        var revisionId = createPayload.RootElement.GetProperty("id").GetGuid();
+
+        using var submitRequest = CreateBearerRequest(HttpMethod.Post, SubmitPath(billId, revisionId), rawSessionToken);
+        using var submitResponse = await client.SendAsync(submitRequest);
+        var submitContent = await submitResponse.Content.ReadAsStringAsync();
+        Assert.True(submitResponse.StatusCode == HttpStatusCode.OK, submitContent);
+
+        return revisionId;
+    }
+
+    private static async Task ApproveAllRevisionApprovalsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid revisionId,
+        IReadOnlyDictionary<Guid, string> rawSessionTokensByProfileId)
+    {
+        foreach (var userProfileId in rawSessionTokensByProfileId.Keys.OrderBy(id => id))
+        {
+            await ApproveRevisionApprovalAsync(
+                testFactory,
+                billId,
+                revisionId,
+                userProfileId,
+                rawSessionTokensByProfileId[userProfileId]);
+        }
+    }
+
+    private static async Task ApproveRevisionApprovalAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid revisionId,
+        Guid participantUserProfileId,
+        string rawSessionToken)
+    {
+        var approval = await ReadApprovalAsync(testFactory, revisionId, participantUserProfileId);
+        using var client = testFactory.CreateClient();
+        using var approveRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            ApprovePath(billId, revisionId),
+            rawSessionToken,
+            ApprovalJson(FormatAmount(approval.AcceptedAmount), approval.Currency, approval.CalculationHash));
+        using var approveResponse = await client.SendAsync(approveRequest);
+        var approveContent = await approveResponse.Content.ReadAsStringAsync();
+        Assert.True(approveResponse.StatusCode == HttpStatusCode.OK, approveContent);
+    }
+
+    private static async Task<Guid> SeedRevisionWithStatusAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid ownerUserProfileId,
+        string status,
+        DateTimeOffset createdAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var bill = await dbContext.Set<ExpenseBill>()
+            .Include(candidate => candidate.Participants)
+            .Include(candidate => candidate.Payers)
+            .SingleAsync(candidate => candidate.Id == billId);
+        var revisionId = Guid.NewGuid();
+        var calculationHash = new string('b', 64);
+        var revision = new ExpenseBillRevision
+        {
+            Id = revisionId,
+            ExpenseBillId = billId,
+            ProposalCreatorUserProfileId = ownerUserProfileId,
+            Status = status,
+            TotalAmount = bill.TotalAmount,
+            TotalCurrency = bill.TotalCurrency,
+            CalculationHash = calculationHash,
+            SubmittedAtUtc = status == ExpenseBillRevisionStatuses.SubmittedForReview ? createdAtUtc : null,
+            WithdrawnAtUtc = status == ExpenseBillRevisionStatuses.WithdrawnByProposer ? createdAtUtc : null,
+            SupersededAtUtc = status == ExpenseBillRevisionStatuses.SupersededByResubmission ? createdAtUtc : null,
+            RejectedAtUtc = status == ExpenseBillRevisionStatuses.Rejected ? createdAtUtc : null,
+            AppliedAtUtc = status == ExpenseBillRevisionStatuses.AcceptedApplied ? createdAtUtc : null,
+            CancelledAtUtc = status == ExpenseBillRevisionStatuses.CancelledByAuthorizedEditor ? createdAtUtc : null,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        };
+
+        foreach (var participant in bill.Participants)
+        {
+            revision.Participants.Add(new ExpenseBillRevisionParticipant
+            {
+                ExpenseBillRevisionId = revisionId,
+                UserProfileId = participant.UserProfileId,
+                ResolvedShareAmount = participant.ResolvedShareAmount,
+                ResolvedShareCurrency = participant.ResolvedShareCurrency,
+                AffectedByRevision = true,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+            revision.Approvals.Add(new ExpenseBillRevisionApproval
+            {
+                Id = Guid.NewGuid(),
+                ExpenseBillRevisionId = revisionId,
+                ParticipantUserProfileId = participant.UserProfileId,
+                AcceptedAmount = participant.ResolvedShareAmount,
+                Currency = participant.ResolvedShareCurrency,
+                CalculationHash = calculationHash,
+                Status = ExpenseBillRevisionApprovalStatuses.Approved,
+                ApprovedAtUtc = createdAtUtc,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
+        foreach (var payer in bill.Payers)
+        {
+            revision.Payers.Add(new ExpenseBillRevisionPayer
+            {
+                ExpenseBillRevisionId = revisionId,
+                UserProfileId = payer.UserProfileId,
+                Amount = payer.Amount,
+                Currency = payer.Currency,
+                RequiresPayerConfirmation = false,
+                PayerConfirmationStatus = ExpenseBillPayerConfirmationStatuses.Confirmed,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
+        dbContext.Set<ExpenseBillRevision>().Add(revision);
+        await dbContext.SaveChangesAsync();
+        return revisionId;
+    }
+
+    private static async Task ForceApprovalStatusAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid revisionId,
+        Guid participantUserProfileId,
+        string status,
+        string calculationHash)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var approval = await dbContext.Set<ExpenseBillRevisionApproval>()
+            .SingleAsync(candidate => candidate.ExpenseBillRevisionId == revisionId
+                && candidate.ParticipantUserProfileId == participantUserProfileId);
+        approval.Status = status;
+        approval.CalculationHash = calculationHash;
+        approval.ApprovedAtUtc = WriteTimestamp.AddMinutes(1);
+        approval.RejectedAtUtc = null;
+        approval.InvalidatedAtUtc = null;
+        approval.UpdatedAtUtc = WriteTimestamp.AddMinutes(1);
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task SetRevisionPayerConfirmationStatusAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid revisionId,
+        Guid payerUserProfileId,
+        string status)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var payer = await dbContext.Set<ExpenseBillRevisionPayer>()
+            .SingleAsync(candidate => candidate.ExpenseBillRevisionId == revisionId
+                && candidate.UserProfileId == payerUserProfileId);
+        payer.PayerConfirmationStatus = status;
+        payer.UpdatedAtUtc = WriteTimestamp.AddMinutes(1);
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task SeedSettlementStateAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid revisionId,
+        Guid debtorUserProfileId,
+        Guid creditorUserProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var requestId = Guid.NewGuid();
+        var lineId = Guid.NewGuid();
+        var paymentId = Guid.NewGuid();
+        var fileObjectId = Guid.NewGuid();
+        dbContext.Set<SettlementRequest>().Add(new SettlementRequest
+        {
+            Id = requestId,
+            SourceExpenseBillId = billId,
+            DebtorUserProfileId = debtorUserProfileId,
+            CreditorUserProfileId = creditorUserProfileId,
+            Amount = 50m,
+            Currency = "USD",
+            Status = SettlementRequestStatuses.PartiallyPaid,
+            RequestedByUserProfileId = debtorUserProfileId,
+            RequestedAtUtc = InitialTimestamp,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementRequestLine>().Add(new SettlementRequestLine
+        {
+            Id = lineId,
+            SettlementRequestId = requestId,
+            SourceExpenseBillId = billId,
+            SourceBillRevisionId = revisionId,
+            SourceCandidateKey = "seeded-apply-blocking-line",
+            ExactAmount = 50m,
+            Currency = "USD",
+            AllocationOrder = 0,
+            Status = SettlementRequestLineStatuses.Open,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementPayment>().Add(new SettlementPayment
+        {
+            Id = paymentId,
+            SettlementRequestId = requestId,
+            PaidByUserProfileId = debtorUserProfileId,
+            ReceivedByUserProfileId = creditorUserProfileId,
+            Amount = 25m,
+            Currency = "USD",
+            Status = SettlementPaymentStatuses.MarkedPaid,
+            PaymentDate = DateOnly.FromDateTime(InitialTimestamp.UtcDateTime),
+            CreatedByUserProfileId = debtorUserProfileId,
+            ClaimedAtUtc = InitialTimestamp,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementPaymentAllocation>().Add(new SettlementPaymentAllocation
+        {
+            Id = Guid.NewGuid(),
+            SettlementPaymentId = paymentId,
+            SettlementRequestLineId = lineId,
+            ClearedAmount = 25m,
+            Currency = "USD",
+            AllocationOrder = 0,
+            CreatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementResidual>().Add(new SettlementResidual
+        {
+            Id = Guid.NewGuid(),
+            SettlementPaymentId = paymentId,
+            SettlementRequestId = requestId,
+            DebtorUserProfileId = debtorUserProfileId,
+            CreditorUserProfileId = creditorUserProfileId,
+            Direction = SettlementResidualDirections.Underpayment,
+            Amount = 25m,
+            Currency = "USD",
+            Policy = SettlementResidualPolicies.RemainingBalance,
+            Status = SettlementResidualStatuses.PendingReceiverConfirmation,
+            CreatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<FileObject>().Add(new FileObject
+        {
+            Id = fileObjectId,
+            OwnerUserProfileId = debtorUserProfileId,
+            CreatedByUserProfileId = debtorUserProfileId,
+            Purpose = FileObjectPurposes.SettlementProof,
+            Status = FileObjectStatuses.Active,
+            ContentType = "image/png",
+            SizeBytes = 128,
+            StorageProvider = "local",
+            StorageObjectKey = $"settlement-proof/{fileObjectId:D}",
+            EncryptionMode = FileObjectEncryptionModes.ServerManaged,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementProofAttachment>().Add(new SettlementProofAttachment
+        {
+            SettlementPaymentId = paymentId,
+            FileObjectId = fileObjectId,
+            CreatedByUserProfileId = debtorUserProfileId,
+            CreatedAtUtc = InitialTimestamp
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
     private static async Task<ExpenseBillRevision> ReadRevisionAsync(
         WebApplicationFactory<Program> testFactory,
         Guid revisionId)
@@ -845,6 +1500,89 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     {
         var revision = await ReadRevisionAsync(testFactory, revisionId);
         return revision.Approvals.Single(approval => approval.ParticipantUserProfileId == participantUserProfileId);
+    }
+
+    private static async Task<ExpenseBill> ReadBillAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBill>()
+            .Include(bill => bill.Participants)
+            .Include(bill => bill.Payers)
+            .SingleAsync(bill => bill.Id == billId);
+    }
+
+    private static async Task<IReadOnlyList<AuthAuditEvent>> ReadRevisionAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthAuditEvent>()
+            .AsNoTracking()
+            .Where(auditEvent => auditEvent.Action.StartsWith("bill.revision_"))
+            .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
+            .ThenBy(auditEvent => auditEvent.Action)
+            .ThenBy(auditEvent => auditEvent.Id)
+            .ToArrayAsync();
+    }
+
+    private static void AssertBoundedRevisionAuditMetadata(
+        AuthAuditEvent auditEvent,
+        Guid expectedBillId,
+        Guid expectedRevisionId,
+        string previousRevisionStatus,
+        string newRevisionStatus,
+        int expectedPendingApprovalCount,
+        int expectedApprovedCount)
+    {
+        Assert.Equal("success", auditEvent.Outcome);
+        Assert.NotNull(auditEvent.SafeMetadataJson);
+        Assert.True(auditEvent.SafeMetadataJson!.Length <= 4096);
+
+        using var metadata = JsonDocument.Parse(auditEvent.SafeMetadataJson);
+        Assert.Equal("bill_revision_proposal", metadata.RootElement.GetProperty("workflowName").GetString());
+        Assert.Equal(expectedBillId.ToString("D"), metadata.RootElement.GetProperty("billId").GetString());
+        Assert.Equal(expectedRevisionId.ToString("D"), metadata.RootElement.GetProperty("revisionId").GetString());
+        Assert.Equal(previousRevisionStatus, metadata.RootElement.GetProperty("previousRevisionStatus").GetString());
+        Assert.Equal(newRevisionStatus, metadata.RootElement.GetProperty("newRevisionStatus").GetString());
+        Assert.Equal(expectedPendingApprovalCount, metadata.RootElement.GetProperty("pendingApprovalCount").GetInt32());
+        Assert.Equal(expectedApprovedCount, metadata.RootElement.GetProperty("approvedCount").GetInt32());
+
+        var auditText = string.Join(
+            "\n",
+            auditEvent.Action,
+            auditEvent.Outcome,
+            auditEvent.SafeMetadataJson);
+        var lowerAuditText = auditText.ToLowerInvariant();
+        Assert.DoesNotContain("body", lowerAuditText);
+        Assert.DoesNotContain("token", lowerAuditText);
+        Assert.DoesNotContain("session", lowerAuditText);
+        Assert.DoesNotContain("credential", lowerAuditText);
+        Assert.DoesNotContain("password", lowerAuditText);
+        Assert.DoesNotContain("calculationhash", lowerAuditText);
+        Assert.DoesNotContain("storage", lowerAuditText);
+        Assert.DoesNotContain("proof", lowerAuditText);
+        Assert.DoesNotContain("objectkey", lowerAuditText);
+        Assert.DoesNotContain("ocr", lowerAuditText);
+    }
+
+    private static async Task<SettlementMutationCounts> ReadSettlementMutationCountsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return new SettlementMutationCounts(
+            await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementRequestLine>().CountAsync(),
+            await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<SettlementPaymentAllocation>().CountAsync(),
+            await dbContext.Set<SettlementResidual>().CountAsync(),
+            await dbContext.Set<SettlementProofAttachment>().CountAsync());
     }
 
     private static async Task AssertSettlementCandidateAmountAsync(
@@ -946,6 +1684,11 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         return $"/api/v1/bills/{billId:D}/revisions/{revisionId:D}/reject";
     }
 
+    private static string ApplyPath(Guid billId, Guid revisionId)
+    {
+        return $"/api/v1/bills/{billId:D}/revisions/{revisionId:D}/apply";
+    }
+
     private static string SettlementCandidatesPath(Guid billId)
     {
         return $"/api/v1/bills/{billId:D}/settlement-candidates";
@@ -996,6 +1739,14 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     private sealed record PayerSeed(
         Guid UserProfileId,
         decimal Amount);
+
+    private sealed record SettlementMutationCounts(
+        int SettlementRequestCount,
+        int SettlementRequestLineCount,
+        int SettlementPaymentCount,
+        int SettlementPaymentAllocationCount,
+        int SettlementResidualCount,
+        int SettlementProofAttachmentCount);
 
     private sealed class ExpenseBillRevisionTestTimeProvider : TimeProvider
     {

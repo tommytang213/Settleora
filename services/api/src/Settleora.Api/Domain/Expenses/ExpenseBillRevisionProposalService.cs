@@ -200,13 +200,13 @@ internal sealed class ExpenseBillRevisionProposalService
     public ExpenseBillRevisionOperationResult ApplyProposal(
         ExpenseBill bill,
         ExpenseBillRevision revision,
+        Guid actorUserProfileId,
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(bill);
         ArgumentNullException.ThrowIfNull(revision);
 
-        if (revision.Status != ExpenseBillRevisionStatuses.SubmittedForReview
-            || revision.Approvals.Any(approval => approval.Status != ExpenseBillRevisionApprovalStatuses.Approved))
+        if (!CanApplyProposal(bill, revision, actorUserProfileId))
         {
             return ExpenseBillRevisionOperationResult.Failed("revision_apply_not_allowed");
         }
@@ -215,8 +215,114 @@ internal sealed class ExpenseBillRevisionProposalService
         revision.AppliedAtUtc = now;
         revision.UpdatedAtUtc = now;
         bill.ActiveAcceptedBillRevisionId = revision.Id;
+        bill.Status = ExpenseBillStatuses.Confirmed;
+        bill.TotalAmount = revision.TotalAmount;
+        bill.TotalCurrency = revision.TotalCurrency;
         bill.UpdatedAtUtc = now;
+
+        ApplyParticipantState(bill, revision, now);
+
         return ExpenseBillRevisionOperationResult.Success(revision);
+    }
+
+    private static bool CanApplyProposal(
+        ExpenseBill bill,
+        ExpenseBillRevision revision,
+        Guid actorUserProfileId)
+    {
+        if (revision.ExpenseBillId != bill.Id
+            || bill.BillOwnerUserProfileId != actorUserProfileId
+            || revision.Status != ExpenseBillRevisionStatuses.SubmittedForReview)
+        {
+            return false;
+        }
+
+        var latestSubmittedRevision = bill.Revisions
+            .Where(candidate => candidate.Status == ExpenseBillRevisionStatuses.SubmittedForReview)
+            .OrderByDescending(candidate => candidate.SubmittedAtUtc ?? candidate.CreatedAtUtc)
+            .ThenByDescending(candidate => candidate.CreatedAtUtc)
+            .ThenByDescending(candidate => candidate.Id)
+            .FirstOrDefault();
+        if (latestSubmittedRevision?.Id != revision.Id)
+        {
+            return false;
+        }
+
+        if (revision.Participants.Count == 0
+            || revision.Payers.Count == 0
+            || revision.Approvals.Count != revision.Participants.Count)
+        {
+            return false;
+        }
+
+        var billParticipantIds = bill.Participants
+            .Select(participant => participant.UserProfileId)
+            .OrderBy(id => id)
+            .ToArray();
+        var revisionParticipantIds = revision.Participants
+            .Select(participant => participant.UserProfileId)
+            .OrderBy(id => id)
+            .ToArray();
+        if (!billParticipantIds.SequenceEqual(revisionParticipantIds))
+        {
+            return false;
+        }
+
+        if (revision.Participants.Any(participant =>
+                !StringComparer.Ordinal.Equals(participant.ResolvedShareCurrency, revision.TotalCurrency))
+            || revision.Payers.Any(payer =>
+                !StringComparer.Ordinal.Equals(payer.Currency, revision.TotalCurrency))
+            || revision.Participants.Sum(participant => participant.ResolvedShareAmount) != revision.TotalAmount
+            || revision.Payers.Sum(payer => payer.Amount) != revision.TotalAmount)
+        {
+            return false;
+        }
+
+        foreach (var participant in revision.Participants)
+        {
+            var approval = revision.Approvals.SingleOrDefault(candidate =>
+                candidate.ParticipantUserProfileId == participant.UserProfileId);
+            if (approval is null
+                || approval.Status != ExpenseBillRevisionApprovalStatuses.Approved
+                || approval.ApprovedAtUtc is null
+                || approval.RejectedAtUtc is not null
+                || approval.InvalidatedAtUtc is not null
+                || approval.AcceptedAmount != participant.ResolvedShareAmount
+                || !StringComparer.Ordinal.Equals(approval.Currency, participant.ResolvedShareCurrency)
+                || !StringComparer.Ordinal.Equals(approval.CalculationHash, revision.CalculationHash))
+            {
+                return false;
+            }
+        }
+
+        return revision.Payers.All(payer =>
+            ExpenseBillPayerConfirmationStatuses.IsSupported(payer.PayerConfirmationStatus)
+            && payer.PayerConfirmationStatus == ExpenseBillPayerConfirmationStatuses.Confirmed
+            && (!payer.RequiresPayerConfirmation
+                || payer.PayerConfirmationStatus == ExpenseBillPayerConfirmationStatuses.Confirmed));
+    }
+
+    private static void ApplyParticipantState(
+        ExpenseBill bill,
+        ExpenseBillRevision revision,
+        DateTimeOffset now)
+    {
+        var approvalsByParticipant = revision.Approvals.ToDictionary(
+            approval => approval.ParticipantUserProfileId);
+        foreach (var participant in bill.Participants)
+        {
+            var revisionParticipant = revision.Participants.Single(candidate =>
+                candidate.UserProfileId == participant.UserProfileId);
+            var approval = approvalsByParticipant[participant.UserProfileId];
+
+            participant.ResolvedShareAmount = revisionParticipant.ResolvedShareAmount;
+            participant.ResolvedShareCurrency = revisionParticipant.ResolvedShareCurrency;
+            participant.Status = ExpenseBillParticipantStatuses.Accepted;
+            participant.AcceptedAtUtc = approval.ApprovedAtUtc ?? now;
+            participant.RejectedAtUtc = null;
+            participant.RejectionReasonCode = null;
+            participant.UpdatedAtUtc = now;
+        }
     }
 
     private ExpenseBillRevisionOperationResult CreateProposal(

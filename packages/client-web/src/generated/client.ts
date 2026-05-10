@@ -128,6 +128,10 @@ export class SettleoraApiClient {
     return this.request<BillRevisionResponse>("PATCH", `/api/v1/bills/${encodeURIComponent(String(billId))}/revisions/${encodeURIComponent(String(revisionId))}`, body, options, options.accessToken);
   }
 
+  async applyBillRevision(billId: string, revisionId: string, options: SettleoraAuthenticatedRequestOptions): Promise<BillRevisionResponse> {
+    return this.request<BillRevisionResponse>("POST", `/api/v1/bills/${encodeURIComponent(String(billId))}/revisions/${encodeURIComponent(String(revisionId))}/apply`, undefined, options, options.accessToken);
+  }
+
   async approveBillRevision(billId: string, revisionId: string, body: ApproveBillRevisionRequest, options: SettleoraAuthenticatedRequestOptions): Promise<BillRevisionResponse> {
     return this.request<BillRevisionResponse>("POST", `/api/v1/bills/${encodeURIComponent(String(billId))}/revisions/${encodeURIComponent(String(revisionId))}/approve`, body, options, options.accessToken);
   }
