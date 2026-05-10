@@ -590,6 +590,23 @@ export interface CreateSettlementRequestRequest {
 }
 
 /**
+ * Settlement basket write request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; source lines, candidate keys, amounts, request parties, requester, status, and audit metadata are always derived server-side at write time.
+ */
+export interface CreateSettlementBasketRequest {
+  /**
+   * Counterparty profile ID for the current actor's basket creation scope.
+   */
+  counterpartyUserProfileId: string;
+  direction: SettlementBalanceDirection;
+  currency: CurrencyCode;
+  /**
+   * Optional group scope. Null or omission creates a personal/non-group basket only.
+   */
+  groupId?: string | null;
+  selectionMode: SettlementBasketSelectionMode;
+}
+
+/**
  * Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
  */
 export interface SettlementBasketPreviewRequest {
@@ -690,7 +707,7 @@ export interface SettlementRequestResponse {
   createdAtUtc: string;
   updatedAtUtc: string;
   /**
-   * Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+   * Concrete selected request lines included in this settlement request. Single-bill creation returns one line; basket creation can return multiple server-derived lines ordered by allocation order.
    */
   lines: SettlementRequestLineResponse[];
 }
@@ -1143,7 +1160,7 @@ export type SettlementRequestLineStatus = "open" | "partially_cleared" | "cleare
 export type SettlementBalanceDirection = "incoming" | "outgoing";
 
 /**
- * Supported settlement basket preview selection mode for the first read-only basket slice.
+ * Supported settlement basket selection mode for the first preview and create slices.
  */
 export type SettlementBasketSelectionMode = "pay_all_outstanding_for_counterparty";
 

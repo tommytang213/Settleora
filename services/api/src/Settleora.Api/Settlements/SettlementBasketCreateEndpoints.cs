@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Money;
@@ -6,30 +7,37 @@ using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
 
-internal static class SettlementBasketPreviewEndpoints
+internal static class SettlementBasketCreateEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
-    private const string InvalidBasketPreviewTitle = "Invalid settlement basket preview";
-    private const string InvalidBasketPreviewDetail = "The submitted settlement basket preview request is invalid.";
-    private const string BasketPreviewUnavailableTitle = "Settlement basket preview unavailable";
-    private const string BasketPreviewUnavailableDetail = "The requested settlement basket preview is unavailable.";
+    private const string InvalidSettlementBasketTitle = "Invalid settlement basket";
+    private const string InvalidSettlementBasketDetail = "The submitted settlement basket request is invalid.";
+    private const string SettlementBasketUnavailableTitle = "Settlement basket unavailable";
+    private const string SettlementBasketUnavailableDetail = "The requested settlement basket is unavailable.";
+    private const string SettlementBasketConflictTitle = "Settlement basket conflict";
+    private const string SettlementBasketConflictDetail = "The settlement basket cannot be created for the current counterparty state.";
+    private const string SettlementBasketWriteFailedTitle = "Settlement basket write failed";
+    private const string SettlementBasketWriteFailedDetail = "Unable to complete settlement basket write.";
+    private const string SettlementBasketCreatedAction = "settlement.basket_created";
+    private const string SettlementBasketCreateWorkflowName = "settlement_basket_create";
 
     private static readonly SupportedCurrencyPolicy SupportedCurrencies = SupportedCurrencyPolicy.Default;
 
-    public static WebApplication MapSettlementBasketPreviewEndpoints(this WebApplication app)
+    public static WebApplication MapSettlementBasketCreateEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/settlements/baskets/preview", PreviewSettlementBasketAsync)
+        app.MapPost("/api/v1/settlements/baskets", CreateSettlementBasketAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }
 
-    private static async Task<IResult> PreviewSettlementBasketAsync(
+    private static async Task<IResult> CreateSettlementBasketAsync(
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettlementCandidateDerivationService candidateDerivationService,
+        ISettlementRequestAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -39,15 +47,15 @@ internal static class SettlementBasketPreviewEndpoints
             return Unauthenticated();
         }
 
-        var readResult = await ReadPreviewRequestAsync(request, cancellationToken);
+        var readResult = await ReadCreateRequestAsync(request, cancellationToken);
         if (!readResult.Succeeded || readResult.Request is null)
         {
-            return InvalidBasketPreview(readResult.Errors);
+            return InvalidSettlementBasket(readResult.Errors);
         }
 
         if (readResult.Request.CounterpartyUserProfileId == actor.UserProfileId)
         {
-            return InvalidBasketPreview(ToErrorDictionary(
+            return InvalidSettlementBasket(ToErrorDictionary(
                 "counterpartyUserProfileId",
                 "Counterparty user profile ID must identify another profile."));
         }
@@ -72,31 +80,106 @@ internal static class SettlementBasketPreviewEndpoints
         }
 
         var expansionResult = await SettlementBasketExpansionService.ExpandPayAllOutstandingForCounterpartyAsync(
-                dbContext,
-                candidateDerivationService,
-                actor.UserProfileId,
-                readResult.Request.CounterpartyUserProfileId,
-                readResult.Request.Direction,
-                readResult.Request.Currency,
-                readResult.Request.GroupId,
-                cancellationToken);
+            dbContext,
+            candidateDerivationService,
+            actor.UserProfileId,
+            readResult.Request.CounterpartyUserProfileId,
+            readResult.Request.Direction,
+            readResult.Request.Currency,
+            readResult.Request.GroupId,
+            cancellationToken);
         if (!expansionResult.IsAvailable)
         {
-            return BasketPreviewUnavailable();
+            return SettlementBasketUnavailable();
         }
 
-        return Results.Ok(SettlementBasketPreviewResponse.From(
-            timeProvider.GetUtcNow(),
-            readResult.Request.Direction,
-            expansionResult.DebtorUserProfileId,
-            expansionResult.CreditorUserProfileId,
-            readResult.Request.CounterpartyUserProfileId,
-            readResult.Request.GroupId,
-            readResult.Request.Currency,
-            expansionResult.Lines));
+        if (expansionResult.Lines.Count == 0)
+        {
+            return SettlementBasketConflict();
+        }
+
+        var selectedTotal = expansionResult.Lines.Sum(line => line.ExactAmount);
+        if (!SettlementRuntimePolicy.IsValidSettlementAmount(selectedTotal))
+        {
+            return SettlementBasketConflict();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var settlementRequest = new SettlementRequest
+        {
+            Id = Guid.NewGuid(),
+            SourceExpenseBillId = expansionResult.Lines[0].SourceExpenseBillId,
+            GroupId = readResult.Request.GroupId,
+            DebtorUserProfileId = expansionResult.DebtorUserProfileId,
+            CreditorUserProfileId = expansionResult.CreditorUserProfileId,
+            Amount = selectedTotal,
+            Currency = readResult.Request.Currency,
+            Status = SettlementRequestStatuses.Requested,
+            RequestedByUserProfileId = actor.UserProfileId,
+            RequestedAtUtc = now,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+
+        for (var index = 0; index < expansionResult.Lines.Count; index++)
+        {
+            var selectedLine = expansionResult.Lines[index];
+            settlementRequest.Lines.Add(new SettlementRequestLine
+            {
+                Id = Guid.NewGuid(),
+                SettlementRequestId = settlementRequest.Id,
+                SourceExpenseBillId = selectedLine.SourceExpenseBillId,
+                SourceBillRevisionId = selectedLine.SourceBillRevisionId,
+                SourceCandidateKey = selectedLine.SourceCandidateKey,
+                ExactAmount = selectedLine.ExactAmount,
+                Currency = selectedLine.Currency,
+                AllocationOrder = index,
+                Status = SettlementRequestLineStatuses.Open,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+        }
+
+        dbContext.Set<SettlementRequest>().Add(settlementRequest);
+        await auditWriter.WriteAsync(
+            new SettlementRequestAuditEvent(
+                SettlementBasketCreatedAction,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                settlementRequest.Id,
+                settlementRequest.SourceExpenseBillId.Value,
+                settlementRequest.GroupId,
+                settlementRequest.GroupId.HasValue
+                    ? SettlementRuntimePolicy.GroupMode
+                    : SettlementRuntimePolicy.PersonalGroupMode,
+                settlementRequest.DebtorUserProfileId,
+                settlementRequest.CreditorUserProfileId,
+                settlementRequest.Status,
+                settlementRequest.Amount,
+                settlementRequest.Currency,
+                SettlementBasketSelectionModes.PayAllOutstandingForCounterparty,
+                now)
+            {
+                WorkflowName = SettlementBasketCreateWorkflowName
+            },
+            cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return SettlementBasketWriteFailed();
+        }
+
+        return Results.Created(
+            $"/api/v1/settlements/{settlementRequest.Id:D}",
+            SettlementRequestResponse.From(settlementRequest));
     }
 
-    private static async Task<SettlementBasketPreviewReadResult> ReadPreviewRequestAsync(
+    private static async Task<SettlementBasketCreateReadResult> ReadCreateRequestAsync(
         HttpRequest request,
         CancellationToken cancellationToken)
     {
@@ -104,7 +187,7 @@ internal static class SettlementBasketPreviewEndpoints
         if (!request.HasJsonContentType())
         {
             AddError(errors, "body", "A JSON object body is required.");
-            return SettlementBasketPreviewReadResult.Invalid(ToErrorDictionary(errors));
+            return SettlementBasketCreateReadResult.Invalid(ToErrorDictionary(errors));
         }
 
         JsonDocument document;
@@ -117,12 +200,12 @@ internal static class SettlementBasketPreviewEndpoints
         catch (JsonException)
         {
             AddError(errors, "body", "A JSON object body is required.");
-            return SettlementBasketPreviewReadResult.Invalid(ToErrorDictionary(errors));
+            return SettlementBasketCreateReadResult.Invalid(ToErrorDictionary(errors));
         }
         catch (BadHttpRequestException)
         {
             AddError(errors, "body", "A JSON object body is required.");
-            return SettlementBasketPreviewReadResult.Invalid(ToErrorDictionary(errors));
+            return SettlementBasketCreateReadResult.Invalid(ToErrorDictionary(errors));
         }
 
         using (document)
@@ -130,7 +213,7 @@ internal static class SettlementBasketPreviewEndpoints
             if (document.RootElement.ValueKind is not JsonValueKind.Object)
             {
                 AddError(errors, "body", "A JSON object body is required.");
-                return SettlementBasketPreviewReadResult.Invalid(ToErrorDictionary(errors));
+                return SettlementBasketCreateReadResult.Invalid(ToErrorDictionary(errors));
             }
 
             Guid? counterpartyUserProfileId = null;
@@ -205,13 +288,13 @@ internal static class SettlementBasketPreviewEndpoints
                 && direction is not null
                 && currency is not null
                 && selectionMode is not null
-                    ? SettlementBasketPreviewReadResult.Valid(new SettlementBasketPreviewRequest(
+                    ? SettlementBasketCreateReadResult.Valid(new SettlementBasketCreateRequest(
                         parsedCounterpartyUserProfileId,
                         direction,
                         currency,
                         groupId,
                         selectionMode))
-                    : SettlementBasketPreviewReadResult.Invalid(ToErrorDictionary(errors));
+                    : SettlementBasketCreateReadResult.Invalid(ToErrorDictionary(errors));
         }
     }
 
@@ -305,7 +388,7 @@ internal static class SettlementBasketPreviewEndpoints
     {
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
             ? Unauthenticated()
-            : BasketPreviewUnavailable();
+            : SettlementBasketUnavailable();
     }
 
     private static IResult Unauthenticated()
@@ -316,21 +399,37 @@ internal static class SettlementBasketPreviewEndpoints
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    private static IResult InvalidBasketPreview(IDictionary<string, string[]> errors)
+    private static IResult InvalidSettlementBasket(IDictionary<string, string[]> errors)
     {
         return Results.ValidationProblem(
             errors,
-            title: InvalidBasketPreviewTitle,
-            detail: InvalidBasketPreviewDetail,
+            title: InvalidSettlementBasketTitle,
+            detail: InvalidSettlementBasketDetail,
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    private static IResult BasketPreviewUnavailable()
+    private static IResult SettlementBasketUnavailable()
     {
         return Results.Problem(
-            title: BasketPreviewUnavailableTitle,
-            detail: BasketPreviewUnavailableDetail,
+            title: SettlementBasketUnavailableTitle,
+            detail: SettlementBasketUnavailableDetail,
             statusCode: StatusCodes.Status404NotFound);
+    }
+
+    private static IResult SettlementBasketConflict()
+    {
+        return Results.Problem(
+            title: SettlementBasketConflictTitle,
+            detail: SettlementBasketConflictDetail,
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    private static IResult SettlementBasketWriteFailed()
+    {
+        return Results.Problem(
+            title: SettlementBasketWriteFailedTitle,
+            detail: SettlementBasketWriteFailedDetail,
+            statusCode: StatusCodes.Status500InternalServerError);
     }
 
     private static void AddUnsupportedFieldError(Dictionary<string, List<string>> errors)
@@ -374,17 +473,17 @@ internal static class SettlementBasketPreviewEndpoints
             StringComparer.Ordinal);
     }
 
-    private sealed record SettlementBasketPreviewRequest(
+    private sealed record SettlementBasketCreateRequest(
         Guid CounterpartyUserProfileId,
         string Direction,
         string Currency,
         Guid? GroupId,
         string SelectionMode);
 
-    private sealed class SettlementBasketPreviewReadResult
+    private sealed class SettlementBasketCreateReadResult
     {
-        private SettlementBasketPreviewReadResult(
-            SettlementBasketPreviewRequest? request,
+        private SettlementBasketCreateReadResult(
+            SettlementBasketCreateRequest? request,
             IDictionary<string, string[]> errors)
         {
             Request = request;
@@ -393,21 +492,20 @@ internal static class SettlementBasketPreviewEndpoints
 
         public bool Succeeded => Errors.Count == 0;
 
-        public SettlementBasketPreviewRequest? Request { get; }
+        public SettlementBasketCreateRequest? Request { get; }
 
         public IDictionary<string, string[]> Errors { get; }
 
-        public static SettlementBasketPreviewReadResult Valid(SettlementBasketPreviewRequest request)
+        public static SettlementBasketCreateReadResult Valid(SettlementBasketCreateRequest request)
         {
-            return new SettlementBasketPreviewReadResult(
+            return new SettlementBasketCreateReadResult(
                 request,
                 new Dictionary<string, string[]>(StringComparer.Ordinal));
         }
 
-        public static SettlementBasketPreviewReadResult Invalid(IDictionary<string, string[]> errors)
+        public static SettlementBasketCreateReadResult Invalid(IDictionary<string, string[]> errors)
         {
-            return new SettlementBasketPreviewReadResult(null, errors);
+            return new SettlementBasketCreateReadResult(null, errors);
         }
     }
-
 }

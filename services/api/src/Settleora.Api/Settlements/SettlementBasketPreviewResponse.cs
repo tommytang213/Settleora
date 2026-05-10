@@ -24,7 +24,7 @@ internal sealed record SettlementBasketPreviewResponse(
         Guid counterpartyUserProfileId,
         Guid? groupId,
         string currency,
-        IReadOnlyList<SettlementBasketPreviewLineProjection> lines)
+        IReadOnlyList<SettlementBasketLineProjection> lines)
     {
         var exactSelectedTotal = lines.Sum(line => line.ExactAmount);
         return new SettlementBasketPreviewResponse(
@@ -55,7 +55,7 @@ internal sealed record SettlementBasketPreviewLineResponse(
     string CandidateBasis,
     DateTimeOffset CreatedAtUtc)
 {
-    public static SettlementBasketPreviewLineResponse From(SettlementBasketPreviewLineProjection line)
+    public static SettlementBasketPreviewLineResponse From(SettlementBasketLineProjection line)
     {
         return new SettlementBasketPreviewLineResponse(
             line.SourceExpenseBillId,
@@ -67,15 +67,6 @@ internal sealed record SettlementBasketPreviewLineResponse(
             line.CreatedAtUtc);
     }
 }
-
-internal sealed record SettlementBasketPreviewLineProjection(
-    Guid SourceExpenseBillId,
-    Guid? SourceBillRevisionId,
-    string SourceCandidateKey,
-    decimal ExactAmount,
-    string Currency,
-    string CandidateBasis,
-    DateTimeOffset CreatedAtUtc);
 
 internal static class SettlementBasketPreviewResponseFormat
 {

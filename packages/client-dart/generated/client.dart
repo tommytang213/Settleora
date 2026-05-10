@@ -632,6 +632,17 @@ class SettleoraApiClient {
     return SettlementRequestListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SettlementRequestResponse> createSettlementBasketRequest(CreateSettlementBasketRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/settlements/baskets",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SettlementRequestResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementBasketPreviewResponse> previewSettlementBasket(SettlementBasketPreviewRequest body, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

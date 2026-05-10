@@ -1787,6 +1787,62 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlements/baskets:
+    post:
+      summary: Create settlement basket request
+      description: Creates one same-currency settlement request from all eligible outstanding confirmed bill candidate lines between the authenticated actor and one counterparty for the supported pay-all-outstanding selection mode. The current actor, debtor/creditor direction, selected source bills, candidate keys, amounts, active accepted bill revision trace, duplicate active request exclusion, group visibility, selected total, request lines, request status, and bounded audit metadata are derived server-side at write time. The client does not submit line IDs, debtor/creditor/requester IDs, money totals, status, payment data, proof/file data, audit metadata, auth/session data, bill merchant/item details, receipt/OCR contents, or unrelated users.
+      operationId: createSettlementBasketRequest
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSettlementBasketRequest"
+      responses:
+        "201":
+          description: Settlement request created from the server-derived concrete basket lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementRequestResponse"
+        "400":
+          description: Request body is malformed, contains unsupported fields, unsupported direction or selection mode values, invalid UUIDs, self-counterparty, or invalid currency.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Actor profile, counterparty profile, group, or required active group membership visibility is missing, deleted, inactive, removed, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: No eligible outstanding same-currency lines remain, selected lines are stale, duplicate active requests already cover the selected candidates, or current server state blocks basket creation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement basket write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/settlements/baskets/preview:
     post:
       summary: Preview settlement basket
@@ -4746,6 +4802,32 @@ components:
           minLength: 1
           maxLength: 240
           description: Server-derived candidate key from the current confirmed bill candidate basis.
+    CreateSettlementBasketRequest:
+      type: object
+      description: Settlement basket write request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; source lines, candidate keys, amounts, request parties, requester, status, and audit metadata are always derived server-side at write time.
+      additionalProperties: false
+      required:
+        - counterpartyUserProfileId
+        - direction
+        - currency
+        - selectionMode
+      properties:
+        counterpartyUserProfileId:
+          type: string
+          format: uuid
+          description: Counterparty profile ID for the current actor's basket creation scope.
+        direction:
+          $ref: "#/components/schemas/SettlementBalanceDirection"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional group scope. Null or omission creates a personal/non-group basket only.
+        selectionMode:
+          $ref: "#/components/schemas/SettlementBasketSelectionMode"
     SettlementBasketPreviewRequest:
       type: object
       description: Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
@@ -4930,7 +5012,7 @@ components:
           format: date-time
         lines:
           type: array
-          description: Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+          description: Concrete selected request lines included in this settlement request. Single-bill creation returns one line; basket creation can return multiple server-derived lines ordered by allocation order.
           items:
             $ref: "#/components/schemas/SettlementRequestLineResponse"
     SettlementRequestLineResponse:
@@ -5748,7 +5830,7 @@ components:
         - outgoing
     SettlementBasketSelectionMode:
       type: string
-      description: Supported settlement basket preview selection mode for the first read-only basket slice.
+      description: Supported settlement basket selection mode for the first preview and create slices.
       enum:
         - pay_all_outstanding_for_counterparty
     SettlementPaymentStatus:

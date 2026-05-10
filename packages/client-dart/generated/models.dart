@@ -1730,6 +1730,54 @@ class CreateSettlementRequestRequest {
   }
 }
 
+/// Settlement basket write request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; source lines, candidate keys, amounts, request parties, requester, status, and audit metadata are always derived server-side at write time.
+class CreateSettlementBasketRequest {
+  static const Object _unsetGroupId = Object();
+
+  CreateSettlementBasketRequest({
+    required this.counterpartyUserProfileId,
+    required this.direction,
+    required this.currency,
+    Object? groupId = _unsetGroupId,
+    required this.selectionMode,
+  })
+      : groupId = identical(groupId, _unsetGroupId) ? null : groupId as String?,
+        _hasGroupId = !identical(groupId, _unsetGroupId);
+
+  /// Counterparty profile ID for the current actor's basket creation scope.
+  final String counterpartyUserProfileId;
+  final SettlementBalanceDirection direction;
+  final CurrencyCode currency;
+  /// Optional group scope. Null or omission creates a personal/non-group basket only.
+  final String? groupId;
+  final bool _hasGroupId;
+  final SettlementBasketSelectionMode selectionMode;
+
+  factory CreateSettlementBasketRequest.fromJson(JsonObject json) {
+    return CreateSettlementBasketRequest(
+      counterpartyUserProfileId: json["counterpartyUserProfileId"] as String,
+      direction: json["direction"] as String,
+      currency: json["currency"] as String,
+      groupId: json.containsKey("groupId")
+          ? json["groupId"] == null ? null : json["groupId"] as String
+          : _unsetGroupId,
+      selectionMode: json["selectionMode"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "counterpartyUserProfileId": counterpartyUserProfileId,
+      "direction": direction,
+      "currency": currency,
+      if (_hasGroupId) "groupId": groupIdJsonValue,
+      "selectionMode": selectionMode,
+    };
+  }
+}
+
 /// Read-only basket preview request for the first same-currency pay-all-outstanding selection mode. The client submits only the counterparty, current-actor direction, optional group scope, currency, and selection mode; candidate lines and amounts are always derived server-side.
 class SettlementBasketPreviewRequest {
   static const Object _unsetGroupId = Object();
@@ -1949,7 +1997,7 @@ class SettlementRequestResponse {
   final DateTime requestedAtUtc;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
-  /// Concrete selected request lines included in this settlement request. The current runtime creates one line for one confirmed bill candidate.
+  /// Concrete selected request lines included in this settlement request. Single-bill creation returns one line; basket creation can return multiple server-derived lines ordered by allocation order.
   final List<SettlementRequestLineResponse> lines;
 
   factory SettlementRequestResponse.fromJson(JsonObject json) {
@@ -3196,7 +3244,7 @@ class SettlementBalanceDirectionValues {
   static const Set<SettlementBalanceDirection> values = {incoming, outgoing};
 }
 
-/// Supported settlement basket preview selection mode for the first read-only basket slice.
+/// Supported settlement basket selection mode for the first preview and create slices.
 typedef SettlementBasketSelectionMode = String;
 class SettlementBasketSelectionModeValues {
   const SettlementBasketSelectionModeValues._();

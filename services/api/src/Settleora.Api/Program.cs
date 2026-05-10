@@ -71,6 +71,7 @@ app.MapExpenseBillWorkflowEndpoints();
 app.MapExpenseBillRevisionEndpoints();
 app.MapSettlementCandidatePreviewEndpoints();
 app.MapSettlementBasketPreviewEndpoints();
+app.MapSettlementBasketCreateEndpoints();
 app.MapSettlementRequestCreateEndpoints();
 app.MapSettlementRequestReadEndpoints();
 app.MapSettlementBalanceProjectionEndpoints();
