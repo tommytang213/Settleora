@@ -337,6 +337,123 @@ export interface RejectBillParticipantRequest {
 }
 
 /**
+ * Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+ */
+export interface CreateBillRevisionProposalRequest {
+  /**
+   * Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  /**
+   * Proposed participant share rows. This first endpoint slice requires the participant set to match the current bill participant set.
+   */
+  participants: BillRevisionProposalParticipantRequest[];
+  /**
+   * Proposed payer contribution rows. Payer profile IDs must already be related to the bill.
+   */
+  payers: BillRevisionProposalPayerRequest[];
+}
+
+export interface BillRevisionProposalParticipantRequest {
+  userProfileId: string;
+  /**
+   * Decimal-safe participant share amount represented as a string.
+   */
+  resolvedShareAmount: string;
+  resolvedShareCurrency: CurrencyCode;
+}
+
+export interface BillRevisionProposalPayerRequest {
+  userProfileId: string;
+  /**
+   * Decimal-safe proposed payer contribution represented as a string. Must be positive.
+   */
+  amount: string;
+  currency: CurrencyCode;
+}
+
+/**
+ * Revision-specific approval basis. The route revision ID, accepted amount, currency, and calculation hash must match the server-stored pending approval exactly.
+ */
+export interface ApproveBillRevisionRequest {
+  /**
+   * Decimal-safe amount the participant is accepting for this exact revision.
+   */
+  acceptedAmount: string;
+  currency: CurrencyCode;
+  /**
+   * Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+   */
+  calculationHash: string;
+}
+
+/**
+ * Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
+ */
+export interface BillRevisionListResponse {
+  revisions: BillRevisionResponse[];
+}
+
+/**
+ * Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+ */
+export interface BillRevisionResponse {
+  id: string;
+  billId: string;
+  groupId: string | null;
+  proposalCreatorUserProfileId: string;
+  supersedesExpenseBillRevisionId: string | null;
+  supersededByExpenseBillRevisionId: string | null;
+  status: ExpenseBillRevisionStatus;
+  /**
+   * Decimal-safe proposed revision total amount represented as a string.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  /**
+   * Deterministic revision review hash for client display/approval binding. It is not an auth/session token or storage secret.
+   */
+  calculationHash: string;
+  submittedAtUtc: string | null;
+  withdrawnAtUtc: string | null;
+  supersededAtUtc: string | null;
+  rejectedAtUtc: string | null;
+  appliedAtUtc: string | null;
+  cancelledAtUtc: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  participants: BillRevisionParticipantResponse[];
+  payers: BillRevisionPayerResponse[];
+  approvals: BillRevisionApprovalResponse[];
+}
+
+export interface BillRevisionParticipantResponse {
+  userProfileId: string;
+  resolvedShareAmount: string;
+  resolvedShareCurrency: CurrencyCode;
+  affectedByRevision: boolean;
+}
+
+export interface BillRevisionPayerResponse {
+  userProfileId: string;
+  amount: string;
+  currency: CurrencyCode;
+  requiresPayerConfirmation: boolean;
+  payerConfirmationStatus: ExpenseBillPayerConfirmationStatus;
+}
+
+export interface BillRevisionApprovalResponse {
+  participantUserProfileId: string;
+  acceptedAmount: string;
+  currency: CurrencyCode;
+  status: ExpenseBillRevisionApprovalStatus;
+  approvedAtUtc: string | null;
+  rejectedAtUtc: string | null;
+  invalidatedAtUtc: string | null;
+}
+
+/**
  * Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
  */
 export interface PersonalBillListResponse {
@@ -789,6 +906,21 @@ export type ExpenseBillStatus = "draft" | "pending_confirmation" | "confirmed" |
  * Expense bill participant status.
  */
 export type ExpenseBillParticipantStatus = "pending_acceptance" | "accepted" | "rejected" | "partially_settled" | "settled" | "waived" | "claimed_paid" | "confirmed_paid";
+
+/**
+ * Bill revision proposal lifecycle status.
+ */
+export type ExpenseBillRevisionStatus = "draft_revision" | "submitted_for_review" | "withdrawn_by_proposer" | "superseded_by_resubmission" | "rejected" | "accepted_applied" | "cancelled_by_authorized_editor";
+
+/**
+ * Bill revision approval status.
+ */
+export type ExpenseBillRevisionApprovalStatus = "pending_review" | "approved" | "rejected" | "invalidated_by_supersession";
+
+/**
+ * Payer confirmation status for original bill payer facts and proposed revision payer facts.
+ */
+export type ExpenseBillPayerConfirmationStatus = "pending_confirmation" | "confirmed" | "rejected";
 
 /**
  * Bounded participant rejection reason code.

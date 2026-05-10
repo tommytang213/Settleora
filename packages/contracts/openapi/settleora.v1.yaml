@@ -15,7 +15,7 @@ info:
     revocation, the minimal current-user auth read boundary, and guarded
     self-profile read/update endpoints, first personal and group bill create/read
     endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
-    settlement candidate preview, first settlement request creation endpoints,
+    first bill revision proposal lifecycle endpoints, settlement candidate preview, first settlement request creation endpoints,
     settlement request list/get endpoints, settlement counterparty payment-details
     read endpoints, settlement-scoped counterparty payment QR content reads,
     settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
@@ -690,6 +690,492 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Bill is missing, archived, a group bill, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions:
+    get:
+      summary: List bill revisions
+      description: Lists revision proposals for one visible non-archived bill. The authenticated actor must be related to the bill as creator, owner/responsible editor, participant, payer, or an active group member for a related group bill. Missing, deleted, archived, unrelated, inactive, removed-member, and not-visible cases fail closed without exposing bill existence.
+      operationId: listBillRevisions
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID whose revision proposals should be listed.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bill revisions visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      summary: Create bill revision proposal
+      description: Creates a draft revision proposal for one visible confirmed or rejected bill. Actor identity is derived from the authenticated session; clients submit only a bounded candidate money snapshot. The server validates relationship, profile visibility, one-active-pending-revision policy, same-currency Day 1 rules, participant-set stability, payer relationship, participant share totals, and payer contribution totals. Creation does not mutate settlement requests, settlement lines, payments, residuals, proof files, or settlement history.
+      operationId: createBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID receiving a revision proposal.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBillRevisionProposalRequest"
+      responses:
+        "201":
+          description: Draft bill revision proposal created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: Request body is malformed or contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state, one-active-pending-revision policy, or revision domain policy blocks creation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}:
+    get:
+      summary: Get bill revision
+      description: Returns one visible bill revision proposal for a related authenticated actor. The response exposes the review calculation hash needed for revision-specific approval, bounded status fields, money strings, affected-participant flags, payer-confirmation flags, and no auth/session, storage, proof, settlement, or provider internals.
+      operationId: getBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bill revision visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Revise and resubmit bill revision
+      description: Supersedes one active pending proposal and creates the replacement submitted proposal from a bounded candidate money snapshot. Only the proposer is supported by the current domain policy. Prior approvals on the superseded proposal are invalidated and do not carry to the replacement. This operation does not mutate settlement requests, settlement lines, payments, residuals, proof files, or settlement history.
+      operationId: reviseBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Active pending bill revision proposal ID to supersede.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBillRevisionProposalRequest"
+      responses:
+        "200":
+          description: Replacement submitted bill revision proposal created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: Request body is malformed or contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state, proposer policy, visible bill state, or revision domain policy blocks revise/resubmit.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/submit:
+    post:
+      summary: Submit bill revision
+      description: Submits one draft revision proposal for review. The authenticated actor must be the proposal creator under the current domain policy. This action accepts no request body and does not accept client-submitted actor, participant, payer, bill, group, settlement, status, audit, file, proof, auth, or session identity.
+      operationId: submitBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Draft bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bill revision submitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: A request body was submitted even though revision submission accepts no body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state or proposer policy blocks submission.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/withdraw:
+    post:
+      summary: Withdraw bill revision
+      description: Withdraws one active pending revision proposal. The current domain policy restricts withdrawal to the proposal creator; responsible-editor withdrawal is not exposed until a reviewed domain policy supports it. This action accepts no request body and does not mutate settlement records.
+      operationId: withdrawBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Active pending bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bill revision withdrawn.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: A request body was submitted even though revision withdrawal accepts no body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state or proposer policy blocks withdrawal.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/approve:
+    post:
+      summary: Approve bill revision
+      description: Records the authenticated actor's affected-participant approval for one submitted revision proposal. The route revision ID plus submitted accepted amount, currency, and calculation hash must match the server-stored approval basis exactly. Stale, wrong-hash, wrong-amount, wrong-currency, superseded, rejected, withdrawn, unaffected already-preserved, and unauthorized approvals fail safely.
+      operationId: approveBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Submitted bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveBillRevisionRequest"
+      responses:
+        "200":
+          description: Revision approval recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: Request body is malformed or contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state, actor, accepted amount, currency, or calculation hash does not match the current review basis.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/reject:
+    post:
+      summary: Reject bill revision
+      description: Rejects one submitted bill revision proposal using the authenticated actor as the rejecting participant. The current domain foundation stores bounded status/timestamp state only, so this endpoint accepts no reason body and stores no free text. Rejected approvals do not carry to active bill truth, and settlement records are not mutated.
+      operationId: rejectBillRevision
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Submitted bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Revision rejection recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: A request body was submitted even though revision rejection accepts no body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state or actor policy blocks rejection.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
           content:
             application/problem+json:
               schema:
@@ -3527,6 +4013,286 @@ components:
       properties:
         reasonCode:
           $ref: "#/components/schemas/ExpenseBillParticipantRejectionReasonCode"
+    CreateBillRevisionProposalRequest:
+      type: object
+      description: Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+      additionalProperties: false
+      required:
+        - totalAmount
+        - totalCurrency
+        - participants
+        - payers
+      properties:
+        totalAmount:
+          type: string
+          description: Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
+          examples:
+            - "100.00"
+        totalCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        participants:
+          type: array
+          minItems: 1
+          description: Proposed participant share rows. This first endpoint slice requires the participant set to match the current bill participant set.
+          items:
+            $ref: "#/components/schemas/BillRevisionProposalParticipantRequest"
+        payers:
+          type: array
+          minItems: 1
+          description: Proposed payer contribution rows. Payer profile IDs must already be related to the bill.
+          items:
+            $ref: "#/components/schemas/BillRevisionProposalPayerRequest"
+    BillRevisionProposalParticipantRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - userProfileId
+        - resolvedShareAmount
+        - resolvedShareCurrency
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        resolvedShareAmount:
+          type: string
+          description: Decimal-safe participant share amount represented as a string.
+          examples:
+            - "50.00"
+        resolvedShareCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+    BillRevisionProposalPayerRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - userProfileId
+        - amount
+        - currency
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Decimal-safe proposed payer contribution represented as a string. Must be positive.
+          examples:
+            - "100.00"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    ApproveBillRevisionRequest:
+      type: object
+      description: Revision-specific approval basis. The route revision ID, accepted amount, currency, and calculation hash must match the server-stored pending approval exactly.
+      additionalProperties: false
+      required:
+        - acceptedAmount
+        - currency
+        - calculationHash
+      properties:
+        acceptedAmount:
+          type: string
+          description: Decimal-safe amount the participant is accepting for this exact revision.
+          examples:
+            - "50.00"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        calculationHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          description: Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+    BillRevisionListResponse:
+      type: object
+      description: Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
+      required:
+        - revisions
+      properties:
+        revisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionResponse"
+    BillRevisionResponse:
+      type: object
+      description: Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+      required:
+        - id
+        - billId
+        - groupId
+        - proposalCreatorUserProfileId
+        - supersedesExpenseBillRevisionId
+        - supersededByExpenseBillRevisionId
+        - status
+        - totalAmount
+        - totalCurrency
+        - calculationHash
+        - submittedAtUtc
+        - withdrawnAtUtc
+        - supersededAtUtc
+        - rejectedAtUtc
+        - appliedAtUtc
+        - cancelledAtUtc
+        - createdAtUtc
+        - updatedAtUtc
+        - participants
+        - payers
+        - approvals
+      properties:
+        id:
+          type: string
+          format: uuid
+        billId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        proposalCreatorUserProfileId:
+          type: string
+          format: uuid
+        supersedesExpenseBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        supersededByExpenseBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/ExpenseBillRevisionStatus"
+        totalAmount:
+          type: string
+          description: Decimal-safe proposed revision total amount represented as a string.
+        totalCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        calculationHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          description: Deterministic revision review hash for client display/approval binding. It is not an auth/session token or storage secret.
+        submittedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        withdrawnAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        supersededAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        rejectedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        appliedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        cancelledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionParticipantResponse"
+        payers:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionPayerResponse"
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionApprovalResponse"
+    BillRevisionParticipantResponse:
+      type: object
+      required:
+        - userProfileId
+        - resolvedShareAmount
+        - resolvedShareCurrency
+        - affectedByRevision
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        resolvedShareAmount:
+          type: string
+        resolvedShareCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        affectedByRevision:
+          type: boolean
+    BillRevisionPayerResponse:
+      type: object
+      required:
+        - userProfileId
+        - amount
+        - currency
+        - requiresPayerConfirmation
+        - payerConfirmationStatus
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        requiresPayerConfirmation:
+          type: boolean
+        payerConfirmationStatus:
+          $ref: "#/components/schemas/ExpenseBillPayerConfirmationStatus"
+    BillRevisionApprovalResponse:
+      type: object
+      required:
+        - participantUserProfileId
+        - acceptedAmount
+        - currency
+        - status
+        - approvedAtUtc
+        - rejectedAtUtc
+        - invalidatedAtUtc
+      properties:
+        participantUserProfileId:
+          type: string
+          format: uuid
+        acceptedAmount:
+          type: string
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        status:
+          $ref: "#/components/schemas/ExpenseBillRevisionApprovalStatus"
+        approvedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        rejectedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        invalidatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     PersonalBillListResponse:
       type: object
       description: Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
@@ -4461,6 +5227,32 @@ components:
         - waived
         - claimed_paid
         - confirmed_paid
+    ExpenseBillRevisionStatus:
+      type: string
+      description: Bill revision proposal lifecycle status.
+      enum:
+        - draft_revision
+        - submitted_for_review
+        - withdrawn_by_proposer
+        - superseded_by_resubmission
+        - rejected
+        - accepted_applied
+        - cancelled_by_authorized_editor
+    ExpenseBillRevisionApprovalStatus:
+      type: string
+      description: Bill revision approval status.
+      enum:
+        - pending_review
+        - approved
+        - rejected
+        - invalidated_by_supersession
+    ExpenseBillPayerConfirmationStatus:
+      type: string
+      description: Payer confirmation status for original bill payer facts and proposed revision payer facts.
+      enum:
+        - pending_confirmation
+        - confirmed
+        - rejected
     ExpenseBillParticipantRejectionReasonCode:
       type: string
       description: Bounded participant rejection reason code.

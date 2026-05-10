@@ -896,6 +896,381 @@ class RejectBillParticipantRequest {
   }
 }
 
+/// Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+class CreateBillRevisionProposalRequest {
+  const CreateBillRevisionProposalRequest({
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.participants,
+    required this.payers,
+  });
+
+  /// Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+  /// Proposed participant share rows. This first endpoint slice requires the participant set to match the current bill participant set.
+  final List<BillRevisionProposalParticipantRequest> participants;
+  /// Proposed payer contribution rows. Payer profile IDs must already be related to the bill.
+  final List<BillRevisionProposalPayerRequest> payers;
+
+  factory CreateBillRevisionProposalRequest.fromJson(JsonObject json) {
+    return CreateBillRevisionProposalRequest(
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+      participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionProposalParticipantRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payers: (json["payers"] as List<dynamic>).map((item) => BillRevisionProposalPayerRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+      "participants": participants.map((item) => item.toJson()).toList(growable: false),
+      "payers": payers.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class BillRevisionProposalParticipantRequest {
+  const BillRevisionProposalParticipantRequest({
+    required this.userProfileId,
+    required this.resolvedShareAmount,
+    required this.resolvedShareCurrency,
+  });
+
+  final String userProfileId;
+  /// Decimal-safe participant share amount represented as a string.
+  final String resolvedShareAmount;
+  final CurrencyCode resolvedShareCurrency;
+
+  factory BillRevisionProposalParticipantRequest.fromJson(JsonObject json) {
+    return BillRevisionProposalParticipantRequest(
+      userProfileId: json["userProfileId"] as String,
+      resolvedShareAmount: json["resolvedShareAmount"] as String,
+      resolvedShareCurrency: json["resolvedShareCurrency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "resolvedShareAmount": resolvedShareAmount,
+      "resolvedShareCurrency": resolvedShareCurrency,
+    };
+  }
+}
+
+class BillRevisionProposalPayerRequest {
+  const BillRevisionProposalPayerRequest({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String userProfileId;
+  /// Decimal-safe proposed payer contribution represented as a string. Must be positive.
+  final String amount;
+  final CurrencyCode currency;
+
+  factory BillRevisionProposalPayerRequest.fromJson(JsonObject json) {
+    return BillRevisionProposalPayerRequest(
+      userProfileId: json["userProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
+/// Revision-specific approval basis. The route revision ID, accepted amount, currency, and calculation hash must match the server-stored pending approval exactly.
+class ApproveBillRevisionRequest {
+  const ApproveBillRevisionRequest({
+    required this.acceptedAmount,
+    required this.currency,
+    required this.calculationHash,
+  });
+
+  /// Decimal-safe amount the participant is accepting for this exact revision.
+  final String acceptedAmount;
+  final CurrencyCode currency;
+  /// Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+  final String calculationHash;
+
+  factory ApproveBillRevisionRequest.fromJson(JsonObject json) {
+    return ApproveBillRevisionRequest(
+      acceptedAmount: json["acceptedAmount"] as String,
+      currency: json["currency"] as String,
+      calculationHash: json["calculationHash"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "acceptedAmount": acceptedAmount,
+      "currency": currency,
+      "calculationHash": calculationHash,
+    };
+  }
+}
+
+/// Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
+class BillRevisionListResponse {
+  const BillRevisionListResponse({
+    required this.revisions,
+  });
+
+  final List<BillRevisionResponse> revisions;
+
+  factory BillRevisionListResponse.fromJson(JsonObject json) {
+    return BillRevisionListResponse(
+      revisions: (json["revisions"] as List<dynamic>).map((item) => BillRevisionResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "revisions": revisions.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+class BillRevisionResponse {
+  const BillRevisionResponse({
+    required this.id,
+    required this.billId,
+    required this.groupId,
+    required this.proposalCreatorUserProfileId,
+    required this.supersedesExpenseBillRevisionId,
+    required this.supersededByExpenseBillRevisionId,
+    required this.status,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.calculationHash,
+    required this.submittedAtUtc,
+    required this.withdrawnAtUtc,
+    required this.supersededAtUtc,
+    required this.rejectedAtUtc,
+    required this.appliedAtUtc,
+    required this.cancelledAtUtc,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.participants,
+    required this.payers,
+    required this.approvals,
+  });
+
+  final String id;
+  final String billId;
+  final String? groupId;
+  final String proposalCreatorUserProfileId;
+  final String? supersedesExpenseBillRevisionId;
+  final String? supersededByExpenseBillRevisionId;
+  final ExpenseBillRevisionStatus status;
+  /// Decimal-safe proposed revision total amount represented as a string.
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+  /// Deterministic revision review hash for client display/approval binding. It is not an auth/session token or storage secret.
+  final String calculationHash;
+  final DateTime? submittedAtUtc;
+  final DateTime? withdrawnAtUtc;
+  final DateTime? supersededAtUtc;
+  final DateTime? rejectedAtUtc;
+  final DateTime? appliedAtUtc;
+  final DateTime? cancelledAtUtc;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final List<BillRevisionParticipantResponse> participants;
+  final List<BillRevisionPayerResponse> payers;
+  final List<BillRevisionApprovalResponse> approvals;
+
+  factory BillRevisionResponse.fromJson(JsonObject json) {
+    return BillRevisionResponse(
+      id: json["id"] as String,
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      proposalCreatorUserProfileId: json["proposalCreatorUserProfileId"] as String,
+      supersedesExpenseBillRevisionId: json["supersedesExpenseBillRevisionId"] == null ? null : json["supersedesExpenseBillRevisionId"] as String,
+      supersededByExpenseBillRevisionId: json["supersededByExpenseBillRevisionId"] == null ? null : json["supersededByExpenseBillRevisionId"] as String,
+      status: json["status"] as String,
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+      calculationHash: json["calculationHash"] as String,
+      submittedAtUtc: json["submittedAtUtc"] == null ? null : DateTime.parse(json["submittedAtUtc"] as String),
+      withdrawnAtUtc: json["withdrawnAtUtc"] == null ? null : DateTime.parse(json["withdrawnAtUtc"] as String),
+      supersededAtUtc: json["supersededAtUtc"] == null ? null : DateTime.parse(json["supersededAtUtc"] as String),
+      rejectedAtUtc: json["rejectedAtUtc"] == null ? null : DateTime.parse(json["rejectedAtUtc"] as String),
+      appliedAtUtc: json["appliedAtUtc"] == null ? null : DateTime.parse(json["appliedAtUtc"] as String),
+      cancelledAtUtc: json["cancelledAtUtc"] == null ? null : DateTime.parse(json["cancelledAtUtc"] as String),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionParticipantResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payers: (json["payers"] as List<dynamic>).map((item) => BillRevisionPayerResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      approvals: (json["approvals"] as List<dynamic>).map((item) => BillRevisionApprovalResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final supersedesExpenseBillRevisionIdJsonValue = supersedesExpenseBillRevisionId;
+    final supersededByExpenseBillRevisionIdJsonValue = supersededByExpenseBillRevisionId;
+    final submittedAtUtcJsonValue = submittedAtUtc;
+    final withdrawnAtUtcJsonValue = withdrawnAtUtc;
+    final supersededAtUtcJsonValue = supersededAtUtc;
+    final rejectedAtUtcJsonValue = rejectedAtUtc;
+    final appliedAtUtcJsonValue = appliedAtUtc;
+    final cancelledAtUtcJsonValue = cancelledAtUtc;
+
+    return {
+      "id": id,
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "proposalCreatorUserProfileId": proposalCreatorUserProfileId,
+      "supersedesExpenseBillRevisionId": supersedesExpenseBillRevisionIdJsonValue,
+      "supersededByExpenseBillRevisionId": supersededByExpenseBillRevisionIdJsonValue,
+      "status": status,
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+      "calculationHash": calculationHash,
+      "submittedAtUtc": submittedAtUtcJsonValue == null ? null : submittedAtUtcJsonValue.toUtc().toIso8601String(),
+      "withdrawnAtUtc": withdrawnAtUtcJsonValue == null ? null : withdrawnAtUtcJsonValue.toUtc().toIso8601String(),
+      "supersededAtUtc": supersededAtUtcJsonValue == null ? null : supersededAtUtcJsonValue.toUtc().toIso8601String(),
+      "rejectedAtUtc": rejectedAtUtcJsonValue == null ? null : rejectedAtUtcJsonValue.toUtc().toIso8601String(),
+      "appliedAtUtc": appliedAtUtcJsonValue == null ? null : appliedAtUtcJsonValue.toUtc().toIso8601String(),
+      "cancelledAtUtc": cancelledAtUtcJsonValue == null ? null : cancelledAtUtcJsonValue.toUtc().toIso8601String(),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "participants": participants.map((item) => item.toJson()).toList(growable: false),
+      "payers": payers.map((item) => item.toJson()).toList(growable: false),
+      "approvals": approvals.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class BillRevisionParticipantResponse {
+  const BillRevisionParticipantResponse({
+    required this.userProfileId,
+    required this.resolvedShareAmount,
+    required this.resolvedShareCurrency,
+    required this.affectedByRevision,
+  });
+
+  final String userProfileId;
+  final String resolvedShareAmount;
+  final CurrencyCode resolvedShareCurrency;
+  final bool affectedByRevision;
+
+  factory BillRevisionParticipantResponse.fromJson(JsonObject json) {
+    return BillRevisionParticipantResponse(
+      userProfileId: json["userProfileId"] as String,
+      resolvedShareAmount: json["resolvedShareAmount"] as String,
+      resolvedShareCurrency: json["resolvedShareCurrency"] as String,
+      affectedByRevision: json["affectedByRevision"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "resolvedShareAmount": resolvedShareAmount,
+      "resolvedShareCurrency": resolvedShareCurrency,
+      "affectedByRevision": affectedByRevision,
+    };
+  }
+}
+
+class BillRevisionPayerResponse {
+  const BillRevisionPayerResponse({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+    required this.requiresPayerConfirmation,
+    required this.payerConfirmationStatus,
+  });
+
+  final String userProfileId;
+  final String amount;
+  final CurrencyCode currency;
+  final bool requiresPayerConfirmation;
+  final ExpenseBillPayerConfirmationStatus payerConfirmationStatus;
+
+  factory BillRevisionPayerResponse.fromJson(JsonObject json) {
+    return BillRevisionPayerResponse(
+      userProfileId: json["userProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      requiresPayerConfirmation: json["requiresPayerConfirmation"] as bool,
+      payerConfirmationStatus: json["payerConfirmationStatus"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "userProfileId": userProfileId,
+      "amount": amount,
+      "currency": currency,
+      "requiresPayerConfirmation": requiresPayerConfirmation,
+      "payerConfirmationStatus": payerConfirmationStatus,
+    };
+  }
+}
+
+class BillRevisionApprovalResponse {
+  const BillRevisionApprovalResponse({
+    required this.participantUserProfileId,
+    required this.acceptedAmount,
+    required this.currency,
+    required this.status,
+    required this.approvedAtUtc,
+    required this.rejectedAtUtc,
+    required this.invalidatedAtUtc,
+  });
+
+  final String participantUserProfileId;
+  final String acceptedAmount;
+  final CurrencyCode currency;
+  final ExpenseBillRevisionApprovalStatus status;
+  final DateTime? approvedAtUtc;
+  final DateTime? rejectedAtUtc;
+  final DateTime? invalidatedAtUtc;
+
+  factory BillRevisionApprovalResponse.fromJson(JsonObject json) {
+    return BillRevisionApprovalResponse(
+      participantUserProfileId: json["participantUserProfileId"] as String,
+      acceptedAmount: json["acceptedAmount"] as String,
+      currency: json["currency"] as String,
+      status: json["status"] as String,
+      approvedAtUtc: json["approvedAtUtc"] == null ? null : DateTime.parse(json["approvedAtUtc"] as String),
+      rejectedAtUtc: json["rejectedAtUtc"] == null ? null : DateTime.parse(json["rejectedAtUtc"] as String),
+      invalidatedAtUtc: json["invalidatedAtUtc"] == null ? null : DateTime.parse(json["invalidatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final approvedAtUtcJsonValue = approvedAtUtc;
+    final rejectedAtUtcJsonValue = rejectedAtUtc;
+    final invalidatedAtUtcJsonValue = invalidatedAtUtc;
+
+    return {
+      "participantUserProfileId": participantUserProfileId,
+      "acceptedAmount": acceptedAmount,
+      "currency": currency,
+      "status": status,
+      "approvedAtUtc": approvedAtUtcJsonValue == null ? null : approvedAtUtcJsonValue.toUtc().toIso8601String(),
+      "rejectedAtUtc": rejectedAtUtcJsonValue == null ? null : rejectedAtUtcJsonValue.toUtc().toIso8601String(),
+      "invalidatedAtUtc": invalidatedAtUtcJsonValue == null ? null : invalidatedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
 class PersonalBillListResponse {
   const PersonalBillListResponse({
@@ -2302,6 +2677,41 @@ class ExpenseBillParticipantStatusValues {
   static const ExpenseBillParticipantStatus claimedPaid = "claimed_paid";
   static const ExpenseBillParticipantStatus confirmedPaid = "confirmed_paid";
   static const Set<ExpenseBillParticipantStatus> values = {pendingAcceptance, accepted, rejected, partiallySettled, settled, waived, claimedPaid, confirmedPaid};
+}
+
+/// Bill revision proposal lifecycle status.
+typedef ExpenseBillRevisionStatus = String;
+class ExpenseBillRevisionStatusValues {
+  const ExpenseBillRevisionStatusValues._();
+  static const ExpenseBillRevisionStatus draftRevision = "draft_revision";
+  static const ExpenseBillRevisionStatus submittedForReview = "submitted_for_review";
+  static const ExpenseBillRevisionStatus withdrawnByProposer = "withdrawn_by_proposer";
+  static const ExpenseBillRevisionStatus supersededByResubmission = "superseded_by_resubmission";
+  static const ExpenseBillRevisionStatus rejected = "rejected";
+  static const ExpenseBillRevisionStatus acceptedApplied = "accepted_applied";
+  static const ExpenseBillRevisionStatus cancelledByAuthorizedEditor = "cancelled_by_authorized_editor";
+  static const Set<ExpenseBillRevisionStatus> values = {draftRevision, submittedForReview, withdrawnByProposer, supersededByResubmission, rejected, acceptedApplied, cancelledByAuthorizedEditor};
+}
+
+/// Bill revision approval status.
+typedef ExpenseBillRevisionApprovalStatus = String;
+class ExpenseBillRevisionApprovalStatusValues {
+  const ExpenseBillRevisionApprovalStatusValues._();
+  static const ExpenseBillRevisionApprovalStatus pendingReview = "pending_review";
+  static const ExpenseBillRevisionApprovalStatus approved = "approved";
+  static const ExpenseBillRevisionApprovalStatus rejected = "rejected";
+  static const ExpenseBillRevisionApprovalStatus invalidatedBySupersession = "invalidated_by_supersession";
+  static const Set<ExpenseBillRevisionApprovalStatus> values = {pendingReview, approved, rejected, invalidatedBySupersession};
+}
+
+/// Payer confirmation status for original bill payer facts and proposed revision payer facts.
+typedef ExpenseBillPayerConfirmationStatus = String;
+class ExpenseBillPayerConfirmationStatusValues {
+  const ExpenseBillPayerConfirmationStatusValues._();
+  static const ExpenseBillPayerConfirmationStatus pendingConfirmation = "pending_confirmation";
+  static const ExpenseBillPayerConfirmationStatus confirmed = "confirmed";
+  static const ExpenseBillPayerConfirmationStatus rejected = "rejected";
+  static const Set<ExpenseBillPayerConfirmationStatus> values = {pendingConfirmation, confirmed, rejected};
 }
 
 /// Bounded participant rejection reason code.

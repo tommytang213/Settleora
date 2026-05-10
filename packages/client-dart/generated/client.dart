@@ -221,6 +221,94 @@ class SettleoraApiClient {
     );
   }
 
+  Future<BillRevisionListResponse> listBillRevisions(String billId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> createBillRevision(String billId, CreateBillRevisionProposalRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> getBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> reviseBillRevision(String billId, String revisionId, CreateBillRevisionProposalRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> approveBillRevision(String billId, String revisionId, ApproveBillRevisionRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/approve',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> rejectBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/reject',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> submitBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/submit',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionResponse> withdrawBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/withdraw',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementCandidateListResponse> listPersonalBillSettlementCandidates(String billId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
