@@ -101,8 +101,8 @@ internal static class SettlementPaymentConfirmationEndpoints
 
         var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
             settlementRequest.Amount,
-            allocationResult.ActivePaymentCoverage,
-            allocationResult.ConfirmedPaymentCoverage);
+            allocationResult.ActiveSettlementCoverage,
+            allocationResult.ConfirmedSettlementCoverage);
         settlementRequest.Status = newRequestStatus;
         settlementRequest.UpdatedAtUtc = now;
         if (newRequestStatus == SettlementRequestStatuses.Confirmed)

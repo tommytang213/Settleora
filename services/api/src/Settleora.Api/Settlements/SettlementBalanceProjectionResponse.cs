@@ -15,6 +15,9 @@ internal sealed record SettlementBalanceProjectionResponse(
     string PendingClaimedAmount,
     string ConfirmedClearedAmount,
     string RemainingUnclaimedAmount,
+    string ConfirmedRemainingResidualAmount,
+    string WaivedResidualAmount,
+    string CreditResidualAmount,
     int RequestCount,
     int LineCount,
     int PendingPaymentCount,
@@ -23,7 +26,10 @@ internal sealed record SettlementBalanceProjectionResponse(
     public static SettlementBalanceProjectionResponse From(SettlementBalanceProjectionAggregate aggregate)
     {
         var remainingUnclaimedAmount =
-            aggregate.SelectedLineAmount - aggregate.PendingClaimedAmount - aggregate.ConfirmedClearedAmount;
+            aggregate.SelectedLineAmount
+            - aggregate.PendingClaimedAmount
+            - aggregate.ConfirmedClearedAmount
+            - aggregate.DebtWaivedResidualAmount;
         if (remainingUnclaimedAmount < 0m)
         {
             remainingUnclaimedAmount = 0m;
@@ -38,6 +44,9 @@ internal sealed record SettlementBalanceProjectionResponse(
             FormatAmount(aggregate.PendingClaimedAmount),
             FormatAmount(aggregate.ConfirmedClearedAmount),
             FormatAmount(remainingUnclaimedAmount),
+            FormatAmount(aggregate.ConfirmedRemainingResidualAmount),
+            FormatAmount(aggregate.WaivedResidualAmount),
+            FormatAmount(aggregate.CreditResidualAmount),
             aggregate.RequestCount,
             aggregate.LineCount,
             aggregate.PendingPaymentCount,
@@ -58,6 +67,10 @@ internal sealed record SettlementBalanceProjectionAggregate(
     decimal SelectedLineAmount,
     decimal PendingClaimedAmount,
     decimal ConfirmedClearedAmount,
+    decimal ConfirmedRemainingResidualAmount,
+    decimal WaivedResidualAmount,
+    decimal DebtWaivedResidualAmount,
+    decimal CreditResidualAmount,
     int RequestCount,
     int LineCount,
     int PendingPaymentCount,
@@ -70,6 +83,10 @@ internal sealed record SettlementBalanceProjectionAggregate(
             SelectedLineAmount = SelectedLineAmount + value.SelectedLineAmount,
             PendingClaimedAmount = PendingClaimedAmount + value.PendingClaimedAmount,
             ConfirmedClearedAmount = ConfirmedClearedAmount + value.ConfirmedClearedAmount,
+            ConfirmedRemainingResidualAmount = ConfirmedRemainingResidualAmount + value.ConfirmedRemainingResidualAmount,
+            WaivedResidualAmount = WaivedResidualAmount + value.WaivedResidualAmount,
+            DebtWaivedResidualAmount = DebtWaivedResidualAmount + value.DebtWaivedResidualAmount,
+            CreditResidualAmount = CreditResidualAmount + value.CreditResidualAmount,
             RequestCount = RequestCount + value.RequestCount,
             LineCount = LineCount + value.LineCount,
             PendingPaymentCount = PendingPaymentCount + value.PendingPaymentCount,

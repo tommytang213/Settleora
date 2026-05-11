@@ -393,6 +393,253 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
     }
 
     [Fact]
+    public async Task ConfirmedResidualEffectsAreProjectedAsBoundedFieldsWithoutNettingCredits()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Residual Effect Balance Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Residual Effect Balance Creditor", InitialTimestamp.AddMinutes(1));
+        var remainingSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            25m,
+            SettlementRequestStatuses.PartiallyPaid,
+            InitialTimestamp.AddMinutes(5),
+            SettlementRequestLineStatuses.PartiallyCleared);
+        var remainingPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            remainingSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            24.5m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(6));
+        await SeedSettlementResidualAsync(
+            testFactory,
+            remainingPaymentId,
+            remainingSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Underpayment,
+            0.5m,
+            SettlementResidualPolicies.RemainingBalance,
+            SettlementResidualStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(7),
+            InitialTimestamp.AddMinutes(8));
+
+        var waivedSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            15m,
+            SettlementRequestStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(9),
+            SettlementRequestLineStatuses.Waived);
+        var waivedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            waivedSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            14.5m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(10));
+        await SeedSettlementResidualAsync(
+            testFactory,
+            waivedPaymentId,
+            waivedSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Underpayment,
+            0.5m,
+            SettlementResidualPolicies.Waived,
+            SettlementResidualStatuses.Waived,
+            InitialTimestamp.AddMinutes(11),
+            InitialTimestamp.AddMinutes(12));
+
+        var creditSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            20m,
+            SettlementRequestStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(13),
+            SettlementRequestLineStatuses.Cleared);
+        var creditPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            creditSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            20.25m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(14),
+            allocationAmount: 20m);
+        await SeedSettlementResidualAsync(
+            testFactory,
+            creditPaymentId,
+            creditSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Overpayment,
+            0.25m,
+            SettlementResidualPolicies.CreditForward,
+            SettlementResidualStatuses.Credited,
+            InitialTimestamp.AddMinutes(15),
+            InitialTimestamp.AddMinutes(16));
+
+        var overpaymentWaivedSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10m,
+            SettlementRequestStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(17),
+            SettlementRequestLineStatuses.Cleared);
+        var overpaymentWaivedPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            overpaymentWaivedSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10.1m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(18),
+            allocationAmount: 10m);
+        await SeedSettlementResidualAsync(
+            testFactory,
+            overpaymentWaivedPaymentId,
+            overpaymentWaivedSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Overpayment,
+            0.1m,
+            SettlementResidualPolicies.WaivedByPayer,
+            SettlementResidualStatuses.Waived,
+            InitialTimestamp.AddMinutes(19),
+            InitialTimestamp.AddMinutes(20));
+
+        using var client = testFactory.CreateClient();
+        var balances = await GetBalancesAsync(client, debtorSession.RawSessionToken);
+
+        var balance = Assert.Single(balances);
+        AssertBalanceProjectionShape(balance);
+        Assert.Equal("70", balance.GetProperty("selectedLineAmount").GetString());
+        Assert.Equal("0", balance.GetProperty("pendingClaimedAmount").GetString());
+        Assert.Equal("69", balance.GetProperty("confirmedClearedAmount").GetString());
+        Assert.Equal("0.5", balance.GetProperty("remainingUnclaimedAmount").GetString());
+        Assert.Equal("0.5", balance.GetProperty("confirmedRemainingResidualAmount").GetString());
+        Assert.Equal("0.6", balance.GetProperty("waivedResidualAmount").GetString());
+        Assert.Equal("0.25", balance.GetProperty("creditResidualAmount").GetString());
+    }
+
+    [Fact]
+    public async Task PendingCancelledDisputedAndUnsafeResidualsAreNotProjectedAsConfirmedEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Unsafe Residual Balance Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Unsafe Residual Balance Creditor", InitialTimestamp.AddMinutes(1));
+
+        var pendingSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10m,
+            SettlementRequestStatuses.PartiallyPaid,
+            InitialTimestamp.AddMinutes(5),
+            SettlementRequestLineStatuses.PartiallyCleared);
+        var pendingPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            pendingSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            9m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(6));
+        await SeedSettlementResidualAsync(
+            testFactory,
+            pendingPaymentId,
+            pendingSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Underpayment,
+            1m,
+            SettlementResidualPolicies.RemainingBalance,
+            SettlementResidualStatuses.PendingReceiverConfirmation,
+            InitialTimestamp.AddMinutes(7),
+            resolvedAtUtc: null);
+
+        var cancelledSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10m,
+            SettlementRequestStatuses.PartiallyPaid,
+            InitialTimestamp.AddMinutes(8),
+            SettlementRequestLineStatuses.PartiallyCleared);
+        var cancelledPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            cancelledSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            9m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(9));
+        await SeedSettlementResidualAsync(
+            testFactory,
+            cancelledPaymentId,
+            cancelledSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Underpayment,
+            1m,
+            SettlementResidualPolicies.Waived,
+            SettlementResidualStatuses.Cancelled,
+            InitialTimestamp.AddMinutes(10),
+            InitialTimestamp.AddMinutes(11));
+
+        var unsafeSettlementId = await SeedSimpleSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10m,
+            SettlementRequestStatuses.PartiallyPaid,
+            InitialTimestamp.AddMinutes(12),
+            SettlementRequestLineStatuses.PartiallyCleared);
+        var unsafePaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            unsafeSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            9m,
+            SettlementPaymentStatuses.Confirmed,
+            InitialTimestamp.AddMinutes(13));
+        await SeedSettlementResidualAsync(
+            testFactory,
+            unsafePaymentId,
+            unsafeSettlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementResidualDirections.Underpayment,
+            1m,
+            SettlementResidualPolicies.Waived,
+            SettlementResidualStatuses.Waived,
+            InitialTimestamp.AddMinutes(14),
+            InitialTimestamp.AddMinutes(15),
+            currency: "HKD");
+
+        using var client = testFactory.CreateClient();
+        var balances = await GetBalancesAsync(client, debtorSession.RawSessionToken);
+
+        var balance = Assert.Single(balances);
+        Assert.Equal("30", balance.GetProperty("selectedLineAmount").GetString());
+        Assert.Equal("27", balance.GetProperty("confirmedClearedAmount").GetString());
+        Assert.Equal("3", balance.GetProperty("remainingUnclaimedAmount").GetString());
+        Assert.Equal("0", balance.GetProperty("confirmedRemainingResidualAmount").GetString());
+        Assert.Equal("0", balance.GetProperty("waivedResidualAmount").GetString());
+        Assert.Equal("0", balance.GetProperty("creditResidualAmount").GetString());
+    }
+
+    [Fact]
     public async Task CancelledAndDisputedPaymentsAndRequestsAreNotMixedIntoActiveBalances()
     {
         var testContext = CreateFactory();
@@ -693,6 +940,9 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
         Assert.Contains("pendingClaimedAmount", balanceSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("confirmedClearedAmount", balanceSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("remainingUnclaimedAmount", balanceSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("confirmedRemainingResidualAmount", balanceSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("waivedResidualAmount", balanceSchemaBlock, StringComparison.Ordinal);
+        Assert.Contains("creditResidualAmount", balanceSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("Decimal-safe selected request-line total amount represented as a string.", balanceSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("incoming", directionSchemaBlock, StringComparison.Ordinal);
         Assert.Contains("outgoing", directionSchemaBlock, StringComparison.Ordinal);
@@ -708,6 +958,9 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
         Assert.Contains("SettlementBalanceProjectionResponse", generatedContent, StringComparison.Ordinal);
         Assert.Contains("SettlementBalanceDirection", generatedContent, StringComparison.Ordinal);
         Assert.Contains("remainingUnclaimedAmount", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("confirmedRemainingResidualAmount", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("waivedResidualAmount", generatedContent, StringComparison.Ordinal);
+        Assert.Contains("creditResidualAmount", generatedContent, StringComparison.Ordinal);
     }
 
     private FactoryTestContext CreateFactory()
@@ -987,6 +1240,39 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
         return settlementId;
     }
 
+    private static async Task<Guid> SeedSimpleSettlementAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid debtorUserProfileId,
+        Guid creditorUserProfileId,
+        decimal amount,
+        string status,
+        DateTimeOffset createdAtUtc,
+        string lineStatus)
+    {
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditorUserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(debtorUserProfileId, amount),
+                new ParticipantSeed(creditorUserProfileId, amount)
+            ],
+            [new PayerSeed(creditorUserProfileId, amount * 2m)],
+            createdAtUtc);
+
+        return await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorUserProfileId,
+            creditorUserProfileId,
+            creditorUserProfileId,
+            amount,
+            status,
+            createdAtUtc,
+            lineStatus: lineStatus);
+    }
+
     private static async Task<Guid> SeedSettlementPaymentAsync(
         WebApplicationFactory<Program> testFactory,
         Guid settlementId,
@@ -1044,6 +1330,41 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
 
         await dbContext.SaveChangesAsync();
         return paymentId;
+    }
+
+    private static async Task SeedSettlementResidualAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid paymentId,
+        Guid settlementId,
+        Guid debtorUserProfileId,
+        Guid creditorUserProfileId,
+        string direction,
+        decimal amount,
+        string policy,
+        string status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? resolvedAtUtc,
+        string currency = "USD")
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        dbContext.Set<SettlementResidual>().Add(new SettlementResidual
+        {
+            Id = Guid.NewGuid(),
+            SettlementPaymentId = paymentId,
+            SettlementRequestId = settlementId,
+            DebtorUserProfileId = debtorUserProfileId,
+            CreditorUserProfileId = creditorUserProfileId,
+            Direction = direction,
+            Amount = amount,
+            Currency = currency,
+            Policy = policy,
+            Status = status,
+            CreatedAtUtc = createdAtUtc,
+            ResolvedAtUtc = resolvedAtUtc
+        });
+
+        await dbContext.SaveChangesAsync();
     }
 
     private static async Task SeedPaymentProfileWithQrAsync(
@@ -1248,7 +1569,9 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
             [
                 "confirmedClearedAmount",
                 "confirmedPaymentCount",
+                "confirmedRemainingResidualAmount",
                 "counterpartyUserProfileId",
+                "creditResidualAmount",
                 "currency",
                 "direction",
                 "groupId",
@@ -1257,7 +1580,8 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
                 "pendingPaymentCount",
                 "remainingUnclaimedAmount",
                 "requestCount",
-                "selectedLineAmount"
+                "selectedLineAmount",
+                "waivedResidualAmount"
             ],
             response.EnumerateObject()
                 .Select(property => property.Name)

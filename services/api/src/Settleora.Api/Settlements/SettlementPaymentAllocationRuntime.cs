@@ -98,11 +98,20 @@ internal static class SettlementPaymentAllocationRuntime
             return false;
         }
 
-        ApplyLineCoverageStatuses(coverage.OrderedLines, lineCoverage, now);
+        var activeWaivedCoverage = coverage.LineWaiverCoverage.Values.Sum();
+        var lineWaiverCoverage = AllocateConfirmedWaivers(coverage.OrderedLines, lineCoverage, activeWaivedCoverage);
+        if (lineWaiverCoverage is null)
+        {
+            return false;
+        }
+
+        ApplyLineCoverageStatuses(coverage.OrderedLines, lineCoverage, lineWaiverCoverage, now);
 
         result = new SettlementAllocationRuntimeResult(
             coverage.ActivePaymentCoverage + amountToAllocate,
-            coverage.ConfirmedPaymentCoverage);
+            coverage.ConfirmedPaymentCoverage,
+            coverage.ActiveSettlementCoverage + amountToAllocate,
+            coverage.ConfirmedSettlementCoverage);
         return true;
     }
 
@@ -133,10 +142,12 @@ internal static class SettlementPaymentAllocationRuntime
             return false;
         }
 
-        ApplyLineCoverageStatuses(coverage.OrderedLines, coverage.LineCoverage, now);
+        ApplyLineCoverageStatuses(coverage.OrderedLines, coverage.LineCoverage, coverage.LineWaiverCoverage, now);
         result = new SettlementAllocationRuntimeResult(
             coverage.ActivePaymentCoverage,
-            coverage.ConfirmedPaymentCoverage);
+            coverage.ConfirmedPaymentCoverage,
+            coverage.ActiveSettlementCoverage,
+            coverage.ConfirmedSettlementCoverage);
         return true;
     }
 
@@ -181,6 +192,8 @@ internal static class SettlementPaymentAllocationRuntime
             _ => 0m);
         var activePaymentCoverage = 0m;
         var confirmedPaymentCoverage = 0m;
+        var activeWaivedCoverage = 0m;
+        var confirmedWaivedCoverage = 0m;
 
         foreach (var payment in settlementRequest.Payments.Where(payment =>
             SettlementRuntimePolicy.IsActivePaymentStatus(payment.Status)))
@@ -220,22 +233,37 @@ internal static class SettlementPaymentAllocationRuntime
             }
 
             activePaymentCoverage += paymentAllocationTotal;
+            var paymentWaivedCoverage = SettlementResidualRuntime.GetConfirmedUnderpaymentWaiverAmountForPayment(payment);
+            activeWaivedCoverage += paymentWaivedCoverage;
             if (payment.Status == SettlementPaymentStatuses.Confirmed)
             {
                 confirmedPaymentCoverage += paymentAllocationTotal;
+                confirmedWaivedCoverage += paymentWaivedCoverage;
             }
+        }
+
+        var activeSettlementCoverage = activePaymentCoverage + activeWaivedCoverage;
+        var confirmedSettlementCoverage = confirmedPaymentCoverage + confirmedWaivedCoverage;
+        var lineWaiverCoverage = AllocateConfirmedWaivers(orderedLines, lineCoverage, activeWaivedCoverage);
+        if (lineWaiverCoverage is null)
+        {
+            return false;
         }
 
         if (activePaymentCoverage > settlementRequest.Amount
             || confirmedPaymentCoverage > settlementRequest.Amount
-            || lineCoverage.Values.Sum() != activePaymentCoverage)
+            || activeSettlementCoverage > settlementRequest.Amount
+            || confirmedSettlementCoverage > settlementRequest.Amount
+            || lineCoverage.Values.Sum() != activePaymentCoverage
+            || lineWaiverCoverage.Values.Sum() != activeWaivedCoverage)
         {
             return false;
         }
 
         foreach (var line in orderedLines)
         {
-            if (lineCoverage[line.Id] > line.ExactAmount)
+            if (lineCoverage[line.Id] > line.ExactAmount
+                || lineCoverage[line.Id] + lineWaiverCoverage[line.Id] > line.ExactAmount)
             {
                 return false;
             }
@@ -244,8 +272,11 @@ internal static class SettlementPaymentAllocationRuntime
         coverage = new ActiveAllocationCoverage(
             orderedLines,
             lineCoverage,
+            lineWaiverCoverage,
             activePaymentCoverage,
-            confirmedPaymentCoverage);
+            confirmedPaymentCoverage,
+            activeSettlementCoverage,
+            confirmedSettlementCoverage);
         return true;
     }
 
@@ -312,18 +343,62 @@ internal static class SettlementPaymentAllocationRuntime
             or SettlementRequestLineStatuses.Cleared;
     }
 
+    private static IReadOnlyDictionary<Guid, decimal>? AllocateConfirmedWaivers(
+        IReadOnlyList<SettlementRequestLine> lines,
+        IReadOnlyDictionary<Guid, decimal> lineCoverage,
+        decimal waivedAmount)
+    {
+        var lineWaiverCoverage = lines.ToDictionary(
+            line => line.Id,
+            _ => 0m);
+        var remainingWaivedAmount = waivedAmount;
+
+        foreach (var line in lines)
+        {
+            var remainingLineAmount = line.ExactAmount - lineCoverage[line.Id] - lineWaiverCoverage[line.Id];
+            if (remainingLineAmount <= 0m)
+            {
+                continue;
+            }
+
+            var lineWaivedAmount = remainingWaivedAmount < remainingLineAmount
+                ? remainingWaivedAmount
+                : remainingLineAmount;
+            if (lineWaivedAmount <= 0m)
+            {
+                continue;
+            }
+
+            lineWaiverCoverage[line.Id] += lineWaivedAmount;
+            remainingWaivedAmount -= lineWaivedAmount;
+            if (remainingWaivedAmount == 0m)
+            {
+                break;
+            }
+        }
+
+        return remainingWaivedAmount == 0m
+            ? lineWaiverCoverage
+            : null;
+    }
+
     private static void ApplyLineCoverageStatuses(
         IReadOnlyList<SettlementRequestLine> lines,
         IReadOnlyDictionary<Guid, decimal> lineCoverage,
+        IReadOnlyDictionary<Guid, decimal> lineWaiverCoverage,
         DateTimeOffset now)
     {
         foreach (var line in lines)
         {
             var clearedAmount = lineCoverage[line.Id];
-            var newStatus = clearedAmount == 0m
+            var waivedAmount = lineWaiverCoverage[line.Id];
+            var totalResolvedAmount = clearedAmount + waivedAmount;
+            var newStatus = totalResolvedAmount == 0m
                 ? SettlementRequestLineStatuses.Open
                 : clearedAmount == line.ExactAmount
                     ? SettlementRequestLineStatuses.Cleared
+                    : totalResolvedAmount == line.ExactAmount && waivedAmount > 0m
+                        ? SettlementRequestLineStatuses.Waived
                     : SettlementRequestLineStatuses.PartiallyCleared;
 
             if (line.Status != newStatus)
@@ -337,10 +412,15 @@ internal static class SettlementPaymentAllocationRuntime
     private sealed record ActiveAllocationCoverage(
         IReadOnlyList<SettlementRequestLine> OrderedLines,
         IReadOnlyDictionary<Guid, decimal> LineCoverage,
+        IReadOnlyDictionary<Guid, decimal> LineWaiverCoverage,
         decimal ActivePaymentCoverage,
-        decimal ConfirmedPaymentCoverage);
+        decimal ConfirmedPaymentCoverage,
+        decimal ActiveSettlementCoverage,
+        decimal ConfirmedSettlementCoverage);
 }
 
 internal readonly record struct SettlementAllocationRuntimeResult(
     decimal ActivePaymentCoverage,
-    decimal ConfirmedPaymentCoverage);
+    decimal ConfirmedPaymentCoverage,
+    decimal ActiveSettlementCoverage,
+    decimal ConfirmedSettlementCoverage);

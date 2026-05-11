@@ -1890,7 +1890,7 @@ paths:
   /api/v1/settlement-balances:
     get:
       summary: List settlement balance projections
-      description: Lists read-only current-actor settlement balance projection rows derived from durable settlement requests, selected request lines, settlement payments, and payment allocations. Only debtor/creditor balances involving the authenticated actor are returned; requester-only records, archived requests, cancelled requests, disputed requests, hidden groups, removed memberships, deleted profiles, unsafe allocation coverage, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users are excluded.
+      description: Lists read-only current-actor settlement balance projection rows derived from durable settlement requests, selected request lines, settlement payments, payment allocations, and bounded receiver-confirmed residual effects. Only debtor/creditor balances involving the authenticated actor are returned; requester-only records, archived requests, cancelled requests, disputed requests, hidden groups, removed memberships, deleted profiles, unsafe allocation coverage, unsafe residual rows, pending residual effects, cancelled/disputed residual effects, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users are excluded.
       operationId: listSettlementBalanceProjections
       security:
         - SessionBearerAuth: []
@@ -5147,7 +5147,7 @@ components:
             $ref: "#/components/schemas/SettlementBalanceProjectionResponse"
     SettlementBalanceProjectionResponse:
       type: object
-      description: One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+      description: One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings, active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments, and receiver-confirmed residual effects are exposed without creating or netting a broad credit ledger.
       required:
         - counterpartyUserProfileId
         - groupId
@@ -5157,6 +5157,9 @@ components:
         - pendingClaimedAmount
         - confirmedClearedAmount
         - remainingUnclaimedAmount
+        - confirmedRemainingResidualAmount
+        - waivedResidualAmount
+        - creditResidualAmount
         - requestCount
         - lineCount
         - pendingPaymentCount
@@ -5187,7 +5190,16 @@ components:
           description: Decimal-safe amount represented as a string for allocations from confirmed payments.
         remainingUnclaimedAmount:
           type: string
-          description: Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+          description: Decimal-safe selected line amount minus pending claimed, confirmed cleared, and receiver-confirmed underpayment-waiver amounts, never below zero. Confirmed credit-forward and waived-by-payer overpayment residuals are not netted against unrelated remaining balances.
+        confirmedRemainingResidualAmount:
+          type: string
+          description: Decimal-safe receiver-confirmed underpayment residual amount that remains debt through remaining_balance or carried_forward policy.
+        waivedResidualAmount:
+          type: string
+          description: Decimal-safe receiver-confirmed residual amount waived through underpayment waived or overpayment waived_by_payer policy. Only underpayment waiver reduces remainingUnclaimedAmount for the selected request scope.
+        creditResidualAmount:
+          type: string
+          description: Decimal-safe receiver-confirmed overpayment credit_forward residual amount exposed as bounded residual information without a broad credit ledger or automatic netting against unrelated balances.
         requestCount:
           type: integer
           minimum: 0

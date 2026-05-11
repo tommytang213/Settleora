@@ -2128,7 +2128,7 @@ class SettlementBalanceProjectionListResponse {
   }
 }
 
-/// One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+/// One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings, active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments, and receiver-confirmed residual effects are exposed without creating or netting a broad credit ledger.
 class SettlementBalanceProjectionResponse {
   const SettlementBalanceProjectionResponse({
     required this.counterpartyUserProfileId,
@@ -2139,6 +2139,9 @@ class SettlementBalanceProjectionResponse {
     required this.pendingClaimedAmount,
     required this.confirmedClearedAmount,
     required this.remainingUnclaimedAmount,
+    required this.confirmedRemainingResidualAmount,
+    required this.waivedResidualAmount,
+    required this.creditResidualAmount,
     required this.requestCount,
     required this.lineCount,
     required this.pendingPaymentCount,
@@ -2157,8 +2160,14 @@ class SettlementBalanceProjectionResponse {
   final String pendingClaimedAmount;
   /// Decimal-safe amount represented as a string for allocations from confirmed payments.
   final String confirmedClearedAmount;
-  /// Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+  /// Decimal-safe selected line amount minus pending claimed, confirmed cleared, and receiver-confirmed underpayment-waiver amounts, never below zero. Confirmed credit-forward and waived-by-payer overpayment residuals are not netted against unrelated remaining balances.
   final String remainingUnclaimedAmount;
+  /// Decimal-safe receiver-confirmed underpayment residual amount that remains debt through remaining_balance or carried_forward policy.
+  final String confirmedRemainingResidualAmount;
+  /// Decimal-safe receiver-confirmed residual amount waived through underpayment waived or overpayment waived_by_payer policy. Only underpayment waiver reduces remainingUnclaimedAmount for the selected request scope.
+  final String waivedResidualAmount;
+  /// Decimal-safe receiver-confirmed overpayment credit_forward residual amount exposed as bounded residual information without a broad credit ledger or automatic netting against unrelated balances.
+  final String creditResidualAmount;
   /// Count of settlement requests included in this grouped projection row.
   final int requestCount;
   /// Count of selected settlement request lines included in this grouped projection row.
@@ -2178,6 +2187,9 @@ class SettlementBalanceProjectionResponse {
       pendingClaimedAmount: json["pendingClaimedAmount"] as String,
       confirmedClearedAmount: json["confirmedClearedAmount"] as String,
       remainingUnclaimedAmount: json["remainingUnclaimedAmount"] as String,
+      confirmedRemainingResidualAmount: json["confirmedRemainingResidualAmount"] as String,
+      waivedResidualAmount: json["waivedResidualAmount"] as String,
+      creditResidualAmount: json["creditResidualAmount"] as String,
       requestCount: (json["requestCount"] as num).toInt(),
       lineCount: (json["lineCount"] as num).toInt(),
       pendingPaymentCount: (json["pendingPaymentCount"] as num).toInt(),
@@ -2197,6 +2209,9 @@ class SettlementBalanceProjectionResponse {
       "pendingClaimedAmount": pendingClaimedAmount,
       "confirmedClearedAmount": confirmedClearedAmount,
       "remainingUnclaimedAmount": remainingUnclaimedAmount,
+      "confirmedRemainingResidualAmount": confirmedRemainingResidualAmount,
+      "waivedResidualAmount": waivedResidualAmount,
+      "creditResidualAmount": creditResidualAmount,
       "requestCount": requestCount,
       "lineCount": lineCount,
       "pendingPaymentCount": pendingPaymentCount,

@@ -48,6 +48,84 @@ internal static class SettlementResidualRuntime
                 residual.Status));
     }
 
+    public static decimal GetConfirmedUnderpaymentWaiverAmountForPayment(SettlementPayment payment)
+    {
+        return payment.Residuals.Sum(residual =>
+            TryGetConfirmedResidualBalanceEffect(payment, residual, out var effect)
+                ? effect.UnderpaymentWaiverAmount
+                : 0m);
+    }
+
+    public static bool TryGetConfirmedResidualBalanceEffect(
+        SettlementPayment payment,
+        SettlementResidual residual,
+        out SettlementResidualBalanceEffect effect)
+    {
+        effect = default;
+
+        if (!IsSafeResidualSummary(payment, residual)
+            || residual.ResolvedAtUtc is null
+            || !SettlementResidualPolicyService.IsReceiverConfirmedStatus(
+                residual.Direction,
+                residual.Policy,
+                residual.Status))
+        {
+            return false;
+        }
+
+        effect = (residual.Direction, residual.Policy, residual.Status) switch
+        {
+            (
+                SettlementResidualDirections.Underpayment,
+                SettlementResidualPolicies.RemainingBalance,
+                SettlementResidualStatuses.Confirmed
+            ) => new SettlementResidualBalanceEffect(
+                ConfirmedRemainingAmount: residual.Amount,
+                WaivedAmount: 0m,
+                CreditAmount: 0m,
+                UnderpaymentWaiverAmount: 0m),
+            (
+                SettlementResidualDirections.Underpayment,
+                SettlementResidualPolicies.CarriedForward,
+                SettlementResidualStatuses.CarriedForward
+            ) => new SettlementResidualBalanceEffect(
+                ConfirmedRemainingAmount: residual.Amount,
+                WaivedAmount: 0m,
+                CreditAmount: 0m,
+                UnderpaymentWaiverAmount: 0m),
+            (
+                SettlementResidualDirections.Underpayment,
+                SettlementResidualPolicies.Waived,
+                SettlementResidualStatuses.Waived
+            ) => new SettlementResidualBalanceEffect(
+                ConfirmedRemainingAmount: 0m,
+                WaivedAmount: residual.Amount,
+                CreditAmount: 0m,
+                UnderpaymentWaiverAmount: residual.Amount),
+            (
+                SettlementResidualDirections.Overpayment,
+                SettlementResidualPolicies.CreditForward,
+                SettlementResidualStatuses.Credited
+            ) => new SettlementResidualBalanceEffect(
+                ConfirmedRemainingAmount: 0m,
+                WaivedAmount: 0m,
+                CreditAmount: residual.Amount,
+                UnderpaymentWaiverAmount: 0m),
+            (
+                SettlementResidualDirections.Overpayment,
+                SettlementResidualPolicies.WaivedByPayer,
+                SettlementResidualStatuses.Waived
+            ) => new SettlementResidualBalanceEffect(
+                ConfirmedRemainingAmount: 0m,
+                WaivedAmount: residual.Amount,
+                CreditAmount: 0m,
+                UnderpaymentWaiverAmount: 0m),
+            _ => default
+        };
+
+        return effect != default;
+    }
+
     public static bool IsValidAllocationTotalForActivePayment(
         SettlementPayment payment,
         decimal paymentAllocationTotal)
@@ -119,3 +197,9 @@ internal static class SettlementResidualRuntime
                 residual.Status);
     }
 }
+
+internal readonly record struct SettlementResidualBalanceEffect(
+    decimal ConfirmedRemainingAmount,
+    decimal WaivedAmount,
+    decimal CreditAmount,
+    decimal UnderpaymentWaiverAmount);

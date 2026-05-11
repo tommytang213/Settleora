@@ -101,6 +101,7 @@ internal static class SettlementPaymentResidualConfirmationEndpoints
         }
 
         var previousResidualStatus = residual.Status;
+        var previousRequestStatus = settlementRequest.Status;
         var now = timeProvider.GetUtcNow();
         residual.Status = receiverConfirmedStatus;
         residual.ResolvedAtUtc = now;
@@ -111,6 +112,16 @@ internal static class SettlementPaymentResidualConfirmationEndpoints
                 out var allocationResult))
         {
             return ResidualConfirmationConflict();
+        }
+
+        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
+            settlementRequest.Amount,
+            allocationResult.ActiveSettlementCoverage,
+            allocationResult.ConfirmedSettlementCoverage);
+        settlementRequest.Status = newRequestStatus;
+        if (newRequestStatus != previousRequestStatus)
+        {
+            settlementRequest.UpdatedAtUtc = now;
         }
 
         await auditWriter.WriteAsync(
@@ -128,8 +139,8 @@ internal static class SettlementPaymentResidualConfirmationEndpoints
                     : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
-                settlementRequest.Status,
-                settlementRequest.Status,
+                previousRequestStatus,
+                newRequestStatus,
                 payment.Status,
                 payment.Amount,
                 allocationResult.ActivePaymentCoverage,

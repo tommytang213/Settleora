@@ -749,7 +749,7 @@ export interface SettlementBalanceProjectionListResponse {
 }
 
 /**
- * One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings and active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments.
+ * One bounded current-actor settlement balance projection row grouped by actor, counterparty, direction, optional group, and currency. Amount fields are decimal-safe strings, active allocation coverage is separated into pending marked-paid claims and confirmed cleared payments, and receiver-confirmed residual effects are exposed without creating or netting a broad credit ledger.
  */
 export interface SettlementBalanceProjectionResponse {
   /**
@@ -775,9 +775,21 @@ export interface SettlementBalanceProjectionResponse {
    */
   confirmedClearedAmount: string;
   /**
-   * Decimal-safe selected line amount minus pending claimed and confirmed cleared amounts, never below zero.
+   * Decimal-safe selected line amount minus pending claimed, confirmed cleared, and receiver-confirmed underpayment-waiver amounts, never below zero. Confirmed credit-forward and waived-by-payer overpayment residuals are not netted against unrelated remaining balances.
    */
   remainingUnclaimedAmount: string;
+  /**
+   * Decimal-safe receiver-confirmed underpayment residual amount that remains debt through remaining_balance or carried_forward policy.
+   */
+  confirmedRemainingResidualAmount: string;
+  /**
+   * Decimal-safe receiver-confirmed residual amount waived through underpayment waived or overpayment waived_by_payer policy. Only underpayment waiver reduces remainingUnclaimedAmount for the selected request scope.
+   */
+  waivedResidualAmount: string;
+  /**
+   * Decimal-safe receiver-confirmed overpayment credit_forward residual amount exposed as bounded residual information without a broad credit ledger or automatic netting against unrelated balances.
+   */
+  creditResidualAmount: string;
   /**
    * Count of settlement requests included in this grouped projection row.
    */

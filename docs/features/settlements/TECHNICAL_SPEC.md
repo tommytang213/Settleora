@@ -58,7 +58,7 @@ IBillRevisionSettlementImpactService
 
 ## Persistence direction
 
-Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against selected request lines with bounded allocation summaries on payment responses, payment-claim-time residual runtime persists pending residual rows for explicit same-currency underpayment/overpayment proposals, receiver residual confirmation can resolve one pending payment residual to its policy-derived status, the first read-only current-actor balance projection endpoint derives grouped rows from durable request-line/allocation records without treating pending residuals as confirmed balance effects, the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes, and the first pay-all basket creation endpoint writes one server-derived request plus concrete request lines. Broader confirmed residual credit/waiver/finalization semantics, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against selected request lines with bounded allocation summaries on payment responses, payment-claim-time residual runtime persists pending residual rows for explicit same-currency underpayment/overpayment proposals, receiver residual confirmation can resolve one pending payment residual to its policy-derived status, the first read-only current-actor balance projection endpoint derives grouped rows from durable request-line/allocation records and exposes bounded receiver-confirmed residual effects without treating pending residuals as confirmed balance effects, the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes, and the first pay-all basket creation endpoint writes one server-derived request plus concrete request lines. Broad credit ledgers, refunds, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
 
 Current and future table categories include:
 
@@ -219,7 +219,7 @@ credit amount
 revision_pending_review amount
 ```
 
-The current first balance projection slice covers only active request-line/allocation runtime. It returns current-actor rows for debtor/creditor relationships, separates `marked_paid` allocation coverage into `pendingClaimedAmount`, separates `confirmed` allocation coverage into `confirmedClearedAmount`, derives `remainingUnclaimedAmount` without going below zero, keeps currencies in separate rows, excludes cancelled/disputed requests and cancelled/disputed payments from normal active balances, does not count pending residuals as confirmed credits, waivers, or cleared debt, and does not expose bill merchant/item details, payment details, proof/file/storage internals, raw audit data, auth/session data, raw request bodies, or unrelated users.
+The current first balance projection slice covers active request-line/allocation runtime plus bounded receiver-confirmed residual effects. It returns current-actor rows for debtor/creditor relationships, separates `marked_paid` allocation coverage into `pendingClaimedAmount`, separates `confirmed` allocation coverage into `confirmedClearedAmount`, derives `remainingUnclaimedAmount` without going below zero after selected underpayment waivers, exposes `confirmedRemainingResidualAmount`, `waivedResidualAmount`, and `creditResidualAmount`, keeps currencies in separate rows, excludes cancelled/disputed requests and cancelled/disputed payments from normal active balances, does not count pending residuals as confirmed credits, waivers, or cleared debt, does not net credits against unrelated balances, and does not expose bill merchant/item details, payment details, proof/file/storage internals, raw audit data, auth/session data, raw request bodies, or unrelated users.
 
 ## Authorization rules
 
@@ -345,7 +345,7 @@ Handle:
 - Direct provider implementation unless separately scoped.
 - Cross-group simplification.
 - Group-wide automatic settlement simplification across multiple counterparties.
-- Broader confirmed residual credit/waiver/finalization semantics beyond the first receiver residual confirmation endpoint.
+- Broad credit ledgers, refunds, automatic residual application, and settlement simplification beyond the bounded receiver-confirmed residual projection/finalization slice.
 - FX settlement basket behavior in Day 1.
 - Worker-owned settlement writes.
 - Silent provider-driven final confirmation.

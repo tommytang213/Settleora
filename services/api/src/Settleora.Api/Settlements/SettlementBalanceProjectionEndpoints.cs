@@ -184,6 +184,10 @@ internal static class SettlementBalanceProjectionEndpoints
 
         var pendingClaimedAmount = 0m;
         var confirmedClearedAmount = 0m;
+        var confirmedRemainingResidualAmount = 0m;
+        var waivedResidualAmount = 0m;
+        var debtWaivedResidualAmount = 0m;
+        var creditResidualAmount = 0m;
         var pendingPaymentCount = 0;
         var confirmedPaymentCount = 0;
         foreach (var payment in settlementRequest.Payments.Where(payment =>
@@ -228,6 +232,20 @@ internal static class SettlementBalanceProjectionEndpoints
                 }
             }
 
+            foreach (var residual in payment.Residuals)
+            {
+                if (SettlementResidualRuntime.TryGetConfirmedResidualBalanceEffect(
+                        payment,
+                        residual,
+                        out var effect))
+                {
+                    confirmedRemainingResidualAmount += effect.ConfirmedRemainingAmount;
+                    waivedResidualAmount += effect.WaivedAmount;
+                    debtWaivedResidualAmount += effect.UnderpaymentWaiverAmount;
+                    creditResidualAmount += effect.CreditAmount;
+                }
+            }
+
             if (!SettlementResidualRuntime.IsValidAllocationTotalForActivePayment(
                     payment,
                     paymentAllocationTotal))
@@ -267,6 +285,10 @@ internal static class SettlementBalanceProjectionEndpoints
             selectedLineAmount,
             pendingClaimedAmount,
             confirmedClearedAmount,
+            confirmedRemainingResidualAmount,
+            waivedResidualAmount,
+            debtWaivedResidualAmount,
+            creditResidualAmount,
             RequestCount: 1,
             LineCount: lines.Length,
             pendingPaymentCount,
@@ -280,6 +302,7 @@ internal static class SettlementBalanceProjectionEndpoints
             && line.AllocationOrder >= 0
             && (line.Status is SettlementRequestLineStatuses.Open
                 or SettlementRequestLineStatuses.PartiallyCleared
+                or SettlementRequestLineStatuses.Waived
                 or SettlementRequestLineStatuses.Cleared);
     }
 
