@@ -116,6 +116,26 @@ internal sealed class SettlementResidualPolicyService
             residualDecision));
     }
 
+    public static bool TryGetReceiverConfirmedStatus(
+        string direction,
+        string policy,
+        out string receiverConfirmedStatus)
+    {
+        receiverConfirmedStatus = MapReceiverConfirmedStatus(direction, policy) ?? string.Empty;
+        return receiverConfirmedStatus.Length > 0;
+    }
+
+    public static bool IsReceiverConfirmedStatus(
+        string direction,
+        string policy,
+        string status)
+    {
+        return string.Equals(
+            MapReceiverConfirmedStatus(direction, policy),
+            status,
+            StringComparison.Ordinal);
+    }
+
     private bool TryCreateMoney(
         decimal amount,
         string currencyValue,

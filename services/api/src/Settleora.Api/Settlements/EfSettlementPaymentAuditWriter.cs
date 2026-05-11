@@ -73,7 +73,23 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
             auditEvent.FileObjectId?.ToString("D"),
             auditEvent.ActionCategory is null
                 ? null
-                : RequireSafeMetadataCategory(auditEvent.ActionCategory, nameof(auditEvent.ActionCategory)));
+                : RequireSafeMetadataCategory(auditEvent.ActionCategory, nameof(auditEvent.ActionCategory)),
+            auditEvent.SettlementResidualId?.ToString("D"),
+            auditEvent.ResidualDirection is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.ResidualDirection, nameof(auditEvent.ResidualDirection)),
+            auditEvent.ResidualPolicy is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.ResidualPolicy, nameof(auditEvent.ResidualPolicy)),
+            auditEvent.PreviousResidualStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.PreviousResidualStatus, nameof(auditEvent.PreviousResidualStatus)),
+            auditEvent.NewResidualStatus is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.NewResidualStatus, nameof(auditEvent.NewResidualStatus)),
+            auditEvent.ResidualAmount.HasValue
+                ? RequireSafeMetadataAmount(auditEvent.ResidualAmount.Value, nameof(auditEvent.ResidualAmount))
+                : null);
 
         var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         if (json.Length > SafeMetadataJsonMaxLength)
@@ -144,5 +160,11 @@ internal sealed class EfSettlementPaymentAuditWriter : ISettlementPaymentAuditWr
         string Currency,
         string PaymentDate,
         string? FileObjectId,
-        string? ActionCategory);
+        string? ActionCategory,
+        string? SettlementResidualId,
+        string? ResidualDirection,
+        string? ResidualPolicy,
+        string? PreviousResidualStatus,
+        string? NewResidualStatus,
+        string? ResidualAmount);
 }

@@ -3362,7 +3362,7 @@ class SettlementResidualPolicyValues {
   static const Set<SettlementResidualPolicy> values = {remainingBalance, carriedForward, waived, creditForward, waivedByPayer, appliedToOtherLine};
 }
 
-/// Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+/// Settlement residual status returned by payment response summaries. Payment claims create pending residuals, receiver residual confirmation moves supported pending residuals to policy-derived confirmed, carried_forward, waived, or credited statuses, and dispute/cancellation neutralizes pending residuals to disputed or cancelled.
 typedef SettlementResidualStatus = String;
 class SettlementResidualStatusValues {
   const SettlementResidualStatusValues._();

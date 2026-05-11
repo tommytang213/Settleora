@@ -2659,7 +2659,7 @@ paths:
   /api/v1/settlement-payments/{paymentId}/confirm:
     post:
       summary: Confirm settlement payment
-      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments without pending residuals, rejects corrupt coverage or currency state, blocks pending residual proposals until a future receiver residual confirmation runtime exists, and does not perform dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projection writes, or file byte behavior.
+      description: Confirms one existing debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, payment transition, confirmation timestamp, request status recomputation, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, amount, currency, status, auth, session, file, proof, payment details, or QR identity fields. It confirms only marked_paid payments without pending residuals, rejects corrupt coverage or currency state, blocks pending residual proposals until the receiver confirms or neutralizes the residual through a supported settlement residual flow, and does not perform dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projection writes, or file byte behavior.
       operationId: confirmSettlementPayment
       security:
         - SessionBearerAuth: []
@@ -2704,6 +2704,71 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Settlement payment write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/settlement-payments/{paymentId}/residuals/{residualId}/confirm:
+    post:
+      summary: Confirm settlement payment residual
+      description: Confirms one pending receiver-confirmation residual proposal on one visible debtor-authored settlement payment claim. The authenticated actor must be the receiver/creditor for the payment's settlement request, and the server derives actor identity, settlement request visibility, residual status mapping, resolved timestamp, allocation safety, and audit metadata. The operation accepts no request body and does not accept client-submitted actor, debtor, creditor, request, group, payment, residual, amount, currency, status, policy, auth, session, file, proof, payment-detail, QR, or audit fields. It updates only the matching pending residual row to its policy-derived receiver-confirmed status, keeps overpayment credit/waiver behavior bounded to the payment residual summary, does not create a broad credit ledger, does not silently clear remaining-balance or carried-forward underpayment debt, does not reopen or simplify settlements, and does not perform payment confirmation, dispute, cancellation, proof upload/download, proof attachment linkage, payment-detail reads, QR reads, balance projection writes, or file byte behavior.
+      operationId: confirmSettlementPaymentResidual
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          description: Settlement payment claim ID whose pending residual is being confirmed.
+          schema:
+            type: string
+            format: uuid
+        - name: residualId
+          in: path
+          required: true
+          description: Settlement residual ID to confirm.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement residual moved from pending receiver confirmation to its policy-derived receiver-confirmed status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementPaymentResponse"
+        "400":
+          description: A request body was submitted even though residual confirmation accepts no client-submitted fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Settlement payment or residual is missing, archived through its parent request, unrelated, not receiver-owned by the actor, inactive, removed, not visible, not linked to a visible actor relationship, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible settlement payment state, parent request state, residual state, unsupported policy/status mapping, wrong party relationship, currency mismatch, corrupt amount, corrupt linkage, corrupt coverage data, or unsupported reopen/simplification behavior blocks residual confirmation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Settlement residual confirmation write could not be completed.
           content:
             application/problem+json:
               schema:
@@ -5908,7 +5973,7 @@ components:
         - applied_to_other_line
     SettlementResidualStatus:
       type: string
-      description: Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+      description: Settlement residual status returned by payment response summaries. Payment claims create pending residuals, receiver residual confirmation moves supported pending residuals to policy-derived confirmed, carried_forward, waived, or credited statuses, and dispute/cancellation neutralizes pending residuals to disputed or cancelled.
       enum:
         - pending_receiver_confirmation
         - confirmed

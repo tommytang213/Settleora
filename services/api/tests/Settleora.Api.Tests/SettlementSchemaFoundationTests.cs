@@ -418,12 +418,14 @@ public sealed class SettlementSchemaFoundationTests
         Assert.Contains("/api/v1/settlements/{settlementId}", openApi, StringComparison.Ordinal);
         Assert.Contains("/api/v1/settlements/{settlementId}/payments", openApi, StringComparison.Ordinal);
         Assert.Contains("/api/v1/settlement-payments/{paymentId}/confirm", openApi, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/settlement-payments/{paymentId}/residuals/{residualId}/confirm", openApi, StringComparison.Ordinal);
         Assert.Contains("/api/v1/settlements/{settlementId}/cancel", openApi, StringComparison.Ordinal);
         Assert.Contains("/api/v1/settlement-payments/{paymentId}/cancel", openApi, StringComparison.Ordinal);
         Assert.Contains("listSettlementRequests", openApi, StringComparison.Ordinal);
         Assert.Contains("getSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("createSettlementPaymentClaim", openApi, StringComparison.Ordinal);
         Assert.Contains("confirmSettlementPayment", openApi, StringComparison.Ordinal);
+        Assert.Contains("confirmSettlementPaymentResidual", openApi, StringComparison.Ordinal);
         Assert.Contains("disputeSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("disputeSettlementPayment", openApi, StringComparison.Ordinal);
         Assert.Contains("cancelSettlementRequest", openApi, StringComparison.Ordinal);

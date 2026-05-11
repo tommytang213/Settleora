@@ -4,11 +4,6 @@ namespace Settleora.Api.Settlements;
 
 internal static class SettlementResidualRuntime
 {
-    public static bool HasPendingResidual(SettlementPayment payment)
-    {
-        return payment.Residuals.Any(IsPendingResidual);
-    }
-
     public static bool IsPendingResidual(SettlementResidual residual)
     {
         return residual.Status == SettlementResidualStatuses.PendingReceiverConfirmation
@@ -27,6 +22,32 @@ internal static class SettlementResidualRuntime
         }
     }
 
+    public static bool TryGetReceiverConfirmedStatusForPendingResidual(
+        SettlementPayment payment,
+        SettlementResidual residual,
+        out string receiverConfirmedStatus)
+    {
+        receiverConfirmedStatus = string.Empty;
+
+        return IsSafeResidualSummary(payment, residual)
+            && IsPendingResidual(residual)
+            && SettlementResidualPolicyService.TryGetReceiverConfirmedStatus(
+                residual.Direction,
+                residual.Policy,
+                out receiverConfirmedStatus);
+    }
+
+    public static bool CanConfirmPaymentWithResiduals(SettlementPayment payment)
+    {
+        return payment.Residuals.All(residual =>
+            IsSafeResidualSummary(payment, residual)
+            && residual.ResolvedAtUtc is not null
+            && SettlementResidualPolicyService.IsReceiverConfirmedStatus(
+                residual.Direction,
+                residual.Policy,
+                residual.Status));
+    }
+
     public static bool IsValidAllocationTotalForActivePayment(
         SettlementPayment payment,
         decimal paymentAllocationTotal)
@@ -43,7 +64,7 @@ internal static class SettlementResidualRuntime
 
         var overpaymentAmount = payment.Amount - paymentAllocationTotal;
         return payment.Residuals.Count(residual =>
-            IsPendingOverpaymentResidualForPayment(payment, residual, overpaymentAmount)) == 1;
+            IsRecognizedOverpaymentResidualForPayment(payment, residual, overpaymentAmount)) == 1;
     }
 
     public static bool IsSafeResidualSummary(
@@ -72,5 +93,29 @@ internal static class SettlementResidualRuntime
             && residual.Amount == overpaymentAmount
             && (residual.Policy == SettlementResidualPolicies.CreditForward
                 || residual.Policy == SettlementResidualPolicies.WaivedByPayer);
+    }
+
+    private static bool IsRecognizedOverpaymentResidualForPayment(
+        SettlementPayment payment,
+        SettlementResidual residual,
+        decimal overpaymentAmount)
+    {
+        return IsPendingOverpaymentResidualForPayment(payment, residual, overpaymentAmount)
+            || IsReceiverConfirmedOverpaymentResidualForPayment(payment, residual, overpaymentAmount);
+    }
+
+    private static bool IsReceiverConfirmedOverpaymentResidualForPayment(
+        SettlementPayment payment,
+        SettlementResidual residual,
+        decimal overpaymentAmount)
+    {
+        return IsSafeResidualSummary(payment, residual)
+            && residual.ResolvedAtUtc is not null
+            && residual.Direction == SettlementResidualDirections.Overpayment
+            && residual.Amount == overpaymentAmount
+            && SettlementResidualPolicyService.IsReceiverConfirmedStatus(
+                residual.Direction,
+                residual.Policy,
+                residual.Status);
     }
 }

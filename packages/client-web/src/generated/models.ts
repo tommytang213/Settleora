@@ -1201,7 +1201,7 @@ export type SettlementResidualDirection = "underpayment" | "overpayment";
 export type SettlementResidualPolicy = "remaining_balance" | "carried_forward" | "waived" | "credit_forward" | "waived_by_payer" | "applied_to_other_line";
 
 /**
- * Settlement residual status returned by payment response summaries. The first public runtime creates pending residuals and neutralizes them to disputed or cancelled when the related payment/request is disputed or cancelled; receiver residual confirmation remains future work.
+ * Settlement residual status returned by payment response summaries. Payment claims create pending residuals, receiver residual confirmation moves supported pending residuals to policy-derived confirmed, carried_forward, waived, or credited statuses, and dispute/cancellation neutralizes pending residuals to disputed or cancelled.
  */
 export type SettlementResidualStatus = "pending_receiver_confirmation" | "confirmed" | "carried_forward" | "waived" | "credited" | "disputed" | "cancelled";
 

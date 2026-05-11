@@ -27,4 +27,16 @@ internal sealed record SettlementPaymentAuditEvent(
     public string? PreviousPaymentStatus { get; init; }
 
     public string? NewPaymentStatus { get; init; }
+
+    public Guid? SettlementResidualId { get; init; }
+
+    public string? ResidualDirection { get; init; }
+
+    public string? ResidualPolicy { get; init; }
+
+    public string? PreviousResidualStatus { get; init; }
+
+    public string? NewResidualStatus { get; init; }
+
+    public decimal? ResidualAmount { get; init; }
 }

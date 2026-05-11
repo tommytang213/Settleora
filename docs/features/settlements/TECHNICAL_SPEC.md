@@ -58,7 +58,7 @@ IBillRevisionSettlementImpactService
 
 ## Persistence direction
 
-Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against selected request lines with bounded allocation summaries on payment responses, the first payment-claim-time residual runtime persists pending residual rows for explicit same-currency underpayment/overpayment proposals, the first read-only current-actor balance projection endpoint derives grouped rows from durable request-line/allocation records without treating pending residuals as confirmed balance effects, the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes, and the first pay-all basket creation endpoint writes one server-derived request plus concrete request lines. Receiver residual confirmation, confirmed residual credit/waiver/finalization semantics, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
+Current EF schema foundation includes settlement request roots, payment claims, proof attachment references, basket request lines, payment allocations, and residual tracking. Current settlement request creation persists one server-derived request line for the selected single-bill candidate, request list/get responses expose bounded line summaries, payment claim runtime persists allocation rows against selected request lines with bounded allocation summaries on payment responses, payment-claim-time residual runtime persists pending residual rows for explicit same-currency underpayment/overpayment proposals, receiver residual confirmation can resolve one pending payment residual to its policy-derived status, the first read-only current-actor balance projection endpoint derives grouped rows from durable request-line/allocation records without treating pending residuals as confirmed balance effects, the first read-only basket preview endpoint expands eligible same-currency current-actor/counterparty candidate lines without writes, and the first pay-all basket creation endpoint writes one server-derived request plus concrete request lines. Broader confirmed residual credit/waiver/finalization semantics, settlement simplification, and settlement reopen/adjustment policy remain future runtime slices.
 
 Current and future table categories include:
 
@@ -173,7 +173,7 @@ disputed
 
 The payer may propose residual handling, but receiver confirmation is required where policy requires it. Underpayment waiver must not be unilateral by the payer.
 
-The current internal residual policy foundation returns bounded decisions for exact payment, underpayment, and overpayment. Non-exact deltas require an explicit supported residual policy, start as receiver-confirmation-sensitive decisions, and reject unsupported policy/direction combinations instead of allowing endpoint-local magic strings. The current public payment claim endpoint accepts optional `proposedResidualPolicy`; exact payments with residual policy are rejected, ordinary partial payments without residual policy remain partial payments, overpayment without policy remains rejected, and supported residual proposals create pending `settlement_residuals` rows linked to the payment and request. Receiver confirmation currently blocks pending residual payments until a future receiver residual confirmation runtime exists; cancellation/dispute neutralizes pending residuals to cancelled/disputed.
+The current internal residual policy foundation returns bounded decisions for exact payment, underpayment, and overpayment. Non-exact deltas require an explicit supported residual policy, start as receiver-confirmation-sensitive decisions, and reject unsupported policy/direction combinations instead of allowing endpoint-local magic strings. The current public payment claim endpoint accepts optional `proposedResidualPolicy`; exact payments with residual policy are rejected, ordinary partial payments without residual policy remain partial payments, overpayment without policy remains rejected, and supported residual proposals create pending `settlement_residuals` rows linked to the payment and request. Receiver confirmation blocks pending residual payments until `POST /api/v1/settlement-payments/{paymentId}/residuals/{residualId}/confirm` resolves the pending residual to its policy-derived status; cancellation/dispute neutralizes pending residuals to cancelled/disputed.
 
 ## Bill revision interaction
 
@@ -345,7 +345,7 @@ Handle:
 - Direct provider implementation unless separately scoped.
 - Cross-group simplification.
 - Group-wide automatic settlement simplification across multiple counterparties.
-- Receiver residual confirmation and confirmed residual credit/waiver/finalization semantics.
+- Broader confirmed residual credit/waiver/finalization semantics beyond the first receiver residual confirmation endpoint.
 - FX settlement basket behavior in Day 1.
 - Worker-owned settlement writes.
 - Silent provider-driven final confirmation.

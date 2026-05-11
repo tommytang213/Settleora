@@ -260,6 +260,10 @@ export class SettleoraApiClient {
     return this.requestBlob("GET", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/proof/${encodeURIComponent(String(fileId))}/content`, options, options.accessToken);
   }
 
+  async confirmSettlementPaymentResidual(paymentId: string, residualId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SettlementPaymentResponse> {
+    return this.request<SettlementPaymentResponse>("POST", `/api/v1/settlement-payments/${encodeURIComponent(String(paymentId))}/residuals/${encodeURIComponent(String(residualId))}/confirm`, undefined, options, options.accessToken);
+  }
+
   async listSettlementRequests(options: SettleoraAuthenticatedRequestOptions): Promise<SettlementRequestListResponse> {
     return this.request<SettlementRequestListResponse>("GET", "/api/v1/settlements", undefined, options, options.accessToken);
   }

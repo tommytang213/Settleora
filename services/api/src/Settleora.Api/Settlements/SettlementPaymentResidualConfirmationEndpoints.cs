@@ -6,33 +6,37 @@ using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
 
-internal static class SettlementPaymentConfirmationEndpoints
+internal static class SettlementPaymentResidualConfirmationEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
     private const string SettlementPaymentUnavailableTitle = "Settlement payment unavailable";
     private const string SettlementPaymentUnavailableDetail = "The requested settlement payment is unavailable.";
-    private const string InvalidSettlementPaymentConfirmationTitle = "Invalid settlement payment confirmation";
-    private const string InvalidSettlementPaymentConfirmationDetail = "Settlement payment confirmation does not accept a request body.";
-    private const string SettlementPaymentConflictTitle = "Settlement payment conflict";
-    private const string SettlementPaymentConflictDetail = "The settlement payment cannot be confirmed for the current settlement state.";
-    private const string SettlementPaymentWriteFailedTitle = "Settlement payment write failed";
-    private const string SettlementPaymentWriteFailedDetail = "Unable to complete settlement payment write.";
-    private const string SettlementPaymentConfirmationWorkflowName = "settlement_payment_confirmation";
-    private const string SettlementPaymentConfirmedAction = "settlement.payment_confirmed";
+    private const string InvalidResidualConfirmationTitle = "Invalid settlement residual confirmation";
+    private const string InvalidResidualConfirmationDetail = "Settlement residual confirmation does not accept a request body.";
+    private const string ResidualConfirmationConflictTitle = "Settlement payment conflict";
+    private const string ResidualConfirmationConflictDetail = "The settlement residual cannot be confirmed for the current settlement state.";
+    private const string ResidualConfirmationWriteFailedTitle = "Settlement payment write failed";
+    private const string ResidualConfirmationWriteFailedDetail = "Unable to complete settlement residual confirmation write.";
+    private const string ResidualConfirmationWorkflowName = "settlement_residual_confirmation";
+    private const string ResidualConfirmedAction = "settlement.residual_confirmed";
+    private const string ResidualConfirmedActionCategory = "residual_confirmed";
 
-    public static WebApplication MapSettlementPaymentConfirmationEndpoints(this WebApplication app)
+    public static WebApplication MapSettlementPaymentResidualConfirmationEndpoints(this WebApplication app)
     {
         var settlementPayments = app.MapGroup("/api/v1/settlement-payments")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
-        settlementPayments.MapPost("/{paymentId:guid}/confirm", ConfirmSettlementPaymentAsync);
+        settlementPayments.MapPost(
+            "/{paymentId:guid}/residuals/{residualId:guid}/confirm",
+            ConfirmSettlementPaymentResidualAsync);
 
         return app;
     }
 
-    private static async Task<IResult> ConfirmSettlementPaymentAsync(
+    private static async Task<IResult> ConfirmSettlementPaymentResidualAsync(
         Guid paymentId,
+        Guid residualId,
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -48,7 +52,7 @@ internal static class SettlementPaymentConfirmationEndpoints
 
         if (SettlementRuntimePolicy.RequestHasBody(request))
         {
-            return InvalidSettlementPaymentConfirmation();
+            return InvalidResidualConfirmation();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -59,7 +63,7 @@ internal static class SettlementPaymentConfirmationEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var payment = await SettlementPaymentConfirmationQuery(dbContext, actor.UserProfileId)
+        var payment = await SettlementPaymentResidualConfirmationQuery(dbContext, actor.UserProfileId)
             .SingleOrDefaultAsync(
                 candidate => candidate.Id == paymentId,
                 cancellationToken);
@@ -80,40 +84,39 @@ internal static class SettlementPaymentConfirmationEndpoints
             }
         }
 
-        if (!CanConfirmPayment(payment, settlementRequest))
+        var residual = payment.Residuals.SingleOrDefault(candidate => candidate.Id == residualId);
+        if (residual is null)
         {
-            return SettlementPaymentConflict();
+            return SettlementPaymentUnavailable();
         }
 
-        var previousRequestStatus = settlementRequest.Status;
-        var now = timeProvider.GetUtcNow();
+        if (!CanConfirmResidual(
+                payment,
+                settlementRequest,
+                residual,
+                actor.UserProfileId,
+                out var receiverConfirmedStatus))
+        {
+            return ResidualConfirmationConflict();
+        }
 
-        payment.Status = SettlementPaymentStatuses.Confirmed;
-        payment.ConfirmedAtUtc = now;
-        payment.UpdatedAtUtc = now;
+        var previousResidualStatus = residual.Status;
+        var now = timeProvider.GetUtcNow();
+        residual.Status = receiverConfirmedStatus;
+        residual.ResolvedAtUtc = now;
+
         if (!SettlementPaymentAllocationRuntime.TryRecomputeActiveLineCoverage(
                 settlementRequest,
                 now,
                 out var allocationResult))
         {
-            return SettlementPaymentConflict();
-        }
-
-        var newRequestStatus = SettlementRuntimePolicy.RecomputeSettlementRequestStatus(
-            settlementRequest.Amount,
-            allocationResult.ActivePaymentCoverage,
-            allocationResult.ConfirmedPaymentCoverage);
-        settlementRequest.Status = newRequestStatus;
-        settlementRequest.UpdatedAtUtc = now;
-        if (newRequestStatus == SettlementRequestStatuses.Confirmed)
-        {
-            settlementRequest.ConfirmedAtUtc = now;
+            return ResidualConfirmationConflict();
         }
 
         await auditWriter.WriteAsync(
             new SettlementPaymentAuditEvent(
-                SettlementPaymentConfirmationWorkflowName,
-                SettlementPaymentConfirmedAction,
+                ResidualConfirmationWorkflowName,
+                ResidualConfirmedAction,
                 actor.AuthAccountId,
                 actor.AuthAccountId,
                 settlementRequest.Id,
@@ -125,15 +128,24 @@ internal static class SettlementPaymentConfirmationEndpoints
                     : SettlementRuntimePolicy.PersonalGroupMode,
                 settlementRequest.DebtorUserProfileId,
                 settlementRequest.CreditorUserProfileId,
-                previousRequestStatus,
-                newRequestStatus,
+                settlementRequest.Status,
+                settlementRequest.Status,
                 payment.Status,
                 payment.Amount,
                 allocationResult.ActivePaymentCoverage,
                 settlementRequest.Amount,
                 payment.Currency,
                 payment.PaymentDate,
-                now),
+                now,
+                ActionCategory: ResidualConfirmedActionCategory)
+            {
+                SettlementResidualId = residual.Id,
+                ResidualDirection = residual.Direction,
+                ResidualPolicy = residual.Policy,
+                PreviousResidualStatus = previousResidualStatus,
+                NewResidualStatus = residual.Status,
+                ResidualAmount = residual.Amount
+            },
             cancellationToken);
 
         try
@@ -143,13 +155,13 @@ internal static class SettlementPaymentConfirmationEndpoints
         catch (DbUpdateException)
         {
             dbContext.ChangeTracker.Clear();
-            return SettlementPaymentWriteFailed();
+            return ResidualConfirmationWriteFailed();
         }
 
         return Results.Ok(SettlementPaymentResponse.From(payment, settlementRequest.Status));
     }
 
-    private static IQueryable<SettlementPayment> SettlementPaymentConfirmationQuery(
+    private static IQueryable<SettlementPayment> SettlementPaymentResidualConfirmationQuery(
         SettleoraDbContext dbContext,
         Guid actorUserProfileId)
     {
@@ -167,6 +179,7 @@ internal static class SettlementPaymentConfirmationEndpoints
             .Where(payment => payment.SettlementRequest.ArchivedAtUtc == null
                 && payment.SettlementRequest.SourceExpenseBillId != null
                 && payment.SettlementRequest.CreditorUserProfileId == actorUserProfileId
+                && payment.ReceivedByUserProfileId == actorUserProfileId
                 && payment.SettlementRequest.DebtorUserProfile.DeletedAtUtc == null
                 && payment.SettlementRequest.CreditorUserProfile.DeletedAtUtc == null
                 && payment.SettlementRequest.RequestedByUserProfile.DeletedAtUtc == null
@@ -192,24 +205,39 @@ internal static class SettlementPaymentConfirmationEndpoints
                             && membership.Status == GroupMembershipStatuses.Active))));
     }
 
-    private static bool CanConfirmPayment(
+    private static bool CanConfirmResidual(
         SettlementPayment payment,
-        SettlementRequest settlementRequest)
+        SettlementRequest settlementRequest,
+        SettlementResidual residual,
+        Guid actorUserProfileId,
+        out string receiverConfirmedStatus)
     {
+        receiverConfirmedStatus = string.Empty;
+
         return payment.Status == SettlementPaymentStatuses.MarkedPaid
-            && CanConfirmRequestStatus(settlementRequest.Status)
+            && CanConfirmResidualRequestStatus(settlementRequest.Status)
+            && actorUserProfileId == settlementRequest.CreditorUserProfileId
+            && actorUserProfileId == payment.ReceivedByUserProfileId
+            && actorUserProfileId != payment.PaidByUserProfileId
             && payment.PaidByUserProfileId == settlementRequest.DebtorUserProfileId
             && payment.ReceivedByUserProfileId == settlementRequest.CreditorUserProfileId
             && payment.CreatedByUserProfileId == settlementRequest.DebtorUserProfileId
+            && residual.DebtorUserProfileId == settlementRequest.DebtorUserProfileId
+            && residual.CreditorUserProfileId == settlementRequest.CreditorUserProfileId
+            && residual.SettlementPaymentId == payment.Id
+            && residual.SettlementRequestId == settlementRequest.Id
             && string.Equals(payment.Currency, settlementRequest.Currency, StringComparison.Ordinal)
             && SettlementRuntimePolicy.IsValidSettlementAmount(payment.Amount)
             && SettlementRuntimePolicy.IsValidSettlementAmount(settlementRequest.Amount)
             && SettlementRequestStatuses.IsSupported(settlementRequest.Status)
             && SettlementPaymentStatuses.IsSupported(payment.Status)
-            && SettlementResidualRuntime.CanConfirmPaymentWithResiduals(payment);
+            && SettlementResidualRuntime.TryGetReceiverConfirmedStatusForPendingResidual(
+                payment,
+                residual,
+                out receiverConfirmedStatus);
     }
 
-    private static bool CanConfirmRequestStatus(string status)
+    private static bool CanConfirmResidualRequestStatus(string status)
     {
         return status is SettlementRequestStatuses.PartiallyPaid
             or SettlementRequestStatuses.MarkedPaid;
@@ -238,27 +266,27 @@ internal static class SettlementPaymentConfirmationEndpoints
             statusCode: StatusCodes.Status404NotFound);
     }
 
-    private static IResult InvalidSettlementPaymentConfirmation()
+    private static IResult InvalidResidualConfirmation()
     {
         return Results.Problem(
-            title: InvalidSettlementPaymentConfirmationTitle,
-            detail: InvalidSettlementPaymentConfirmationDetail,
+            title: InvalidResidualConfirmationTitle,
+            detail: InvalidResidualConfirmationDetail,
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    private static IResult SettlementPaymentConflict()
+    private static IResult ResidualConfirmationConflict()
     {
         return Results.Problem(
-            title: SettlementPaymentConflictTitle,
-            detail: SettlementPaymentConflictDetail,
+            title: ResidualConfirmationConflictTitle,
+            detail: ResidualConfirmationConflictDetail,
             statusCode: StatusCodes.Status409Conflict);
     }
 
-    private static IResult SettlementPaymentWriteFailed()
+    private static IResult ResidualConfirmationWriteFailed()
     {
         return Results.Problem(
-            title: SettlementPaymentWriteFailedTitle,
-            detail: SettlementPaymentWriteFailedDetail,
+            title: ResidualConfirmationWriteFailedTitle,
+            detail: ResidualConfirmationWriteFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
     }
 }
