@@ -56,11 +56,11 @@ function collectOperations(openApiSpec) {
 
       const requestContent = operation.requestBody?.content ?? {};
       const jsonRequestSchema = requestContent["application/json"]?.schema;
-      const multipartFileField = jsonRequestSchema
+      const multipartRequest = jsonRequestSchema
         ? null
-        : multipartFileFieldName(openApiSpec, requestContent["multipart/form-data"]?.schema);
+        : multipartRequestInfo(openApiSpec, requestContent["multipart/form-data"]?.schema);
       const requestSchema = jsonRequestSchema ?? null;
-      const requestKind = requestSchema ? "json" : multipartFileField ? "multipart" : "none";
+      const requestKind = requestSchema ? "json" : multipartRequest ? "multipart" : "none";
       const successResponse = getSuccessResponse(operation.responses ?? {});
       const successContent = successResponse?.content ?? {};
       const successSchema = successContent["application/json"]?.schema ?? binarySuccessSchema(successContent);
@@ -83,7 +83,8 @@ function collectOperations(openApiSpec) {
         pathParameters,
         requestKind,
         requestSchema,
-        multipartFileField,
+        multipartFileField: multipartRequest?.fileField ?? null,
+        multipartFields: multipartRequest?.fields ?? [],
         successKind,
         successSchema,
         successTypeName,
@@ -119,7 +120,7 @@ function getSuccessResponse(responses) {
   return null;
 }
 
-function multipartFileFieldName(openApiSpec, schema) {
+function multipartRequestInfo(openApiSpec, schema) {
   const resolvedSchema = resolveSchema(openApiSpec, schema);
   if (!resolvedSchema?.properties) {
     return null;
@@ -129,7 +130,23 @@ function multipartFileFieldName(openApiSpec, schema) {
     .filter(([, propertySchema]) => propertySchema?.type === "string" && propertySchema?.format === "binary")
     .map(([propertyName]) => propertyName);
 
-  return binaryFields.length === 1 ? binaryFields[0] : null;
+  if (binaryFields.length !== 1) {
+    return null;
+  }
+
+  const required = new Set(resolvedSchema.required ?? []);
+  const fields = Object.entries(resolvedSchema.properties)
+    .filter(([, propertySchema]) => !(propertySchema?.type === "string" && propertySchema?.format === "binary"))
+    .map(([propertyName, propertySchema]) => ({
+      name: propertyName,
+      schema: propertySchema,
+      required: required.has(propertyName)
+    }));
+
+  return {
+    fileField: binaryFields[0],
+    fields
+  };
 }
 
 function resolveSchema(openApiSpec, schema) {
@@ -220,6 +237,9 @@ function generateTypeScriptClient(collectedOperations) {
 
   for (const operation of collectedOperations) {
     collectTypeImports(operation.requestSchema, importedTypes);
+    for (const field of operation.multipartFields ?? []) {
+      collectTypeImports(field.schema, importedTypes);
+    }
     if (operation.successKind === "json" && operation.successSchema) {
       importedTypes.add(operation.successTypeName);
     }
@@ -282,6 +302,7 @@ function generateTypeScriptClient(collectedOperations) {
     "    path: string,",
     "    fieldName: string,",
     "    file: Blob,",
+    "    fields: Record<string, string | number | boolean>,",
     "    options: SettleoraRequestOptions,",
     "    accessToken?: string",
     "  ): Promise<T> {",
@@ -295,6 +316,9 @@ function generateTypeScriptClient(collectedOperations) {
     "    }",
     "",
     "    const formData = new FormData();",
+    "    for (const [key, value] of Object.entries(fields)) {",
+    "      formData.append(key, String(value));",
+    "    }",
     "    formData.append(fieldName, file);",
     "",
     "    const response = await this.fetchImpl(this.resolveUrl(path), {",
@@ -415,6 +439,9 @@ function generateTypeScriptOperation(operation) {
       : "void";
   const parameters = [
     ...operation.pathParameters.map((parameter) => `${parameter.name}: ${typescriptType(parameter.schema)}`),
+    ...(operation.requestKind === "multipart"
+      ? operation.multipartFields.map((field) => `${typescriptParameterName(field.name)}${field.required ? "" : "?"}: ${typescriptType(field.schema)}`)
+      : []),
     ...(operation.requestKind === "multipart" ? ["file: Blob"] : []),
     ...(operation.requestKind === "json" && requestType ? [`body: ${requestType}`] : []),
     operation.requiresAuth
@@ -426,9 +453,10 @@ function generateTypeScriptOperation(operation) {
   const accessTokenExpression = operation.requiresAuth ? "options.accessToken" : "undefined";
 
   if (operation.requestKind === "multipart") {
+    const fieldsExpression = `{ ${operation.multipartFields.map((field) => `${JSON.stringify(field.name)}: ${typescriptParameterName(field.name)}`).join(", ")} }`;
     return [
       `  async ${operation.operationId}(${parameters.join(", ")}): Promise<${returnType}> {`,
-      `    return this.requestMultipart<${returnType}>(\"${operation.method}\", ${pathExpression}, ${JSON.stringify(operation.multipartFileField)}, file, options, ${accessTokenExpression});`,
+      `    return this.requestMultipart<${returnType}>(\"${operation.method}\", ${pathExpression}, ${JSON.stringify(operation.multipartFileField)}, file, ${fieldsExpression}, options, ${accessTokenExpression});`,
       "  }"
     ];
   }
@@ -575,6 +603,10 @@ function typeScriptPathExpression(path, pathParameters) {
 
 function typescriptPropertyName(name) {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : JSON.stringify(name);
+}
+
+function typescriptParameterName(name) {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : toCamelCase(name);
 }
 
 function generateDartModels(modelSchemas) {
@@ -776,6 +808,7 @@ function generateDartClient(collectedOperations) {
     "    String path, {",
     "    required String fieldName,",
     "    required SettleoraMultipartFile file,",
+    "    Map<String, String> fields = const <String, String>{},",
     "    String? accessToken,",
     "    Map<String, String>? headers,",
     "  }) async {",
@@ -795,6 +828,12 @@ function generateDartClient(collectedOperations) {
     "    }",
     "",
     "    request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});",
+    "    for (final entry in fields.entries) {",
+    "      request.add(utf8.encode('--$boundary\\r\\n'));",
+    "      request.add(utf8.encode('Content-Disposition: form-data; name=\"${_escapeMultipartHeader(entry.key)}\"\\r\\n\\r\\n'));",
+    "      request.add(utf8.encode(entry.value));",
+    "      request.add(utf8.encode('\\r\\n'));",
+    "    }",
     "    request.add(utf8.encode('--$boundary\\r\\n'));",
     "    request.add(utf8.encode('Content-Disposition: form-data; name=\"${_escapeMultipartHeader(fieldName)}\"; filename=\"${_escapeMultipartHeader(file.filename)}\"\\r\\n'));",
     "    request.add(utf8.encode('Content-Type: ${file.contentType}\\r\\n\\r\\n'));",
@@ -913,6 +952,7 @@ function generateDartOperation(operation) {
       : "void";
   const positionalParameters = [
     ...operation.pathParameters.map((parameter) => `${dartType(parameter.schema, { nullable: false })} ${toCamelCase(parameter.name)}`),
+    ...(operation.requestKind === "multipart" ? operation.multipartFields.map((field) => `${dartType(field.schema, { nullable: !field.required })} ${toCamelCase(field.name)}`) : []),
     ...(operation.requestKind === "multipart" ? ["SettleoraMultipartFile file"] : []),
     ...(operation.requestKind === "json" && operation.requestSchema ? [`${dartType(operation.requestSchema, { nullable: false })} body`] : [])
   ];
@@ -928,6 +968,7 @@ function generateDartOperation(operation) {
   const bodyExpression = operation.requestKind === "json" && operation.requestSchema ? "body.toJson()" : "null";
   const accessTokenArgument = operation.requiresAuth ? "accessToken: accessToken," : "";
   if (operation.requestKind === "multipart") {
+    const fieldsExpression = `{${operation.multipartFields.map((field) => `${JSON.stringify(field.name)}: ${toCamelCase(field.name)}.toString()`).join(", ")}}`;
     const lines = [
       `  Future<${responseType}> ${operation.operationId}(${parameterText}) async {`,
       "    final payload = await _sendMultipart(",
@@ -936,6 +977,10 @@ function generateDartOperation(operation) {
       `      fieldName: ${JSON.stringify(operation.multipartFileField)},`,
       "      file: file,"
     ];
+
+    if (operation.multipartFields.length > 0) {
+      lines.push(`      fields: ${fieldsExpression},`);
+    }
 
     if (accessTokenArgument) {
       lines.push(`      ${accessTokenArgument}`);

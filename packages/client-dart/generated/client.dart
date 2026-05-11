@@ -201,6 +201,49 @@ class SettleoraApiClient {
     return PersonalBillResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillAttachmentListResponse> listPersonalBillAttachments(String billId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillAttachmentListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillAttachmentResponse> attachPersonalBillAttachment(String billId, String purpose, SettleoraMultipartFile file, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendMultipart(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments',
+      fieldName: "file",
+      file: file,
+      fields: {"purpose": purpose.toString()},
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillAttachmentResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removePersonalBillAttachment(String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<List<int>> getPersonalBillAttachmentContent(String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<void> acceptPersonalBillParticipant(String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
     await _send(
       "POST",
@@ -427,6 +470,49 @@ class SettleoraApiClient {
       headers: headers,
     );
     return GroupBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillAttachmentListResponse> listGroupBillAttachments(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillAttachmentListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillAttachmentResponse> attachGroupBillAttachment(String groupId, String billId, String purpose, SettleoraMultipartFile file, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendMultipart(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments',
+      fieldName: "file",
+      file: file,
+      fields: {"purpose": purpose.toString()},
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillAttachmentResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removeGroupBillAttachment(String groupId, String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<List<int>> getGroupBillAttachmentContent(String groupId, String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
   }
 
   Future<void> acceptGroupBillParticipant(String groupId, String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
@@ -840,6 +926,7 @@ class SettleoraApiClient {
     String path, {
     required String fieldName,
     required SettleoraMultipartFile file,
+    Map<String, String> fields = const <String, String>{},
     String? accessToken,
     Map<String, String>? headers,
   }) async {
@@ -859,6 +946,12 @@ class SettleoraApiClient {
     }
 
     request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
+    for (final entry in fields.entries) {
+      request.add(utf8.encode('--$boundary\r\n'));
+      request.add(utf8.encode('Content-Disposition: form-data; name="${_escapeMultipartHeader(entry.key)}"\r\n\r\n'));
+      request.add(utf8.encode(entry.value));
+      request.add(utf8.encode('\r\n'));
+    }
     request.add(utf8.encode('--$boundary\r\n'));
     request.add(utf8.encode('Content-Disposition: form-data; name="${_escapeMultipartHeader(fieldName)}"; filename="${_escapeMultipartHeader(file.filename)}"\r\n'));
     request.add(utf8.encode('Content-Type: ${file.contentType}\r\n\r\n'));

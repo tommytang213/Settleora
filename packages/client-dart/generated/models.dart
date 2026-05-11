@@ -2461,6 +2461,104 @@ class SettlementPaymentResponse {
   }
 }
 
+/// Safe bill attachment metadata list. It excludes file bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, bill merchant/item details, raw audit metadata, OCR text, and unrelated users.
+class BillAttachmentListResponse {
+  const BillAttachmentListResponse({
+    required this.attachments,
+  });
+
+  final List<BillAttachmentResponse> attachments;
+
+  factory BillAttachmentListResponse.fromJson(JsonObject json) {
+    return BillAttachmentListResponse(
+      attachments: (json["attachments"] as List<dynamic>).map((item) => BillAttachmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "attachments": attachments.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe bill attachment file metadata. It exposes stable file and bill IDs plus bounded purpose and content metadata only, and never contains storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, bytes, thumbnails, OCR text, raw audit metadata, or unrelated user data.
+class BillAttachmentResponse {
+  const BillAttachmentResponse({
+    required this.fileId,
+    required this.billId,
+    required this.purpose,
+    required this.contentType,
+    required this.sizeBytes,
+    required this.uploadedAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable file metadata identifier for the attachment.
+  final String fileId;
+  /// Expense bill ID that owns this attachment association.
+  final String billId;
+  /// Bounded bill attachment purpose stored on the bill association.
+  final String purpose;
+  final String contentType;
+  final int sizeBytes;
+  /// Timestamp when the bill attachment association was created.
+  final DateTime uploadedAtUtc;
+  /// Timestamp when the underlying file metadata was last updated.
+  final DateTime updatedAtUtc;
+
+  factory BillAttachmentResponse.fromJson(JsonObject json) {
+    return BillAttachmentResponse(
+      fileId: json["fileId"] as String,
+      billId: json["billId"] as String,
+      purpose: json["purpose"] as String,
+      contentType: json["contentType"] as String,
+      sizeBytes: (json["sizeBytes"] as num).toInt(),
+      uploadedAtUtc: DateTime.parse(json["uploadedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "fileId": fileId,
+      "billId": billId,
+      "purpose": purpose,
+      "contentType": contentType,
+      "sizeBytes": sizeBytes,
+      "uploadedAtUtc": uploadedAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Multipart form used to upload one personal or group bill attachment file. The purpose must be receipt or supporting_attachment. Receipt uploads accept PNG, JPEG, and WEBP. Supporting attachments accept PNG, JPEG, WEBP, and PDF. The filename is treated as submitted transport metadata only and is not persisted into attachment responses or audit metadata.
+class AttachBillAttachmentRequest {
+  const AttachBillAttachmentRequest({
+    required this.file,
+    required this.purpose,
+  });
+
+  /// Bill attachment file. The maximum accepted file size is 5 MB.
+  final List<int> file;
+  /// Bounded bill attachment purpose for the file association.
+  final String purpose;
+
+  factory AttachBillAttachmentRequest.fromJson(JsonObject json) {
+    return AttachBillAttachmentRequest(
+      file: List<int>.from(json["file"] as List),
+      purpose: json["purpose"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "file": file,
+      "purpose": purpose,
+    };
+  }
+}
+
 /// Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
 class SettlementPaymentProofListResponse {
   const SettlementPaymentProofListResponse({

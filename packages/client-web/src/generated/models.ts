@@ -889,6 +889,55 @@ export interface SettlementPaymentResponse {
 }
 
 /**
+ * Safe bill attachment metadata list. It excludes file bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, bill merchant/item details, raw audit metadata, OCR text, and unrelated users.
+ */
+export interface BillAttachmentListResponse {
+  attachments: BillAttachmentResponse[];
+}
+
+/**
+ * Safe bill attachment file metadata. It exposes stable file and bill IDs plus bounded purpose and content metadata only, and never contains storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, bytes, thumbnails, OCR text, raw audit metadata, or unrelated user data.
+ */
+export interface BillAttachmentResponse {
+  /**
+   * Stable file metadata identifier for the attachment.
+   */
+  fileId: string;
+  /**
+   * Expense bill ID that owns this attachment association.
+   */
+  billId: string;
+  /**
+   * Bounded bill attachment purpose stored on the bill association.
+   */
+  purpose: "receipt" | "supporting_attachment";
+  contentType: "image/png" | "image/jpeg" | "image/webp" | "application/pdf";
+  sizeBytes: number;
+  /**
+   * Timestamp when the bill attachment association was created.
+   */
+  uploadedAtUtc: string;
+  /**
+   * Timestamp when the underlying file metadata was last updated.
+   */
+  updatedAtUtc: string;
+}
+
+/**
+ * Multipart form used to upload one personal or group bill attachment file. The purpose must be receipt or supporting_attachment. Receipt uploads accept PNG, JPEG, and WEBP. Supporting attachments accept PNG, JPEG, WEBP, and PDF. The filename is treated as submitted transport metadata only and is not persisted into attachment responses or audit metadata.
+ */
+export interface AttachBillAttachmentRequest {
+  /**
+   * Bill attachment file. The maximum accepted file size is 5 MB.
+   */
+  file: Blob;
+  /**
+   * Bounded bill attachment purpose for the file association.
+   */
+  purpose: "receipt" | "supporting_attachment";
+}
+
+/**
  * Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
  */
 export interface SettlementPaymentProofListResponse {

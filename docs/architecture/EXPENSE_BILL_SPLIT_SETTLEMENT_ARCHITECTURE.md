@@ -21,8 +21,8 @@ The current repository state is:
 - Public personal bill create/list/get endpoints exist at `POST /api/v1/bills`, `GET /api/v1/bills`, and `GET /api/v1/bills/{billId}`.
 - Public group-scoped group bill create/list/get endpoints exist at `POST /api/v1/groups/{groupId}/bills`, `GET /api/v1/groups/{groupId}/bills`, and `GET /api/v1/groups/{groupId}/bills/{billId}`.
 - Public bill submit, participant accept, participant reject, and bill confirmed workflow endpoints exist.
-- No public bill edit, balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification endpoints exist yet.
-- Personal and group bill create/read, bill workflow, settlement candidate preview, settlement request creation, settlement request list/get, settlement payment list/get, settlement payment claim, settlement payment confirmation, settlement dispute, settlement cancellation, and settlement payment proof OpenAPI paths and generated clients exist. No balance, recurring, reconciliation, receipt upload/download, OCR, or bill-related notification OpenAPI paths exist yet.
+- No public bill edit, balance, recurring, reconciliation, standalone receipt/OCR upload/download outside bill attachments, OCR, or bill-related notification endpoints exist yet.
+- Personal and group bill create/read, bill workflow, bill attachment, settlement candidate preview, settlement request creation, settlement request list/get, settlement payment list/get, settlement payment claim, settlement payment confirmation, settlement dispute, settlement cancellation, and settlement payment proof OpenAPI paths and generated clients exist. No balance, recurring, reconciliation, standalone receipt/OCR upload/download outside bill attachments, OCR, or bill-related notification OpenAPI paths exist yet.
 - Settlement persistence schema exists for request roots, payment claims, proof attachment file references, basket request lines, payment allocations, and residual tracking. Candidate preview, first settlement request creation runtime, read-only current-actor settlement request list/get endpoints, read-only settlement payment list/get endpoints, debtor-authored same-currency full/partial payment claim endpoints, receiver-authored payment confirmation endpoints, bounded request/payment dispute endpoints, guarded request/payment cancellation endpoints, settlement-scoped counterparty payment-details/QR reads, and purpose-specific settlement payment proof attach/list/content/remove endpoints exist for confirmed personal/group bill candidates. Settlement basket/residual runtime, balance projection runtime, recurring bill runtime, and reconciliation runtime do not exist yet.
 - [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md) now defines the design gate for request creation, payment claims, receiver confirmation, dispute, cancellation, proof linkage, audit, and rebuildable balance projections across narrow endpoint slices.
 
@@ -263,7 +263,7 @@ Money-bearing tables should follow the money architecture: decimal-safe amount p
 
 ## API And OpenAPI Direction
 
-Settlement candidate preview, first settlement request creation, read-only current-actor settlement request list/get, settlement-scoped counterparty payment-details/QR reads, read-only settlement payment list/get, settlement payment claim, settlement payment confirmation, settlement dispute, settlement cancellation, and settlement payment proof paths now exist in OpenAPI and generated clients. Balance projection, basket/residual runtime, recurring, reconciliation, receipt upload/download, OCR, and notification paths do not exist yet.
+Settlement candidate preview, first settlement request creation, read-only current-actor settlement request list/get, settlement-scoped counterparty payment-details/QR reads, read-only settlement payment list/get, settlement payment claim, settlement payment confirmation, settlement dispute, settlement cancellation, settlement payment proof paths, and bill attachment paths now exist in OpenAPI and generated clients. Recurring, reconciliation, standalone receipt/OCR upload/download outside bill attachments, OCR, and notification paths do not exist yet.
 
 Current bill endpoint foundations are:
 
@@ -277,9 +277,17 @@ GET /api/v1/groups/{groupId}/bills/{billId}
 POST /api/v1/bills/{billId}/submit
 POST /api/v1/bills/{billId}/participants/{userProfileId}/accept
 POST /api/v1/bills/{billId}/participants/{userProfileId}/reject
+POST /api/v1/bills/{billId}/attachments
+GET /api/v1/bills/{billId}/attachments
+GET /api/v1/bills/{billId}/attachments/{fileId}/content
+DELETE /api/v1/bills/{billId}/attachments/{fileId}
 POST /api/v1/groups/{groupId}/bills/{billId}/submit
 POST /api/v1/groups/{groupId}/bills/{billId}/participants/{userProfileId}/accept
 POST /api/v1/groups/{groupId}/bills/{billId}/participants/{userProfileId}/reject
+POST /api/v1/groups/{groupId}/bills/{billId}/attachments
+GET /api/v1/groups/{groupId}/bills/{billId}/attachments
+GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/content
+DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}
 ```
 
 Current settlement endpoint foundations are refined in [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md). Future endpoint categories are directional only and require separate OpenAPI, implementation, tests, and generated-client branches.
@@ -312,7 +320,7 @@ Recommended next implementation candidates, in order:
 10. Settlement payment claim, receiver confirmation, and bounded dispute transitions. These are now landed for confirmed personal/group bill candidates only.
 11. Settlement cancellation where policy allows. This is now landed.
 12. Purpose-specific settlement payment proof attachment integration. This is now landed.
-13. Receipt attachment integration once authorized receipt file flows exist.
+13. Purpose-specific bill receipt/supporting attachment integration. This is now landed.
 
 Each slice should include focused tests and validation for its boundary. Avoid combining schema, OpenAPI, generated clients, endpoint runtime, storage bytes, OCR, UI, and settlement behavior in one branch.
 
@@ -328,7 +336,7 @@ This architecture document does not authorize additional work outside a reviewed
 - Mobile, web, or admin UI behavior.
 - OCR implementation.
 - Generic public file upload/download APIs.
-- Receipt upload implementation.
+- Standalone receipt/OCR upload implementation outside bill attachments.
 - Generic settlement proof upload outside the purpose-specific payment proof endpoints.
 - Recurring bill runtime.
 - Forecasting runtime.
