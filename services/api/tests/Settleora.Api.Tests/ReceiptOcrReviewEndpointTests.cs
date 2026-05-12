@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -133,6 +134,73 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         AssertReviewAuditMetadata(audits[0], ReviewSavedAction, billId, groupId: null, fileId, savedPayload.Id, "ocr_review_saved");
         AssertReviewAuditMetadata(audits[1], ReviewReadAction, billId, groupId: null, fileId, savedPayload.Id, "ocr_review_read");
         AssertReviewAuditMetadata(audits[2], ReviewRemovedAction, billId, groupId: null, fileId, savedPayload.Id, "ocr_review_removed");
+    }
+
+    [Fact]
+    public async Task PersonalBillOwnerCanUpdateExistingReceiptOcrReviewAndReplacePriorLines()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Receipt OCR Update Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var createRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            ValidReviewJson());
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var createPayload = ReadReviewPayload(createContent);
+        Assert.Equal(["Latte", "Bagel"], createPayload.Lines.Select(line => line.Text).ToArray());
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(1));
+        using var updateRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            ReplacementReviewJson());
+        using var updateResponse = await client.SendAsync(updateRequest);
+        var updateContent = await updateResponse.Content.ReadAsStringAsync();
+
+        Assert.True(updateResponse.StatusCode == HttpStatusCode.OK, updateContent);
+        var updatePayload = ReadReviewPayload(updateContent);
+        Assert.Equal(createPayload.Id, updatePayload.Id);
+        Assert.Equal(ReceiptOcrReviewStatuses.Reviewed, updatePayload.Status);
+        Assert.Equal("9.75", updatePayload.GrandTotalAmount);
+        Assert.Equal(["Flat white"], updatePayload.Lines.Select(line => line.Text).ToArray());
+
+        var persistedReview = await ReadReceiptOcrReviewAsync(testFactory, createPayload.Id);
+        Assert.Equal(WriteTimestamp.AddMinutes(1), persistedReview.UpdatedAtUtc);
+        Assert.Equal(ReceiptOcrReviewStatuses.Reviewed, persistedReview.Status);
+        Assert.Equal(["Flat white"], persistedReview.Lines.OrderBy(line => line.SortOrder).Select(line => line.Text).ToArray());
+        Assert.Equal(1.5m, persistedReview.Lines.Single().Quantity);
+        Assert.Equal(9.75m, persistedReview.Lines.Single().LineTotalAmount);
+        Assert.DoesNotContain(persistedReview.Lines, line => line.Text is "Latte" or "Bagel");
+
+        var allPersistedLines = await ReadReceiptOcrReviewLinesAsync(testFactory);
+        Assert.Single(allPersistedLines);
+        Assert.Equal(persistedReview.Id, allPersistedLines.Single().ReceiptOcrReviewId);
     }
 
     [Fact]
@@ -456,7 +524,10 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var personalBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review:");
         var groupBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review:");
         var requestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewUpsertRequest:");
+        var lineRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewLineRequest:");
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewResponse:");
+        const string positiveQuantityPattern = @"^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$";
+        var positiveQuantityContract = new Regex(positiveQuantityPattern, RegexOptions.CultureInvariant);
 
         Assert.Contains("operationId: upsertPersonalBillAttachmentOcrReview", personalBlock);
         Assert.Contains("operationId: getPersonalBillAttachmentOcrReview", personalBlock);
@@ -469,6 +540,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("on_device", openApi);
         Assert.Contains("imported_reviewed_data", openApi);
         Assert.Contains("maxItems: 100", requestSchema);
+        Assert.Contains("pattern: \"" + positiveQuantityPattern.Replace(@"\", @"\\") + "\"", lineRequestSchema);
+        Assert.All(new[] { "1", "1.0", "0.1", "0.0001", "12.3456", "001.50" }, value =>
+            Assert.Matches(positiveQuantityContract, value));
+        Assert.All(new[] { "0", "0.0", "0.0000", "-1", "", "1.", "1e2", " 1" }, value =>
+            Assert.DoesNotMatch(positiveQuantityContract, value));
         Assert.Contains("grandTotalAmount", responseSchema);
         Assert.Contains("lines", responseSchema);
         Assert.DoesNotContain("rawText", requestSchema + responseSchema, StringComparison.OrdinalIgnoreCase);
@@ -549,6 +625,29 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                   "quantity": "2",
                   "unitPriceAmount": "2.50",
                   "lineTotalAmount": "5.00"
+                }
+              ]
+            }
+            """;
+    }
+
+    private static string ReplacementReviewJson()
+    {
+        return $$"""
+            {
+              "status": "{{ReceiptOcrReviewStatuses.Reviewed}}",
+              "source": "{{ReceiptOcrReviewSources.ManualEntry}}",
+              "merchantText": "Updated Cafe",
+              "receiptIssuedAtUtc": "2026-05-12T09:00:00Z",
+              "currency": "USD",
+              "subtotalAmount": "9.75",
+              "grandTotalAmount": "9.75",
+              "lines": [
+                {
+                  "text": "Flat white",
+                  "quantity": "1.5",
+                  "unitPriceAmount": "6.50",
+                  "lineTotalAmount": "9.75"
                 }
               ]
             }

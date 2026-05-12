@@ -6368,7 +6368,7 @@ components:
         quantity:
           oneOf:
             - type: string
-              pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"
+              pattern: "^(?=.*[1-9])(?:0|[0-9]+)(?:\\.[0-9]{1,4})?$"
               maxLength: 22
             - type: "null"
           description: Optional positive decimal quantity candidate represented as a string.

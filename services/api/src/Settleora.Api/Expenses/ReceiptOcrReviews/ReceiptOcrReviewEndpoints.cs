@@ -244,7 +244,6 @@ internal static class ReceiptOcrReviewEndpoints
         {
             var existingLines = review.Lines.ToArray();
             dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(existingLines);
-            review.Lines.Clear();
         }
 
         ApplySubmittedReview(review, submittedReview, now);
@@ -257,6 +256,7 @@ internal static class ReceiptOcrReviewEndpoints
             ReviewSavedAction,
             "ocr_review_saved",
             review,
+            submittedReview.Lines.Count,
             now,
             cancellationToken);
 
@@ -380,6 +380,7 @@ internal static class ReceiptOcrReviewEndpoints
             ReviewReadAction,
             "ocr_review_read",
             review,
+            review.Lines.Count,
             timeProvider.GetUtcNow(),
             cancellationToken);
 
@@ -513,6 +514,7 @@ internal static class ReceiptOcrReviewEndpoints
             ReviewRemovedAction,
             "ocr_review_removed",
             review,
+            review.Lines.Count,
             now,
             cancellationToken);
 
@@ -1101,7 +1103,7 @@ internal static class ReceiptOcrReviewEndpoints
     {
         foreach (var line in lines)
         {
-            review.Lines.Add(new ReceiptOcrReviewLine
+            var reviewLine = new ReceiptOcrReviewLine
             {
                 Id = Guid.NewGuid(),
                 ReceiptOcrReviewId = review.Id,
@@ -1112,7 +1114,10 @@ internal static class ReceiptOcrReviewEndpoints
                 LineTotalAmount = line.LineTotalAmount,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
-            });
+            };
+
+            review.Lines.Add(reviewLine);
+            dbContext.Entry(reviewLine).State = EntityState.Added;
         }
 
         if (dbContext.Entry(review).State is EntityState.Unchanged or EntityState.Modified)
@@ -1128,6 +1133,7 @@ internal static class ReceiptOcrReviewEndpoints
         string action,
         string actionCategory,
         ReceiptOcrReview review,
+        int lineCount,
         DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken)
     {
@@ -1145,7 +1151,7 @@ internal static class ReceiptOcrReviewEndpoints
                 ExpenseBillAttachmentPurposes.Receipt,
                 review.Status,
                 review.Source,
-                review.Lines.Count,
+                lineCount,
                 review.Currency,
                 actionCategory,
                 occurredAtUtc),
