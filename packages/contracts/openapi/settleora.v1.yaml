@@ -1042,6 +1042,66 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/receipt-ocr-reviews:
+    get:
+      summary: List receipt OCR review queue
+      description: Lists bounded receipt OCR review summaries visible to the authenticated actor across personal bills and active authorized group bills. The actor is derived from SettleoraSession; personal and group visibility are rechecked against existing bill, group membership, attachment, and file-object constraints. Optional status/source filters use the existing bounded review values and limit is capped. The endpoint is read-only and does not expose file bytes, storage object keys, provider paths, signed URLs, filenames, raw OCR full text, auth/session data, payment details, bill items, split/settlement/balance state, unrelated users, OCR jobs, worker state, or request bodies.
+      operationId: listReceiptOcrReviews
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Optional exact review status filter.
+          schema:
+            $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        - name: source
+          in: query
+          required: false
+          description: Optional exact review source filter.
+          schema:
+            $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of latest review summaries to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Receipt OCR review summaries visible to the authenticated actor. The list is empty when no visible reviews match the optional filters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewListResponse"
+        "400":
+          description: The submitted queue filters are unsupported or out of range.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/attachments/{fileId}/content:
     get:
       summary: Read personal bill attachment content
@@ -2459,6 +2519,73 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Receipt OCR review removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/receipt-ocr-reviews:
+    get:
+      summary: List group receipt OCR review queue
+      description: Lists bounded receipt OCR review summaries visible to the authenticated actor within one active route group. The actor is derived from SettleoraSession and must have active route-group access; each review must still be tied to a visible bill relationship, an active receipt attachment, and an active receipt_image file object. Optional status/source filters use the existing bounded review values and limit is capped. The endpoint is read-only and does not expose file bytes, storage object keys, provider paths, signed URLs, filenames, raw OCR full text, auth/session data, payment details, bill items, split/settlement/balance state, unrelated users, OCR jobs, worker state, or request bodies.
+      operationId: listGroupReceiptOcrReviews
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Route group ID whose visible receipt OCR review queue should be listed.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Optional exact review status filter.
+          schema:
+            $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        - name: source
+          in: query
+          required: false
+          description: Optional exact review source filter.
+          schema:
+            $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of latest review summaries to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Group receipt OCR review summaries visible to the authenticated actor. The list is empty when no visible reviews match the optional filters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewListResponse"
+        "400":
+          description: The submitted queue filters are unsupported or out of range.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, membership, bill visibility, or actor relationship is missing, deleted, archived, unrelated, inactive, removed, not visible, or unavailable to the authenticated actor.
           content:
             application/problem+json:
               schema:
@@ -6473,6 +6600,75 @@ components:
           oneOf:
             - type: string
             - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    ReceiptOcrReviewListResponse:
+      type: object
+      description: Safe receipt OCR review queue list. It contains compact navigation summaries only and excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill item/split/settlement/balance state, and unrelated users.
+      required:
+        - reviews
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewSummaryResponse"
+    ReceiptOcrReviewSummaryResponse:
+      type: object
+      description: Compact safe receipt OCR review summary for review queue navigation. It exposes stable review, bill, group, and file IDs plus bounded review status/source, optional reviewed merchant text/currency, line count, and timestamps only.
+      required:
+        - reviewId
+        - billId
+        - groupId
+        - fileId
+        - status
+        - source
+        - merchantText
+        - currency
+        - lineCount
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+          description: Stable receipt OCR review ID.
+        billId:
+          type: string
+          format: uuid
+          description: Expense bill ID that owns the receipt attachment.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Owning group ID for group bills, or null for personal bills.
+        fileId:
+          type: string
+          format: uuid
+          description: Stable file metadata ID of the reviewed receipt attachment.
+        status:
+          $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        source:
+          $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        merchantText:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+          description: Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+        currency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        lineCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of bounded reviewed/candidate line rows linked to the review.
         createdAtUtc:
           type: string
           format: date-time

@@ -1021,6 +1021,48 @@ export interface ReceiptOcrReviewLineResponse {
 }
 
 /**
+ * Safe receipt OCR review queue list. It contains compact navigation summaries only and excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill item/split/settlement/balance state, and unrelated users.
+ */
+export interface ReceiptOcrReviewListResponse {
+  reviews: ReceiptOcrReviewSummaryResponse[];
+}
+
+/**
+ * Compact safe receipt OCR review summary for review queue navigation. It exposes stable review, bill, group, and file IDs plus bounded review status/source, optional reviewed merchant text/currency, line count, and timestamps only.
+ */
+export interface ReceiptOcrReviewSummaryResponse {
+  /**
+   * Stable receipt OCR review ID.
+   */
+  reviewId: string;
+  /**
+   * Expense bill ID that owns the receipt attachment.
+   */
+  billId: string;
+  /**
+   * Owning group ID for group bills, or null for personal bills.
+   */
+  groupId: string | null;
+  /**
+   * Stable file metadata ID of the reviewed receipt attachment.
+   */
+  fileId: string;
+  status: ReceiptOcrReviewStatus;
+  source: ReceiptOcrReviewSource;
+  /**
+   * Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+   */
+  merchantText: string | null;
+  currency: CurrencyCode | null;
+  /**
+   * Number of bounded reviewed/candidate line rows linked to the review.
+   */
+  lineCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * Safe receipt OCR review response for one bill receipt attachment. It exposes stable bill/file/review IDs and bounded reviewed candidate fields only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, auth/session data, payment details, raw audit metadata, bill split/settlement/balance state, and unrelated users.
  */
 export interface ReceiptOcrReviewResponse {

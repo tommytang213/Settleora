@@ -3,6 +3,22 @@ using Settleora.Api.Domain.Expenses;
 
 namespace Settleora.Api.Expenses.ReceiptOcrReviews;
 
+internal sealed record ReceiptOcrReviewListResponse(
+    IReadOnlyList<ReceiptOcrReviewSummaryResponse> Reviews);
+
+internal sealed record ReceiptOcrReviewSummaryResponse(
+    Guid ReviewId,
+    Guid BillId,
+    Guid? GroupId,
+    Guid FileId,
+    string Status,
+    string Source,
+    string? MerchantText,
+    string? Currency,
+    int LineCount,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
 internal sealed record ReceiptOcrReviewResponse(
     Guid Id,
     Guid BillId,

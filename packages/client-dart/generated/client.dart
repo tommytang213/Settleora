@@ -674,6 +674,28 @@ class SettleoraApiClient {
     );
   }
 
+  Future<ReceiptOcrReviewListResponse> listGroupReceiptOcrReviews(String groupId, {ReceiptOcrReviewStatus? status, ReceiptOcrReviewSource? source, int? limit, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery('/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/receipt-ocr-reviews', {"status": status, "source": source, "limit": limit}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ReceiptOcrReviewListResponse> listReceiptOcrReviews({ReceiptOcrReviewStatus? status, ReceiptOcrReviewSource? source, int? limit, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/receipt-ocr-reviews", {"status": status, "source": source, "limit": limit}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementBalanceProjectionListResponse> listSettlementBalanceProjections({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -1103,6 +1125,22 @@ class SettleoraApiClient {
     }
 
     return payload;
+  }
+
+  String _withQuery(String path, Map<String, Object?> query) {
+    final parameters = <String>[];
+    for (final entry in query.entries) {
+      final value = entry.value;
+      if (value != null) {
+        parameters.add('${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(value.toString())}');
+      }
+    }
+
+    if (parameters.isEmpty) {
+      return path;
+    }
+
+    return '$path${path.contains('?') ? '&' : '?'}${parameters.join('&')}';
   }
 }
 

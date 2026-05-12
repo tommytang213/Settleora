@@ -26,11 +26,15 @@ internal static class ReceiptOcrReviewEndpoints
     private const string ReceiptOcrReviewSaveFailedDetail = "Unable to save the receipt OCR review.";
     private const string ReceiptOcrReviewAccessFailedTitle = "Receipt OCR review access failed";
     private const string ReceiptOcrReviewAccessFailedDetail = "Unable to complete receipt OCR review access.";
+    private const string InvalidReceiptOcrReviewQueryTitle = "Invalid receipt OCR review query";
+    private const string InvalidReceiptOcrReviewQueryDetail = "The submitted receipt OCR review query is invalid.";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
     private const string ReviewSavedAction = "bill_attachment.ocr_review_saved";
     private const string ReviewReadAction = "bill_attachment.ocr_review_read";
     private const string ReviewRemovedAction = "bill_attachment.ocr_review_removed";
+    private const int DefaultReceiptOcrReviewQueueLimit = 50;
+    private const int MaxReceiptOcrReviewQueueLimit = 100;
 
     private static readonly string[] VisibleBillStatuses =
     [
@@ -88,8 +92,25 @@ internal static class ReceiptOcrReviewEndpoints
         "lineTotalAmount"
     ];
 
+    private static readonly HashSet<string> AllowedQueueQueryProperties =
+    [
+        "status",
+        "source",
+        "limit"
+    ];
+
     public static WebApplication MapReceiptOcrReviewEndpoints(this WebApplication app)
     {
+        var reviewQueue = app.MapGroup("/api/v1/receipt-ocr-reviews")
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+
+        reviewQueue.MapGet("", ListReceiptOcrReviewsForCurrentActorAsync);
+
+        var groupReviewQueue = app.MapGroup("/api/v1/groups/{groupId:guid}/receipt-ocr-reviews")
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+
+        groupReviewQueue.MapGet("", ListGroupReceiptOcrReviewsAsync);
+
         var bills = app.MapGroup("/api/v1/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
@@ -105,6 +126,106 @@ internal static class ReceiptOcrReviewEndpoints
         groupBills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemoveGroupReceiptOcrReviewAsync);
 
         return app;
+    }
+
+    private static Task<IResult> ListReceiptOcrReviewsForCurrentActorAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return ListReceiptOcrReviewQueueAsync(
+            routeGroupId: null,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            cancellationToken);
+    }
+
+    private static Task<IResult> ListGroupReceiptOcrReviewsAsync(
+        Guid groupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return ListReceiptOcrReviewQueueAsync(
+            groupId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            cancellationToken);
+    }
+
+    private static async Task<IResult> ListReceiptOcrReviewQueueAsync(
+        Guid? routeGroupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var readResult = ReadReceiptOcrReviewQueueRequest(request);
+        if (!readResult.Succeeded || readResult.Filters is null)
+        {
+            return InvalidReceiptOcrReviewQuery(readResult.Errors);
+        }
+
+        var filters = readResult.Filters;
+        var query = VisibleReceiptOcrReviewQueueQuery(
+            dbContext,
+            actor.UserProfileId,
+            routeGroupId);
+
+        if (filters.Status is not null)
+        {
+            query = query.Where(review => review.Status == filters.Status);
+        }
+
+        if (filters.Source is not null)
+        {
+            query = query.Where(review => review.Source == filters.Source);
+        }
+
+        var reviews = await query
+            .OrderByDescending(review => review.UpdatedAtUtc)
+            .ThenByDescending(review => review.CreatedAtUtc)
+            .ThenBy(review => review.Id)
+            .Take(filters.Limit)
+            .Select(review => new ReceiptOcrReviewSummaryResponse(
+                review.Id,
+                review.ExpenseBillId,
+                review.GroupId,
+                review.FileObjectId,
+                review.Status,
+                review.Source,
+                review.MerchantText,
+                review.Currency,
+                review.Lines.Count,
+                review.CreatedAtUtc,
+                review.UpdatedAtUtc))
+            .ToArrayAsync(cancellationToken);
+
+        return Results.Ok(new ReceiptOcrReviewListResponse(reviews));
     }
 
     private static Task<IResult> UpsertPersonalReceiptOcrReviewAsync(
@@ -529,6 +650,65 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return Results.NoContent();
+    }
+
+    private static ReceiptOcrReviewQueueReadResult ReadReceiptOcrReviewQueueRequest(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var queryKey in request.Query.Keys)
+        {
+            if (!AllowedQueueQueryProperties.Contains(queryKey))
+            {
+                AddError(errors, queryKey, "Filter is not supported for receipt OCR review queue.");
+            }
+        }
+
+        var status = ReadOptionalQueryValue(request, "status", errors);
+        if (status is not null && !ReceiptOcrReviewStatuses.IsSupported(status))
+        {
+            AddError(errors, "status", "Receipt OCR review status filter is not supported.");
+        }
+
+        var source = ReadOptionalQueryValue(request, "source", errors);
+        if (source is not null && !ReceiptOcrReviewSources.IsSupported(source))
+        {
+            AddError(errors, "source", "Receipt OCR review source filter is not supported.");
+        }
+
+        var limit = DefaultReceiptOcrReviewQueueLimit;
+        var submittedLimit = ReadOptionalQueryValue(request, "limit", errors);
+        if (submittedLimit is not null)
+        {
+            if (!int.TryParse(submittedLimit, NumberStyles.None, CultureInfo.InvariantCulture, out limit)
+                || limit < 1
+                || limit > MaxReceiptOcrReviewQueueLimit)
+            {
+                AddError(errors, "limit", $"Receipt OCR review queue limit must be between 1 and {MaxReceiptOcrReviewQueueLimit}.");
+            }
+        }
+
+        return errors.Count > 0
+            ? ReceiptOcrReviewQueueReadResult.Invalid(ToErrorDictionary(errors))
+            : ReceiptOcrReviewQueueReadResult.Valid(new ReceiptOcrReviewQueueFilters(status, source, limit));
+    }
+
+    private static string? ReadOptionalQueryValue(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(key, out var values))
+        {
+            return null;
+        }
+
+        if (values.Count != 1 || string.IsNullOrWhiteSpace(values[0]))
+        {
+            AddError(errors, key, "A single non-empty query value is required.");
+            return null;
+        }
+
+        return values[0];
     }
 
     private static async Task<ReceiptOcrReviewReadResult> ReadReceiptOcrReviewRequestAsync(
@@ -996,6 +1176,57 @@ internal static class ReceiptOcrReviewEndpoints
             : await businessAuthorizationService.CanAccessProfileAsync(actorUserProfileId, cancellationToken);
     }
 
+    private static IQueryable<ReceiptOcrReview> VisibleReceiptOcrReviewQueueQuery(
+        SettleoraDbContext dbContext,
+        Guid actorUserProfileId,
+        Guid? routeGroupId)
+    {
+        var query = dbContext.Set<ReceiptOcrReview>()
+            .AsNoTracking()
+            .Where(review => review.RemovedAtUtc == null
+                && review.CreatedByUserProfile.DeletedAtUtc == null
+                && review.Attachment.RemovedAtUtc == null
+                && review.Attachment.Purpose == ExpenseBillAttachmentPurposes.Receipt
+                && review.Attachment.CreatedByUserProfile.DeletedAtUtc == null
+                && review.Attachment.FileObject.DeletedAtUtc == null
+                && review.Attachment.FileObject.OwnerUserProfileId == review.Attachment.CreatedByUserProfileId
+                && review.Attachment.FileObject.CreatedByUserProfileId == review.Attachment.CreatedByUserProfileId
+                && review.Attachment.FileObject.Status == FileObjectStatuses.Active
+                && review.Attachment.FileObject.Purpose == FileObjectPurposes.ReceiptImage
+                && SupportedReceiptContentTypeValues.Contains(review.Attachment.FileObject.ContentType)
+                && ((review.GroupId == null && review.Attachment.ExpenseBill.GroupId == null)
+                    || (review.GroupId != null && review.GroupId == review.Attachment.ExpenseBill.GroupId))
+                && review.Attachment.ExpenseBill.ArchivedAtUtc == null
+                && VisibleBillStatuses.Contains(review.Attachment.ExpenseBill.Status)
+                && review.Attachment.ExpenseBill.CreatedByUserProfile.DeletedAtUtc == null
+                && review.Attachment.ExpenseBill.BillOwnerUserProfile.DeletedAtUtc == null
+                && (review.Attachment.ExpenseBill.CreatedByUserProfileId == actorUserProfileId
+                    || review.Attachment.ExpenseBill.BillOwnerUserProfileId == actorUserProfileId
+                    || review.Attachment.ExpenseBill.Participants.Any(participant => participant.UserProfileId == actorUserProfileId)
+                    || review.Attachment.ExpenseBill.Payers.Any(payer => payer.UserProfileId == actorUserProfileId)));
+
+        if (routeGroupId.HasValue)
+        {
+            return query.Where(review => review.GroupId == routeGroupId.Value
+                && review.Attachment.ExpenseBill.GroupId == routeGroupId.Value
+                && review.Attachment.ExpenseBill.Group != null
+                && review.Attachment.ExpenseBill.Group.DeletedAtUtc == null
+                && dbContext.Set<GroupMembership>().Any(membership =>
+                    membership.GroupId == routeGroupId.Value
+                    && membership.UserProfileId == actorUserProfileId
+                    && membership.Status == GroupMembershipStatuses.Active));
+        }
+
+        return query.Where(review => review.Attachment.ExpenseBill.GroupId == null
+            || (review.Attachment.ExpenseBill.GroupId != null
+                && review.Attachment.ExpenseBill.Group != null
+                && review.Attachment.ExpenseBill.Group.DeletedAtUtc == null
+                && dbContext.Set<GroupMembership>().Any(membership =>
+                    membership.GroupId == review.Attachment.ExpenseBill.GroupId.Value
+                    && membership.UserProfileId == actorUserProfileId
+                    && membership.Status == GroupMembershipStatuses.Active)));
+    }
+
     private static IQueryable<ExpenseBillAttachment> LoadReadableReceiptAttachmentQuery(
         SettleoraDbContext dbContext,
         ReceiptOcrReviewContext billContext,
@@ -1242,6 +1473,15 @@ internal static class ReceiptOcrReviewEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static IResult InvalidReceiptOcrReviewQuery(IDictionary<string, string[]> errors)
+    {
+        return Results.ValidationProblem(
+            errors,
+            title: InvalidReceiptOcrReviewQueryTitle,
+            detail: InvalidReceiptOcrReviewQueryDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
     private static IResult ReceiptOcrReviewConflict()
     {
         return Results.Problem(
@@ -1294,6 +1534,40 @@ internal static class ReceiptOcrReviewEndpoints
             return new ReceiptOcrReviewReadResult(null, errors);
         }
     }
+
+    private sealed class ReceiptOcrReviewQueueReadResult
+    {
+        private ReceiptOcrReviewQueueReadResult(
+            ReceiptOcrReviewQueueFilters? filters,
+            IDictionary<string, string[]> errors)
+        {
+            Filters = filters;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public ReceiptOcrReviewQueueFilters? Filters { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static ReceiptOcrReviewQueueReadResult Valid(ReceiptOcrReviewQueueFilters filters)
+        {
+            return new ReceiptOcrReviewQueueReadResult(
+                filters,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static ReceiptOcrReviewQueueReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new ReceiptOcrReviewQueueReadResult(null, errors);
+        }
+    }
+
+    private sealed record ReceiptOcrReviewQueueFilters(
+        string? Status,
+        string? Source,
+        int Limit);
 
     private sealed record SubmittedReceiptOcrReview(
         string Status,

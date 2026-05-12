@@ -49,10 +49,12 @@ function collectOperations(openApiSpec) {
         continue;
       }
 
-      const pathParameters = [
+      const parameters = [
         ...(pathItem.parameters ?? []),
         ...(operation.parameters ?? [])
-      ].filter((parameter) => parameter.in === "path");
+      ];
+      const pathParameters = parameters.filter((parameter) => parameter.in === "path");
+      const queryParameters = parameters.filter((parameter) => parameter.in === "query");
 
       const requestContent = operation.requestBody?.content ?? {};
       const jsonRequestSchema = requestContent["application/json"]?.schema;
@@ -81,6 +83,7 @@ function collectOperations(openApiSpec) {
         path,
         operationId: operation.operationId,
         pathParameters,
+        queryParameters,
         requestKind,
         requestSchema,
         multipartFileField: multipartRequest?.fileField ?? null,
@@ -239,6 +242,9 @@ function generateTypeScriptClient(collectedOperations) {
     collectTypeImports(operation.requestSchema, importedTypes);
     for (const field of operation.multipartFields ?? []) {
       collectTypeImports(field.schema, importedTypes);
+    }
+    for (const parameter of operation.queryParameters ?? []) {
+      collectTypeImports(parameter.schema, importedTypes);
     }
     if (operation.successKind === "json" && operation.successSchema) {
       importedTypes.add(operation.successTypeName);
@@ -411,6 +417,22 @@ function generateTypeScriptClient(collectedOperations) {
     "    return payload as T;",
     "  }",
     "",
+    "  private withQuery(path: string, query: Record<string, string | number | boolean | null | undefined>): string {",
+    "    const parameters = new URLSearchParams();",
+    "    for (const [key, value] of Object.entries(query)) {",
+    "      if (value !== undefined && value !== null) {",
+    "        parameters.append(key, String(value));",
+    "      }",
+    "    }",
+    "",
+    "    const queryText = parameters.toString();",
+    "    if (queryText.length === 0) {",
+    "      return path;",
+    "    }",
+    "",
+    "    return `${path}${path.includes(\"?\") ? \"&\" : \"?\"}${queryText}`;",
+    "  }",
+    "",
     "  private resolveUrl(path: string): string {",
     "    const normalizedBaseUrl = this.baseUrl.endsWith(\"/\") ? this.baseUrl : `${this.baseUrl}/`;",
     "    const normalizedPath = path.startsWith(\"/\") ? path.slice(1) : path;",
@@ -437,6 +459,11 @@ function generateTypeScriptOperation(operation) {
     : operation.successKind === "binary"
       ? "Blob"
       : "void";
+  const queryType = operation.queryParameters.length > 0 ? typescriptQueryType(operation.queryParameters) : null;
+  const queryParameter = queryType ? [`query: ${queryType} = {}`] : [];
+  const optionsParameter = operation.requiresAuth
+    ? "options: SettleoraAuthenticatedRequestOptions"
+    : "options: SettleoraRequestOptions = {}";
   const parameters = [
     ...operation.pathParameters.map((parameter) => `${parameter.name}: ${typescriptType(parameter.schema)}`),
     ...(operation.requestKind === "multipart"
@@ -444,11 +471,12 @@ function generateTypeScriptOperation(operation) {
       : []),
     ...(operation.requestKind === "multipart" ? ["file: Blob"] : []),
     ...(operation.requestKind === "json" && requestType ? [`body: ${requestType}`] : []),
-    operation.requiresAuth
-      ? "options: SettleoraAuthenticatedRequestOptions"
-      : "options: SettleoraRequestOptions = {}"
+    ...(operation.requiresAuth ? [optionsParameter, ...queryParameter] : [...queryParameter, optionsParameter])
   ];
   const pathExpression = typeScriptPathExpression(operation.path, operation.pathParameters);
+  const requestPathExpression = queryType
+    ? `this.withQuery(${pathExpression}, ${typescriptQueryObjectExpression(operation.queryParameters)})`
+    : pathExpression;
   const bodyExpression = operation.requestKind === "json" && requestType ? "body" : "undefined";
   const accessTokenExpression = operation.requiresAuth ? "options.accessToken" : "undefined";
 
@@ -456,7 +484,7 @@ function generateTypeScriptOperation(operation) {
     const fieldsExpression = `{ ${operation.multipartFields.map((field) => `${JSON.stringify(field.name)}: ${typescriptParameterName(field.name)}`).join(", ")} }`;
     return [
       `  async ${operation.operationId}(${parameters.join(", ")}): Promise<${returnType}> {`,
-      `    return this.requestMultipart<${returnType}>(\"${operation.method}\", ${pathExpression}, ${JSON.stringify(operation.multipartFileField)}, file, ${fieldsExpression}, options, ${accessTokenExpression});`,
+      `    return this.requestMultipart<${returnType}>(\"${operation.method}\", ${requestPathExpression}, ${JSON.stringify(operation.multipartFileField)}, file, ${fieldsExpression}, options, ${accessTokenExpression});`,
       "  }"
     ];
   }
@@ -464,16 +492,29 @@ function generateTypeScriptOperation(operation) {
   if (operation.successKind === "binary") {
     return [
       `  async ${operation.operationId}(${parameters.join(", ")}): Promise<Blob> {`,
-      `    return this.requestBlob(\"${operation.method}\", ${pathExpression}, options, ${accessTokenExpression});`,
+      `    return this.requestBlob(\"${operation.method}\", ${requestPathExpression}, options, ${accessTokenExpression});`,
       "  }"
     ];
   }
 
   return [
     `  async ${operation.operationId}(${parameters.join(", ")}): Promise<${returnType}> {`,
-    `    return this.request<${returnType}>(\"${operation.method}\", ${pathExpression}, ${bodyExpression}, options, ${accessTokenExpression});`,
+    `    return this.request<${returnType}>(\"${operation.method}\", ${requestPathExpression}, ${bodyExpression}, options, ${accessTokenExpression});`,
     "  }"
   ];
+}
+
+function typescriptQueryType(queryParameters) {
+  const properties = queryParameters.map((parameter) => {
+    const optional = parameter.required ? "" : "?";
+    return `${typescriptPropertyName(parameter.name)}${optional}: ${typescriptType(parameter.schema)} | null`;
+  });
+
+  return `{ ${properties.join("; ")} }`;
+}
+
+function typescriptQueryObjectExpression(queryParameters) {
+  return `{ ${queryParameters.map((parameter) => `${JSON.stringify(parameter.name)}: query.${typescriptPropertyName(parameter.name)}`).join(", ")} }`;
 }
 
 function generateTypeScriptIndex() {
@@ -922,6 +963,22 @@ function generateDartClient(collectedOperations) {
     "",
     "    return payload;",
     "  }",
+    "",
+    "  String _withQuery(String path, Map<String, Object?> query) {",
+    "    final parameters = <String>[];",
+    "    for (final entry in query.entries) {",
+    "      final value = entry.value;",
+    "      if (value != null) {",
+    "        parameters.add('${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(value.toString())}');",
+    "      }",
+    "    }",
+    "",
+    "    if (parameters.isEmpty) {",
+    "      return path;",
+    "    }",
+    "",
+    "    return '$path${path.contains('?') ? '&' : '?'}${parameters.join('&')}';",
+    "  }",
     "}",
     "",
     "String _escapeMultipartHeader(String value) {",
@@ -950,6 +1007,7 @@ function generateDartOperation(operation) {
     : operation.successKind === "binary"
       ? "List<int>"
       : "void";
+  const queryParameters = operation.queryParameters ?? [];
   const positionalParameters = [
     ...operation.pathParameters.map((parameter) => `${dartType(parameter.schema, { nullable: false })} ${toCamelCase(parameter.name)}`),
     ...(operation.requestKind === "multipart" ? operation.multipartFields.map((field) => `${dartType(field.schema, { nullable: !field.required })} ${toCamelCase(field.name)}`) : []),
@@ -957,6 +1015,7 @@ function generateDartOperation(operation) {
     ...(operation.requestKind === "json" && operation.requestSchema ? [`${dartType(operation.requestSchema, { nullable: false })} body`] : [])
   ];
   const namedParameters = [
+    ...queryParameters.map((parameter) => `${dartType(parameter.schema, { nullable: !parameter.required })} ${toCamelCase(parameter.name)}`),
     ...(operation.requiresAuth ? ["required String accessToken"] : []),
     "Map<String, String>? headers"
   ];
@@ -965,6 +1024,9 @@ function generateDartOperation(operation) {
     `{${namedParameters.join(", ")}}`
   ].join(", ");
   const pathExpression = dartPathExpression(operation.path, operation.pathParameters);
+  const requestPathExpression = queryParameters.length > 0
+    ? `_withQuery(${pathExpression}, {${queryParameters.map((parameter) => `${JSON.stringify(parameter.name)}: ${toCamelCase(parameter.name)}`).join(", ")}})`
+    : pathExpression;
   const bodyExpression = operation.requestKind === "json" && operation.requestSchema ? "body.toJson()" : "null";
   const accessTokenArgument = operation.requiresAuth ? "accessToken: accessToken," : "";
   if (operation.requestKind === "multipart") {
@@ -973,7 +1035,7 @@ function generateDartOperation(operation) {
       `  Future<${responseType}> ${operation.operationId}(${parameterText}) async {`,
       "    final payload = await _sendMultipart(",
       `      ${JSON.stringify(operation.method)},`,
-      `      ${pathExpression},`,
+      `      ${requestPathExpression},`,
       `      fieldName: ${JSON.stringify(operation.multipartFileField)},`,
       "      file: file,"
     ];
@@ -1006,7 +1068,7 @@ function generateDartOperation(operation) {
       `  Future<List<int>> ${operation.operationId}(${parameterText}) async {`,
       "    return _sendBytes(",
       `      ${JSON.stringify(operation.method)},`,
-      `      ${pathExpression},`
+      `      ${requestPathExpression},`
     ];
 
     if (accessTokenArgument) {
@@ -1026,7 +1088,7 @@ function generateDartOperation(operation) {
     `  Future<${responseType}> ${operation.operationId}(${parameterText}) async {`,
     sendStart,
     `      ${JSON.stringify(operation.method)},`,
-    `      ${pathExpression},`,
+    `      ${requestPathExpression},`,
     `      body: ${bodyExpression},`
   ];
 

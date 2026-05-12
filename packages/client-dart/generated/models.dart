@@ -2819,6 +2819,98 @@ class ReceiptOcrReviewLineResponse {
   }
 }
 
+/// Safe receipt OCR review queue list. It contains compact navigation summaries only and excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill item/split/settlement/balance state, and unrelated users.
+class ReceiptOcrReviewListResponse {
+  const ReceiptOcrReviewListResponse({
+    required this.reviews,
+  });
+
+  final List<ReceiptOcrReviewSummaryResponse> reviews;
+
+  factory ReceiptOcrReviewListResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewListResponse(
+      reviews: (json["reviews"] as List<dynamic>).map((item) => ReceiptOcrReviewSummaryResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "reviews": reviews.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Compact safe receipt OCR review summary for review queue navigation. It exposes stable review, bill, group, and file IDs plus bounded review status/source, optional reviewed merchant text/currency, line count, and timestamps only.
+class ReceiptOcrReviewSummaryResponse {
+  const ReceiptOcrReviewSummaryResponse({
+    required this.reviewId,
+    required this.billId,
+    required this.groupId,
+    required this.fileId,
+    required this.status,
+    required this.source,
+    required this.merchantText,
+    required this.currency,
+    required this.lineCount,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable receipt OCR review ID.
+  final String reviewId;
+  /// Expense bill ID that owns the receipt attachment.
+  final String billId;
+  /// Owning group ID for group bills, or null for personal bills.
+  final String? groupId;
+  /// Stable file metadata ID of the reviewed receipt attachment.
+  final String fileId;
+  final ReceiptOcrReviewStatus status;
+  final ReceiptOcrReviewSource source;
+  /// Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+  final String? merchantText;
+  final CurrencyCode? currency;
+  /// Number of bounded reviewed/candidate line rows linked to the review.
+  final int lineCount;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ReceiptOcrReviewSummaryResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewSummaryResponse(
+      reviewId: json["reviewId"] as String,
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      fileId: json["fileId"] as String,
+      status: json["status"] as String,
+      source: json["source"] as String,
+      merchantText: json["merchantText"] == null ? null : json["merchantText"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      lineCount: (json["lineCount"] as num).toInt(),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantTextJsonValue = merchantText;
+    final currencyJsonValue = currency;
+
+    return {
+      "reviewId": reviewId,
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "fileId": fileId,
+      "status": status,
+      "source": source,
+      "merchantText": merchantTextJsonValue,
+      "currency": currencyJsonValue,
+      "lineCount": lineCount,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Safe receipt OCR review response for one bill receipt attachment. It exposes stable bill/file/review IDs and bounded reviewed candidate fields only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, auth/session data, payment details, raw audit metadata, bill split/settlement/balance state, and unrelated users.
 class ReceiptOcrReviewResponse {
   const ReceiptOcrReviewResponse({
