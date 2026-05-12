@@ -8,6 +8,19 @@ On-device OCR is a required mobile capability. The mobile app must be able to sc
 
 OCR output is still subject to validation depending on profile mode. Local-only profiles can accept OCR-derived data locally after user confirmation or editing. Server-mode profiles treat OCR-derived data from the client as provisional until the backend API validates and accepts it.
 
+## Current Implementation Status
+
+The API now has a narrow bill-scoped receipt OCR review intake foundation for existing receipt attachments:
+
+- `PUT /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
+- `DELETE /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
+- `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
+- `DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
+
+These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data only: it does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, or automatically mutate authoritative bill items, splits, settlements, balances, or payments.
+
 ## OCR Paths
 
 ### On-device OCR
@@ -75,7 +88,9 @@ Money must remain decimal-safe. Currency must always be attached to monetary val
 - No OCR package choice yet.
 - No Flutter OCR implementation yet.
 - No Python OCR implementation yet.
-- No OCR API endpoints yet.
+- No server OCR engine or OCR worker runtime yet.
+- No standalone receipt/OCR upload outside bill attachments yet.
+- No automatic OCR-to-bill, split, settlement, balance, or payment mutation yet.
 - No database schema yet.
 - No generated client changes yet.
 

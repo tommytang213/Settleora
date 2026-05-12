@@ -60,6 +60,8 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
+        modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
+        modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
         modelBuilder.Entity<ExpenseBillRevision>(ConfigureExpenseBillRevision);
         modelBuilder.Entity<ExpenseBillRevisionParticipant>(ConfigureExpenseBillRevisionParticipant);
         modelBuilder.Entity<ExpenseBillRevisionPayer>(ConfigureExpenseBillRevisionPayer);
@@ -1112,6 +1114,280 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(attachment => attachment.CreatedByUserProfileId)
             .HasConstraintName("fk_expense_bill_attachments_user_profiles_created_by")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureReceiptOcrReview(EntityTypeBuilder<ReceiptOcrReview> entity)
+    {
+        entity.ToTable("receipt_ocr_reviews", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_status",
+                "status IN ('provisional', 'reviewed')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_source",
+                "source IN ('on_device', 'manual_entry', 'imported_reviewed_data')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_merchant_text_not_blank",
+                "merchant_text IS NULL OR length(btrim(merchant_text)) > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_currency_uppercase_iso",
+                "currency IS NULL OR currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_amounts_require_currency",
+                "(currency IS NOT NULL OR (subtotal_amount IS NULL AND tax_amount IS NULL AND service_charge_amount IS NULL AND discount_amount IS NULL AND grand_total_amount IS NULL))");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_subtotal_amount_non_negative",
+                "subtotal_amount IS NULL OR subtotal_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_tax_amount_non_negative",
+                "tax_amount IS NULL OR tax_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_service_charge_amount_non_negative",
+                "service_charge_amount IS NULL OR service_charge_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_discount_amount_non_negative",
+                "discount_amount IS NULL OR discount_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_grand_total_amount_non_negative",
+                "grand_total_amount IS NULL OR grand_total_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_subtotal_amount_upper_bound",
+                "subtotal_amount IS NULL OR subtotal_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_tax_amount_upper_bound",
+                "tax_amount IS NULL OR tax_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_service_charge_amount_upper_bound",
+                "service_charge_amount IS NULL OR service_charge_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_discount_amount_upper_bound",
+                "discount_amount IS NULL OR discount_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_grand_total_amount_upper_bound",
+                "grand_total_amount IS NULL OR grand_total_amount <= 999999999999999.9999");
+        });
+
+        entity.HasKey(review => review.Id);
+
+        entity.Property(review => review.Id)
+            .HasColumnName("id");
+
+        entity.Property(review => review.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(review => review.FileObjectId)
+            .HasColumnName("file_object_id");
+
+        entity.Property(review => review.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(review => review.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(review => review.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ReceiptOcrReviewConstraints.StatusMaxLength)
+            .IsRequired();
+
+        entity.Property(review => review.Source)
+            .HasColumnName("source")
+            .HasMaxLength(ReceiptOcrReviewConstraints.SourceMaxLength)
+            .IsRequired();
+
+        entity.Property(review => review.MerchantText)
+            .HasColumnName("merchant_text")
+            .HasMaxLength(ReceiptOcrReviewConstraints.MerchantTextMaxLength);
+
+        entity.Property(review => review.ReceiptIssuedAtUtc)
+            .HasColumnName("receipt_issued_at_utc");
+
+        entity.Property(review => review.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ReceiptOcrReviewConstraints.CurrencyMaxLength);
+
+        entity.Property(review => review.SubtotalAmount)
+            .HasColumnName("subtotal_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.TaxAmount)
+            .HasColumnName("tax_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.ServiceChargeAmount)
+            .HasColumnName("service_charge_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.DiscountAmount)
+            .HasColumnName("discount_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.GrandTotalAmount)
+            .HasColumnName("grand_total_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(review => review.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(review => review.RemovedAtUtc)
+            .HasColumnName("removed_at_utc");
+
+        entity.HasIndex(review => new
+            {
+                review.ExpenseBillId,
+                review.FileObjectId
+            })
+            .IsUnique()
+            .HasFilter("removed_at_utc IS NULL")
+            .HasDatabaseName("ux_receipt_ocr_reviews_active_bill_file");
+
+        entity.HasIndex(review => review.FileObjectId)
+            .HasDatabaseName("ix_receipt_ocr_reviews_file_object_id");
+
+        entity.HasIndex(review => review.CreatedByUserProfileId)
+            .HasDatabaseName("ix_receipt_ocr_reviews_created_by_profile_id");
+
+        entity.HasIndex(review => review.GroupId)
+            .HasDatabaseName("ix_receipt_ocr_reviews_group_id");
+
+        entity.HasIndex(review => review.Status)
+            .HasDatabaseName("ix_receipt_ocr_reviews_status");
+
+        entity.HasIndex(review => review.RemovedAtUtc)
+            .HasDatabaseName("ix_receipt_ocr_reviews_removed_at_utc");
+
+        entity.HasOne(review => review.Attachment)
+            .WithMany()
+            .HasForeignKey(review => new
+            {
+                review.ExpenseBillId,
+                review.FileObjectId
+            })
+            .HasConstraintName("fk_receipt_ocr_reviews_expense_bill_attachments_bill_file")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<ExpenseBill>()
+            .WithMany(bill => bill.ReceiptOcrReviews)
+            .HasForeignKey(review => review.ExpenseBillId)
+            .HasConstraintName("fk_receipt_ocr_reviews_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(review => review.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(review => review.CreatedByUserProfileId)
+            .HasConstraintName("fk_receipt_ocr_reviews_user_profiles_created_by")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(review => review.Group)
+            .WithMany()
+            .HasForeignKey(review => review.GroupId)
+            .HasConstraintName("fk_receipt_ocr_reviews_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureReceiptOcrReviewLine(EntityTypeBuilder<ReceiptOcrReviewLine> entity)
+    {
+        entity.ToTable("receipt_ocr_review_lines", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_sort_order_non_negative",
+                "sort_order >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_text_not_blank",
+                "length(btrim(text)) > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_quantity_positive",
+                "quantity IS NULL OR quantity > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_quantity_upper_bound",
+                "quantity IS NULL OR quantity <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_unit_price_non_negative",
+                "unit_price_amount IS NULL OR unit_price_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_line_total_non_negative",
+                "line_total_amount IS NULL OR line_total_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_unit_price_upper_bound",
+                "unit_price_amount IS NULL OR unit_price_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_lines_line_total_upper_bound",
+                "line_total_amount IS NULL OR line_total_amount <= 999999999999999.9999");
+        });
+
+        entity.HasKey(line => line.Id);
+
+        entity.Property(line => line.Id)
+            .HasColumnName("id");
+
+        entity.Property(line => line.ReceiptOcrReviewId)
+            .HasColumnName("receipt_ocr_review_id");
+
+        entity.Property(line => line.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        entity.Property(line => line.Text)
+            .HasColumnName("text")
+            .HasMaxLength(ReceiptOcrReviewConstraints.LineTextMaxLength)
+            .IsRequired();
+
+        entity.Property(line => line.Quantity)
+            .HasColumnName("quantity")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.QuantityPrecision,
+                ReceiptOcrReviewConstraints.QuantityScale);
+
+        entity.Property(line => line.UnitPriceAmount)
+            .HasColumnName("unit_price_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(line => line.LineTotalAmount)
+            .HasColumnName("line_total_amount")
+            .HasPrecision(
+                ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+                ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(line => line.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(line => line.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(line => line.ReceiptOcrReviewId)
+            .HasDatabaseName("ix_receipt_ocr_review_lines_review_id");
+
+        entity.HasIndex(line => new
+            {
+                line.ReceiptOcrReviewId,
+                line.SortOrder
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_receipt_ocr_review_lines_review_sort_order");
+
+        entity.HasOne(line => line.ReceiptOcrReview)
+            .WithMany(review => review.Lines)
+            .HasForeignKey(line => line.ReceiptOcrReviewId)
+            .HasConstraintName("fk_receipt_ocr_review_lines_reviews_review_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

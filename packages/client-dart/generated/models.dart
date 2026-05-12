@@ -2559,6 +2559,365 @@ class AttachBillAttachmentRequest {
   }
 }
 
+/// Minimal provisional review state for client/on-device or user-reviewed receipt OCR data.
+typedef ReceiptOcrReviewStatus = String;
+class ReceiptOcrReviewStatusValues {
+  const ReceiptOcrReviewStatusValues._();
+  static const ReceiptOcrReviewStatus provisional = "provisional";
+  static const ReceiptOcrReviewStatus reviewed = "reviewed";
+  static const Set<ReceiptOcrReviewStatus> values = {provisional, reviewed};
+}
+
+/// Bounded source category for submitted receipt OCR review data.
+typedef ReceiptOcrReviewSource = String;
+class ReceiptOcrReviewSourceValues {
+  const ReceiptOcrReviewSourceValues._();
+  static const ReceiptOcrReviewSource onDevice = "on_device";
+  static const ReceiptOcrReviewSource manualEntry = "manual_entry";
+  static const ReceiptOcrReviewSource importedReviewedData = "imported_reviewed_data";
+  static const Set<ReceiptOcrReviewSource> values = {onDevice, manualEntry, importedReviewedData};
+}
+
+/// Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
+typedef ReceiptOcrCandidateAmount = String;
+
+/// One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
+class ReceiptOcrReviewLineRequest {
+  static const Object _unsetQuantity = Object();
+  static const Object _unsetUnitPriceAmount = Object();
+  static const Object _unsetLineTotalAmount = Object();
+
+  ReceiptOcrReviewLineRequest({
+    required this.text,
+    Object? quantity = _unsetQuantity,
+    Object? unitPriceAmount = _unsetUnitPriceAmount,
+    Object? lineTotalAmount = _unsetLineTotalAmount,
+  })
+      : quantity = identical(quantity, _unsetQuantity) ? null : quantity as String?,
+        _hasQuantity = !identical(quantity, _unsetQuantity),
+        unitPriceAmount = identical(unitPriceAmount, _unsetUnitPriceAmount) ? null : unitPriceAmount as ReceiptOcrCandidateAmount?,
+        _hasUnitPriceAmount = !identical(unitPriceAmount, _unsetUnitPriceAmount),
+        lineTotalAmount = identical(lineTotalAmount, _unsetLineTotalAmount) ? null : lineTotalAmount as ReceiptOcrCandidateAmount?,
+        _hasLineTotalAmount = !identical(lineTotalAmount, _unsetLineTotalAmount);
+
+  /// Reviewed or candidate receipt line text.
+  final String text;
+  /// Optional positive decimal quantity candidate represented as a string.
+  final String? quantity;
+  final bool _hasQuantity;
+  /// Optional non-negative unit price candidate represented as a string.
+  final ReceiptOcrCandidateAmount? unitPriceAmount;
+  final bool _hasUnitPriceAmount;
+  /// Optional non-negative line total candidate represented as a string.
+  final ReceiptOcrCandidateAmount? lineTotalAmount;
+  final bool _hasLineTotalAmount;
+
+  factory ReceiptOcrReviewLineRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewLineRequest(
+      text: json["text"] as String,
+      quantity: json.containsKey("quantity")
+          ? json["quantity"] == null ? null : json["quantity"] as String
+          : _unsetQuantity,
+      unitPriceAmount: json.containsKey("unitPriceAmount")
+          ? json["unitPriceAmount"] == null ? null : json["unitPriceAmount"] as String
+          : _unsetUnitPriceAmount,
+      lineTotalAmount: json.containsKey("lineTotalAmount")
+          ? json["lineTotalAmount"] == null ? null : json["lineTotalAmount"] as String
+          : _unsetLineTotalAmount,
+    );
+  }
+
+  JsonObject toJson() {
+    final quantityJsonValue = quantity;
+    final unitPriceAmountJsonValue = unitPriceAmount;
+    final lineTotalAmountJsonValue = lineTotalAmount;
+
+    return {
+      "text": text,
+      if (_hasQuantity) "quantity": quantityJsonValue,
+      if (_hasUnitPriceAmount) "unitPriceAmount": unitPriceAmountJsonValue,
+      if (_hasLineTotalAmount) "lineTotalAmount": lineTotalAmountJsonValue,
+    };
+  }
+}
+
+/// Purpose-specific review/intake payload for one existing bill receipt attachment. It stores provisional OCR-derived or manually reviewed candidate fields only and must not include raw OCR full text, file bytes, storage/provider fields, auth/session fields, bill item mutation instructions, split allocation inputs, settlement data, payment details, or unrelated user data.
+class ReceiptOcrReviewUpsertRequest {
+  static const Object _unsetMerchantText = Object();
+  static const Object _unsetReceiptIssuedAtUtc = Object();
+  static const Object _unsetCurrency = Object();
+  static const Object _unsetSubtotalAmount = Object();
+  static const Object _unsetTaxAmount = Object();
+  static const Object _unsetServiceChargeAmount = Object();
+  static const Object _unsetDiscountAmount = Object();
+  static const Object _unsetGrandTotalAmount = Object();
+
+  ReceiptOcrReviewUpsertRequest({
+    required this.status,
+    required this.source,
+    Object? merchantText = _unsetMerchantText,
+    Object? receiptIssuedAtUtc = _unsetReceiptIssuedAtUtc,
+    Object? currency = _unsetCurrency,
+    Object? subtotalAmount = _unsetSubtotalAmount,
+    Object? taxAmount = _unsetTaxAmount,
+    Object? serviceChargeAmount = _unsetServiceChargeAmount,
+    Object? discountAmount = _unsetDiscountAmount,
+    Object? grandTotalAmount = _unsetGrandTotalAmount,
+    this.lines,
+  })
+      : merchantText = identical(merchantText, _unsetMerchantText) ? null : merchantText as String?,
+        _hasMerchantText = !identical(merchantText, _unsetMerchantText),
+        receiptIssuedAtUtc = identical(receiptIssuedAtUtc, _unsetReceiptIssuedAtUtc) ? null : receiptIssuedAtUtc as DateTime?,
+        _hasReceiptIssuedAtUtc = !identical(receiptIssuedAtUtc, _unsetReceiptIssuedAtUtc),
+        currency = identical(currency, _unsetCurrency) ? null : currency as CurrencyCode?,
+        _hasCurrency = !identical(currency, _unsetCurrency),
+        subtotalAmount = identical(subtotalAmount, _unsetSubtotalAmount) ? null : subtotalAmount as ReceiptOcrCandidateAmount?,
+        _hasSubtotalAmount = !identical(subtotalAmount, _unsetSubtotalAmount),
+        taxAmount = identical(taxAmount, _unsetTaxAmount) ? null : taxAmount as ReceiptOcrCandidateAmount?,
+        _hasTaxAmount = !identical(taxAmount, _unsetTaxAmount),
+        serviceChargeAmount = identical(serviceChargeAmount, _unsetServiceChargeAmount) ? null : serviceChargeAmount as ReceiptOcrCandidateAmount?,
+        _hasServiceChargeAmount = !identical(serviceChargeAmount, _unsetServiceChargeAmount),
+        discountAmount = identical(discountAmount, _unsetDiscountAmount) ? null : discountAmount as ReceiptOcrCandidateAmount?,
+        _hasDiscountAmount = !identical(discountAmount, _unsetDiscountAmount),
+        grandTotalAmount = identical(grandTotalAmount, _unsetGrandTotalAmount) ? null : grandTotalAmount as ReceiptOcrCandidateAmount?,
+        _hasGrandTotalAmount = !identical(grandTotalAmount, _unsetGrandTotalAmount);
+
+  final ReceiptOcrReviewStatus status;
+  final ReceiptOcrReviewSource source;
+  /// Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+  final String? merchantText;
+  final bool _hasMerchantText;
+  /// Optional candidate receipt date/time.
+  final DateTime? receiptIssuedAtUtc;
+  final bool _hasReceiptIssuedAtUtc;
+  /// Optional review-level currency. Required when any amount candidate is supplied.
+  final CurrencyCode? currency;
+  final bool _hasCurrency;
+  final ReceiptOcrCandidateAmount? subtotalAmount;
+  final bool _hasSubtotalAmount;
+  final ReceiptOcrCandidateAmount? taxAmount;
+  final bool _hasTaxAmount;
+  final ReceiptOcrCandidateAmount? serviceChargeAmount;
+  final bool _hasServiceChargeAmount;
+  /// Optional non-negative discount magnitude candidate. It is not a signed authoritative adjustment.
+  final ReceiptOcrCandidateAmount? discountAmount;
+  final bool _hasDiscountAmount;
+  final ReceiptOcrCandidateAmount? grandTotalAmount;
+  final bool _hasGrandTotalAmount;
+  /// Optional bounded review lines. The server derives stable line order from array order.
+  final List<ReceiptOcrReviewLineRequest>? lines;
+
+  factory ReceiptOcrReviewUpsertRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewUpsertRequest(
+      status: json["status"] as String,
+      source: json["source"] as String,
+      merchantText: json.containsKey("merchantText")
+          ? json["merchantText"] == null ? null : json["merchantText"] as String
+          : _unsetMerchantText,
+      receiptIssuedAtUtc: json.containsKey("receiptIssuedAtUtc")
+          ? json["receiptIssuedAtUtc"] == null ? null : DateTime.parse(json["receiptIssuedAtUtc"] as String)
+          : _unsetReceiptIssuedAtUtc,
+      currency: json.containsKey("currency")
+          ? json["currency"] == null ? null : json["currency"] as String
+          : _unsetCurrency,
+      subtotalAmount: json.containsKey("subtotalAmount")
+          ? json["subtotalAmount"] == null ? null : json["subtotalAmount"] as String
+          : _unsetSubtotalAmount,
+      taxAmount: json.containsKey("taxAmount")
+          ? json["taxAmount"] == null ? null : json["taxAmount"] as String
+          : _unsetTaxAmount,
+      serviceChargeAmount: json.containsKey("serviceChargeAmount")
+          ? json["serviceChargeAmount"] == null ? null : json["serviceChargeAmount"] as String
+          : _unsetServiceChargeAmount,
+      discountAmount: json.containsKey("discountAmount")
+          ? json["discountAmount"] == null ? null : json["discountAmount"] as String
+          : _unsetDiscountAmount,
+      grandTotalAmount: json.containsKey("grandTotalAmount")
+          ? json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String
+          : _unsetGrandTotalAmount,
+      lines: json["lines"] == null ? null : (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final merchantTextJsonValue = merchantText;
+    final receiptIssuedAtUtcJsonValue = receiptIssuedAtUtc;
+    final currencyJsonValue = currency;
+    final subtotalAmountJsonValue = subtotalAmount;
+    final taxAmountJsonValue = taxAmount;
+    final serviceChargeAmountJsonValue = serviceChargeAmount;
+    final discountAmountJsonValue = discountAmount;
+    final grandTotalAmountJsonValue = grandTotalAmount;
+    final linesJsonValue = lines;
+
+    return {
+      "status": status,
+      "source": source,
+      if (_hasMerchantText) "merchantText": merchantTextJsonValue,
+      if (_hasReceiptIssuedAtUtc) "receiptIssuedAtUtc": receiptIssuedAtUtcJsonValue == null ? null : receiptIssuedAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasCurrency) "currency": currencyJsonValue,
+      if (_hasSubtotalAmount) "subtotalAmount": subtotalAmountJsonValue,
+      if (_hasTaxAmount) "taxAmount": taxAmountJsonValue,
+      if (_hasServiceChargeAmount) "serviceChargeAmount": serviceChargeAmountJsonValue,
+      if (_hasDiscountAmount) "discountAmount": discountAmountJsonValue,
+      if (_hasGrandTotalAmount) "grandTotalAmount": grandTotalAmountJsonValue,
+      if (linesJsonValue != null) "lines": linesJsonValue.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.
+class ReceiptOcrReviewLineResponse {
+  const ReceiptOcrReviewLineResponse({
+    required this.id,
+    required this.sortOrder,
+    required this.text,
+    required this.quantity,
+    required this.unitPriceAmount,
+    required this.lineTotalAmount,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final int sortOrder;
+  final String text;
+  final String? quantity;
+  final String? unitPriceAmount;
+  final String? lineTotalAmount;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ReceiptOcrReviewLineResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewLineResponse(
+      id: json["id"] as String,
+      sortOrder: (json["sortOrder"] as num).toInt(),
+      text: json["text"] as String,
+      quantity: json["quantity"] == null ? null : json["quantity"] as String,
+      unitPriceAmount: json["unitPriceAmount"] == null ? null : json["unitPriceAmount"] as String,
+      lineTotalAmount: json["lineTotalAmount"] == null ? null : json["lineTotalAmount"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final quantityJsonValue = quantity;
+    final unitPriceAmountJsonValue = unitPriceAmount;
+    final lineTotalAmountJsonValue = lineTotalAmount;
+
+    return {
+      "id": id,
+      "sortOrder": sortOrder,
+      "text": text,
+      "quantity": quantityJsonValue,
+      "unitPriceAmount": unitPriceAmountJsonValue,
+      "lineTotalAmount": lineTotalAmountJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe receipt OCR review response for one bill receipt attachment. It exposes stable bill/file/review IDs and bounded reviewed candidate fields only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, auth/session data, payment details, raw audit metadata, bill split/settlement/balance state, and unrelated users.
+class ReceiptOcrReviewResponse {
+  const ReceiptOcrReviewResponse({
+    required this.id,
+    required this.billId,
+    required this.fileId,
+    required this.groupId,
+    required this.status,
+    required this.source,
+    required this.merchantText,
+    required this.receiptIssuedAtUtc,
+    required this.currency,
+    required this.subtotalAmount,
+    required this.taxAmount,
+    required this.serviceChargeAmount,
+    required this.discountAmount,
+    required this.grandTotalAmount,
+    required this.lines,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable receipt OCR review ID.
+  final String id;
+  /// Expense bill ID that owns the receipt attachment.
+  final String billId;
+  /// Stable file metadata ID of the reviewed receipt attachment.
+  final String fileId;
+  /// Owning group ID for group bills, or null for personal bills.
+  final String? groupId;
+  final ReceiptOcrReviewStatus status;
+  final ReceiptOcrReviewSource source;
+  final String? merchantText;
+  final DateTime? receiptIssuedAtUtc;
+  final CurrencyCode? currency;
+  final String? subtotalAmount;
+  final String? taxAmount;
+  final String? serviceChargeAmount;
+  final String? discountAmount;
+  final String? grandTotalAmount;
+  final List<ReceiptOcrReviewLineResponse> lines;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ReceiptOcrReviewResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewResponse(
+      id: json["id"] as String,
+      billId: json["billId"] as String,
+      fileId: json["fileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      status: json["status"] as String,
+      source: json["source"] as String,
+      merchantText: json["merchantText"] == null ? null : json["merchantText"] as String,
+      receiptIssuedAtUtc: json["receiptIssuedAtUtc"] == null ? null : DateTime.parse(json["receiptIssuedAtUtc"] as String),
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      subtotalAmount: json["subtotalAmount"] == null ? null : json["subtotalAmount"] as String,
+      taxAmount: json["taxAmount"] == null ? null : json["taxAmount"] as String,
+      serviceChargeAmount: json["serviceChargeAmount"] == null ? null : json["serviceChargeAmount"] as String,
+      discountAmount: json["discountAmount"] == null ? null : json["discountAmount"] as String,
+      grandTotalAmount: json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String,
+      lines: (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantTextJsonValue = merchantText;
+    final receiptIssuedAtUtcJsonValue = receiptIssuedAtUtc;
+    final currencyJsonValue = currency;
+    final subtotalAmountJsonValue = subtotalAmount;
+    final taxAmountJsonValue = taxAmount;
+    final serviceChargeAmountJsonValue = serviceChargeAmount;
+    final discountAmountJsonValue = discountAmount;
+    final grandTotalAmountJsonValue = grandTotalAmount;
+
+    return {
+      "id": id,
+      "billId": billId,
+      "fileId": fileId,
+      "groupId": groupIdJsonValue,
+      "status": status,
+      "source": source,
+      "merchantText": merchantTextJsonValue,
+      "receiptIssuedAtUtc": receiptIssuedAtUtcJsonValue == null ? null : receiptIssuedAtUtcJsonValue.toUtc().toIso8601String(),
+      "currency": currencyJsonValue,
+      "subtotalAmount": subtotalAmountJsonValue,
+      "taxAmount": taxAmountJsonValue,
+      "serviceChargeAmount": serviceChargeAmountJsonValue,
+      "discountAmount": discountAmountJsonValue,
+      "grandTotalAmount": grandTotalAmountJsonValue,
+      "lines": lines.map((item) => item.toJson()).toList(growable: false),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
 class SettlementPaymentProofListResponse {
   const SettlementPaymentProofListResponse({

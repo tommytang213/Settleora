@@ -938,6 +938,124 @@ export interface AttachBillAttachmentRequest {
 }
 
 /**
+ * Minimal provisional review state for client/on-device or user-reviewed receipt OCR data.
+ */
+export type ReceiptOcrReviewStatus = "provisional" | "reviewed";
+
+/**
+ * Bounded source category for submitted receipt OCR review data.
+ */
+export type ReceiptOcrReviewSource = "on_device" | "manual_entry" | "imported_reviewed_data";
+
+/**
+ * Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
+ */
+export type ReceiptOcrCandidateAmount = string;
+
+/**
+ * One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
+ */
+export interface ReceiptOcrReviewLineRequest {
+  /**
+   * Reviewed or candidate receipt line text.
+   */
+  text: string;
+  /**
+   * Optional positive decimal quantity candidate represented as a string.
+   */
+  quantity?: string | null;
+  /**
+   * Optional non-negative unit price candidate represented as a string.
+   */
+  unitPriceAmount?: ReceiptOcrCandidateAmount | null;
+  /**
+   * Optional non-negative line total candidate represented as a string.
+   */
+  lineTotalAmount?: ReceiptOcrCandidateAmount | null;
+}
+
+/**
+ * Purpose-specific review/intake payload for one existing bill receipt attachment. It stores provisional OCR-derived or manually reviewed candidate fields only and must not include raw OCR full text, file bytes, storage/provider fields, auth/session fields, bill item mutation instructions, split allocation inputs, settlement data, payment details, or unrelated user data.
+ */
+export interface ReceiptOcrReviewUpsertRequest {
+  status: ReceiptOcrReviewStatus;
+  source: ReceiptOcrReviewSource;
+  /**
+   * Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+   */
+  merchantText?: string | null;
+  /**
+   * Optional candidate receipt date/time.
+   */
+  receiptIssuedAtUtc?: string | null;
+  /**
+   * Optional review-level currency. Required when any amount candidate is supplied.
+   */
+  currency?: CurrencyCode | null;
+  subtotalAmount?: ReceiptOcrCandidateAmount | null;
+  taxAmount?: ReceiptOcrCandidateAmount | null;
+  serviceChargeAmount?: ReceiptOcrCandidateAmount | null;
+  /**
+   * Optional non-negative discount magnitude candidate. It is not a signed authoritative adjustment.
+   */
+  discountAmount?: ReceiptOcrCandidateAmount | null;
+  grandTotalAmount?: ReceiptOcrCandidateAmount | null;
+  /**
+   * Optional bounded review lines. The server derives stable line order from array order.
+   */
+  lines?: ReceiptOcrReviewLineRequest[];
+}
+
+/**
+ * Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.
+ */
+export interface ReceiptOcrReviewLineResponse {
+  id: string;
+  sortOrder: number;
+  text: string;
+  quantity: string | null;
+  unitPriceAmount: string | null;
+  lineTotalAmount: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
+ * Safe receipt OCR review response for one bill receipt attachment. It exposes stable bill/file/review IDs and bounded reviewed candidate fields only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, auth/session data, payment details, raw audit metadata, bill split/settlement/balance state, and unrelated users.
+ */
+export interface ReceiptOcrReviewResponse {
+  /**
+   * Stable receipt OCR review ID.
+   */
+  id: string;
+  /**
+   * Expense bill ID that owns the receipt attachment.
+   */
+  billId: string;
+  /**
+   * Stable file metadata ID of the reviewed receipt attachment.
+   */
+  fileId: string;
+  /**
+   * Owning group ID for group bills, or null for personal bills.
+   */
+  groupId: string | null;
+  status: ReceiptOcrReviewStatus;
+  source: ReceiptOcrReviewSource;
+  merchantText: string | null;
+  receiptIssuedAtUtc: string | null;
+  currency: CurrencyCode | null;
+  subtotalAmount: string | null;
+  taxAmount: string | null;
+  serviceChargeAmount: string | null;
+  discountAmount: string | null;
+  grandTotalAmount: string | null;
+  lines: ReceiptOcrReviewLineResponse[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
  */
 export interface SettlementPaymentProofListResponse {

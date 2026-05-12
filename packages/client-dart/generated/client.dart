@@ -244,6 +244,38 @@ class SettleoraApiClient {
     );
   }
 
+  Future<ReceiptOcrReviewResponse> getPersonalBillAttachmentOcrReview(String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ReceiptOcrReviewResponse> upsertPersonalBillAttachmentOcrReview(String billId, String fileId, ReceiptOcrReviewUpsertRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PUT",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removePersonalBillAttachmentOcrReview(String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<void> acceptPersonalBillParticipant(String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
     await _send(
       "POST",
@@ -510,6 +542,38 @@ class SettleoraApiClient {
     return _sendBytes(
       "GET",
       '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<ReceiptOcrReviewResponse> getGroupBillAttachmentOcrReview(String groupId, String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ReceiptOcrReviewResponse> upsertGroupBillAttachmentOcrReview(String groupId, String billId, String fileId, ReceiptOcrReviewUpsertRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PUT",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> removeGroupBillAttachmentOcrReview(String groupId, String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review',
+      body: null,
       accessToken: accessToken,
       headers: headers,
     );

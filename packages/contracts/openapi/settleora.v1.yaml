@@ -859,6 +859,189 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review:
+    put:
+      summary: Upsert personal bill receipt OCR review
+      description: Saves provisional or reviewed OCR-derived receipt data for one existing active receipt attachment on a visible personal bill. The authenticated actor is derived from SettleoraSession and must be the bill creator or owner/responsible editor. The attachment must belong to the bill, be active, and have receipt purpose. This endpoint stores review/intake data only and does not mutate bill items, splits, settlements, balances, payments, storage bytes, OCR jobs, or worker state. It never accepts or returns raw OCR full text, file bytes, storage object keys, provider paths, signed URLs, auth/session fields, payment details, or unrelated bill data.
+      operationId: upsertPersonalBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewUpsertRequest"
+      responses:
+        "200":
+          description: Existing receipt OCR review updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "201":
+          description: Receipt OCR review created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "400":
+          description: The submitted review payload is malformed, unsupported, too large, or violates decimal/currency validation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or receipt attachment is missing, removed, deleted, wrong-purpose, unrelated, group-scoped, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state is not OCR-review-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review could not be saved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Get personal bill receipt OCR review
+      description: Returns one active provisional/reviewed OCR review for an active personal bill receipt attachment. The authenticated actor must be able to see the bill and attachment. The response is bounded to reviewed candidate fields and excludes raw OCR full text, file bytes, storage/provider internals, auth/session data, payment details, raw audit metadata, and unrelated users.
+      operationId: getPersonalBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active receipt OCR review visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, group-scoped, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review access could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Remove personal bill receipt OCR review
+      description: Soft-removes one active OCR review from a visible OCR-review-mutable personal bill receipt attachment. The authenticated actor is derived from SettleoraSession and must be the bill creator or owner/responsible editor. The endpoint removes only provisional/review intake state; it does not delete receipt bytes or mutate authoritative bill, split, settlement, balance, or payment records.
+      operationId: removePersonalBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: The receipt OCR review is no longer active.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, group-scoped, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state is not OCR-review-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/attachments/{fileId}/content:
     get:
       summary: Read personal bill attachment content
@@ -2072,6 +2255,210 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Bill attachment removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review:
+    put:
+      summary: Upsert group bill receipt OCR review
+      description: Saves provisional or reviewed OCR-derived receipt data for one existing active receipt attachment on a visible group bill. The authenticated actor is derived from SettleoraSession, must have active route-group access, and must be the bill creator or owner/responsible editor. The attachment must belong to the route bill and group, be active, and have receipt purpose. This endpoint stores review/intake data only and does not mutate bill items, splits, settlements, balances, payments, storage bytes, OCR jobs, or worker state. It never accepts or returns raw OCR full text, file bytes, storage object keys, provider paths, signed URLs, auth/session fields, payment details, or unrelated bill data.
+      operationId: upsertGroupBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewUpsertRequest"
+      responses:
+        "200":
+          description: Existing receipt OCR review updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "201":
+          description: Receipt OCR review created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "400":
+          description: The submitted review payload is malformed, unsupported, too large, or violates decimal/currency validation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, or receipt attachment is missing, removed, deleted, wrong-purpose, unrelated, removed-member, inactive, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state is not OCR-review-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review could not be saved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Get group bill receipt OCR review
+      description: Returns one active provisional/reviewed OCR review for an active group bill receipt attachment. The authenticated actor must have active route-group access and be able to see the bill and attachment. The response is bounded to reviewed candidate fields and excludes raw OCR full text, file bytes, storage/provider internals, auth/session data, payment details, raw audit metadata, and unrelated users.
+      operationId: getGroupBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active receipt OCR review visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, inactive, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review access could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Remove group bill receipt OCR review
+      description: Soft-removes one active OCR review from a visible OCR-review-mutable group bill receipt attachment. The authenticated actor is derived from SettleoraSession, must have active route-group access, and must be the bill creator or owner/responsible editor. The endpoint removes only provisional/review intake state; it does not delete receipt bytes or mutate authoritative bill, split, settlement, balance, or payment records.
+      operationId: removeGroupBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: The receipt OCR review is no longer active.
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, inactive, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill state is not OCR-review-mutable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review removal could not be completed.
           content:
             application/problem+json:
               schema:
@@ -5946,6 +6333,240 @@ components:
             - receipt
             - supporting_attachment
           description: Bounded bill attachment purpose for the file association.
+    ReceiptOcrReviewStatus:
+      type: string
+      description: Minimal provisional review state for client/on-device or user-reviewed receipt OCR data.
+      enum:
+        - provisional
+        - reviewed
+    ReceiptOcrReviewSource:
+      type: string
+      description: Bounded source category for submitted receipt OCR review data.
+      enum:
+        - on_device
+        - manual_entry
+        - imported_reviewed_data
+    ReceiptOcrCandidateAmount:
+      type: string
+      pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"
+      maxLength: 22
+      description: Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
+      examples:
+        - "12.34"
+    ReceiptOcrReviewLineRequest:
+      type: object
+      description: One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Reviewed or candidate receipt line text.
+        quantity:
+          oneOf:
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"
+              maxLength: 22
+            - type: "null"
+          description: Optional positive decimal quantity candidate represented as a string.
+        unitPriceAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+          description: Optional non-negative unit price candidate represented as a string.
+        lineTotalAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+          description: Optional non-negative line total candidate represented as a string.
+    ReceiptOcrReviewUpsertRequest:
+      type: object
+      description: Purpose-specific review/intake payload for one existing bill receipt attachment. It stores provisional OCR-derived or manually reviewed candidate fields only and must not include raw OCR full text, file bytes, storage/provider fields, auth/session fields, bill item mutation instructions, split allocation inputs, settlement data, payment details, or unrelated user data.
+      additionalProperties: false
+      required:
+        - status
+        - source
+      properties:
+        status:
+          $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        source:
+          $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        merchantText:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+          description: Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
+        receiptIssuedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Optional candidate receipt date/time.
+        currency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+          description: Optional review-level currency. Required when any amount candidate is supplied.
+        subtotalAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+        taxAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+        serviceChargeAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+        discountAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+          description: Optional non-negative discount magnitude candidate. It is not a signed authoritative adjustment.
+        grandTotalAmount:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+            - type: "null"
+        lines:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewLineRequest"
+          description: Optional bounded review lines. The server derives stable line order from array order.
+    ReceiptOcrReviewLineResponse:
+      type: object
+      description: Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.
+      required:
+        - id
+        - sortOrder
+        - text
+        - quantity
+        - unitPriceAmount
+        - lineTotalAmount
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        sortOrder:
+          type: integer
+          minimum: 0
+        text:
+          type: string
+          maxLength: 240
+        quantity:
+          oneOf:
+            - type: string
+            - type: "null"
+        unitPriceAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        lineTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    ReceiptOcrReviewResponse:
+      type: object
+      description: Safe receipt OCR review response for one bill receipt attachment. It exposes stable bill/file/review IDs and bounded reviewed candidate fields only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, auth/session data, payment details, raw audit metadata, bill split/settlement/balance state, and unrelated users.
+      required:
+        - id
+        - billId
+        - fileId
+        - groupId
+        - status
+        - source
+        - merchantText
+        - receiptIssuedAtUtc
+        - currency
+        - subtotalAmount
+        - taxAmount
+        - serviceChargeAmount
+        - discountAmount
+        - grandTotalAmount
+        - lines
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable receipt OCR review ID.
+        billId:
+          type: string
+          format: uuid
+          description: Expense bill ID that owns the receipt attachment.
+        fileId:
+          type: string
+          format: uuid
+          description: Stable file metadata ID of the reviewed receipt attachment.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Owning group ID for group bills, or null for personal bills.
+        status:
+          $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        source:
+          $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        merchantText:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        receiptIssuedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        currency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        subtotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        taxAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        serviceChargeAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        discountAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        grandTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewLineResponse"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
     SettlementPaymentProofListResponse:
       type: object
       description: Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.

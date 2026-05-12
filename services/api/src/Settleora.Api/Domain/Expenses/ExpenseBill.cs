@@ -47,5 +47,7 @@ public sealed class ExpenseBill
 
     public ICollection<ExpenseBillAttachment> Attachments { get; } = new List<ExpenseBillAttachment>();
 
+    public ICollection<ReceiptOcrReview> ReceiptOcrReviews { get; } = new List<ReceiptOcrReview>();
+
     public ICollection<ExpenseBillRevision> Revisions { get; } = new List<ExpenseBillRevision>();
 }
