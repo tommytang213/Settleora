@@ -10,20 +10,24 @@ OCR output is still subject to validation depending on profile mode. Local-only 
 
 ## Current Implementation Status
 
-The API now has a narrow bill-scoped receipt OCR review intake foundation for existing receipt attachments:
+The API now has a narrow bill-scoped receipt OCR review intake and apply-preview foundation for existing receipt attachments, plus read-only queue/list endpoints:
 
 - `PUT /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `DELETE /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/receipt-ocr-reviews`
 - `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/groups/{groupId}/receipt-ocr-reviews`
 
 These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data only: it does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, or automatically mutate authoritative bill items, splits, settlements, balances, or payments.
 
 The apply-preview endpoints are read-only validation previews for visible bill actors. They do not require creator/owner mutation rights, do not emit OCR review read-audit events, and do not create or change bill, item, split, settlement, payment, balance, file, storage, OCR job, or worker state.
+
+The future mutating apply operation is intentionally not implemented yet. Its policy gate is [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
 
 ## OCR Paths
 
@@ -95,8 +99,8 @@ Money must remain decimal-safe. Currency must always be attached to monetary val
 - No server OCR engine or OCR worker runtime yet.
 - No standalone receipt/OCR upload outside bill attachments yet.
 - No automatic OCR-to-bill, split, settlement, balance, or payment mutation yet.
-- No database schema yet.
-- No generated client changes yet.
+- No mutating receipt OCR review apply endpoint yet.
+- No additional generated client changes for OCR apply mutation yet.
 
 ## Future Decisions
 

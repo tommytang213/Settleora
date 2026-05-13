@@ -27,6 +27,7 @@ This repository is still not a feature-complete Day 1 MVP, but it is no longer o
 - [Settlement runtime architecture](docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
+- [Receipt OCR review apply policy](docs/architecture/RECEIPT_OCR_REVIEW_APPLY_POLICY.md)
 - [Product requirements](docs/prd/)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)
