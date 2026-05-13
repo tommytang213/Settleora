@@ -63,7 +63,10 @@ internal sealed class EfReceiptOcrReviewAuditWriter : IReceiptOcrReviewAuditWrit
             auditEvent.Currency is null
                 ? null
                 : RequireSafeMetadataCategory(auditEvent.Currency, nameof(auditEvent.Currency)),
-            RequireSafeMetadataCategory(auditEvent.ActionCategory, nameof(auditEvent.ActionCategory)));
+            RequireSafeMetadataCategory(auditEvent.ActionCategory, nameof(auditEvent.ActionCategory)),
+            auditEvent.ApplyMode is null
+                ? null
+                : RequireSafeMetadataCategory(auditEvent.ApplyMode, nameof(auditEvent.ApplyMode)));
 
         var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         if (json.Length > SafeMetadataJsonMaxLength)
@@ -126,5 +129,6 @@ internal sealed class EfReceiptOcrReviewAuditWriter : IReceiptOcrReviewAuditWrit
         string OcrReviewSource,
         int LineCount,
         string? Currency,
-        string ActionCategory);
+        string ActionCategory,
+        string? ApplyMode);
 }

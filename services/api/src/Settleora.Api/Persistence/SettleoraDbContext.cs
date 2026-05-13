@@ -585,6 +585,12 @@ public sealed class SettleoraDbContext : DbContext
             table.HasCheckConstraint(
                 "ck_expense_bill_items_currency_uppercase_iso",
                 "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_source_kind",
+                "source_kind IS NULL OR source_kind IN ('receipt_ocr_review_apply')");
+            table.HasCheckConstraint(
+                "ck_expense_bill_items_ocr_source_complete",
+                "((source_kind IS NULL AND source_receipt_ocr_review_id IS NULL AND source_receipt_ocr_review_line_id IS NULL) OR (source_kind = 'receipt_ocr_review_apply' AND source_receipt_ocr_review_id IS NOT NULL AND source_receipt_ocr_review_line_id IS NOT NULL))");
         });
 
         entity.HasKey(item => item.Id);
@@ -624,6 +630,16 @@ public sealed class SettleoraDbContext : DbContext
             .HasColumnName("sort_order")
             .IsRequired();
 
+        entity.Property(item => item.SourceKind)
+            .HasColumnName("source_kind")
+            .HasMaxLength(ExpenseBillConstraints.ItemSourceKindMaxLength);
+
+        entity.Property(item => item.SourceReceiptOcrReviewId)
+            .HasColumnName("source_receipt_ocr_review_id");
+
+        entity.Property(item => item.SourceReceiptOcrReviewLineId)
+            .HasColumnName("source_receipt_ocr_review_line_id");
+
         entity.Property(item => item.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .IsRequired();
@@ -648,10 +664,36 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasIndex(item => item.DeletedAtUtc)
             .HasDatabaseName("ix_expense_bill_items_deleted_at_utc");
 
+        entity.HasIndex(item => item.SourceReceiptOcrReviewId)
+            .HasDatabaseName("ix_expense_bill_items_source_review_id");
+
+        entity.HasIndex(item => new
+            {
+                item.ExpenseBillId,
+                item.SourceKind,
+                item.SourceReceiptOcrReviewId
+            })
+            .HasDatabaseName("ix_expense_bill_items_bill_source_review");
+
+        entity.HasIndex(item => item.SourceReceiptOcrReviewLineId)
+            .HasDatabaseName("ix_expense_bill_items_source_review_line_id");
+
         entity.HasOne(item => item.ExpenseBill)
             .WithMany(bill => bill.Items)
             .HasForeignKey(item => item.ExpenseBillId)
             .HasConstraintName("fk_expense_bill_items_expense_bills_expense_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<ReceiptOcrReview>()
+            .WithMany()
+            .HasForeignKey(item => item.SourceReceiptOcrReviewId)
+            .HasConstraintName("fk_expense_bill_items_receipt_ocr_reviews_source_review_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<ReceiptOcrReviewLine>()
+            .WithMany()
+            .HasForeignKey(item => item.SourceReceiptOcrReviewLineId)
+            .HasConstraintName("fk_expense_bill_items_receipt_ocr_review_lines_source_line_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

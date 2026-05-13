@@ -3242,6 +3242,113 @@ class ReceiptOcrReviewApplyPreviewResponse {
   }
 }
 
+/// Day 1 receipt OCR review apply mode. Only replacement of prior OCR-generated draft item candidates from the same review source is supported.
+typedef ReceiptOcrReviewApplyMode = String;
+class ReceiptOcrReviewApplyModeValues {
+  const ReceiptOcrReviewApplyModeValues._();
+  static const ReceiptOcrReviewApplyMode replaceDraftOcrItems = "replace_draft_ocr_items";
+  static const Set<ReceiptOcrReviewApplyMode> values = {replaceDraftOcrItems};
+}
+
+/// Explicit receipt OCR review apply request. The server derives actor identity, bill/review truth, line candidates, money totals, split safety, attachment/file visibility, and audit metadata; clients submit only the mode and expected saved-review timestamp for stale-apply prevention.
+class ReceiptOcrReviewApplyRequest {
+  const ReceiptOcrReviewApplyRequest({
+    required this.applyMode,
+    required this.expectedReviewUpdatedAtUtc,
+  });
+
+  final ReceiptOcrReviewApplyMode applyMode;
+  /// The saved review updatedAtUtc value the user previewed or intended to apply.
+  final DateTime expectedReviewUpdatedAtUtc;
+
+  factory ReceiptOcrReviewApplyRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewApplyRequest(
+      applyMode: json["applyMode"] as String,
+      expectedReviewUpdatedAtUtc: DateTime.parse(json["expectedReviewUpdatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "applyMode": applyMode,
+      "expectedReviewUpdatedAtUtc": expectedReviewUpdatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe receipt OCR review apply result. It exposes bounded IDs, mode, applied item count, currency, reviewed subtotal/grand-total summary, validation issue code arrays, and apply timestamp only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split internals, settlement/payment/balance/residual/proof state, worker state, and unrelated users.
+class ReceiptOcrReviewApplyResponse {
+  const ReceiptOcrReviewApplyResponse({
+    required this.reviewId,
+    required this.billId,
+    required this.groupId,
+    required this.fileId,
+    required this.applyMode,
+    required this.appliedItemCount,
+    required this.currency,
+    required this.subtotalAmount,
+    required this.grandTotalAmount,
+    required this.summary,
+    required this.blockedReasons,
+    required this.warnings,
+    required this.appliedAtUtc,
+  });
+
+  final String reviewId;
+  final String billId;
+  final String? groupId;
+  final String fileId;
+  final ReceiptOcrReviewApplyMode applyMode;
+  final int appliedItemCount;
+  final CurrencyCode currency;
+  final String? subtotalAmount;
+  final String? grandTotalAmount;
+  final ReceiptOcrReviewApplyPreviewSummaryResponse summary;
+  final List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons;
+  final List<ReceiptOcrReviewApplyPreviewIssueCode> warnings;
+  final DateTime appliedAtUtc;
+
+  factory ReceiptOcrReviewApplyResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewApplyResponse(
+      reviewId: json["reviewId"] as String,
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      fileId: json["fileId"] as String,
+      applyMode: json["applyMode"] as String,
+      appliedItemCount: (json["appliedItemCount"] as num).toInt(),
+      currency: json["currency"] as String,
+      subtotalAmount: json["subtotalAmount"] == null ? null : json["subtotalAmount"] as String,
+      grandTotalAmount: json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String,
+      summary: ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject.from(json["summary"] as Map)),
+      blockedReasons: (json["blockedReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      appliedAtUtc: DateTime.parse(json["appliedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final subtotalAmountJsonValue = subtotalAmount;
+    final grandTotalAmountJsonValue = grandTotalAmount;
+
+    return {
+      "reviewId": reviewId,
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "fileId": fileId,
+      "applyMode": applyMode,
+      "appliedItemCount": appliedItemCount,
+      "currency": currency,
+      "subtotalAmount": subtotalAmountJsonValue,
+      "grandTotalAmount": grandTotalAmountJsonValue,
+      "summary": summary.toJson(),
+      "blockedReasons": blockedReasons,
+      "warnings": warnings,
+      "appliedAtUtc": appliedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
 class SettlementPaymentProofListResponse {
   const SettlementPaymentProofListResponse({

@@ -20,6 +20,12 @@ public sealed class ExpenseBillItem
 
     public int SortOrder { get; set; }
 
+    public string? SourceKind { get; set; }
+
+    public Guid? SourceReceiptOcrReviewId { get; set; }
+
+    public Guid? SourceReceiptOcrReviewLineId { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }

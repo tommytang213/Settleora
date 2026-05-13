@@ -161,6 +161,9 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertMoneyColumn(entity, storeObject, "Amount", "amount");
         AssertColumn(entity, storeObject, "Currency", "currency", isNullable: false, maxLength: 3);
         AssertColumn(entity, storeObject, "SortOrder", "sort_order", isNullable: false);
+        AssertColumn(entity, storeObject, "SourceKind", "source_kind", isNullable: true, maxLength: 40);
+        AssertColumn(entity, storeObject, "SourceReceiptOcrReviewId", "source_receipt_ocr_review_id", isNullable: true);
+        AssertColumn(entity, storeObject, "SourceReceiptOcrReviewLineId", "source_receipt_ocr_review_line_id", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "DeletedAtUtc", "deleted_at_utc", isNullable: true);
@@ -168,8 +171,13 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertIndex(entity, "ix_expense_bill_items_expense_bill_id", ["ExpenseBillId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bill_items_bill_sort_order", ["ExpenseBillId", "SortOrder"], isUnique: false);
         AssertIndex(entity, "ix_expense_bill_items_deleted_at_utc", ["DeletedAtUtc"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bill_items_source_review_id", ["SourceReceiptOcrReviewId"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bill_items_bill_source_review", ["ExpenseBillId", "SourceKind", "SourceReceiptOcrReviewId"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bill_items_source_review_line_id", ["SourceReceiptOcrReviewLineId"], isUnique: false);
 
         AssertForeignKey(entity, typeof(ExpenseBill), ["ExpenseBillId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(ReceiptOcrReview), ["SourceReceiptOcrReviewId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(ReceiptOcrReviewLine), ["SourceReceiptOcrReviewLineId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(entity, "ck_expense_bill_items_name_not_blank", "length(btrim(name)) > 0");
         AssertCheckConstraint(entity, "ck_expense_bill_items_note_not_blank", "note IS NULL OR length(btrim(note)) > 0");
@@ -177,6 +185,8 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertCheckConstraint(entity, "ck_expense_bill_items_amount_non_negative", "amount >= 0");
         AssertCheckConstraint(entity, "ck_expense_bill_items_amount_upper_bound", "amount <= 999999999999999.9999");
         AssertCheckConstraint(entity, "ck_expense_bill_items_currency_uppercase_iso", "currency ~ '^[A-Z]{3}$'");
+        AssertCheckConstraint(entity, "ck_expense_bill_items_source_kind", "source_kind IS NULL OR source_kind IN ('receipt_ocr_review_apply')");
+        AssertCheckConstraint(entity, "ck_expense_bill_items_ocr_source_complete", "((source_kind IS NULL AND source_receipt_ocr_review_id IS NULL AND source_receipt_ocr_review_line_id IS NULL) OR (source_kind = 'receipt_ocr_review_apply' AND source_receipt_ocr_review_id IS NOT NULL AND source_receipt_ocr_review_line_id IS NOT NULL))");
     }
 
     [Fact]

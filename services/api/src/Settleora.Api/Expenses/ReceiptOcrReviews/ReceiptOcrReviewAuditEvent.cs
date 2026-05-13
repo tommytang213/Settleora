@@ -16,4 +16,5 @@ internal sealed record ReceiptOcrReviewAuditEvent(
     int LineCount,
     string? Currency,
     string ActionCategory,
+    string? ApplyMode,
     DateTimeOffset OccurredAtUtc);

@@ -1190,6 +1190,41 @@ export interface ReceiptOcrReviewApplyPreviewResponse {
 }
 
 /**
+ * Day 1 receipt OCR review apply mode. Only replacement of prior OCR-generated draft item candidates from the same review source is supported.
+ */
+export type ReceiptOcrReviewApplyMode = "replace_draft_ocr_items";
+
+/**
+ * Explicit receipt OCR review apply request. The server derives actor identity, bill/review truth, line candidates, money totals, split safety, attachment/file visibility, and audit metadata; clients submit only the mode and expected saved-review timestamp for stale-apply prevention.
+ */
+export interface ReceiptOcrReviewApplyRequest {
+  applyMode: ReceiptOcrReviewApplyMode;
+  /**
+   * The saved review updatedAtUtc value the user previewed or intended to apply.
+   */
+  expectedReviewUpdatedAtUtc: string;
+}
+
+/**
+ * Safe receipt OCR review apply result. It exposes bounded IDs, mode, applied item count, currency, reviewed subtotal/grand-total summary, validation issue code arrays, and apply timestamp only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split internals, settlement/payment/balance/residual/proof state, worker state, and unrelated users.
+ */
+export interface ReceiptOcrReviewApplyResponse {
+  reviewId: string;
+  billId: string;
+  groupId: string | null;
+  fileId: string;
+  applyMode: ReceiptOcrReviewApplyMode;
+  appliedItemCount: number;
+  currency: CurrencyCode;
+  subtotalAmount: string | null;
+  grandTotalAmount: string | null;
+  summary: ReceiptOcrReviewApplyPreviewSummaryResponse;
+  blockedReasons: ReceiptOcrReviewApplyPreviewIssueCode[];
+  warnings: ReceiptOcrReviewApplyPreviewIssueCode[];
+  appliedAtUtc: string;
+}
+
+/**
  * Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
  */
 export interface SettlementPaymentProofListResponse {

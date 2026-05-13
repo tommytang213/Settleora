@@ -304,6 +304,50 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
     }
 }
 
+internal sealed record ReceiptOcrReviewApplyResponse(
+    Guid ReviewId,
+    Guid BillId,
+    Guid? GroupId,
+    Guid FileId,
+    string ApplyMode,
+    int AppliedItemCount,
+    string Currency,
+    string? SubtotalAmount,
+    string? GrandTotalAmount,
+    ReceiptOcrReviewApplyPreviewSummaryResponse Summary,
+    IReadOnlyList<string> BlockedReasons,
+    IReadOnlyList<string> Warnings,
+    DateTimeOffset AppliedAtUtc)
+{
+    public static ReceiptOcrReviewApplyResponse From(
+        ReceiptOcrReview review,
+        string applyMode,
+        int appliedItemCount,
+        ReceiptOcrReviewApplyPreviewResponse preview,
+        DateTimeOffset appliedAtUtc)
+    {
+        return new ReceiptOcrReviewApplyResponse(
+            review.Id,
+            review.ExpenseBillId,
+            review.GroupId,
+            review.FileObjectId,
+            applyMode,
+            appliedItemCount,
+            review.Currency!,
+            FormatAmount(review.SubtotalAmount),
+            FormatAmount(review.GrandTotalAmount),
+            preview.Summary,
+            [],
+            preview.Warnings,
+            appliedAtUtc);
+    }
+
+    private static string? FormatAmount(decimal? amount)
+    {
+        return amount?.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+}
+
 internal sealed record ReceiptOcrReviewApplyPreviewLineCandidateResponse(
     Guid ReviewLineId,
     int SortOrder,

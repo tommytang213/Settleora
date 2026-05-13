@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -28,11 +30,14 @@ internal static class ReceiptOcrReviewEndpoints
     private const string ReceiptOcrReviewAccessFailedDetail = "Unable to complete receipt OCR review access.";
     private const string InvalidReceiptOcrReviewQueryTitle = "Invalid receipt OCR review query";
     private const string InvalidReceiptOcrReviewQueryDetail = "The submitted receipt OCR review query is invalid.";
+    private const string InvalidReceiptOcrReviewApplyTitle = "Invalid receipt OCR review apply request";
+    private const string InvalidReceiptOcrReviewApplyDetail = "The submitted receipt OCR review apply request is invalid.";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
     private const string ReviewSavedAction = "bill_attachment.ocr_review_saved";
     private const string ReviewReadAction = "bill_attachment.ocr_review_read";
     private const string ReviewRemovedAction = "bill_attachment.ocr_review_removed";
+    private const string ReviewAppliedAction = "bill_attachment.ocr_review_applied";
     private const int DefaultReceiptOcrReviewQueueLimit = 50;
     private const int MaxReceiptOcrReviewQueueLimit = 100;
 
@@ -99,6 +104,12 @@ internal static class ReceiptOcrReviewEndpoints
         "limit"
     ];
 
+    private static readonly HashSet<string> AllowedApplyRootProperties =
+    [
+        "applyMode",
+        "expectedReviewUpdatedAtUtc"
+    ];
+
     public static WebApplication MapReceiptOcrReviewEndpoints(this WebApplication app)
     {
         var reviewQueue = app.MapGroup("/api/v1/receipt-ocr-reviews")
@@ -117,6 +128,7 @@ internal static class ReceiptOcrReviewEndpoints
         bills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review", UpsertPersonalReceiptOcrReviewAsync);
         bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetPersonalReceiptOcrReviewAsync);
         bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetPersonalReceiptOcrReviewApplyPreviewAsync);
+        bills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply", ApplyPersonalReceiptOcrReviewAsync);
         bills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemovePersonalReceiptOcrReviewAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
@@ -125,6 +137,7 @@ internal static class ReceiptOcrReviewEndpoints
         groupBills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review", UpsertGroupReceiptOcrReviewAsync);
         groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetGroupReceiptOcrReviewAsync);
         groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetGroupReceiptOcrReviewApplyPreviewAsync);
+        groupBills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply", ApplyGroupReceiptOcrReviewAsync);
         groupBills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemoveGroupReceiptOcrReviewAsync);
 
         return app;
@@ -482,6 +495,59 @@ internal static class ReceiptOcrReviewEndpoints
             cancellationToken);
     }
 
+    private static Task<IResult> ApplyPersonalReceiptOcrReviewAsync(
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        IReceiptOcrReviewAuditWriter auditWriter,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return ApplyReceiptOcrReviewAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            auditWriter,
+            calculationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> ApplyGroupReceiptOcrReviewAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        IReceiptOcrReviewAuditWriter auditWriter,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return ApplyReceiptOcrReviewAsync(
+            groupId,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            auditWriter,
+            calculationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
     private static async Task<IResult> GetReceiptOcrReviewAsync(
         Guid? routeGroupId,
         Guid billId,
@@ -607,6 +673,181 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return Results.Ok(ReceiptOcrReviewApplyPreviewResponse.From(review, billContext.BillCurrency));
+    }
+
+    private static async Task<IResult> ApplyReceiptOcrReviewAsync(
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        IReceiptOcrReviewAuditWriter auditWriter,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var applyReadResult = await ReadReceiptOcrReviewApplyRequestAsync(request, cancellationToken);
+        if (!applyReadResult.Succeeded || applyReadResult.Request is null)
+        {
+            return InvalidReceiptOcrReviewApply(applyReadResult.Errors);
+        }
+
+        var applyRequest = applyReadResult.Request;
+        var billContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            actor.UserProfileId,
+            cancellationToken);
+        if (billContext is null)
+        {
+            return BillUnavailable();
+        }
+
+        if (!CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+
+        if (!CanApplyReviewInCurrentState(billContext))
+        {
+            return ReceiptOcrReviewConflict();
+        }
+
+        var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return BillUnavailable();
+        }
+
+        var review = await LoadReadableReceiptOcrReviewQuery(dbContext, billContext, attachment.FileObjectId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (review is null)
+        {
+            return ReceiptOcrReviewUnavailable();
+        }
+
+        if (review.Status is not ReceiptOcrReviewStatuses.Reviewed
+            || !ReceiptOcrReviewSources.IsSupported(review.Source)
+            || review.UpdatedAtUtc != applyRequest.ExpectedReviewUpdatedAtUtc)
+        {
+            return ReceiptOcrReviewConflict();
+        }
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, billContext.BillCurrency);
+        if (!CanApplyPreviewAtWriteTime(preview))
+        {
+            return ReceiptOcrReviewConflict();
+        }
+
+        if (await HasDownstreamSettlementStateAsync(dbContext, billContext.BillId, cancellationToken))
+        {
+            return ReceiptOcrReviewConflict();
+        }
+
+        IDbContextTransaction? transaction = null;
+        try
+        {
+            if (dbContext.Database.IsRelational())
+            {
+                transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            }
+
+            var bill = await LoadTrackedBillForApplyQuery(dbContext, billContext)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (bill is null)
+            {
+                return BillUnavailable();
+            }
+
+            if (!CanApplyTrackedBillState(bill)
+                || !CanApplyBillShapeWithoutInferringSplitPolicy(bill, out var soleParticipantId))
+            {
+                return ReceiptOcrReviewConflict();
+            }
+
+            var now = timeProvider.GetUtcNow();
+            SoftDeletePriorOcrItemsFromSameReview(bill, review.Id, now);
+            var appliedItemCount = AddAppliedOcrItemCandidates(dbContext, bill, review, soleParticipantId, now);
+            if (appliedItemCount == 0)
+            {
+                return ReceiptOcrReviewConflict();
+            }
+
+            if (!TryPrepareSinglePayerForDraftRecalculation(bill, now, out _))
+            {
+                return ReceiptOcrReviewConflict();
+            }
+
+            var calculation = calculationService.Calculate(bill);
+            if (!calculation.Succeeded)
+            {
+                return ReceiptOcrReviewConflict();
+            }
+
+            ApplyCalculation(bill, calculation);
+            bill.UpdatedAtUtc = now;
+
+            await WriteReviewAuditAsync(
+                auditWriter,
+                actor.AuthAccountId,
+                billContext,
+                ReviewAppliedAction,
+                "ocr_review_applied",
+                review,
+                appliedItemCount,
+                now,
+                cancellationToken,
+                applyRequest.ApplyMode);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return Results.Ok(ReceiptOcrReviewApplyResponse.From(
+                review,
+                applyRequest.ApplyMode,
+                appliedItemCount,
+                preview,
+                now));
+        }
+        catch (DbUpdateException)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            dbContext.ChangeTracker.Clear();
+            return ReceiptOcrReviewSaveFailed();
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
     }
 
     private static Task<IResult> RemovePersonalReceiptOcrReviewAsync(
@@ -802,6 +1043,65 @@ internal static class ReceiptOcrReviewEndpoints
         return values[0];
     }
 
+    private static async Task<ReceiptOcrReviewApplyReadResult> ReadReceiptOcrReviewApplyRequestAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (request.Body is null || request.ContentLength == 0)
+        {
+            AddError(errors, "body", "A non-empty JSON receipt OCR review apply payload is required.");
+            return ReceiptOcrReviewApplyReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException)
+        {
+            AddError(errors, "body", "A valid JSON object is required.");
+            return ReceiptOcrReviewApplyReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, "body", "A JSON object is required.");
+                return ReceiptOcrReviewApplyReadResult.Invalid(ToErrorDictionary(errors));
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!AllowedApplyRootProperties.Contains(property.Name))
+                {
+                    AddError(errors, property.Name, "Field is not supported for receipt OCR review apply.");
+                }
+            }
+
+            var applyMode = ReadRequiredSupportedString(
+                root,
+                "applyMode",
+                ReceiptOcrReviewApplyModes.IsSupported,
+                "Receipt OCR review apply mode is not supported.",
+                errors);
+            var expectedReviewUpdatedAtUtc = ReadRequiredDateTimeOffset(
+                root,
+                "expectedReviewUpdatedAtUtc",
+                "Expected review update timestamp is required.",
+                errors);
+
+            return errors.Count > 0 || applyMode is null || !expectedReviewUpdatedAtUtc.HasValue
+                ? ReceiptOcrReviewApplyReadResult.Invalid(ToErrorDictionary(errors))
+                : ReceiptOcrReviewApplyReadResult.Valid(new ReceiptOcrReviewApplyRequest(
+                    applyMode,
+                    expectedReviewUpdatedAtUtc.Value));
+        }
+    }
+
     private static async Task<ReceiptOcrReviewReadResult> ReadReceiptOcrReviewRequestAsync(
         HttpRequest request,
         CancellationToken cancellationToken)
@@ -974,6 +1274,27 @@ internal static class ReceiptOcrReviewEndpoints
                 out var parsed))
         {
             AddError(errors, propertyName, "Receipt date/time must be an ISO 8601 date-time string.");
+            return null;
+        }
+
+        return parsed.ToUniversalTime();
+    }
+
+    private static DateTimeOffset? ReadRequiredDateTimeOffset(
+        JsonElement root,
+        string propertyName,
+        string errorMessage,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!root.TryGetProperty(propertyName, out var value)
+            || value.ValueKind is not JsonValueKind.String
+            || !DateTimeOffset.TryParse(
+                value.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            AddError(errors, propertyName, errorMessage);
             return null;
         }
 
@@ -1399,6 +1720,207 @@ internal static class ReceiptOcrReviewEndpoints
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    private static IQueryable<ExpenseBill> LoadTrackedBillForApplyQuery(
+        SettleoraDbContext dbContext,
+        ReceiptOcrReviewContext billContext)
+    {
+        return dbContext.Set<ExpenseBill>()
+            .Include(bill => bill.Items)
+                .ThenInclude(item => item.Splits)
+            .Include(bill => bill.Participants)
+            .Include(bill => bill.Payers)
+            .Include(bill => bill.Adjustments)
+            .Where(bill => bill.Id == billContext.BillId
+                && bill.GroupId == billContext.GroupId
+                && bill.ArchivedAtUtc == null
+                && bill.CreatedByUserProfile.DeletedAtUtc == null
+                && bill.BillOwnerUserProfile.DeletedAtUtc == null);
+    }
+
+    private static async Task<bool> HasDownstreamSettlementStateAsync(
+        SettleoraDbContext dbContext,
+        Guid billId,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.Set<SettlementRequest>()
+                .AsNoTracking()
+                .AnyAsync(settlementRequest => settlementRequest.SourceExpenseBillId == billId, cancellationToken)
+            || await dbContext.Set<SettlementRequestLine>()
+                .AsNoTracking()
+                .AnyAsync(line => line.SourceExpenseBillId == billId, cancellationToken);
+    }
+
+    private static bool CanApplyPreviewAtWriteTime(ReceiptOcrReviewApplyPreviewResponse preview)
+    {
+        return preview.CanApply
+            && !preview.Warnings.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, StringComparer.Ordinal);
+    }
+
+    private static bool CanApplyTrackedBillState(ExpenseBill bill)
+    {
+        return bill.Status == ExpenseBillStatuses.Draft
+            && bill.ArchivedAtUtc is null
+            && bill.ActiveAcceptedBillRevisionId is null;
+    }
+
+    private static bool CanApplyBillShapeWithoutInferringSplitPolicy(
+        ExpenseBill bill,
+        out Guid soleParticipantId)
+    {
+        soleParticipantId = default;
+        var participantIds = bill.Participants
+            .Select(participant => participant.UserProfileId)
+            .Distinct()
+            .ToArray();
+        if (participantIds.Length != 1)
+        {
+            return false;
+        }
+
+        soleParticipantId = participantIds[0];
+        return bill.Payers.Count is 0
+            || (bill.Payers.Count == 1 && bill.Payers.Single().UserProfileId == soleParticipantId);
+    }
+
+    private static void SoftDeletePriorOcrItemsFromSameReview(
+        ExpenseBill bill,
+        Guid reviewId,
+        DateTimeOffset now)
+    {
+        foreach (var item in bill.Items.Where(item =>
+            item.DeletedAtUtc is null
+            && item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply
+            && item.SourceReceiptOcrReviewId == reviewId))
+        {
+            item.DeletedAtUtc = now;
+            item.UpdatedAtUtc = now;
+        }
+    }
+
+    private static int AddAppliedOcrItemCandidates(
+        SettleoraDbContext dbContext,
+        ExpenseBill bill,
+        ReceiptOcrReview review,
+        Guid soleParticipantId,
+        DateTimeOffset now)
+    {
+        var nextSortOrder = bill.Items
+            .Select(item => item.SortOrder)
+            .DefaultIfEmpty(-1)
+            .Max() + 1;
+        var appliedItemCount = 0;
+        foreach (var line in review.Lines.OrderBy(line => line.SortOrder).ThenBy(line => line.Id))
+        {
+            if (!ReceiptOcrReviewApplyPreviewLineCandidateResponse.TryGetProposedLineTotal(line, out var proposedLineTotal)
+                || proposedLineTotal <= 0m)
+            {
+                return 0;
+            }
+
+            var item = new ExpenseBillItem
+            {
+                Id = Guid.NewGuid(),
+                ExpenseBillId = bill.Id,
+                Name = line.Text,
+                Quantity = line.Quantity,
+                Amount = proposedLineTotal,
+                Currency = review.Currency!,
+                SortOrder = nextSortOrder++,
+                SourceKind = ExpenseBillItemSourceKinds.ReceiptOcrReviewApply,
+                SourceReceiptOcrReviewId = review.Id,
+                SourceReceiptOcrReviewLineId = line.Id,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+            var split = new ExpenseBillItemSplit
+            {
+                Id = Guid.NewGuid(),
+                ExpenseBillItemId = item.Id,
+                ExpenseBillItem = item,
+                UserProfileId = soleParticipantId,
+                SplitMethod = ExpenseBillItemSplitMethods.ExactAmount,
+                BasisValue = proposedLineTotal,
+                ResolvedAmount = 0m,
+                ResolvedCurrency = review.Currency!,
+                AllocationOrder = 0,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+            item.Splits.Add(split);
+
+            bill.Items.Add(item);
+            dbContext.Set<ExpenseBillItem>().Add(item);
+            appliedItemCount++;
+        }
+
+        return appliedItemCount;
+    }
+
+    private static bool TryPrepareSinglePayerForDraftRecalculation(
+        ExpenseBill bill,
+        DateTimeOffset now,
+        out decimal draftTotal)
+    {
+        draftTotal = bill.Items
+            .Where(item => item.DeletedAtUtc is null)
+            .Sum(item => item.Amount);
+        foreach (var adjustment in bill.Adjustments.OrderBy(adjustment => adjustment.SortOrder).ThenBy(adjustment => adjustment.Id))
+        {
+            draftTotal += adjustment.Direction is ExpenseBillAdjustmentDirections.Charge
+                ? adjustment.Amount
+                : -adjustment.Amount;
+        }
+
+        if (draftTotal < 0m || draftTotal > ExpenseBillConstraints.MoneyAmountMaxValue)
+        {
+            return false;
+        }
+
+        if (bill.Payers.Count == 0)
+        {
+            return true;
+        }
+
+        if (bill.Payers.Count != 1)
+        {
+            return false;
+        }
+
+        var payer = bill.Payers.Single();
+        payer.Amount = decimal.Round(draftTotal, ExpenseBillConstraints.MoneyAmountScale, MidpointRounding.ToEven);
+        payer.Currency = bill.TotalCurrency;
+        payer.UpdatedAtUtc = now;
+        return true;
+    }
+
+    private static void ApplyCalculation(
+        ExpenseBill bill,
+        ExpenseBillCalculationResult calculation)
+    {
+        bill.TotalAmount = calculation.BillTotal!.Amount;
+        bill.TotalCurrency = calculation.BillTotal.Currency.Value;
+
+        var splitsById = bill.Items
+            .SelectMany(item => item.Splits)
+            .ToDictionary(split => split.Id);
+        foreach (var calculatedSplit in calculation.ItemSplits)
+        {
+            var split = splitsById[calculatedSplit.ExpenseBillItemSplitId];
+            split.ResolvedAmount = calculatedSplit.ResolvedAmount;
+            split.ResolvedCurrency = calculatedSplit.ResolvedCurrency;
+            split.ReceivedResidualMinorUnit = calculatedSplit.ReceivedResidualMinorUnit;
+        }
+
+        var participantsById = bill.Participants.ToDictionary(participant => participant.UserProfileId);
+        foreach (var calculatedShare in calculation.ParticipantShares)
+        {
+            var participant = participantsById[calculatedShare.UserProfileId];
+            participant.ResolvedShareAmount = calculatedShare.ResolvedShareAmount;
+            participant.ResolvedShareCurrency = calculatedShare.ResolvedShareCurrency;
+            participant.Status = calculatedShare.Status;
+        }
+    }
+
     private static void ApplySubmittedReview(
         ReceiptOcrReview review,
         SubmittedReceiptOcrReview submittedReview,
@@ -1458,7 +1980,8 @@ internal static class ReceiptOcrReviewEndpoints
         ReceiptOcrReview review,
         int lineCount,
         DateTimeOffset occurredAtUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? applyMode = null)
     {
         return auditWriter.WriteAsync(
             new ReceiptOcrReviewAuditEvent(
@@ -1477,6 +2000,7 @@ internal static class ReceiptOcrReviewEndpoints
                 lineCount,
                 review.Currency,
                 actionCategory,
+                applyMode,
                 occurredAtUtc),
             cancellationToken);
     }
@@ -1492,6 +2016,11 @@ internal static class ReceiptOcrReviewEndpoints
     private static bool CanChangeReviewInCurrentState(ReceiptOcrReviewContext billContext)
     {
         return MutableBillStatuses.Contains(billContext.BillStatus);
+    }
+
+    private static bool CanApplyReviewInCurrentState(ReceiptOcrReviewContext billContext)
+    {
+        return billContext.BillStatus == ExpenseBillStatuses.Draft;
     }
 
     private static string CreateReceiptOcrReviewPath(
@@ -1571,6 +2100,15 @@ internal static class ReceiptOcrReviewEndpoints
             errors,
             title: InvalidReceiptOcrReviewQueryTitle,
             detail: InvalidReceiptOcrReviewQueryDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult InvalidReceiptOcrReviewApply(IDictionary<string, string[]> errors)
+    {
+        return Results.ValidationProblem(
+            errors,
+            title: InvalidReceiptOcrReviewApplyTitle,
+            detail: InvalidReceiptOcrReviewApplyDetail,
             statusCode: StatusCodes.Status400BadRequest);
     }
 
@@ -1660,6 +2198,39 @@ internal static class ReceiptOcrReviewEndpoints
         string? Status,
         string? Source,
         int Limit);
+
+    private sealed class ReceiptOcrReviewApplyReadResult
+    {
+        private ReceiptOcrReviewApplyReadResult(
+            ReceiptOcrReviewApplyRequest? request,
+            IDictionary<string, string[]> errors)
+        {
+            Request = request;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public ReceiptOcrReviewApplyRequest? Request { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static ReceiptOcrReviewApplyReadResult Valid(ReceiptOcrReviewApplyRequest request)
+        {
+            return new ReceiptOcrReviewApplyReadResult(
+                request,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static ReceiptOcrReviewApplyReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new ReceiptOcrReviewApplyReadResult(null, errors);
+        }
+    }
+
+    private sealed record ReceiptOcrReviewApplyRequest(
+        string ApplyMode,
+        DateTimeOffset ExpectedReviewUpdatedAtUtc);
 
     private sealed record SubmittedReceiptOcrReview(
         string Status,

@@ -1089,6 +1089,77 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply:
+    post:
+      summary: Apply personal bill receipt OCR review to draft item candidates
+      description: Explicitly applies one existing reviewed receipt OCR review for an active personal bill receipt attachment into draft OCR-generated bill item candidates. The authenticated actor is derived from SettleoraSession and must be the bill creator or owner/responsible editor. The request carries only the apply mode and expected saved review update timestamp; the server rechecks bill, attachment, file, review, draft state, mutation rights, review status/source, and apply-preview validation before writing. This Day 1 operation supports only replace_draft_ocr_items, never applies automatically, never accepts client-submitted line IDs, totals, split allocations, actor identity, settlement/payment data, file metadata, or OCR truth, and does not mutate settlement, payment, proof, balance, residual, storage, file-object, OCR job, worker, or receipt-byte state.
+      operationId: applyPersonalBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Draft personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewApplyRequest"
+      responses:
+        "200":
+          description: Reviewed OCR review applied to safe draft OCR-generated bill item candidates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewApplyResponse"
+        "400":
+          description: The submitted apply request is malformed, stale-guard fields are missing, or the apply mode is unsupported.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, group-scoped, not visible, not mutable by the actor, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill/review state is not safe for draft OCR item candidate apply, the expected review timestamp is stale, preview validation blocks apply, downstream settlement state exists, or the current draft bill shape would require inferring shared split policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review apply could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/receipt-ocr-reviews:
     get:
       summary: List receipt OCR review queue
@@ -2620,6 +2691,84 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group, bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, inactive, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply:
+    post:
+      summary: Apply group bill receipt OCR review to draft item candidates
+      description: Explicitly applies one existing reviewed receipt OCR review for an active group bill receipt attachment into draft OCR-generated bill item candidates when the group bill is still safely draft-only and does not require inferring shared split policy. The authenticated actor is derived from SettleoraSession, must have active route-group access, and must be the bill creator or owner/responsible editor. The request carries only the apply mode and expected saved review update timestamp; the server rechecks group, bill, attachment, file, review, draft state, mutation rights, review status/source, and apply-preview validation before writing. This Day 1 operation supports only replace_draft_ocr_items, never applies automatically, never accepts client-submitted line IDs, totals, split allocations, actor identity, settlement/payment data, file metadata, or OCR truth, and does not mutate settlement, payment, proof, balance, residual, storage, file-object, OCR job, worker, or receipt-byte state.
+      operationId: applyGroupBillAttachmentOcrReview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Draft group bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewApplyRequest"
+      responses:
+        "200":
+          description: Reviewed OCR review applied to safe draft OCR-generated bill item candidates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewApplyResponse"
+        "400":
+          description: The submitted apply request is malformed, stale-guard fields are missing, or the apply mode is unsupported.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, inactive, not visible, not mutable by the actor, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Visible bill/review state is not safe for draft OCR item candidate apply, the expected review timestamp is stale, preview validation blocks apply, downstream settlement state exists, or the current draft bill shape would require inferring shared split policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review apply could not be completed.
           content:
             application/problem+json:
               schema:
@@ -7058,6 +7207,86 @@ components:
           type: string
           format: date-time
         updatedAtUtc:
+          type: string
+          format: date-time
+    ReceiptOcrReviewApplyMode:
+      type: string
+      description: Day 1 receipt OCR review apply mode. Only replacement of prior OCR-generated draft item candidates from the same review source is supported.
+      enum:
+        - replace_draft_ocr_items
+    ReceiptOcrReviewApplyRequest:
+      type: object
+      description: Explicit receipt OCR review apply request. The server derives actor identity, bill/review truth, line candidates, money totals, split safety, attachment/file visibility, and audit metadata; clients submit only the mode and expected saved-review timestamp for stale-apply prevention.
+      additionalProperties: false
+      required:
+        - applyMode
+        - expectedReviewUpdatedAtUtc
+      properties:
+        applyMode:
+          $ref: "#/components/schemas/ReceiptOcrReviewApplyMode"
+        expectedReviewUpdatedAtUtc:
+          type: string
+          format: date-time
+          description: The saved review updatedAtUtc value the user previewed or intended to apply.
+    ReceiptOcrReviewApplyResponse:
+      type: object
+      description: Safe receipt OCR review apply result. It exposes bounded IDs, mode, applied item count, currency, reviewed subtotal/grand-total summary, validation issue code arrays, and apply timestamp only. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split internals, settlement/payment/balance/residual/proof state, worker state, and unrelated users.
+      required:
+        - reviewId
+        - billId
+        - groupId
+        - fileId
+        - applyMode
+        - appliedItemCount
+        - currency
+        - subtotalAmount
+        - grandTotalAmount
+        - summary
+        - blockedReasons
+        - warnings
+        - appliedAtUtc
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        billId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        fileId:
+          type: string
+          format: uuid
+        applyMode:
+          $ref: "#/components/schemas/ReceiptOcrReviewApplyMode"
+        appliedItemCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        subtotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        grandTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        summary:
+          $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewSummaryResponse"
+        blockedReasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewIssueCode"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewIssueCode"
+        appliedAtUtc:
           type: string
           format: date-time
     SettlementPaymentProofListResponse:
