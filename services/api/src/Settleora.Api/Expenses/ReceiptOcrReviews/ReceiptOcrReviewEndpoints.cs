@@ -116,6 +116,7 @@ internal static class ReceiptOcrReviewEndpoints
 
         bills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review", UpsertPersonalReceiptOcrReviewAsync);
         bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetPersonalReceiptOcrReviewAsync);
+        bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetPersonalReceiptOcrReviewApplyPreviewAsync);
         bills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemovePersonalReceiptOcrReviewAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
@@ -123,6 +124,7 @@ internal static class ReceiptOcrReviewEndpoints
 
         groupBills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review", UpsertGroupReceiptOcrReviewAsync);
         groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetGroupReceiptOcrReviewAsync);
+        groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetGroupReceiptOcrReviewApplyPreviewAsync);
         groupBills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemoveGroupReceiptOcrReviewAsync);
 
         return app;
@@ -420,6 +422,24 @@ internal static class ReceiptOcrReviewEndpoints
             cancellationToken);
     }
 
+    private static Task<IResult> GetPersonalReceiptOcrReviewApplyPreviewAsync(
+        Guid billId,
+        Guid fileId,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return GetReceiptOcrReviewApplyPreviewAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            cancellationToken);
+    }
+
     private static Task<IResult> GetGroupReceiptOcrReviewAsync(
         Guid groupId,
         Guid billId,
@@ -440,6 +460,25 @@ internal static class ReceiptOcrReviewEndpoints
             auditWriter,
             dbContext,
             timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> GetGroupReceiptOcrReviewApplyPreviewAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return GetReceiptOcrReviewApplyPreviewAsync(
+            groupId,
+            billId,
+            fileId,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
             cancellationToken);
     }
 
@@ -516,6 +555,58 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return Results.Ok(ReceiptOcrReviewResponse.From(review));
+    }
+
+    private static async Task<IResult> GetReceiptOcrReviewApplyPreviewAsync(
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var billContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            actor.UserProfileId,
+            cancellationToken);
+        if (billContext is null)
+        {
+            return BillUnavailable();
+        }
+
+        var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return BillUnavailable();
+        }
+
+        var review = await LoadReadableReceiptOcrReviewQuery(dbContext, billContext, attachment.FileObjectId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (review is null)
+        {
+            return ReceiptOcrReviewUnavailable();
+        }
+
+        return Results.Ok(ReceiptOcrReviewApplyPreviewResponse.From(review, billContext.BillCurrency));
     }
 
     private static Task<IResult> RemovePersonalReceiptOcrReviewAsync(
@@ -1303,7 +1394,8 @@ internal static class ReceiptOcrReviewEndpoints
                 bill.GroupId,
                 bill.CreatedByUserProfileId,
                 bill.BillOwnerUserProfileId,
-                bill.Status))
+                bill.Status,
+                bill.TotalCurrency))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -1594,5 +1686,6 @@ internal static class ReceiptOcrReviewEndpoints
         Guid? GroupId,
         Guid CreatedByUserProfileId,
         Guid BillOwnerUserProfileId,
-        string BillStatus);
+        string BillStatus,
+        string BillCurrency);
 }

@@ -276,6 +276,17 @@ class SettleoraApiClient {
     );
   }
 
+  Future<ReceiptOcrReviewApplyPreviewResponse> getPersonalBillAttachmentOcrReviewApplyPreview(String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review/apply-preview',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewApplyPreviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<void> acceptPersonalBillParticipant(String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {
     await _send(
       "POST",
@@ -577,6 +588,17 @@ class SettleoraApiClient {
       accessToken: accessToken,
       headers: headers,
     );
+  }
+
+  Future<ReceiptOcrReviewApplyPreviewResponse> getGroupBillAttachmentOcrReviewApplyPreview(String groupId, String billId, String fileId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/attachments/${Uri.encodeComponent(fileId.toString())}/ocr-review/apply-preview',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ReceiptOcrReviewApplyPreviewResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<void> acceptGroupBillParticipant(String groupId, String billId, String userProfileId, {required String accessToken, Map<String, String>? headers}) async {

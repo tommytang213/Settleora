@@ -1042,6 +1042,53 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:
+    get:
+      summary: Preview personal bill receipt OCR review apply result
+      description: Converts one existing saved receipt OCR review for an active personal bill receipt attachment into a compact non-mutating bill-draft preview for user confirmation. The authenticated actor is derived from SettleoraSession and must be able to see the bill and receipt attachment; creator/owner mutation rights are not required for this read-only preview. The response includes bounded proposed bill/header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, and warnings only. It does not finalize OCR, create or mutate bill items, splits, settlements, balances, payments, storage bytes, files, OCR jobs, worker state, or audit rows, and it never exposes raw OCR full text, file bytes, storage object keys, provider paths, filenames, signed URLs, auth/session fields, payment details, or unrelated users.
+      operationId: getPersonalBillAttachmentOcrReviewApplyPreview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Non-mutating apply preview for the visible receipt OCR review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, group-scoped, not visible, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/receipt-ocr-reviews:
     get:
       summary: List receipt OCR review queue
@@ -2519,6 +2566,60 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Receipt OCR review removal could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:
+    get:
+      summary: Preview group bill receipt OCR review apply result
+      description: Converts one existing saved receipt OCR review for an active group bill receipt attachment into a compact non-mutating bill-draft preview for user confirmation. The authenticated actor is derived from SettleoraSession, must have active route-group access, and must be able to see the bill and receipt attachment; creator/owner mutation rights are not required for this read-only preview. The response includes bounded proposed bill/header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, and warnings only. It does not finalize OCR, create or mutate bill items, splits, settlements, balances, payments, storage bytes, files, OCR jobs, worker state, or audit rows, and it never exposes raw OCR full text, file bytes, storage object keys, provider paths, filenames, signed URLs, auth/session fields, payment details, or unrelated users.
+      operationId: getGroupBillAttachmentOcrReviewApplyPreview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Non-mutating apply preview for the visible receipt OCR review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, or OCR review is missing, removed, deleted, wrong-purpose, unrelated, inactive, not visible, or unavailable to the authenticated actor.
           content:
             application/problem+json:
               schema:
@@ -6757,6 +6858,202 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewLineResponse"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    ReceiptOcrReviewApplyPreviewIssueCode:
+      type: string
+      description: Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
+      enum:
+        - unsupported_review_status
+        - unsupported_review_source
+        - missing_currency
+        - unsupported_currency
+        - currency_mismatch
+        - missing_grand_total
+        - empty_line_set
+        - line_total_missing
+        - unsupported_line_state
+        - line_total_mismatch
+        - line_sum_mismatch
+        - header_total_mismatch
+    ReceiptOcrReviewApplyPreviewLineCandidateResponse:
+      type: object
+      description: Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.
+      required:
+        - reviewLineId
+        - sortOrder
+        - text
+        - quantity
+        - unitPriceAmount
+        - lineTotalAmount
+        - proposedLineTotalAmount
+      properties:
+        reviewLineId:
+          type: string
+          format: uuid
+          description: Stable OCR review line ID used only for UI correlation within this preview.
+        sortOrder:
+          type: integer
+          minimum: 0
+        text:
+          type: string
+          maxLength: 240
+        quantity:
+          oneOf:
+            - type: string
+            - type: "null"
+        unitPriceAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        lineTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+          description: Stored OCR review line total candidate when present.
+        proposedLineTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+          description: Decimal-string line total the preview can safely propose, using the stored line total when present or a quantity times unit-price derivation when possible.
+    ReceiptOcrReviewApplyPreviewSummaryResponse:
+      type: object
+      description: Decimal-string and count summary derived from the saved OCR review. The summary is preview data only and is not authoritative bill, split, settlement, payment, or balance state.
+      required:
+        - lineCount
+        - linesWithProposedTotalCount
+        - linesMissingProposedTotalCount
+        - proposedLineTotalSumAmount
+        - expectedHeaderTotalAmount
+      properties:
+        lineCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        linesWithProposedTotalCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        linesMissingProposedTotalCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        proposedLineTotalSumAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+          description: Sum of safely proposed line totals when at least one line total can be proposed.
+        expectedHeaderTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+          description: Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+    ReceiptOcrReviewApplyPreviewResponse:
+      type: object
+      description: Safe non-mutating bill-draft preview derived from one saved receipt OCR review. It exposes only proposed header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, warnings, and stable review/bill/file IDs. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split/settlement/payment/balance internals, worker state, and unrelated users.
+      required:
+        - reviewId
+        - billId
+        - groupId
+        - fileId
+        - status
+        - source
+        - proposedMerchantText
+        - proposedReceiptIssuedAtUtc
+        - proposedCurrency
+        - proposedSubtotalAmount
+        - proposedTaxAmount
+        - proposedServiceChargeAmount
+        - proposedDiscountAmount
+        - proposedGrandTotalAmount
+        - proposedLines
+        - summary
+        - canApply
+        - blockedReasons
+        - warnings
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+          description: Stable receipt OCR review ID.
+        billId:
+          type: string
+          format: uuid
+          description: Expense bill ID that owns the receipt attachment.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Owning group ID for group bills, or null for personal bills.
+        fileId:
+          type: string
+          format: uuid
+          description: Stable file metadata ID of the reviewed receipt attachment.
+        status:
+          $ref: "#/components/schemas/ReceiptOcrReviewStatus"
+        source:
+          $ref: "#/components/schemas/ReceiptOcrReviewSource"
+        proposedMerchantText:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        proposedReceiptIssuedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        proposedCurrency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        proposedSubtotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        proposedTaxAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        proposedServiceChargeAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        proposedDiscountAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        proposedGrandTotalAmount:
+          oneOf:
+            - type: string
+            - type: "null"
+        proposedLines:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewLineCandidateResponse"
+        summary:
+          $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewSummaryResponse"
+        canApply:
+          type: boolean
+          description: True only when no blocking preview validation issue was derived.
+        blockedReasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewIssueCode"
+          description: Blocking validation issue codes that make canApply false.
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewApplyPreviewIssueCode"
+          description: Bounded validation issue codes for UI confirmation.
         createdAtUtc:
           type: string
           format: date-time

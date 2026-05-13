@@ -1098,6 +1098,98 @@ export interface ReceiptOcrReviewResponse {
 }
 
 /**
+ * Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
+ */
+export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch";
+
+/**
+ * Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.
+ */
+export interface ReceiptOcrReviewApplyPreviewLineCandidateResponse {
+  /**
+   * Stable OCR review line ID used only for UI correlation within this preview.
+   */
+  reviewLineId: string;
+  sortOrder: number;
+  text: string;
+  quantity: string | null;
+  unitPriceAmount: string | null;
+  /**
+   * Stored OCR review line total candidate when present.
+   */
+  lineTotalAmount: string | null;
+  /**
+   * Decimal-string line total the preview can safely propose, using the stored line total when present or a quantity times unit-price derivation when possible.
+   */
+  proposedLineTotalAmount: string | null;
+}
+
+/**
+ * Decimal-string and count summary derived from the saved OCR review. The summary is preview data only and is not authoritative bill, split, settlement, payment, or balance state.
+ */
+export interface ReceiptOcrReviewApplyPreviewSummaryResponse {
+  lineCount: number;
+  linesWithProposedTotalCount: number;
+  linesMissingProposedTotalCount: number;
+  /**
+   * Sum of safely proposed line totals when at least one line total can be proposed.
+   */
+  proposedLineTotalSumAmount: string | null;
+  /**
+   * Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+   */
+  expectedHeaderTotalAmount: string | null;
+}
+
+/**
+ * Safe non-mutating bill-draft preview derived from one saved receipt OCR review. It exposes only proposed header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, warnings, and stable review/bill/file IDs. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split/settlement/payment/balance internals, worker state, and unrelated users.
+ */
+export interface ReceiptOcrReviewApplyPreviewResponse {
+  /**
+   * Stable receipt OCR review ID.
+   */
+  reviewId: string;
+  /**
+   * Expense bill ID that owns the receipt attachment.
+   */
+  billId: string;
+  /**
+   * Owning group ID for group bills, or null for personal bills.
+   */
+  groupId: string | null;
+  /**
+   * Stable file metadata ID of the reviewed receipt attachment.
+   */
+  fileId: string;
+  status: ReceiptOcrReviewStatus;
+  source: ReceiptOcrReviewSource;
+  proposedMerchantText: string | null;
+  proposedReceiptIssuedAtUtc: string | null;
+  proposedCurrency: CurrencyCode | null;
+  proposedSubtotalAmount: string | null;
+  proposedTaxAmount: string | null;
+  proposedServiceChargeAmount: string | null;
+  proposedDiscountAmount: string | null;
+  proposedGrandTotalAmount: string | null;
+  proposedLines: ReceiptOcrReviewApplyPreviewLineCandidateResponse[];
+  summary: ReceiptOcrReviewApplyPreviewSummaryResponse;
+  /**
+   * True only when no blocking preview validation issue was derived.
+   */
+  canApply: boolean;
+  /**
+   * Blocking validation issue codes that make canApply false.
+   */
+  blockedReasons: ReceiptOcrReviewApplyPreviewIssueCode[];
+  /**
+   * Bounded validation issue codes for UI confirmation.
+   */
+  warnings: ReceiptOcrReviewApplyPreviewIssueCode[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
  */
 export interface SettlementPaymentProofListResponse {

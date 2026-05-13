@@ -14,12 +14,16 @@ The API now has a narrow bill-scoped receipt OCR review intake foundation for ex
 
 - `PUT /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `DELETE /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
+- `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 
 These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data only: it does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, or automatically mutate authoritative bill items, splits, settlements, balances, or payments.
+
+The apply-preview endpoints are read-only validation previews for visible bill actors. They do not require creator/owner mutation rights, do not emit OCR review read-audit events, and do not create or change bill, item, split, settlement, payment, balance, file, storage, OCR job, or worker state.
 
 ## OCR Paths
 

@@ -3010,6 +3010,238 @@ class ReceiptOcrReviewResponse {
   }
 }
 
+/// Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
+typedef ReceiptOcrReviewApplyPreviewIssueCode = String;
+class ReceiptOcrReviewApplyPreviewIssueCodeValues {
+  const ReceiptOcrReviewApplyPreviewIssueCodeValues._();
+  static const ReceiptOcrReviewApplyPreviewIssueCode unsupportedReviewStatus = "unsupported_review_status";
+  static const ReceiptOcrReviewApplyPreviewIssueCode unsupportedReviewSource = "unsupported_review_source";
+  static const ReceiptOcrReviewApplyPreviewIssueCode missingCurrency = "missing_currency";
+  static const ReceiptOcrReviewApplyPreviewIssueCode unsupportedCurrency = "unsupported_currency";
+  static const ReceiptOcrReviewApplyPreviewIssueCode currencyMismatch = "currency_mismatch";
+  static const ReceiptOcrReviewApplyPreviewIssueCode missingGrandTotal = "missing_grand_total";
+  static const ReceiptOcrReviewApplyPreviewIssueCode emptyLineSet = "empty_line_set";
+  static const ReceiptOcrReviewApplyPreviewIssueCode lineTotalMissing = "line_total_missing";
+  static const ReceiptOcrReviewApplyPreviewIssueCode unsupportedLineState = "unsupported_line_state";
+  static const ReceiptOcrReviewApplyPreviewIssueCode lineTotalMismatch = "line_total_mismatch";
+  static const ReceiptOcrReviewApplyPreviewIssueCode lineSumMismatch = "line_sum_mismatch";
+  static const ReceiptOcrReviewApplyPreviewIssueCode headerTotalMismatch = "header_total_mismatch";
+  static const Set<ReceiptOcrReviewApplyPreviewIssueCode> values = {unsupportedReviewStatus, unsupportedReviewSource, missingCurrency, unsupportedCurrency, currencyMismatch, missingGrandTotal, emptyLineSet, lineTotalMissing, unsupportedLineState, lineTotalMismatch, lineSumMismatch, headerTotalMismatch};
+}
+
+/// Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.
+class ReceiptOcrReviewApplyPreviewLineCandidateResponse {
+  const ReceiptOcrReviewApplyPreviewLineCandidateResponse({
+    required this.reviewLineId,
+    required this.sortOrder,
+    required this.text,
+    required this.quantity,
+    required this.unitPriceAmount,
+    required this.lineTotalAmount,
+    required this.proposedLineTotalAmount,
+  });
+
+  /// Stable OCR review line ID used only for UI correlation within this preview.
+  final String reviewLineId;
+  final int sortOrder;
+  final String text;
+  final String? quantity;
+  final String? unitPriceAmount;
+  /// Stored OCR review line total candidate when present.
+  final String? lineTotalAmount;
+  /// Decimal-string line total the preview can safely propose, using the stored line total when present or a quantity times unit-price derivation when possible.
+  final String? proposedLineTotalAmount;
+
+  factory ReceiptOcrReviewApplyPreviewLineCandidateResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewApplyPreviewLineCandidateResponse(
+      reviewLineId: json["reviewLineId"] as String,
+      sortOrder: (json["sortOrder"] as num).toInt(),
+      text: json["text"] as String,
+      quantity: json["quantity"] == null ? null : json["quantity"] as String,
+      unitPriceAmount: json["unitPriceAmount"] == null ? null : json["unitPriceAmount"] as String,
+      lineTotalAmount: json["lineTotalAmount"] == null ? null : json["lineTotalAmount"] as String,
+      proposedLineTotalAmount: json["proposedLineTotalAmount"] == null ? null : json["proposedLineTotalAmount"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final quantityJsonValue = quantity;
+    final unitPriceAmountJsonValue = unitPriceAmount;
+    final lineTotalAmountJsonValue = lineTotalAmount;
+    final proposedLineTotalAmountJsonValue = proposedLineTotalAmount;
+
+    return {
+      "reviewLineId": reviewLineId,
+      "sortOrder": sortOrder,
+      "text": text,
+      "quantity": quantityJsonValue,
+      "unitPriceAmount": unitPriceAmountJsonValue,
+      "lineTotalAmount": lineTotalAmountJsonValue,
+      "proposedLineTotalAmount": proposedLineTotalAmountJsonValue,
+    };
+  }
+}
+
+/// Decimal-string and count summary derived from the saved OCR review. The summary is preview data only and is not authoritative bill, split, settlement, payment, or balance state.
+class ReceiptOcrReviewApplyPreviewSummaryResponse {
+  const ReceiptOcrReviewApplyPreviewSummaryResponse({
+    required this.lineCount,
+    required this.linesWithProposedTotalCount,
+    required this.linesMissingProposedTotalCount,
+    required this.proposedLineTotalSumAmount,
+    required this.expectedHeaderTotalAmount,
+  });
+
+  final int lineCount;
+  final int linesWithProposedTotalCount;
+  final int linesMissingProposedTotalCount;
+  /// Sum of safely proposed line totals when at least one line total can be proposed.
+  final String? proposedLineTotalSumAmount;
+  /// Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+  final String? expectedHeaderTotalAmount;
+
+  factory ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewApplyPreviewSummaryResponse(
+      lineCount: (json["lineCount"] as num).toInt(),
+      linesWithProposedTotalCount: (json["linesWithProposedTotalCount"] as num).toInt(),
+      linesMissingProposedTotalCount: (json["linesMissingProposedTotalCount"] as num).toInt(),
+      proposedLineTotalSumAmount: json["proposedLineTotalSumAmount"] == null ? null : json["proposedLineTotalSumAmount"] as String,
+      expectedHeaderTotalAmount: json["expectedHeaderTotalAmount"] == null ? null : json["expectedHeaderTotalAmount"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final proposedLineTotalSumAmountJsonValue = proposedLineTotalSumAmount;
+    final expectedHeaderTotalAmountJsonValue = expectedHeaderTotalAmount;
+
+    return {
+      "lineCount": lineCount,
+      "linesWithProposedTotalCount": linesWithProposedTotalCount,
+      "linesMissingProposedTotalCount": linesMissingProposedTotalCount,
+      "proposedLineTotalSumAmount": proposedLineTotalSumAmountJsonValue,
+      "expectedHeaderTotalAmount": expectedHeaderTotalAmountJsonValue,
+    };
+  }
+}
+
+/// Safe non-mutating bill-draft preview derived from one saved receipt OCR review. It exposes only proposed header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, warnings, and stable review/bill/file IDs. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split/settlement/payment/balance internals, worker state, and unrelated users.
+class ReceiptOcrReviewApplyPreviewResponse {
+  const ReceiptOcrReviewApplyPreviewResponse({
+    required this.reviewId,
+    required this.billId,
+    required this.groupId,
+    required this.fileId,
+    required this.status,
+    required this.source,
+    required this.proposedMerchantText,
+    required this.proposedReceiptIssuedAtUtc,
+    required this.proposedCurrency,
+    required this.proposedSubtotalAmount,
+    required this.proposedTaxAmount,
+    required this.proposedServiceChargeAmount,
+    required this.proposedDiscountAmount,
+    required this.proposedGrandTotalAmount,
+    required this.proposedLines,
+    required this.summary,
+    required this.canApply,
+    required this.blockedReasons,
+    required this.warnings,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  /// Stable receipt OCR review ID.
+  final String reviewId;
+  /// Expense bill ID that owns the receipt attachment.
+  final String billId;
+  /// Owning group ID for group bills, or null for personal bills.
+  final String? groupId;
+  /// Stable file metadata ID of the reviewed receipt attachment.
+  final String fileId;
+  final ReceiptOcrReviewStatus status;
+  final ReceiptOcrReviewSource source;
+  final String? proposedMerchantText;
+  final DateTime? proposedReceiptIssuedAtUtc;
+  final CurrencyCode? proposedCurrency;
+  final String? proposedSubtotalAmount;
+  final String? proposedTaxAmount;
+  final String? proposedServiceChargeAmount;
+  final String? proposedDiscountAmount;
+  final String? proposedGrandTotalAmount;
+  final List<ReceiptOcrReviewApplyPreviewLineCandidateResponse> proposedLines;
+  final ReceiptOcrReviewApplyPreviewSummaryResponse summary;
+  /// True only when no blocking preview validation issue was derived.
+  final bool canApply;
+  /// Blocking validation issue codes that make canApply false.
+  final List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons;
+  /// Bounded validation issue codes for UI confirmation.
+  final List<ReceiptOcrReviewApplyPreviewIssueCode> warnings;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ReceiptOcrReviewApplyPreviewResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewApplyPreviewResponse(
+      reviewId: json["reviewId"] as String,
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      fileId: json["fileId"] as String,
+      status: json["status"] as String,
+      source: json["source"] as String,
+      proposedMerchantText: json["proposedMerchantText"] == null ? null : json["proposedMerchantText"] as String,
+      proposedReceiptIssuedAtUtc: json["proposedReceiptIssuedAtUtc"] == null ? null : DateTime.parse(json["proposedReceiptIssuedAtUtc"] as String),
+      proposedCurrency: json["proposedCurrency"] == null ? null : json["proposedCurrency"] as String,
+      proposedSubtotalAmount: json["proposedSubtotalAmount"] == null ? null : json["proposedSubtotalAmount"] as String,
+      proposedTaxAmount: json["proposedTaxAmount"] == null ? null : json["proposedTaxAmount"] as String,
+      proposedServiceChargeAmount: json["proposedServiceChargeAmount"] == null ? null : json["proposedServiceChargeAmount"] as String,
+      proposedDiscountAmount: json["proposedDiscountAmount"] == null ? null : json["proposedDiscountAmount"] as String,
+      proposedGrandTotalAmount: json["proposedGrandTotalAmount"] == null ? null : json["proposedGrandTotalAmount"] as String,
+      proposedLines: (json["proposedLines"] as List<dynamic>).map((item) => ReceiptOcrReviewApplyPreviewLineCandidateResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      summary: ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject.from(json["summary"] as Map)),
+      canApply: json["canApply"] as bool,
+      blockedReasons: (json["blockedReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final proposedMerchantTextJsonValue = proposedMerchantText;
+    final proposedReceiptIssuedAtUtcJsonValue = proposedReceiptIssuedAtUtc;
+    final proposedCurrencyJsonValue = proposedCurrency;
+    final proposedSubtotalAmountJsonValue = proposedSubtotalAmount;
+    final proposedTaxAmountJsonValue = proposedTaxAmount;
+    final proposedServiceChargeAmountJsonValue = proposedServiceChargeAmount;
+    final proposedDiscountAmountJsonValue = proposedDiscountAmount;
+    final proposedGrandTotalAmountJsonValue = proposedGrandTotalAmount;
+
+    return {
+      "reviewId": reviewId,
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "fileId": fileId,
+      "status": status,
+      "source": source,
+      "proposedMerchantText": proposedMerchantTextJsonValue,
+      "proposedReceiptIssuedAtUtc": proposedReceiptIssuedAtUtcJsonValue == null ? null : proposedReceiptIssuedAtUtcJsonValue.toUtc().toIso8601String(),
+      "proposedCurrency": proposedCurrencyJsonValue,
+      "proposedSubtotalAmount": proposedSubtotalAmountJsonValue,
+      "proposedTaxAmount": proposedTaxAmountJsonValue,
+      "proposedServiceChargeAmount": proposedServiceChargeAmountJsonValue,
+      "proposedDiscountAmount": proposedDiscountAmountJsonValue,
+      "proposedGrandTotalAmount": proposedGrandTotalAmountJsonValue,
+      "proposedLines": proposedLines.map((item) => item.toJson()).toList(growable: false),
+      "summary": summary.toJson(),
+      "canApply": canApply,
+      "blockedReasons": blockedReasons,
+      "warnings": warnings,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Safe settlement payment proof metadata list. It excludes proof bytes, storage object keys, storage paths, provider URLs, direct URLs, vault references, original filenames, auth/session data, payment handles, payment notes, bill merchant/item details, raw audit metadata, and unrelated users.
 class SettlementPaymentProofListResponse {
   const SettlementPaymentProofListResponse({

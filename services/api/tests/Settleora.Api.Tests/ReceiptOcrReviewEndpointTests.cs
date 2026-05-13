@@ -266,6 +266,329 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task PersonalReceiptOcrReviewApplyPreviewBuildsSafeDraftPreviewForVisibleParticipantWithoutMutationOrAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Apply Preview OCR Owner");
+        var participant = await SeedAccountAsync(testFactory, "Apply Preview OCR Participant", InitialTimestamp.AddMinutes(1));
+        var participantSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, participant);
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var putRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            ApplyPreviewReadyReviewJson());
+        using var putResponse = await client.SendAsync(putRequest);
+        var putContent = await putResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        var savedPayload = ReadReviewPayload(putContent);
+        var reviewBeforePreview = await ReadReceiptOcrReviewAsync(testFactory, savedPayload.Id);
+        var billItemsBeforePreview = await CountBillItemsAsync(testFactory, billId);
+        var billItemSplitsBeforePreview = await CountBillItemSplitsAsync(testFactory, billId);
+        var billParticipantsBeforePreview = await CountBillParticipantsAsync(testFactory, billId);
+        var billPayersBeforePreview = await CountBillPayersAsync(testFactory, billId);
+        var billAdjustmentsBeforePreview = await CountBillAdjustmentsAsync(testFactory, billId);
+        var reviewAuditsBeforePreview = await ReadReceiptOcrReviewAuditEventsAsync(testFactory);
+
+        using var previewRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, fileId),
+            participantSession.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        var previewContent = await previewResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        AssertSafeReviewJson(previewContent);
+        var previewPayload = ReadApplyPreviewPayload(previewContent);
+        Assert.Equal(savedPayload.Id, previewPayload.ReviewId);
+        Assert.Equal(billId, previewPayload.BillId);
+        Assert.Equal(fileId, previewPayload.FileId);
+        Assert.Null(previewPayload.GroupId);
+        Assert.True(previewPayload.CanApply);
+        Assert.Empty(previewPayload.BlockedReasons);
+        Assert.Empty(previewPayload.Warnings);
+        Assert.Equal("Preview Cafe", previewPayload.ProposedMerchantText);
+        Assert.Equal("USD", previewPayload.ProposedCurrency);
+        Assert.Equal("11.5", previewPayload.ProposedGrandTotalAmount);
+        Assert.Equal(["Toast", "Tea"], previewPayload.ProposedLines.Select(line => line.Text).ToArray());
+        Assert.Equal(["5.25", "5"], previewPayload.ProposedLines.Select(line => line.ProposedLineTotalAmount!).ToArray());
+        Assert.Equal(2, previewPayload.Summary.LineCount);
+        Assert.Equal(2, previewPayload.Summary.LinesWithProposedTotalCount);
+        Assert.Equal(0, previewPayload.Summary.LinesMissingProposedTotalCount);
+        Assert.Equal("10.25", previewPayload.Summary.ProposedLineTotalSumAmount);
+        Assert.Equal("11.5", previewPayload.Summary.ExpectedHeaderTotalAmount);
+
+        var reviewAfterPreview = await ReadReceiptOcrReviewAsync(testFactory, savedPayload.Id);
+        Assert.Equal(reviewBeforePreview.UpdatedAtUtc, reviewAfterPreview.UpdatedAtUtc);
+        Assert.Equal(reviewBeforePreview.Lines.Count, reviewAfterPreview.Lines.Count);
+        Assert.Equal(billItemsBeforePreview, await CountBillItemsAsync(testFactory, billId));
+        Assert.Equal(billItemSplitsBeforePreview, await CountBillItemSplitsAsync(testFactory, billId));
+        Assert.Equal(billParticipantsBeforePreview, await CountBillParticipantsAsync(testFactory, billId));
+        Assert.Equal(billPayersBeforePreview, await CountBillPayersAsync(testFactory, billId));
+        Assert.Equal(billAdjustmentsBeforePreview, await CountBillAdjustmentsAsync(testFactory, billId));
+        Assert.Empty(await ReadSettlementRequestsAsync(testFactory));
+        Assert.Empty(await ReadSettlementPaymentsAsync(testFactory));
+        Assert.Empty(await ReadSettlementPaymentAllocationsAsync(testFactory));
+        Assert.Empty(await ReadSettlementResidualsAsync(testFactory));
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, fileId)).Status);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, billId, fileId)).RemovedAtUtc);
+        Assert.Equal(
+            reviewAuditsBeforePreview.Select(audit => audit.Id).ToArray(),
+            (await ReadReceiptOcrReviewAuditEventsAsync(testFactory)).Select(audit => audit.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task GroupReceiptOcrReviewApplyPreviewUsesVisibleBillAccessAndFailsClosedWithoutAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Apply Preview OCR Owner");
+        var participant = await SeedAccountAsync(testFactory, "Group Apply Preview OCR Participant", InitialTimestamp.AddMinutes(1));
+        var participantSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, participant);
+        var outsider = await SeedAccountAsync(testFactory, "Group Apply Preview OCR Outsider", InitialTimestamp.AddMinutes(2));
+        var outsiderSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, outsider);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Group Apply Preview OCR Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(participant.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(outsider.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(3));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var reviewId = await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            ownerSession.UserProfileId,
+            groupId,
+            ReceiptOcrReviewStatuses.Reviewed,
+            ReceiptOcrReviewSources.ManualEntry,
+            "Group Preview Cafe",
+            "USD",
+            InitialTimestamp.AddMinutes(10),
+            lineCount: 1);
+        using var client = testFactory.CreateClient();
+
+        using (var participantRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupOcrReviewApplyPreviewPath(groupId, billId, fileId),
+            participantSession.RawSessionToken))
+        using (var participantResponse = await client.SendAsync(participantRequest))
+        {
+            var previewContent = await participantResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, participantResponse.StatusCode);
+            var previewPayload = ReadApplyPreviewPayload(previewContent);
+            Assert.Equal(reviewId, previewPayload.ReviewId);
+            Assert.Equal(groupId, previewPayload.GroupId);
+            Assert.True(previewPayload.CanApply);
+        }
+
+        using (var outsiderRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupOcrReviewApplyPreviewPath(groupId, billId, fileId),
+            outsiderSession.RawSessionToken))
+        using (var outsiderResponse = await client.SendAsync(outsiderRequest))
+        {
+            await AssertBillUnavailableProblemAsync(outsiderResponse);
+        }
+
+        await UpdateMembershipStatusAsync(testFactory, groupId, participant.UserProfileId, GroupMembershipStatuses.Removed);
+        using (var removedMemberRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupOcrReviewApplyPreviewPath(groupId, billId, fileId),
+            participantSession.RawSessionToken))
+        using (var removedMemberResponse = await client.SendAsync(removedMemberRequest))
+        {
+            await AssertBillUnavailableProblemAsync(removedMemberResponse);
+        }
+
+        Assert.Empty(await ReadReceiptOcrReviewAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task ReceiptOcrReviewApplyPreviewReturnsBoundedWarningCodesForUnsafeRowsWithoutMutatingState()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Warning Apply Preview OCR Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var mismatchFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var derivableFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var emptyFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var mismatchReviewId = await SeedCustomReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            mismatchFileId,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ReceiptOcrReviewStatuses.Reviewed,
+            ReceiptOcrReviewSources.OnDevice,
+            "Mismatch Preview Cafe",
+            "HKD",
+            subtotalAmount: null,
+            taxAmount: null,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: 12m,
+            createdAtUtc: InitialTimestamp.AddMinutes(10),
+            lines: [new ReceiptOcrReviewLineSeed("Mismatched latte", 2m, 5m, 11m)]);
+        await SeedCustomReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            derivableFileId,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ReceiptOcrReviewStatuses.Reviewed,
+            ReceiptOcrReviewSources.OnDevice,
+            "Derivable Preview Cafe",
+            "USD",
+            subtotalAmount: 10m,
+            taxAmount: null,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: 10m,
+            createdAtUtc: InitialTimestamp.AddMinutes(11),
+            lines: [new ReceiptOcrReviewLineSeed("Derivable latte", 2m, 5m, null)]);
+        await SeedCustomReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            emptyFileId,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ReceiptOcrReviewStatuses.Reviewed,
+            ReceiptOcrReviewSources.OnDevice,
+            "Empty Preview Cafe",
+            "USD",
+            subtotalAmount: null,
+            taxAmount: null,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: null,
+            createdAtUtc: InitialTimestamp.AddMinutes(12));
+        var billItemsBeforePreview = await CountBillItemsAsync(testFactory, billId);
+        using var client = testFactory.CreateClient();
+
+        using (var mismatchRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, mismatchFileId),
+            ownerSession.RawSessionToken))
+        using (var mismatchResponse = await client.SendAsync(mismatchRequest))
+        {
+            var content = await mismatchResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, mismatchResponse.StatusCode);
+            var previewPayload = ReadApplyPreviewPayload(content);
+            Assert.Equal(mismatchReviewId, previewPayload.ReviewId);
+            Assert.False(previewPayload.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.CurrencyMismatch, previewPayload.BlockedReasons);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineTotalMismatch, previewPayload.BlockedReasons);
+            Assert.All(previewPayload.BlockedReasons, code => Assert.True(ReceiptOcrReviewApplyPreviewIssueCodes.IsSupported(code)));
+            Assert.All(previewPayload.Warnings, code => Assert.True(ReceiptOcrReviewApplyPreviewIssueCodes.IsSupported(code)));
+        }
+
+        using (var derivableRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, derivableFileId),
+            ownerSession.RawSessionToken))
+        using (var derivableResponse = await client.SendAsync(derivableRequest))
+        {
+            var content = await derivableResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, derivableResponse.StatusCode);
+            var previewPayload = ReadApplyPreviewPayload(content);
+            Assert.True(previewPayload.CanApply);
+            Assert.Empty(previewPayload.BlockedReasons);
+            Assert.Equal([ReceiptOcrReviewApplyPreviewIssueCodes.LineTotalMissing], previewPayload.Warnings);
+            Assert.Equal("10", Assert.Single(previewPayload.ProposedLines).ProposedLineTotalAmount);
+        }
+
+        using (var emptyRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, emptyFileId),
+            ownerSession.RawSessionToken))
+        using (var emptyResponse = await client.SendAsync(emptyRequest))
+        {
+            var content = await emptyResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, emptyResponse.StatusCode);
+            var previewPayload = ReadApplyPreviewPayload(content);
+            Assert.False(previewPayload.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.MissingGrandTotal, previewPayload.BlockedReasons);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.EmptyLineSet, previewPayload.BlockedReasons);
+            Assert.Equal(0, previewPayload.Summary.LineCount);
+        }
+
+        Assert.Equal(billItemsBeforePreview, await CountBillItemsAsync(testFactory, billId));
+        Assert.Empty(await ReadSettlementRequestsAsync(testFactory));
+        Assert.Empty(await ReadReceiptOcrReviewAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task ReceiptOcrReviewQueueListsCurrentActorVisibleReviewsWithFiltersAndNoReadAudit()
     {
         var testContext = CreateFactory();
@@ -788,13 +1111,19 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var queueBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/receipt-ocr-reviews:");
         var personalBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review:");
+        var personalApplyPreviewBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:");
         var groupQueueBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/receipt-ocr-reviews:");
         var groupBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review:");
+        var groupApplyPreviewBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:");
         var requestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewUpsertRequest:");
         var lineRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewLineRequest:");
         var listResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewListResponse:");
         var summaryResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewSummaryResponse:");
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewResponse:");
+        var applyPreviewIssueSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyPreviewIssueCode:");
+        var applyPreviewLineSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyPreviewLineCandidateResponse:");
+        var applyPreviewSummarySchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyPreviewSummaryResponse:");
+        var applyPreviewResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyPreviewResponse:");
         const string positiveQuantityPattern = @"^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$";
         var positiveQuantityContract = new Regex(positiveQuantityPattern, RegexOptions.CultureInvariant);
 
@@ -805,10 +1134,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("operationId: upsertPersonalBillAttachmentOcrReview", personalBlock);
         Assert.Contains("operationId: getPersonalBillAttachmentOcrReview", personalBlock);
         Assert.Contains("operationId: removePersonalBillAttachmentOcrReview", personalBlock);
+        Assert.Contains("operationId: getPersonalBillAttachmentOcrReviewApplyPreview", personalApplyPreviewBlock);
         Assert.Contains("operationId: listGroupReceiptOcrReviews", groupQueueBlock);
         Assert.Contains("operationId: upsertGroupBillAttachmentOcrReview", groupBlock);
         Assert.Contains("operationId: getGroupBillAttachmentOcrReview", groupBlock);
         Assert.Contains("operationId: removeGroupBillAttachmentOcrReview", groupBlock);
+        Assert.Contains("operationId: getGroupBillAttachmentOcrReviewApplyPreview", groupApplyPreviewBlock);
         Assert.Contains("provisional", openApi);
         Assert.Contains("reviewed", openApi);
         Assert.Contains("on_device", openApi);
@@ -824,10 +1155,27 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("merchantText", summaryResponseSchema);
         Assert.Contains("grandTotalAmount", responseSchema);
         Assert.Contains("lines", responseSchema);
-        Assert.DoesNotContain("rawText", requestSchema + listResponseSchema + summaryResponseSchema + responseSchema, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("storageObjectKey", requestSchema + listResponseSchema + summaryResponseSchema + responseSchema, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("providerPath", requestSchema + listResponseSchema + summaryResponseSchema + responseSchema, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("signedUrl", requestSchema + listResponseSchema + summaryResponseSchema + responseSchema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("currency_mismatch", applyPreviewIssueSchema);
+        Assert.Contains("line_total_mismatch", applyPreviewIssueSchema);
+        Assert.Contains("canApply", applyPreviewResponseSchema);
+        Assert.Contains("blockedReasons", applyPreviewResponseSchema);
+        Assert.Contains("warnings", applyPreviewResponseSchema);
+        Assert.Contains("proposedMerchantText", applyPreviewResponseSchema);
+        Assert.Contains("proposedLines", applyPreviewResponseSchema);
+        Assert.Contains("proposedLineTotalAmount", applyPreviewLineSchema);
+        Assert.Contains("expectedHeaderTotalAmount", applyPreviewSummarySchema);
+        var safeSchemas = requestSchema
+            + listResponseSchema
+            + summaryResponseSchema
+            + responseSchema
+            + applyPreviewIssueSchema
+            + applyPreviewLineSchema
+            + applyPreviewSummarySchema
+            + applyPreviewResponseSchema;
+        Assert.DoesNotContain("rawText", safeSchemas, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storageObjectKey", safeSchemas, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("providerPath", safeSchemas, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", safeSchemas, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("/api/v1/files", openApi);
         Assert.DoesNotContain("/api/v1/receipts", openApi);
 
@@ -839,14 +1187,18 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("listReceiptOcrReviews", webClient);
         Assert.Contains("upsertPersonalBillAttachmentOcrReview", webClient);
         Assert.Contains("getPersonalBillAttachmentOcrReview", webClient);
+        Assert.Contains("getPersonalBillAttachmentOcrReviewApplyPreview", webClient);
         Assert.Contains("removePersonalBillAttachmentOcrReview", webClient);
         Assert.Contains("listGroupReceiptOcrReviews", dartClient);
         Assert.Contains("upsertGroupBillAttachmentOcrReview", dartClient);
         Assert.Contains("getGroupBillAttachmentOcrReview", dartClient);
+        Assert.Contains("getGroupBillAttachmentOcrReviewApplyPreview", dartClient);
         Assert.Contains("removeGroupBillAttachmentOcrReview", dartClient);
         Assert.Contains("ReceiptOcrReviewListResponse", webModels);
         Assert.Contains("class ReceiptOcrReviewSummaryResponse", dartModels);
         Assert.Contains("ReceiptOcrReviewResponse", webModels);
+        Assert.Contains("ReceiptOcrReviewApplyPreviewResponse", webModels);
+        Assert.Contains("class ReceiptOcrReviewApplyPreviewResponse", dartModels);
         Assert.Contains("ReceiptOcrReviewUpsertRequest", webModels);
         Assert.Contains("class ReceiptOcrReviewResponse", dartModels);
         Assert.Contains("class ReceiptOcrReviewUpsertRequest", dartModels);
@@ -929,6 +1281,38 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                   "quantity": "1.5",
                   "unitPriceAmount": "6.50",
                   "lineTotalAmount": "9.75"
+                }
+              ]
+            }
+            """;
+    }
+
+    private static string ApplyPreviewReadyReviewJson()
+    {
+        return $$"""
+            {
+              "status": "{{ReceiptOcrReviewStatuses.Reviewed}}",
+              "source": "{{ReceiptOcrReviewSources.ManualEntry}}",
+              "merchantText": "Preview Cafe",
+              "receiptIssuedAtUtc": "2026-05-12T10:00:00Z",
+              "currency": "USD",
+              "subtotalAmount": "10.25",
+              "taxAmount": "0.80",
+              "serviceChargeAmount": "1.20",
+              "discountAmount": "0.75",
+              "grandTotalAmount": "11.50",
+              "lines": [
+                {
+                  "text": "Toast",
+                  "quantity": "1",
+                  "unitPriceAmount": "5.25",
+                  "lineTotalAmount": "5.25"
+                },
+                {
+                  "text": "Tea",
+                  "quantity": "2",
+                  "unitPriceAmount": "2.50",
+                  "lineTotalAmount": "5.00"
                 }
               ]
             }
@@ -1301,6 +1685,68 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         return review.Id;
     }
 
+    private static async Task<Guid> SeedCustomReceiptOcrReviewAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid fileId,
+        Guid createdByUserProfileId,
+        Guid? groupId,
+        string status,
+        string source,
+        string? merchantText,
+        string? currency,
+        decimal? subtotalAmount,
+        decimal? taxAmount,
+        decimal? serviceChargeAmount,
+        decimal? discountAmount,
+        decimal? grandTotalAmount,
+        DateTimeOffset createdAtUtc,
+        params ReceiptOcrReviewLineSeed[] lines)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var review = new ReceiptOcrReview
+        {
+            Id = Guid.NewGuid(),
+            ExpenseBillId = billId,
+            FileObjectId = fileId,
+            CreatedByUserProfileId = createdByUserProfileId,
+            GroupId = groupId,
+            Status = status,
+            Source = source,
+            MerchantText = merchantText,
+            Currency = currency,
+            SubtotalAmount = subtotalAmount,
+            TaxAmount = taxAmount,
+            ServiceChargeAmount = serviceChargeAmount,
+            DiscountAmount = discountAmount,
+            GrandTotalAmount = grandTotalAmount,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc.AddMinutes(1)
+        };
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            review.Lines.Add(new ReceiptOcrReviewLine
+            {
+                Id = Guid.NewGuid(),
+                ReceiptOcrReviewId = review.Id,
+                SortOrder = index,
+                Text = line.Text,
+                Quantity = line.Quantity,
+                UnitPriceAmount = line.UnitPriceAmount,
+                LineTotalAmount = line.LineTotalAmount,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
+        dbContext.Set<ReceiptOcrReview>().Add(review);
+        await dbContext.SaveChangesAsync();
+        return review.Id;
+    }
+
     private static async Task UpdateMembershipStatusAsync(
         WebApplicationFactory<Program> testFactory,
         Guid groupId,
@@ -1391,6 +1837,54 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             .CountAsync(item => item.ExpenseBillId == billId);
     }
 
+    private static async Task<int> CountBillItemSplitsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBillItemSplit>()
+            .AsNoTracking()
+            .CountAsync(split => split.ExpenseBillItem.ExpenseBillId == billId);
+    }
+
+    private static async Task<int> CountBillParticipantsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBillParticipant>()
+            .AsNoTracking()
+            .CountAsync(participant => participant.ExpenseBillId == billId);
+    }
+
+    private static async Task<int> CountBillPayersAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBillPayer>()
+            .AsNoTracking()
+            .CountAsync(payer => payer.ExpenseBillId == billId);
+    }
+
+    private static async Task<int> CountBillAdjustmentsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBillAdjustment>()
+            .AsNoTracking()
+            .CountAsync(adjustment => adjustment.ExpenseBillId == billId);
+    }
+
     private static async Task<IReadOnlyList<object>> ReadSettlementRequestsAsync(
         WebApplicationFactory<Program> testFactory)
     {
@@ -1398,6 +1892,42 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
 
         return await dbContext.Set<Settleora.Api.Domain.Settlements.SettlementRequest>()
+            .AsNoTracking()
+            .Cast<object>()
+            .ToArrayAsync();
+    }
+
+    private static async Task<IReadOnlyList<object>> ReadSettlementPaymentsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<Settleora.Api.Domain.Settlements.SettlementPayment>()
+            .AsNoTracking()
+            .Cast<object>()
+            .ToArrayAsync();
+    }
+
+    private static async Task<IReadOnlyList<object>> ReadSettlementPaymentAllocationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<Settleora.Api.Domain.Settlements.SettlementPaymentAllocation>()
+            .AsNoTracking()
+            .Cast<object>()
+            .ToArrayAsync();
+    }
+
+    private static async Task<IReadOnlyList<object>> ReadSettlementResidualsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<Settleora.Api.Domain.Settlements.SettlementResidual>()
             .AsNoTracking()
             .Cast<object>()
             .ToArrayAsync();
@@ -1509,6 +2039,94 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             root.GetProperty("lineCount").GetInt32(),
             root.GetProperty("createdAtUtc").GetDateTimeOffset(),
             root.GetProperty("updatedAtUtc").GetDateTimeOffset());
+    }
+
+    private static ReceiptOcrReviewApplyPreviewPayload ReadApplyPreviewPayload(string content)
+    {
+        using var document = JsonDocument.Parse(content);
+        var root = document.RootElement;
+        Assert.Equal(
+            [
+                "billId",
+                "blockedReasons",
+                "canApply",
+                "createdAtUtc",
+                "fileId",
+                "groupId",
+                "proposedCurrency",
+                "proposedDiscountAmount",
+                "proposedGrandTotalAmount",
+                "proposedLines",
+                "proposedMerchantText",
+                "proposedReceiptIssuedAtUtc",
+                "proposedServiceChargeAmount",
+                "proposedSubtotalAmount",
+                "proposedTaxAmount",
+                "reviewId",
+                "source",
+                "status",
+                "summary",
+                "updatedAtUtc",
+                "warnings"
+            ],
+            root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+
+        return new ReceiptOcrReviewApplyPreviewPayload(
+            root.GetProperty("reviewId").GetGuid(),
+            root.GetProperty("billId").GetGuid(),
+            root.GetProperty("groupId").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("groupId").GetGuid(),
+            root.GetProperty("fileId").GetGuid(),
+            root.GetProperty("canApply").GetBoolean(),
+            root.GetProperty("blockedReasons").EnumerateArray().Select(value => value.GetString()!).ToArray(),
+            root.GetProperty("warnings").EnumerateArray().Select(value => value.GetString()!).ToArray(),
+            root.GetProperty("proposedMerchantText").GetString(),
+            root.GetProperty("proposedCurrency").GetString(),
+            root.GetProperty("proposedGrandTotalAmount").GetString(),
+            root.GetProperty("proposedLines").EnumerateArray().Select(ReadApplyPreviewLinePayload).ToArray(),
+            ReadApplyPreviewSummaryPayload(root.GetProperty("summary")));
+    }
+
+    private static ReceiptOcrReviewApplyPreviewLinePayload ReadApplyPreviewLinePayload(JsonElement root)
+    {
+        Assert.Equal(
+            [
+                "lineTotalAmount",
+                "proposedLineTotalAmount",
+                "quantity",
+                "reviewLineId",
+                "sortOrder",
+                "text",
+                "unitPriceAmount"
+            ],
+            root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+
+        return new ReceiptOcrReviewApplyPreviewLinePayload(
+            root.GetProperty("reviewLineId").GetGuid(),
+            root.GetProperty("sortOrder").GetInt32(),
+            root.GetProperty("text").GetString()!,
+            root.GetProperty("proposedLineTotalAmount").GetString());
+    }
+
+    private static ReceiptOcrReviewApplyPreviewSummaryPayload ReadApplyPreviewSummaryPayload(JsonElement root)
+    {
+        Assert.Equal(
+            [
+                "expectedHeaderTotalAmount",
+                "lineCount",
+                "linesMissingProposedTotalCount",
+                "linesWithProposedTotalCount",
+                "proposedLineTotalSumAmount"
+            ],
+            root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+
+        return new ReceiptOcrReviewApplyPreviewSummaryPayload(
+            root.GetProperty("lineCount").GetInt32(),
+            root.GetProperty("linesWithProposedTotalCount").GetInt32(),
+            root.GetProperty("linesMissingProposedTotalCount").GetInt32(),
+            root.GetProperty("proposedLineTotalSumAmount").GetString(),
+            root.GetProperty("expectedHeaderTotalAmount").GetString());
     }
 
     private static void AssertReviewAuditMetadata(
@@ -1701,9 +2319,19 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review";
     }
 
+    private static string PersonalOcrReviewApplyPreviewPath(Guid billId, Guid fileId)
+    {
+        return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review/apply-preview";
+    }
+
     private static string GroupOcrReviewPath(Guid groupId, Guid billId, Guid fileId)
     {
         return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/attachments/{fileId:D}/ocr-review";
+    }
+
+    private static string GroupOcrReviewApplyPreviewPath(Guid groupId, Guid billId, Guid fileId)
+    {
+        return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/attachments/{fileId:D}/ocr-review/apply-preview";
     }
 
     private static string ReceiptOcrReviewQueuePath(string? query = null)
@@ -1786,6 +2414,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         string Role,
         string Status);
 
+    private sealed record ReceiptOcrReviewLineSeed(
+        string Text,
+        decimal? Quantity,
+        decimal? UnitPriceAmount,
+        decimal? LineTotalAmount);
+
     private sealed record ReceiptOcrReviewPayload(
         Guid Id,
         Guid BillId,
@@ -1818,6 +2452,33 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         int LineCount,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset UpdatedAtUtc);
+
+    private sealed record ReceiptOcrReviewApplyPreviewPayload(
+        Guid ReviewId,
+        Guid BillId,
+        Guid? GroupId,
+        Guid FileId,
+        bool CanApply,
+        IReadOnlyList<string> BlockedReasons,
+        IReadOnlyList<string> Warnings,
+        string? ProposedMerchantText,
+        string? ProposedCurrency,
+        string? ProposedGrandTotalAmount,
+        IReadOnlyList<ReceiptOcrReviewApplyPreviewLinePayload> ProposedLines,
+        ReceiptOcrReviewApplyPreviewSummaryPayload Summary);
+
+    private sealed record ReceiptOcrReviewApplyPreviewLinePayload(
+        Guid ReviewLineId,
+        int SortOrder,
+        string Text,
+        string? ProposedLineTotalAmount);
+
+    private sealed record ReceiptOcrReviewApplyPreviewSummaryPayload(
+        int LineCount,
+        int LinesWithProposedTotalCount,
+        int LinesMissingProposedTotalCount,
+        string? ProposedLineTotalSumAmount,
+        string? ExpectedHeaderTotalAmount);
 
     private sealed class ReceiptOcrReviewTestTimeProvider : TimeProvider
     {
