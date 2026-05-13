@@ -28,6 +28,7 @@ This repository is still not a feature-complete Day 1 MVP, but it is no longer o
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Receipt OCR review apply policy](docs/architecture/RECEIPT_OCR_REVIEW_APPLY_POLICY.md)
+- [Receipt OCR review UX flow](docs/architecture/RECEIPT_OCR_REVIEW_UX_FLOW.md)
 - [Product requirements](docs/prd/)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)

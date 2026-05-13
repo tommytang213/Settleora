@@ -21,6 +21,7 @@ This directory keeps supporting architecture and release-process notes.
 - [Settlement runtime architecture](SETTLEMENT_RUNTIME_ARCHITECTURE.md): Day 1 design gate for server-authoritative settlement request creation, payment claims, receiver confirmation, dispute, cancellation, proof linkage, privacy, audit, and rebuildable balance projections before endpoint implementation.
 - [OCR architecture](OCR_ARCHITECTURE.md): canonical OCR architecture for required on-device OCR, complementary server-side OCR worker responsibilities, authority boundaries, offline flow, and validation rules.
 - [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md): current-state policy for the landed draft-only receipt OCR review apply operation, plus boundaries for future wider apply, finalization, revision, worker, and UI behavior.
+- [Receipt OCR review UX flow](RECEIPT_OCR_REVIEW_UX_FLOW.md): mobile-first UX gate for receipt capture, OCR review, apply-preview, explicit draft apply, permissions, blocked states, and privacy before UI implementation.
 - [Currency exchange architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md): Day 2 FX provider, exchange-rate storage, bill-level snapshot, recalculation, and audit rules.
 - [Statement reconciliation architecture](STATEMENT_RECONCILIATION_ARCHITECTURE.md): Day 2 statement import, matching, tolerance, payment-method, FX, privacy, and audit rules.
 - [Lock, refund, and group governance architecture](LOCK_REFUND_GOVERNANCE_ARCHITECTURE.md): Day 2 period/final lock, group approval, refund, reimbursement, and audit rules.
