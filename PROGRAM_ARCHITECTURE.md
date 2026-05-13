@@ -17,7 +17,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - OpenAPI is the source of truth for mobile and web generated clients.
 - Canonical contract path: `packages/contracts/openapi/settleora.v1.yaml`.
 - Web client generation target: `packages/client-web/src/generated/`.
-- Dart client generation target: `packages/client-dart/generated/`.
+- Dart client generation target: `packages/client-dart/lib/generated/`.
 - Generated clients are non-hand-edited. Update the OpenAPI contract, regenerate, and review the generated diff.
 
 ## Sync Authority Rules

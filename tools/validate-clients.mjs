@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 
 const generatedTargets = [
   "packages/client-web/src/generated",
-  "packages/client-dart/generated"
+  "packages/client-dart/lib/generated"
 ];
 
 const before = await snapshotTargets(generatedTargets);
@@ -96,7 +96,7 @@ function normalizePath(file) {
 }
 
 async function validateGeneratedDartNullSafety() {
-  const modelsPath = "packages/client-dart/generated/models.dart";
+  const modelsPath = "packages/client-dart/lib/generated/models.dart";
   const content = await readFile(modelsPath, "utf8");
   const unsafeCalls = [];
 

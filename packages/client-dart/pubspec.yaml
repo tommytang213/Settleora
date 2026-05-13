@@ -1,0 +1,7 @@
+name: settleora_api_client
+description: Generated Dart API client for Settleora.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.5

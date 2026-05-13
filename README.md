@@ -48,7 +48,7 @@ This repository is still not a feature-complete Day 1 MVP, but it is no longer o
 - `services/worker-ocr/` placeholder for the future Python OCR worker.
 - `packages/contracts/` OpenAPI contract source.
 - `packages/client-web/` generated web client output from the OpenAPI contract.
-- `packages/client-dart/` generated Dart/Flutter client output from the OpenAPI contract.
+- `packages/client-dart/` generated Dart/Flutter client package output from the OpenAPI contract.
 - `infra/` local development infrastructure scaffold.
 
 The API can be run through Docker Compose once Docker is available:
