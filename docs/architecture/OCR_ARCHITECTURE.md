@@ -10,24 +10,28 @@ OCR output is still subject to validation depending on profile mode. Local-only 
 
 ## Current Implementation Status
 
-The API now has a narrow bill-scoped receipt OCR review intake and apply-preview foundation for existing receipt attachments, plus read-only queue/list endpoints:
+The API now has a narrow bill-scoped receipt OCR review intake, apply-preview, and draft-only apply foundation for existing receipt attachments, plus read-only queue/list endpoints:
 
 - `PUT /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
+- `POST /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply`
 - `DELETE /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/receipt-ocr-reviews`
 - `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
+- `POST /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply`
 - `DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/receipt-ocr-reviews`
 
-These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data only: it does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, or automatically mutate authoritative bill items, splits, settlements, balances, or payments.
+These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data unless an authorized actor explicitly applies it through the draft-only apply endpoint. Intake, queue/list visibility, apply-preview success, OCR completion, and generated client availability do not automatically mutate or finalize bill data.
 
 The apply-preview endpoints are read-only validation previews for visible bill actors. They do not require creator/owner mutation rights, do not emit OCR review read-audit events, and do not create or change bill, item, split, settlement, payment, balance, file, storage, OCR job, or worker state.
 
-The future mutating apply operation is intentionally not implemented yet. Its policy gate is [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
+The apply endpoints are explicit user actions guarded by stricter mutation rights than preview/list/read. Day 1 apply supports only `replace_draft_ocr_items`, rebuilds server-side preview validation at write time, preserves manual items, soft-replaces OCR-applied draft items from the same review, and records source markers on applied bill item candidates. It is limited to safe draft or draft-like one-participant/compatible-payer shapes and does not infer multi-participant split policy.
+
+Current OCR review runtime does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, mutate settlement/payment/balance/proof/file/storage/OCR job/worker state, perform non-draft shared-bill revision apply, infer multi-participant splits, create thumbnails, or automatically finalize bills. Wider apply policy is tracked in [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
 
 ## OCR Paths
 
@@ -98,9 +102,11 @@ Money must remain decimal-safe. Currency must always be attached to monetary val
 - No Python OCR implementation yet.
 - No server OCR engine or OCR worker runtime yet.
 - No standalone receipt/OCR upload outside bill attachments yet.
-- No automatic OCR-to-bill, split, settlement, balance, or payment mutation yet.
-- No mutating receipt OCR review apply endpoint yet.
-- No additional generated client changes for OCR apply mutation yet.
+- No automatic OCR-to-bill finalization from OCR completion, queue visibility, preview success, apply availability, or generated client availability.
+- No non-draft shared-bill OCR revision apply.
+- No multi-participant OCR-to-split inference.
+- No generic file, receipt, or OCR API outside bill attachments.
+- No receipt thumbnail generation yet.
 
 ## Future Decisions
 
