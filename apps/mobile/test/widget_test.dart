@@ -1,17 +1,116 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/app/app_configuration.dart';
+import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
 
 void main() {
-  testWidgets('default app keeps receipt reviews behind session state', (
+  testWidgets('default app starts at setup when no mode is configured', (
     tester,
   ) async {
-    await tester.pumpWidget(const SettleoraMobileApp());
+    final storage = FakeSecureStorage();
+
+    await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settleora Setup'), findsOneWidget);
+    expect(find.text('Connect'), findsOneWidget);
+    expect(find.text('Local'), findsOneWidget);
+  });
+
+  testWidgets('setup saves local mode without creating a server repository', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage();
+    var repositoryCreated = false;
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        receiptOcrReviewRepositoryFactory: (_, _) {
+          repositoryCreated = true;
+          return FakeReceiptOcrReviewRepository();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Local'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('setup-save')));
+    await tester.pumpAndSettle();
+
+    expect(storage.configuration?.mode, SettleoraAppMode.local);
+    expect(storage.clearServerSessionCalls, 1);
+    expect(repositoryCreated, isFalse);
+    expect(find.text('Local Mode'), findsOneWidget);
+    expect(find.textContaining('Server collaboration'), findsOneWidget);
+  });
+
+  testWidgets('setup rejects invalid server base URLs before saving', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage();
+
+    await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('setup-server-base-url')),
+      '/relative',
+    );
+    await tester.tap(find.byKey(const Key('setup-save')));
+    await tester.pumpAndSettle();
+
+    expect(storage.configuration, isNull);
+    expect(find.textContaining('absolute URL'), findsOneWidget);
+  });
+
+  testWidgets('server configuration without a session shows session required', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+
+    await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in required'), findsOneWidget);
+    expect(find.textContaining('no saved session'), findsOneWidget);
+    expect(find.text('Receipt Reviews'), findsNothing);
+  });
+
+  testWidgets('server mode with a session injects the receipt repository', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+      session: SettleoraServerSessionMaterial(
+        accessToken: 'redacted-session',
+        accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+      ),
+    );
+    final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        now: () => DateTime.utc(2026, 5, 14),
+        receiptOcrReviewRepositoryFactory: (_, _) => repository,
+      ),
+    );
+    await tester.pumpAndSettle();
 
     expect(find.text('Receipt Reviews'), findsOneWidget);
-    expect(find.text('Sign in required'), findsOneWidget);
+    expect(find.text('No receipt reviews'), findsOneWidget);
+    expect(repository.listCalls, 1);
   });
 
   testWidgets('queue renders empty state from repository', (tester) async {
@@ -410,6 +509,44 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     }
 
     return applyResponse ?? sampleApplyResult();
+  }
+}
+
+class FakeSecureStorage implements SettleoraSecureStorageBoundary {
+  FakeSecureStorage({this.configuration, this.session});
+
+  SettleoraAppConfiguration? configuration;
+  SettleoraServerSessionMaterial? session;
+  int clearServerSessionCalls = 0;
+
+  @override
+  Future<SettleoraAppConfiguration?> readAppConfiguration() async {
+    return configuration;
+  }
+
+  @override
+  Future<void> writeAppConfiguration(
+    SettleoraAppConfiguration configuration,
+  ) async {
+    this.configuration = configuration;
+  }
+
+  @override
+  Future<SettleoraServerSessionMaterial?> readServerSession() async {
+    return session;
+  }
+
+  @override
+  Future<void> writeServerSession(
+    SettleoraServerSessionMaterial session,
+  ) async {
+    this.session = session;
+  }
+
+  @override
+  Future<void> clearServerSession() async {
+    clearServerSessionCalls += 1;
+    session = null;
   }
 }
 

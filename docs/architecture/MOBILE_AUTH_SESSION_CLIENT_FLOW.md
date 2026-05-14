@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. It exists before adding live mobile sign-in UI, session persistence, secure token storage, refresh scheduling, or route-level API client injection.
+This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. The current runtime covers first-launch configuration, secure app/session storage boundaries, and session-gated repository injection only; live sign-in UI, refresh scheduling, logout, and session-management screens remain future slices.
 
 The mobile app must support both local-only use and server-connected use without moving auth, authorization, money, storage, OCR review apply, or audit authority into the client. This document does not authorize runtime code by itself.
 
@@ -12,7 +12,8 @@ The mobile app must support both local-only use and server-connected use without
 - The mobile app depends on `settleora_api_client` through `apps/mobile/pubspec.yaml`.
 - The mobile app has a generated-client adapter seam in `apps/mobile/lib/api/settleora_api_client.dart` with `SettleoraApiConfiguration`, `SettleoraGeneratedApiClientFactory`, and `SettleoraAccessTokenProvider`.
 - The receipt OCR review mobile foundation exists under `apps/mobile/lib/receipt_ocr_review/`. It can render queue/detail/edit/apply-preview/apply states when a repository is injected, and the generated-backed repository reads an access token per operation through `SettleoraAccessTokenProvider`.
-- The mobile app does not yet implement first-launch mode choice, server URL configuration, sign-in screens, secure session storage, token refresh, logout/revoke UI, device/session list UI, or app-wide generated-client injection.
+- The mobile app now has a first-launch local/server mode choice, server base URL validation and normalization, a secure-storage-backed app/session boundary, a secure-session access-token provider, and bootstrap-time repository injection for the receipt OCR review queue when server mode has usable saved session material.
+- The mobile app does not yet implement sign-in screens, credential submission, refresh-token rotation, logout/revoke UI, device/session list UI, current-user bootstrap, or local-mode expense storage.
 - The backend currently exposes reviewed local auth/session endpoints for first-owner bootstrap, local sign-in, refresh, current-user, current-session sign-out, current-account sign-out-all, current-account session list, and per-session revocation.
 - The backend has `SettleoraSession` bearer authentication, current-actor access, authorization policies, and guarded receipt OCR review endpoints that require authenticated session access.
 - The backend remains authoritative for auth/session validation, current actor resolution, authorization, money, storage/file access, OCR-review apply eligibility, status transitions, and audit.
@@ -93,7 +94,7 @@ The backend current-account session list and per-session revocation endpoints ex
 - Production UX must not ask users to paste bearer tokens.
 - Production builds must not hardcode the production API base URL, a local development URL, or a deployment-specific host.
 - Raw access tokens, refresh credentials, passwords, recovery codes, OIDC access tokens, OIDC refresh tokens, and OIDC ID tokens must never appear in logs, audit metadata, crash reports, analytics, screenshots, exported diagnostics, UI error text, exception `toString()` output, or debug state dumps.
-- Token material must be stored only through approved secure storage once implemented. Plaintext local files, ordinary shared preferences, source files, fixtures, screenshots, and generated clients are not valid secret stores.
+- Token material must be stored only through the approved secure storage boundary. Plaintext local files, ordinary shared preferences, source files, fixtures, screenshots, and generated clients are not valid secret stores.
 - Access sessions should be short-lived where practical. Refresh/session rotation, replay handling, expiry, and revocation remain backend-authoritative.
 - The client must not infer authorization from cached profile data, hidden buttons, generated-client availability, local route state, local group membership, local bill records, or saved receipt review summaries.
 - Server responses decide denied, unavailable, conflict, validation, session-expired, and session-required states.
@@ -154,8 +155,6 @@ If a deployment uses an upstream access proxy, Settleora mobile still needs an a
 
 Good follow-up slices are small and reviewable:
 
-- Mobile server configuration UI with validation and no hardcoded production URL.
-- Mobile secure storage foundation for access-session and refresh-like credential material.
 - Mobile sign-in form wired to the reviewed backend local sign-in endpoint.
 - Mobile current-user/session bootstrap that validates saved session material before opening server-mode routes.
 - Mobile refresh and session-expired handling wired to the reviewed backend refresh endpoint.
@@ -167,17 +166,13 @@ Good follow-up slices are small and reviewable:
 
 ## Non-Goals
 
-This document does not add or authorize:
+This document does not add or authorize additional:
 
-- Runtime code.
-- Flutter/Dart source changes.
 - OpenAPI path or schema changes.
 - Generated-client changes.
 - Backend auth/session implementation.
 - New login/current-user/session issuance endpoints.
-- Token storage implementation.
 - Keycloak, OIDC, passkey, or MFA runtime.
 - OCR engine, worker, upload, receipt capture, thumbnails, sync/offline, bill apply, settlement, storage, or file API behavior.
-- Package dependencies, lockfiles, Docker, compose, CI, or migration files.
 - Production bearer-token paste UX.
 - Client-side authorization decisions.

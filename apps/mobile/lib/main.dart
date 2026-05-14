@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 
-import 'receipt_ocr_review/receipt_ocr_review_screen.dart';
+import 'app/app_bootstrap.dart';
+import 'app/secure_storage.dart';
 
 void main() {
-  runApp(const SettleoraMobileApp());
+  runApp(SettleoraMobileApp());
 }
 
 class SettleoraMobileApp extends StatelessWidget {
-  const SettleoraMobileApp({super.key});
+  SettleoraMobileApp({
+    super.key,
+    SettleoraSecureStorageBoundary? secureStorage,
+    this.receiptOcrReviewRepositoryFactory,
+    this.now,
+  }) : secureStorage = secureStorage ?? SettleoraSecureStorage();
+
+  final SettleoraSecureStorageBoundary secureStorage;
+  final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +30,14 @@ class SettleoraMobileApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const ReceiptOcrReviewQueueScreen(),
+      home: receiptOcrReviewRepositoryFactory == null
+          ? SettleoraAppBootstrap(secureStorage: secureStorage, now: now)
+          : SettleoraAppBootstrap(
+              secureStorage: secureStorage,
+              receiptOcrReviewRepositoryFactory:
+                  receiptOcrReviewRepositoryFactory!,
+              now: now,
+            ),
     );
   }
 }
