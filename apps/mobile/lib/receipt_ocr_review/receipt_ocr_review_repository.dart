@@ -161,6 +161,48 @@ class ReceiptOcrReviewLine {
   final DateTime updatedAtUtc;
 }
 
+class ReceiptOcrReviewSaveRequest {
+  const ReceiptOcrReviewSaveRequest({
+    required this.status,
+    required this.source,
+    required this.merchantText,
+    required this.receiptIssuedAtUtc,
+    required this.currency,
+    required this.subtotalAmount,
+    required this.taxAmount,
+    required this.serviceChargeAmount,
+    required this.discountAmount,
+    required this.grandTotalAmount,
+    required this.lines,
+  });
+
+  final ReceiptOcrReviewStatus status;
+  final ReceiptOcrReviewSource source;
+  final String? merchantText;
+  final DateTime? receiptIssuedAtUtc;
+  final String? currency;
+  final String? subtotalAmount;
+  final String? taxAmount;
+  final String? serviceChargeAmount;
+  final String? discountAmount;
+  final String? grandTotalAmount;
+  final List<ReceiptOcrReviewLineSaveRequest> lines;
+}
+
+class ReceiptOcrReviewLineSaveRequest {
+  const ReceiptOcrReviewLineSaveRequest({
+    required this.text,
+    required this.quantity,
+    required this.unitPriceAmount,
+    required this.lineTotalAmount,
+  });
+
+  final String text;
+  final String? quantity;
+  final String? unitPriceAmount;
+  final String? lineTotalAmount;
+}
+
 class ReceiptOcrReviewApplyPreview {
   const ReceiptOcrReviewApplyPreview({
     required this.reviewId,
@@ -335,6 +377,13 @@ abstract class ReceiptOcrReviewRepository {
   });
 
   Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route);
+
+  Future<ReceiptOcrReviewDetail> saveReview(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewSaveRequest request,
+  );
+
+  Future<void> deleteReview(ReceiptOcrReviewRoute route);
 
   Future<ReceiptOcrReviewApplyPreview> previewApply(
     ReceiptOcrReviewRoute route,

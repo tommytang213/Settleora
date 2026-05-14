@@ -19,6 +19,17 @@ abstract interface class ReceiptOcrReviewGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.ReceiptOcrReviewResponse> saveReview(
+    ReceiptOcrReviewRoute route,
+    api.ReceiptOcrReviewUpsertRequest request, {
+    required String accessToken,
+  });
+
+  Future<void> deleteReview(
+    ReceiptOcrReviewRoute route, {
+    required String accessToken,
+  });
+
   Future<api.ReceiptOcrReviewApplyPreviewResponse> previewApply(
     ReceiptOcrReviewRoute route, {
     required String accessToken,
@@ -68,6 +79,53 @@ class SettleoraReceiptOcrReviewGeneratedClient
     }
 
     return _client.getPersonalBillAttachmentOcrReview(
+      route.billId,
+      route.fileId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.ReceiptOcrReviewResponse> saveReview(
+    ReceiptOcrReviewRoute route,
+    api.ReceiptOcrReviewUpsertRequest request, {
+    required String accessToken,
+  }) {
+    final groupId = route.groupId;
+    if (groupId != null) {
+      return _client.upsertGroupBillAttachmentOcrReview(
+        groupId,
+        route.billId,
+        route.fileId,
+        request,
+        accessToken: accessToken,
+      );
+    }
+
+    return _client.upsertPersonalBillAttachmentOcrReview(
+      route.billId,
+      route.fileId,
+      request,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<void> deleteReview(
+    ReceiptOcrReviewRoute route, {
+    required String accessToken,
+  }) {
+    final groupId = route.groupId;
+    if (groupId != null) {
+      return _client.removeGroupBillAttachmentOcrReview(
+        groupId,
+        route.billId,
+        route.fileId,
+        accessToken: accessToken,
+      );
+    }
+
+    return _client.removePersonalBillAttachmentOcrReview(
       route.billId,
       route.fileId,
       accessToken: accessToken,
@@ -173,6 +231,29 @@ class GeneratedReceiptOcrReviewRepository
       final response = await _client.getReview(route, accessToken: accessToken);
 
       return _mapDetail(response);
+    });
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> saveReview(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewSaveRequest request,
+  ) async {
+    return _withAccessToken((accessToken) async {
+      final response = await _client.saveReview(
+        route,
+        _mapSaveRequest(request),
+        accessToken: accessToken,
+      );
+
+      return _mapDetail(response);
+    });
+  }
+
+  @override
+  Future<void> deleteReview(ReceiptOcrReviewRoute route) async {
+    return _withAccessToken((accessToken) {
+      return _client.deleteReview(route, accessToken: accessToken);
     });
   }
 
@@ -292,6 +373,35 @@ ReceiptOcrReviewLine _mapLine(api.ReceiptOcrReviewLineResponse response) {
     lineTotalAmount: response.lineTotalAmount,
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
+  );
+}
+
+api.ReceiptOcrReviewUpsertRequest _mapSaveRequest(
+  ReceiptOcrReviewSaveRequest request,
+) {
+  return api.ReceiptOcrReviewUpsertRequest(
+    status: request.status,
+    source: request.source,
+    merchantText: request.merchantText,
+    receiptIssuedAtUtc: request.receiptIssuedAtUtc?.toUtc(),
+    currency: request.currency,
+    subtotalAmount: request.subtotalAmount,
+    taxAmount: request.taxAmount,
+    serviceChargeAmount: request.serviceChargeAmount,
+    discountAmount: request.discountAmount,
+    grandTotalAmount: request.grandTotalAmount,
+    lines: request.lines.map(_mapSaveLine).toList(growable: false),
+  );
+}
+
+api.ReceiptOcrReviewLineRequest _mapSaveLine(
+  ReceiptOcrReviewLineSaveRequest request,
+) {
+  return api.ReceiptOcrReviewLineRequest(
+    text: request.text,
+    quantity: request.quantity,
+    unitPriceAmount: request.unitPriceAmount,
+    lineTotalAmount: request.lineTotalAmount,
   );
 }
 

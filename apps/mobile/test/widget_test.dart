@@ -115,6 +115,192 @@ void main() {
     expect(find.text('Applied to draft'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
   });
+
+  testWidgets('detail edit mode saves bounded header and line changes', (
+    tester,
+  ) async {
+    final repository = FakeReceiptOcrReviewRepository(
+      reviewResponse: sampleReview(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReceiptOcrReviewDetailScreen(
+          repository: repository,
+          summary: sampleSummary(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('receipt-review-edit-merchant')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('receipt-review-edit-merchant')),
+      'Corner Shop',
+    );
+    await tester.dragUntilVisible(
+      find.byKey(const Key('receipt-review-edit-line-add')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('receipt-review-edit-line-add')),
+    );
+    await tester.tap(find.byKey(const Key('receipt-review-edit-line-add')));
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const ValueKey('receipt-review-edit-line-text-0')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('receipt-review-edit-line-text-0')),
+      'Oat Milk',
+    );
+
+    await tester.dragUntilVisible(
+      find.byKey(const ValueKey('receipt-review-edit-line-text-2')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('receipt-review-edit-line-text-2')),
+      'Eggs',
+    );
+
+    await tester.dragUntilVisible(
+      find.byKey(const ValueKey('receipt-review-edit-line-remove-2')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('receipt-review-edit-line-remove-2')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('receipt-review-edit-line-remove-2')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('receipt-review-edit-save')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('receipt-review-edit-save')),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -80));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.saveCalls, 1);
+    expect(repository.applyCalls, 0);
+    expect(repository.lastSaveRoute?.billId, sampleSummary().billId);
+    expect(repository.lastSaveRequest?.merchantText, 'Corner Shop');
+    expect(repository.lastSaveRequest?.currency, 'USD');
+    expect(repository.lastSaveRequest?.lines.map((line) => line.text), [
+      'Oat Milk',
+      'Bread',
+    ]);
+    expect(find.byKey(const Key('receipt-review-edit-merchant')), findsNothing);
+    expect(find.text('Corner Shop'), findsOneWidget);
+    expect(find.text('Applied to draft'), findsNothing);
+  });
+
+  testWidgets('cancel exits edit mode without saving', (tester) async {
+    final repository = FakeReceiptOcrReviewRepository(
+      reviewResponse: sampleReview(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReceiptOcrReviewDetailScreen(
+          repository: repository,
+          summary: sampleSummary(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('receipt-review-edit-merchant')),
+      'Unsaved Store',
+    );
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('receipt-review-edit-cancel')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('receipt-review-edit-cancel')),
+    );
+    await tester.tap(find.byKey(const Key('receipt-review-edit-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(repository.saveCalls, 0);
+    expect(find.byKey(const Key('receipt-review-edit-merchant')), findsNothing);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Unsaved Store'), findsNothing);
+  });
+
+  testWidgets('save failure displays a safe bounded message', (tester) async {
+    final repository = FakeReceiptOcrReviewRepository(
+      reviewResponse: sampleReview(),
+      saveFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.validation,
+        message:
+            'The receipt review request is no longer valid. Refresh and try again.',
+        statusCode: 422,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReceiptOcrReviewDetailScreen(
+          repository: repository,
+          summary: sampleSummary(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('receipt-review-edit-save')),
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('receipt-review-edit-save')),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -80));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.saveCalls, 1);
+    expect(find.text('Unsupported request'), findsOneWidget);
+    expect(
+      find.text(
+        'The receipt review request is no longer valid. Refresh and try again.',
+      ),
+      findsOneWidget,
+    );
+  });
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
@@ -127,6 +313,9 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.previewFailure,
     this.applyResponse,
     this.applyFailure,
+    this.saveResponse,
+    this.saveFailure,
+    this.deleteFailure,
   });
 
   List<ReceiptOcrReviewSummary>? listResponse;
@@ -137,8 +326,15 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   ReceiptOcrReviewFailure? previewFailure;
   ReceiptOcrReviewApplyResult? applyResponse;
   ReceiptOcrReviewFailure? applyFailure;
+  ReceiptOcrReviewDetail? saveResponse;
+  ReceiptOcrReviewFailure? saveFailure;
+  ReceiptOcrReviewFailure? deleteFailure;
   int listCalls = 0;
   int applyCalls = 0;
+  int saveCalls = 0;
+  int deleteCalls = 0;
+  ReceiptOcrReviewRoute? lastSaveRoute;
+  ReceiptOcrReviewSaveRequest? lastSaveRequest;
 
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
@@ -163,6 +359,31 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     }
 
     return reviewResponse ?? sampleReview();
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> saveReview(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewSaveRequest request,
+  ) async {
+    saveCalls += 1;
+    lastSaveRoute = route;
+    lastSaveRequest = request;
+    final failure = saveFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return saveResponse ?? sampleReviewFromSaveRequest(request);
+  }
+
+  @override
+  Future<void> deleteReview(ReceiptOcrReviewRoute route) async {
+    deleteCalls += 1;
+    final failure = deleteFailure;
+    if (failure != null) {
+      throw failure;
+    }
   }
 
   @override
@@ -208,7 +429,10 @@ ReceiptOcrReviewSummary sampleSummary() {
   );
 }
 
-ReceiptOcrReviewDetail sampleReview() {
+ReceiptOcrReviewDetail sampleReview({
+  String merchantText = 'Corner Market',
+  List<ReceiptOcrReviewLine>? lines,
+}) {
   return ReceiptOcrReviewDetail(
     id: '11111111-1111-1111-1111-111111111111',
     billId: '22222222-2222-2222-2222-222222222222',
@@ -216,7 +440,7 @@ ReceiptOcrReviewDetail sampleReview() {
     groupId: null,
     status: ReceiptOcrReviewStatusValues.reviewed,
     source: ReceiptOcrReviewSourceValues.onDevice,
-    merchantText: 'Corner Market',
+    merchantText: merchantText,
     receiptIssuedAtUtc: sampleTime,
     currency: 'USD',
     subtotalAmount: '10.00',
@@ -224,30 +448,55 @@ ReceiptOcrReviewDetail sampleReview() {
     serviceChargeAmount: null,
     discountAmount: null,
     grandTotalAmount: '10.80',
-    lines: [
-      ReceiptOcrReviewLine(
-        id: '44444444-4444-4444-4444-444444444444',
-        sortOrder: 0,
-        text: 'Milk',
-        quantity: '1',
-        unitPriceAmount: '4.00',
-        lineTotalAmount: '4.00',
-        createdAtUtc: sampleTime,
-        updatedAtUtc: sampleTime,
-      ),
-      ReceiptOcrReviewLine(
-        id: '55555555-5555-5555-5555-555555555555',
-        sortOrder: 1,
-        text: 'Bread',
-        quantity: '1',
-        unitPriceAmount: '6.00',
-        lineTotalAmount: '6.00',
-        createdAtUtc: sampleTime,
-        updatedAtUtc: sampleTime,
-      ),
-    ],
+    lines: lines ?? sampleReviewLines(),
     createdAtUtc: sampleTime,
     updatedAtUtc: sampleTime,
+  );
+}
+
+List<ReceiptOcrReviewLine> sampleReviewLines() {
+  return [
+    ReceiptOcrReviewLine(
+      id: '44444444-4444-4444-4444-444444444444',
+      sortOrder: 0,
+      text: 'Milk',
+      quantity: '1',
+      unitPriceAmount: '4.00',
+      lineTotalAmount: '4.00',
+      createdAtUtc: sampleTime,
+      updatedAtUtc: sampleTime,
+    ),
+    ReceiptOcrReviewLine(
+      id: '55555555-5555-5555-5555-555555555555',
+      sortOrder: 1,
+      text: 'Bread',
+      quantity: '1',
+      unitPriceAmount: '6.00',
+      lineTotalAmount: '6.00',
+      createdAtUtc: sampleTime,
+      updatedAtUtc: sampleTime,
+    ),
+  ];
+}
+
+ReceiptOcrReviewDetail sampleReviewFromSaveRequest(
+  ReceiptOcrReviewSaveRequest request,
+) {
+  return sampleReview(
+    merchantText: request.merchantText ?? 'Receipt review',
+    lines: [
+      for (var index = 0; index < request.lines.length; index++)
+        ReceiptOcrReviewLine(
+          id: 'saved-line-$index',
+          sortOrder: index,
+          text: request.lines[index].text,
+          quantity: request.lines[index].quantity,
+          unitPriceAmount: request.lines[index].unitPriceAmount,
+          lineTotalAmount: request.lines[index].lineTotalAmount,
+          createdAtUtc: sampleTime,
+          updatedAtUtc: sampleTime,
+        ),
+    ],
   );
 }
 

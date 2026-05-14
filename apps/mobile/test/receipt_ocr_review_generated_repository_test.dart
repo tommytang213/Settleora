@@ -22,6 +22,21 @@ void main() {
       expect(client.listCalls, 0);
     });
 
+    test('requires a session before saving a review', () async {
+      final client = FakeReceiptOcrReviewGeneratedClient();
+      final repository = GeneratedReceiptOcrReviewRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('   '),
+      );
+
+      final failure = await captureFailure(() {
+        return repository.saveReview(sampleRoute(), sampleSaveRequest());
+      });
+
+      expect(failure.kind, ReceiptOcrReviewFailureKind.unauthenticated);
+      expect(client.upsertCalls, 0);
+    });
+
     test('maps generated responses into receipt OCR review models', () async {
       final client = FakeReceiptOcrReviewGeneratedClient(
         listResponse: api.ReceiptOcrReviewListResponse(
@@ -82,6 +97,92 @@ void main() {
         client.lastApplyRequest?.toJson().keys,
         unorderedEquals(['applyMode', 'expectedReviewUpdatedAtUtc']),
       );
+    });
+
+    test(
+      'saves and deletes through generated personal and group routes',
+      () async {
+        final client = FakeReceiptOcrReviewGeneratedClient(
+          reviewResponse: sampleApiReview(),
+        );
+        final repository = GeneratedReceiptOcrReviewRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider(_accessSession),
+        );
+
+        final personalRoute = sampleRoute(groupId: null);
+        final personalSave = await repository.saveReview(
+          personalRoute,
+          sampleSaveRequest(),
+        );
+
+        expect(personalSave.id, _reviewId);
+        expect(client.upsertCalls, 1);
+        expect(client.lastUpsertRoute, personalRoute);
+        expect(
+          client.lastUpsertRequest?.status,
+          api.ReceiptOcrReviewStatusValues.reviewed,
+        );
+        expect(
+          client.lastUpsertRequest?.source,
+          api.ReceiptOcrReviewSourceValues.onDevice,
+        );
+        expect(client.lastUpsertRequest?.merchantText, 'Corner Shop');
+        expect(client.lastUpsertRequest?.receiptIssuedAtUtc, _createdAtUtc);
+        expect(client.lastUpsertRequest?.currency, 'USD');
+        expect(client.lastUpsertRequest?.lines?.single.text, 'Milk');
+        expect(
+          client.lastUpsertRequest?.toJson().keys,
+          unorderedEquals([
+            'status',
+            'source',
+            'merchantText',
+            'receiptIssuedAtUtc',
+            'currency',
+            'subtotalAmount',
+            'taxAmount',
+            'serviceChargeAmount',
+            'discountAmount',
+            'grandTotalAmount',
+            'lines',
+          ]),
+        );
+
+        await repository.deleteReview(personalRoute);
+
+        expect(client.deleteCalls, 1);
+        expect(client.lastDeleteRoute, personalRoute);
+
+        final groupRoute = sampleRoute(groupId: _groupId);
+        await repository.saveReview(groupRoute, sampleSaveRequest());
+        await repository.deleteReview(groupRoute);
+
+        expect(client.upsertCalls, 2);
+        expect(client.deleteCalls, 2);
+        expect(client.lastUpsertRoute, groupRoute);
+        expect(client.lastDeleteRoute, groupRoute);
+      },
+    );
+
+    test('maps save validation failures safely', () async {
+      final repository = GeneratedReceiptOcrReviewRepository(
+        client: FakeReceiptOcrReviewGeneratedClient(
+          failure: api.SettleoraApiException(
+            422,
+            'Unprocessable Content',
+            _hiddenBody,
+          ),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider(_accessSession),
+      );
+
+      final failure = await captureFailure(() {
+        return repository.saveReview(sampleRoute(), sampleSaveRequest());
+      });
+
+      expect(failure.kind, ReceiptOcrReviewFailureKind.validation);
+      expect(failure.statusCode, 422);
+      expect(failure.message, isNot(contains('internal-detail')));
     });
 
     test('maps generated-client failures to safe UI failures', () async {
@@ -191,9 +292,14 @@ class FakeReceiptOcrReviewGeneratedClient
   final api.ReceiptOcrReviewApplyPreviewResponse previewResponse;
   final api.ReceiptOcrReviewApplyResponse applyResponse;
   int listCalls = 0;
+  int upsertCalls = 0;
+  int deleteCalls = 0;
   ReceiptOcrReviewStatus? lastStatus;
   ReceiptOcrReviewSource? lastSource;
   int? lastLimit;
+  ReceiptOcrReviewRoute? lastUpsertRoute;
+  api.ReceiptOcrReviewUpsertRequest? lastUpsertRequest;
+  ReceiptOcrReviewRoute? lastDeleteRoute;
   ReceiptOcrReviewRoute? lastApplyRoute;
   api.ReceiptOcrReviewApplyRequest? lastApplyRequest;
 
@@ -219,6 +325,29 @@ class FakeReceiptOcrReviewGeneratedClient
   }) async {
     _throwIfNeeded();
     return reviewResponse;
+  }
+
+  @override
+  Future<api.ReceiptOcrReviewResponse> saveReview(
+    ReceiptOcrReviewRoute route,
+    api.ReceiptOcrReviewUpsertRequest request, {
+    required String accessToken,
+  }) async {
+    upsertCalls += 1;
+    lastUpsertRoute = route;
+    lastUpsertRequest = request;
+    _throwIfNeeded();
+    return reviewResponse;
+  }
+
+  @override
+  Future<void> deleteReview(
+    ReceiptOcrReviewRoute route, {
+    required String accessToken,
+  }) async {
+    deleteCalls += 1;
+    lastDeleteRoute = route;
+    _throwIfNeeded();
   }
 
   @override
@@ -296,6 +425,37 @@ api.ReceiptOcrReviewResponse sampleApiReview() {
     ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+ReceiptOcrReviewRoute sampleRoute({String? groupId = _groupId}) {
+  return ReceiptOcrReviewRoute(
+    billId: _billId,
+    fileId: _fileId,
+    groupId: groupId,
+  );
+}
+
+ReceiptOcrReviewSaveRequest sampleSaveRequest() {
+  return ReceiptOcrReviewSaveRequest(
+    status: ReceiptOcrReviewStatusValues.reviewed,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    merchantText: 'Corner Shop',
+    receiptIssuedAtUtc: _createdAtUtc,
+    currency: 'USD',
+    subtotalAmount: '10.00',
+    taxAmount: '0.80',
+    serviceChargeAmount: null,
+    discountAmount: null,
+    grandTotalAmount: '10.80',
+    lines: const [
+      ReceiptOcrReviewLineSaveRequest(
+        text: 'Milk',
+        quantity: '1',
+        unitPriceAmount: '10.00',
+        lineTotalAmount: '10.00',
+      ),
+    ],
   );
 }
 

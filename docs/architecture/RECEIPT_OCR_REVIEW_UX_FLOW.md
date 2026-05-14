@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the Day 1 mobile-first UX gate for receipt capture, OCR review, apply-preview, and explicit draft bill apply. It is documentation-only and does not authorize mobile, web, OCR engine, worker, OpenAPI, generated client, schema, or runtime changes.
+This document defines the Day 1 mobile-first UX gate for receipt capture, OCR review, apply-preview, and explicit draft bill apply. It remains the UX reference for separately scoped implementation slices and does not authorize backend, OpenAPI, schema, OCR engine, worker, sync, or file-runtime changes by itself.
 
 The UX must present receipt OCR data as provisional until the relevant authority boundary accepts it. Local-only profiles can accept local OCR edits locally. Server-mode profiles must treat review data, previews, offline edits, and queued actions as provisional until the API validates and accepts them.
 
@@ -28,6 +28,12 @@ The current backend does not include:
 - Generic public file, receipt, or OCR APIs outside purpose-specific bill attachment routes.
 
 Apply-preview success, queue visibility, generated client availability, OCR completion, or an enabled button must never imply that bill data has been mutated or finalized.
+
+## Current Mobile State
+
+The current mobile app includes a generated-client-backed receipt OCR review queue/detail foundation for visible saved reviews, explicit apply-preview/apply controls, and a saved-review edit foundation for existing receipt attachment OCR reviews. The edit foundation can update bounded review/header and line candidate fields, cancel local edits, and remove a saved review only after confirmation.
+
+The mobile app still does not capture or upload receipts, run OCR extraction, issue login sessions, persist tokens, queue offline sync, store receipt bytes, or automatically apply OCR data to bill drafts after save.
 
 ## Primary Mobile Flow
 

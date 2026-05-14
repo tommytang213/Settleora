@@ -172,12 +172,17 @@ class _ReceiptOcrReviewDetailScreenState
   bool _isLoadingReview = true;
   bool _isLoadingPreview = false;
   bool _isApplying = false;
+  bool _isEditing = false;
+  bool _isSaving = false;
+  bool _isDeleting = false;
   ReceiptOcrReviewDetail? _review;
   ReceiptOcrReviewApplyPreview? _preview;
   ReceiptOcrReviewApplyResult? _applyResult;
   ReceiptOcrReviewFailure? _reviewFailure;
   ReceiptOcrReviewFailure? _previewFailure;
   ReceiptOcrReviewFailure? _applyFailure;
+  ReceiptOcrReviewFailure? _saveFailure;
+  ReceiptOcrReviewFailure? _deleteFailure;
 
   ReceiptOcrReviewRoute get _route =>
       ReceiptOcrReviewRoute.fromSummary(widget.summary);
@@ -191,11 +196,14 @@ class _ReceiptOcrReviewDetailScreenState
   Future<void> _loadReview() async {
     setState(() {
       _isLoadingReview = true;
+      _isEditing = false;
       _reviewFailure = null;
       _preview = null;
       _previewFailure = null;
       _applyResult = null;
       _applyFailure = null;
+      _saveFailure = null;
+      _deleteFailure = null;
     });
 
     try {
@@ -246,6 +254,120 @@ class _ReceiptOcrReviewDetailScreenState
       setState(() {
         _previewFailure = ReceiptOcrReviewFailure.from(error);
         _isLoadingPreview = false;
+      });
+    }
+  }
+
+  void _startEditing() {
+    setState(() {
+      _isEditing = true;
+      _saveFailure = null;
+      _deleteFailure = null;
+      _preview = null;
+      _previewFailure = null;
+      _applyResult = null;
+      _applyFailure = null;
+    });
+  }
+
+  void _cancelEditing() {
+    setState(() {
+      _isEditing = false;
+      _saveFailure = null;
+      _deleteFailure = null;
+    });
+  }
+
+  Future<void> _saveReview(ReceiptOcrReviewSaveRequest request) async {
+    setState(() {
+      _isSaving = true;
+      _saveFailure = null;
+      _deleteFailure = null;
+    });
+
+    try {
+      final review = await widget.repository.saveReview(_route, request);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _review = review;
+        _isEditing = false;
+        _isSaving = false;
+        _preview = null;
+        _previewFailure = null;
+        _applyResult = null;
+        _applyFailure = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _saveFailure = ReceiptOcrReviewFailure.from(error);
+        _isSaving = false;
+      });
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    if (_isDeleting) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Remove saved review?'),
+          content: const Text(
+            'The saved OCR review will be removed from this receipt attachment.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    await _deleteReview();
+  }
+
+  Future<void> _deleteReview() async {
+    setState(() {
+      _isDeleting = true;
+      _deleteFailure = null;
+      _saveFailure = null;
+    });
+
+    try {
+      await widget.repository.deleteReview(_route);
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _deleteFailure = ReceiptOcrReviewFailure.from(error);
+        _isDeleting = false;
       });
     }
   }
@@ -323,8 +445,14 @@ class _ReceiptOcrReviewDetailScreenState
       appBar: AppBar(
         title: const Text('Receipt Review'),
         actions: [
+          if (!_isEditing)
+            IconButton(
+              onPressed: _isLoadingReview ? null : _startEditing,
+              tooltip: 'Edit',
+              icon: const Icon(Icons.edit_outlined),
+            ),
           IconButton(
-            onPressed: _isLoadingReview ? null : _loadReview,
+            onPressed: _isLoadingReview || _isEditing ? null : _loadReview,
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
           ),
@@ -353,6 +481,22 @@ class _ReceiptOcrReviewDetailScreenState
               );
             }
 
+            if (_isEditing) {
+              return _ReceiptOcrReviewEditForm(
+                key: ValueKey(
+                  '${review.id}-${review.updatedAtUtc.toIso8601String()}',
+                ),
+                review: review,
+                isSaving: _isSaving,
+                isDeleting: _isDeleting,
+                saveFailure: _saveFailure,
+                deleteFailure: _deleteFailure,
+                onSave: _saveReview,
+                onCancel: _cancelEditing,
+                onDelete: _confirmDelete,
+              );
+            }
+
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
@@ -378,6 +522,493 @@ class _ReceiptOcrReviewDetailScreenState
         ),
       ),
     );
+  }
+}
+
+class _ReceiptOcrReviewEditForm extends StatefulWidget {
+  const _ReceiptOcrReviewEditForm({
+    super.key,
+    required this.review,
+    required this.isSaving,
+    required this.isDeleting,
+    required this.saveFailure,
+    required this.deleteFailure,
+    required this.onSave,
+    required this.onCancel,
+    required this.onDelete,
+  });
+
+  final ReceiptOcrReviewDetail review;
+  final bool isSaving;
+  final bool isDeleting;
+  final ReceiptOcrReviewFailure? saveFailure;
+  final ReceiptOcrReviewFailure? deleteFailure;
+  final Future<void> Function(ReceiptOcrReviewSaveRequest request) onSave;
+  final VoidCallback onCancel;
+  final VoidCallback onDelete;
+
+  @override
+  State<_ReceiptOcrReviewEditForm> createState() =>
+      _ReceiptOcrReviewEditFormState();
+}
+
+class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _merchantController;
+  late final TextEditingController _receiptDateController;
+  late final TextEditingController _currencyController;
+  late final TextEditingController _subtotalController;
+  late final TextEditingController _taxController;
+  late final TextEditingController _serviceChargeController;
+  late final TextEditingController _discountController;
+  late final TextEditingController _grandTotalController;
+  late final List<_ReceiptOcrReviewLineEditors> _lineEditors;
+
+  @override
+  void initState() {
+    super.initState();
+    final review = widget.review;
+    _merchantController = TextEditingController(text: review.merchantText);
+    _receiptDateController = TextEditingController(
+      text: review.receiptIssuedAtUtc == null
+          ? ''
+          : _formatDate(review.receiptIssuedAtUtc!),
+    );
+    _currencyController = TextEditingController(text: review.currency);
+    _subtotalController = TextEditingController(text: review.subtotalAmount);
+    _taxController = TextEditingController(text: review.taxAmount);
+    _serviceChargeController = TextEditingController(
+      text: review.serviceChargeAmount,
+    );
+    _discountController = TextEditingController(text: review.discountAmount);
+    _grandTotalController = TextEditingController(
+      text: review.grandTotalAmount,
+    );
+    _lineEditors = [
+      for (final line in [
+        ...review.lines,
+      ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder)))
+        _ReceiptOcrReviewLineEditors.fromLine(line),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _receiptDateController.dispose();
+    _currencyController.dispose();
+    _subtotalController.dispose();
+    _taxController.dispose();
+    _serviceChargeController.dispose();
+    _discountController.dispose();
+    _grandTotalController.dispose();
+    for (final editors in _lineEditors) {
+      editors.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addLine() {
+    setState(() {
+      _lineEditors.add(_ReceiptOcrReviewLineEditors.empty());
+    });
+  }
+
+  void _removeLine(int index) {
+    setState(() {
+      final editors = _lineEditors.removeAt(index);
+      editors.dispose();
+    });
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    widget.onSave(_buildRequest());
+  }
+
+  ReceiptOcrReviewSaveRequest _buildRequest() {
+    return ReceiptOcrReviewSaveRequest(
+      status: widget.review.status,
+      source: widget.review.source,
+      merchantText: _nullableText(_merchantController.text),
+      receiptIssuedAtUtc: _parseDate(_receiptDateController.text),
+      currency: _nullableText(_currencyController.text)?.toUpperCase(),
+      subtotalAmount: _nullableText(_subtotalController.text),
+      taxAmount: _nullableText(_taxController.text),
+      serviceChargeAmount: _nullableText(_serviceChargeController.text),
+      discountAmount: _nullableText(_discountController.text),
+      grandTotalAmount: _nullableText(_grandTotalController.text),
+      lines: _lineEditors
+          .map((editors) => editors.toRequest())
+          .toList(growable: false),
+    );
+  }
+
+  String? _currencyValidator(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return _hasAnyAmountCandidate()
+          ? 'Required when amounts are present'
+          : null;
+    }
+
+    return RegExp(r'^[A-Za-z]{3}$').hasMatch(normalized)
+        ? null
+        : 'Use a 3-letter code';
+  }
+
+  bool _hasAnyAmountCandidate() {
+    final headerControllers = [
+      _subtotalController,
+      _taxController,
+      _serviceChargeController,
+      _discountController,
+      _grandTotalController,
+    ];
+
+    return headerControllers.any(
+          (controller) => controller.text.trim().isNotEmpty,
+        ) ||
+        _lineEditors.any((editors) => editors.hasAnyAmountCandidate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isBusy = widget.isSaving || widget.isDeleting;
+
+    return Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          Text('Review fields', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          _EditTextField(
+            key: const Key('receipt-review-edit-merchant'),
+            controller: _merchantController,
+            label: 'Merchant candidate',
+            enabled: !isBusy,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-date'),
+            controller: _receiptDateController,
+            label: 'Receipt date',
+            enabled: !isBusy,
+            keyboardType: TextInputType.datetime,
+            validator: _dateValidator,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-currency'),
+            controller: _currencyController,
+            label: 'Currency',
+            enabled: !isBusy,
+            textCapitalization: TextCapitalization.characters,
+            validator: _currencyValidator,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Header candidates',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          _EditTextField(
+            key: const Key('receipt-review-edit-subtotal'),
+            controller: _subtotalController,
+            label: 'Subtotal',
+            enabled: !isBusy,
+            keyboardType: TextInputType.number,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-tax'),
+            controller: _taxController,
+            label: 'Tax',
+            enabled: !isBusy,
+            keyboardType: TextInputType.number,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-service-charge'),
+            controller: _serviceChargeController,
+            label: 'Service charge',
+            enabled: !isBusy,
+            keyboardType: TextInputType.number,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-discount'),
+            controller: _discountController,
+            label: 'Discount',
+            enabled: !isBusy,
+            keyboardType: TextInputType.number,
+          ),
+          _EditTextField(
+            key: const Key('receipt-review-edit-grand-total'),
+            controller: _grandTotalController,
+            label: 'Grand total',
+            enabled: !isBusy,
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Line candidates',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                key: const Key('receipt-review-edit-line-add'),
+                onPressed: isBusy ? null : _addLine,
+                tooltip: 'Add line',
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_lineEditors.isEmpty)
+            const _StatePanel(
+              icon: Icons.format_list_bulleted,
+              title: 'No line candidates',
+              message:
+                  'Save can proceed, but apply may be blocked by the server.',
+              compact: true,
+            )
+          else
+            for (var index = 0; index < _lineEditors.length; index++)
+              _LineEditCard(
+                key: ValueKey('receipt-review-edit-line-card-$index'),
+                index: index,
+                editors: _lineEditors[index],
+                enabled: !isBusy,
+                onRemove: () => _removeLine(index),
+              ),
+          if (widget.saveFailure != null) ...[
+            const SizedBox(height: 12),
+            _InlineFailure(failure: widget.saveFailure!),
+          ],
+          if (widget.deleteFailure != null) ...[
+            const SizedBox(height: 12),
+            _InlineFailure(failure: widget.deleteFailure!),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('receipt-review-edit-cancel'),
+                  onPressed: isBusy ? null : widget.onCancel,
+                  icon: const Icon(Icons.close),
+                  label: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  key: const Key('receipt-review-edit-save'),
+                  onPressed: isBusy ? null : _submit,
+                  icon: widget.isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: const Text('Save'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('receipt-review-edit-delete'),
+            onPressed: isBusy ? null : widget.onDelete,
+            icon: widget.isDeleting
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_outline),
+            label: const Text('Remove review'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LineEditCard extends StatelessWidget {
+  const _LineEditCard({
+    super.key,
+    required this.index,
+    required this.editors,
+    required this.enabled,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _ReceiptOcrReviewLineEditors editors;
+  final bool enabled;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Line ${index + 1}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  IconButton(
+                    key: ValueKey('receipt-review-edit-line-remove-$index'),
+                    onPressed: enabled ? onRemove : null,
+                    tooltip: 'Remove line',
+                    icon: const Icon(Icons.remove_circle_outline),
+                  ),
+                ],
+              ),
+              _EditTextField(
+                key: ValueKey('receipt-review-edit-line-text-$index'),
+                controller: editors.textController,
+                label: 'Description',
+                enabled: enabled,
+                validator: _lineTextValidator,
+              ),
+              _EditTextField(
+                key: ValueKey('receipt-review-edit-line-quantity-$index'),
+                controller: editors.quantityController,
+                label: 'Quantity',
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+              ),
+              _EditTextField(
+                key: ValueKey('receipt-review-edit-line-unit-$index'),
+                controller: editors.unitPriceAmountController,
+                label: 'Unit price',
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+              ),
+              _EditTextField(
+                key: ValueKey('receipt-review-edit-line-total-$index'),
+                controller: editors.lineTotalAmountController,
+                label: 'Line total',
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditTextField extends StatelessWidget {
+  const _EditTextField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.enabled,
+    this.keyboardType,
+    this.textCapitalization = TextCapitalization.none,
+    this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool enabled;
+  final TextInputType? keyboardType;
+  final TextCapitalization textCapitalization;
+  final String? Function(String?)? validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        controller: controller,
+        enabled: enabled,
+        keyboardType: keyboardType,
+        textCapitalization: textCapitalization,
+        validator: validator,
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: label,
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptOcrReviewLineEditors {
+  _ReceiptOcrReviewLineEditors({
+    required String text,
+    required String? quantity,
+    required String? unitPriceAmount,
+    required String? lineTotalAmount,
+  }) : textController = TextEditingController(text: text),
+       quantityController = TextEditingController(text: quantity),
+       unitPriceAmountController = TextEditingController(text: unitPriceAmount),
+       lineTotalAmountController = TextEditingController(text: lineTotalAmount);
+
+  factory _ReceiptOcrReviewLineEditors.fromLine(ReceiptOcrReviewLine line) {
+    return _ReceiptOcrReviewLineEditors(
+      text: line.text,
+      quantity: line.quantity,
+      unitPriceAmount: line.unitPriceAmount,
+      lineTotalAmount: line.lineTotalAmount,
+    );
+  }
+
+  factory _ReceiptOcrReviewLineEditors.empty() {
+    return _ReceiptOcrReviewLineEditors(
+      text: '',
+      quantity: null,
+      unitPriceAmount: null,
+      lineTotalAmount: null,
+    );
+  }
+
+  final TextEditingController textController;
+  final TextEditingController quantityController;
+  final TextEditingController unitPriceAmountController;
+  final TextEditingController lineTotalAmountController;
+
+  bool get hasAnyAmountCandidate {
+    return unitPriceAmountController.text.trim().isNotEmpty ||
+        lineTotalAmountController.text.trim().isNotEmpty;
+  }
+
+  ReceiptOcrReviewLineSaveRequest toRequest() {
+    return ReceiptOcrReviewLineSaveRequest(
+      text: textController.text.trim(),
+      quantity: _nullableText(quantityController.text),
+      unitPriceAmount: _nullableText(unitPriceAmountController.text),
+      lineTotalAmount: _nullableText(lineTotalAmountController.text),
+    );
+  }
+
+  void dispose() {
+    textController.dispose();
+    quantityController.dispose();
+    unitPriceAmountController.dispose();
+    lineTotalAmountController.dispose();
   }
 }
 
@@ -1082,6 +1713,55 @@ String _formatDate(DateTime value) {
   final month = utc.month.toString().padLeft(2, '0');
   final day = utc.day.toString().padLeft(2, '0');
   return '$year-$month-$day';
+}
+
+String? _nullableText(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+DateTime? _parseDate(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final parsed = DateTime.tryParse('${trimmed}T00:00:00Z')?.toUtc();
+  if (parsed == null ||
+      parsed.year.toString().padLeft(4, '0') != match.group(1) ||
+      parsed.month.toString().padLeft(2, '0') != match.group(2) ||
+      parsed.day.toString().padLeft(2, '0') != match.group(3)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+String? _dateValidator(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return _parseDate(trimmed) == null ? 'Use YYYY-MM-DD' : null;
+}
+
+String? _lineTextValidator(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return 'Required';
+  }
+
+  return null;
 }
 
 String _titleFromCode(String code) {
