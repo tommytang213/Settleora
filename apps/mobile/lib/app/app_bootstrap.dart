@@ -5,9 +5,11 @@ import '../receipt_ocr_review/generated_receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import 'app_configuration.dart';
+import 'auth_session_repository.dart';
 import 'secure_session_access_token_provider.dart';
 import 'secure_storage.dart';
 import 'setup_screen.dart';
+import 'sign_in_screen.dart';
 
 typedef ReceiptOcrReviewRepositoryFactory =
     ReceiptOcrReviewRepository Function(
@@ -15,17 +17,22 @@ typedef ReceiptOcrReviewRepositoryFactory =
       SettleoraAccessTokenProvider accessTokenProvider,
     );
 
+typedef SettleoraAuthRepositoryFactory =
+    SettleoraAuthRepository Function(SettleoraApiConfiguration configuration);
+
 class SettleoraAppBootstrap extends StatefulWidget {
   const SettleoraAppBootstrap({
     super.key,
     required this.secureStorage,
     this.receiptOcrReviewRepositoryFactory =
         _defaultReceiptOcrReviewRepositoryFactory,
+    this.authRepositoryFactory = _defaultAuthRepositoryFactory,
     this.now,
   });
 
   final SettleoraSecureStorageBoundary secureStorage;
   final ReceiptOcrReviewRepositoryFactory receiptOcrReviewRepositoryFactory;
+  final SettleoraAuthRepositoryFactory authRepositoryFactory;
   final DateTime Function()? now;
 
   @override
@@ -37,6 +44,8 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
   bool _isLoading = true;
   bool _loadFailed = false;
   bool _isEditingConfiguration = false;
+  SettleoraAuthFailure? _currentUserFailure;
+  String? _signInNotice;
 
   @override
   void initState() {
@@ -44,15 +53,50 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     Future<void>.microtask(_load);
   }
 
-  Future<void> _load() async {
+  Future<void> _load({String? signInNotice}) async {
     setState(() {
       _isLoading = true;
       _loadFailed = false;
+      _currentUserFailure = null;
+      _signInNotice = signInNotice;
     });
 
     try {
       final configuration = await widget.secureStorage.readAppConfiguration();
-      final session = await widget.secureStorage.readServerSession();
+      var session = await widget.secureStorage.readServerSession();
+      SettleoraCurrentUser? currentUser;
+      var hasUsableServerSession =
+          session?.hasUsableAccessToken(now: widget.now?.call()) ?? false;
+
+      if (configuration?.mode == SettleoraAppMode.server && session != null) {
+        if (!hasUsableServerSession) {
+          await widget.secureStorage.clearServerSession();
+          session = null;
+          _signInNotice = 'Your saved session expired. Sign in again.';
+        } else {
+          final baseUri = configuration?.serverBaseUri;
+          final accessToken = session.accessToken.trim();
+          if (baseUri != null) {
+            try {
+              currentUser = await widget
+                  .authRepositoryFactory(
+                    SettleoraApiConfiguration(baseUri: baseUri),
+                  )
+                  .currentUser(accessToken: accessToken);
+            } on SettleoraAuthFailure catch (failure) {
+              if (_requiresFreshSignIn(failure)) {
+                await widget.secureStorage.clearServerSession();
+                session = null;
+                hasUsableServerSession = false;
+                _signInNotice = failure.message;
+              } else {
+                _currentUserFailure = failure;
+              }
+            }
+          }
+        }
+      }
+
       if (!mounted) {
         return;
       }
@@ -60,8 +104,8 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       setState(() {
         _snapshot = _BootstrapSnapshot(
           configuration: configuration,
-          hasUsableServerSession:
-              session?.hasUsableAccessToken(now: widget.now?.call()) ?? false,
+          hasUsableServerSession: hasUsableServerSession && session != null,
+          currentUser: currentUser,
         );
         _isLoading = false;
       });
@@ -92,6 +136,32 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     await _load();
   }
 
+  Future<void> _signIn(SettleoraSignInSubmission submission) async {
+    final baseUri = _snapshot?.configuration?.serverBaseUri;
+    if (baseUri == null) {
+      throw const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.validation,
+        message: 'Save a server before signing in.',
+      );
+    }
+
+    final repository = widget.authRepositoryFactory(
+      SettleoraApiConfiguration(baseUri: baseUri),
+    );
+    final session = await repository.signIn(submission);
+    try {
+      await widget.secureStorage.writeServerSession(session);
+    } catch (_) {
+      throw const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.storage,
+        message:
+            'Sign-in could not be saved on this device. Try again after secure storage is ready.',
+      );
+    }
+
+    await _load();
+  }
+
   void _editConfiguration() {
     setState(() {
       _isEditingConfiguration = true;
@@ -118,7 +188,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
         title: 'Configuration unavailable',
         message: 'Open the app again or retry after secure storage is ready.',
         action: OutlinedButton.icon(
-          onPressed: _load,
+          onPressed: () => _load(),
           icon: const Icon(Icons.refresh),
           label: const Text('Retry'),
         ),
@@ -148,18 +218,47 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     }
 
     final baseUri = configuration.serverBaseUri;
-    if (baseUri == null || !snapshot!.hasUsableServerSession) {
+    if (baseUri == null) {
+      return SettleoraSetupScreen(
+        initialConfiguration: configuration,
+        onSaveConfiguration: _saveConfiguration,
+      );
+    }
+
+    final currentUserFailure = _currentUserFailure;
+    if (currentUserFailure != null) {
       return _BootstrapStateScreen(
-        icon: Icons.lock_outline,
-        title: 'Sign in required',
-        message:
-            'A server is configured, but this device has no saved session yet. Sign-in UI will be added in a later slice.',
-        action: OutlinedButton.icon(
-          key: const Key('bootstrap-change-server'),
-          onPressed: _editConfiguration,
-          icon: const Icon(Icons.tune_outlined),
-          label: const Text('Change Server'),
+        icon: Icons.cloud_off_outlined,
+        title: currentUserFailure.title,
+        message: currentUserFailure.message,
+        action: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              key: const Key('bootstrap-current-user-retry'),
+              onPressed: () => _load(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('bootstrap-change-server'),
+              onPressed: _editConfiguration,
+              icon: const Icon(Icons.tune_outlined),
+              label: const Text('Change Server'),
+            ),
+          ],
         ),
+      );
+    }
+
+    if (!snapshot!.hasUsableServerSession || snapshot.currentUser == null) {
+      return SettleoraSignInScreen(
+        serverBaseUri: baseUri,
+        onSignIn: _signIn,
+        onChangeServer: _editConfiguration,
+        noticeMessage: _signInNotice,
       );
     }
 
@@ -180,10 +279,12 @@ class _BootstrapSnapshot {
   const _BootstrapSnapshot({
     required this.configuration,
     required this.hasUsableServerSession,
+    required this.currentUser,
   });
 
   final SettleoraAppConfiguration? configuration;
   final bool hasUsableServerSession;
+  final SettleoraCurrentUser? currentUser;
 }
 
 class _BootstrapStateScreen extends StatelessWidget {
@@ -246,4 +347,24 @@ ReceiptOcrReviewRepository _defaultReceiptOcrReviewRepositoryFactory(
     configuration: configuration,
     accessTokenProvider: accessTokenProvider,
   );
+}
+
+SettleoraAuthRepository _defaultAuthRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+) {
+  return GeneratedSettleoraAuthRepository.fromConfiguration(
+    configuration: configuration,
+  );
+}
+
+bool _requiresFreshSignIn(SettleoraAuthFailure failure) {
+  return switch (failure.kind) {
+    SettleoraAuthFailureKind.sessionExpired ||
+    SettleoraAuthFailureKind.invalidCredentials => true,
+    SettleoraAuthFailureKind.validation ||
+    SettleoraAuthFailureKind.tooManyAttempts ||
+    SettleoraAuthFailureKind.network ||
+    SettleoraAuthFailureKind.server ||
+    SettleoraAuthFailureKind.storage => false,
+  };
 }

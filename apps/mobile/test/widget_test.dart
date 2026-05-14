@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/app_configuration.dart';
+import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -68,7 +69,7 @@ void main() {
     expect(find.textContaining('absolute URL'), findsOneWidget);
   });
 
-  testWidgets('server configuration without a session shows session required', (
+  testWidgets('server configuration without a session shows sign-in UI', (
     tester,
   ) async {
     final storage = FakeSecureStorage(
@@ -80,12 +81,85 @@ void main() {
     await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
     await tester.pumpAndSettle();
 
-    expect(find.text('Sign in required'), findsOneWidget);
-    expect(find.textContaining('no saved session'), findsOneWidget);
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-identifier')), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-password')), findsOneWidget);
     expect(find.text('Receipt Reviews'), findsNothing);
   });
 
-  testWidgets('server mode with a session injects the receipt repository', (
+  testWidgets('sign-in validation rejects blank input before auth calls', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final authRepository = FakeAuthRepository();
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('sign-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter your account identifier.'), findsOneWidget);
+    expect(find.text('Enter your password.'), findsOneWidget);
+    expect(authRepository.signInCalls, 0);
+    expect(storage.session, isNull);
+  });
+
+  testWidgets('successful sign-in stores session and reaches the queue', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final authRepository = FakeAuthRepository(
+      signInSession: sampleSessionMaterial(),
+    );
+    final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+        receiptOcrReviewRepositoryFactory: (_, _) => repository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('sign-in-identifier')),
+      'owner@example.test',
+    );
+    await tester.enterText(
+      find.byKey(const Key('sign-in-password')),
+      'redacted-password',
+    );
+    await tester.tap(find.byKey(const Key('sign-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.signInCalls, 1);
+    expect(authRepository.currentUserCalls, 1);
+    expect(authRepository.lastAccessToken, 'signed-in-access-token');
+    expect(storage.writeServerSessionCalls, 1);
+    expect(storage.session?.accessToken, 'signed-in-access-token');
+    expect(storage.session?.refreshCredential, 'signed-in-refresh-token');
+    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('No receipt reviews'), findsOneWidget);
+    expect(repository.listCalls, 1);
+  });
+
+  testWidgets('server mode with a verified session injects the repository', (
     tester,
   ) async {
     final storage = FakeSecureStorage(
@@ -93,24 +167,163 @@ void main() {
         serverBaseUri: Uri.parse('https://settleora.example/'),
       ),
       session: SettleoraServerSessionMaterial(
-        accessToken: 'redacted-session',
+        accessToken: 'saved-access-token',
         accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
       ),
     );
+    final authRepository = FakeAuthRepository();
     final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
 
     await tester.pumpWidget(
       SettleoraMobileApp(
         secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
         now: () => DateTime.utc(2026, 5, 14),
         receiptOcrReviewRepositoryFactory: (_, _) => repository,
       ),
     );
     await tester.pumpAndSettle();
 
+    expect(authRepository.currentUserCalls, 1);
+    expect(authRepository.lastAccessToken, 'saved-access-token');
     expect(find.text('Receipt Reviews'), findsOneWidget);
-    expect(find.text('No receipt reviews'), findsOneWidget);
     expect(repository.listCalls, 1);
+  });
+
+  testWidgets('denied sign-in maps to a safe UI failure', (tester) async {
+    const password = 'plain-secret-password';
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final authRepository = FakeAuthRepository(
+      signInFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.invalidCredentials,
+        message: 'Unable to sign in with the submitted information.',
+        statusCode: 401,
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('sign-in-identifier')),
+      'owner@example.test',
+    );
+    await tester.enterText(find.byKey(const Key('sign-in-password')), password);
+    await tester.tap(find.byKey(const Key('sign-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.signInCalls, 1);
+    expect(storage.session, isNull);
+    expect(find.text('Sign-in failed'), findsOneWidget);
+    expect(
+      find.text('Unable to sign in with the submitted information.'),
+      findsOneWidget,
+    );
+    final passwordField = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('sign-in-password')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(passwordField.obscureText, isTrue);
+    expect(visibleText(tester), isNot(contains(password)));
+    expect(visibleText(tester), isNot(contains('raw-access-token')));
+  });
+
+  testWidgets('network sign-in failure maps to a safe retry state', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final authRepository = FakeAuthRepository(
+      signInFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.network,
+        message:
+            'The server is unavailable. Check the connection and try again.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('sign-in-identifier')),
+      'owner@example.test',
+    );
+    await tester.enterText(
+      find.byKey(const Key('sign-in-password')),
+      'redacted-password',
+    );
+    await tester.tap(find.byKey(const Key('sign-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Server unavailable'), findsOneWidget);
+    expect(
+      find.text(
+        'The server is unavailable. Check the connection and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
+  });
+
+  testWidgets('invalid stored session returns to sign-in and clears session', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+      session: SettleoraServerSessionMaterial(
+        accessToken: 'expired-access-token',
+        accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+      ),
+    );
+    final authRepository = FakeAuthRepository(
+      currentUserFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.sessionExpired,
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(authRepository.currentUserCalls, 1);
+    expect(authRepository.lastAccessToken, 'expired-access-token');
+    expect(storage.clearServerSessionCalls, 1);
+    expect(storage.session, isNull);
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
+    expect(
+      find.text('Your session has expired. Sign in again.'),
+      findsOneWidget,
+    );
+    expect(find.text('Receipt Reviews'), findsNothing);
+    expect(find.textContaining('expired-access-token'), findsNothing);
   });
 
   testWidgets('queue renders empty state from repository', (tester) async {
@@ -518,6 +731,7 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
   SettleoraAppConfiguration? configuration;
   SettleoraServerSessionMaterial? session;
   int clearServerSessionCalls = 0;
+  int writeServerSessionCalls = 0;
 
   @override
   Future<SettleoraAppConfiguration?> readAppConfiguration() async {
@@ -540,6 +754,7 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
   Future<void> writeServerSession(
     SettleoraServerSessionMaterial session,
   ) async {
+    writeServerSessionCalls += 1;
     this.session = session;
   }
 
@@ -548,6 +763,72 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
     clearServerSessionCalls += 1;
     session = null;
   }
+}
+
+class FakeAuthRepository implements SettleoraAuthRepository {
+  FakeAuthRepository({
+    SettleoraServerSessionMaterial? signInSession,
+    SettleoraCurrentUser? currentUserResponse,
+    this.signInFailure,
+    this.currentUserFailure,
+  }) : signInSession = signInSession ?? sampleSessionMaterial(),
+       currentUserResponse = currentUserResponse ?? sampleCurrentUser();
+
+  final SettleoraServerSessionMaterial signInSession;
+  final SettleoraCurrentUser currentUserResponse;
+  final SettleoraAuthFailure? signInFailure;
+  final SettleoraAuthFailure? currentUserFailure;
+  int signInCalls = 0;
+  int currentUserCalls = 0;
+  SettleoraSignInSubmission? lastSignInSubmission;
+  String? lastAccessToken;
+
+  @override
+  Future<SettleoraServerSessionMaterial> signIn(
+    SettleoraSignInSubmission submission,
+  ) async {
+    signInCalls += 1;
+    lastSignInSubmission = submission;
+    final failure = signInFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return signInSession;
+  }
+
+  @override
+  Future<SettleoraCurrentUser> currentUser({
+    required String accessToken,
+  }) async {
+    currentUserCalls += 1;
+    lastAccessToken = accessToken;
+    final failure = currentUserFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return currentUserResponse;
+  }
+}
+
+SettleoraServerSessionMaterial sampleSessionMaterial() {
+  return SettleoraServerSessionMaterial(
+    accessToken: 'signed-in-access-token',
+    accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+    refreshCredential: 'signed-in-refresh-token',
+    refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+    refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+  );
+}
+
+SettleoraCurrentUser sampleCurrentUser() {
+  return SettleoraCurrentUser(
+    displayName: 'Taylor',
+    defaultCurrency: 'USD',
+    roles: const ['user'],
+    sessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+  );
 }
 
 ReceiptOcrReviewSummary sampleSummary() {
@@ -706,3 +987,11 @@ ReceiptOcrReviewApplyResult sampleApplyResult() {
 }
 
 final sampleTime = DateTime.utc(2026, 5, 13, 12);
+
+String visibleText(WidgetTester tester) {
+  return tester
+      .widgetList<Text>(find.byType(Text))
+      .map((widget) => widget.data)
+      .whereType<String>()
+      .join('\n');
+}
