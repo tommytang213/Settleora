@@ -16,6 +16,7 @@ This repository is still not a feature-complete Day 1 MVP, but it is no longer o
 - [Auth runtime and current-user design](docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md)
 - [Auth refresh-token rotation policy](docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md)
 - [Auth sign-in abuse policy](docs/architecture/AUTH_SIGN_IN_ABUSE_POLICY.md)
+- [Mobile auth, session, and API client flow](docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md)
 - [Password hashing policy](docs/architecture/PASSWORD_HASHING_POLICY.md)
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
