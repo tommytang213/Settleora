@@ -558,7 +558,7 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
-        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));
+        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/client.dart"));
 
         Assert.Contains("operationId: disputeSettlementRequest", openApi, StringComparison.Ordinal);
         Assert.Contains("operationId: disputeSettlementPayment", openApi, StringComparison.Ordinal);

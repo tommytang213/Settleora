@@ -407,7 +407,7 @@ public sealed class SettlementCandidateDerivationServiceTests
                 "*.*",
                 SearchOption.AllDirectories)
             .Concat(Directory.EnumerateFiles(
-                Path.Combine(repoRoot, "packages/client-dart/generated"),
+                Path.Combine(repoRoot, "packages/client-dart/lib/generated"),
                 "*.*",
                 SearchOption.AllDirectories))
             .Where(file => file.EndsWith(".ts", StringComparison.Ordinal)

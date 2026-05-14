@@ -466,9 +466,9 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
     public void GeneratedClientsExposeSelfPaymentQrOperationsFromOpenApi()
     {
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
-        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));
+        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/client.dart"));
         var webModels = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/models.ts"));
-        var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/generated/models.dart"));
+        var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/models.dart"));
 
         Assert.Contains("attachSelfPaymentQr", webClient);
         Assert.Contains("removeSelfPaymentQr", webClient);

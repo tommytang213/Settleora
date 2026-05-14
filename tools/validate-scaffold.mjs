@@ -15,7 +15,9 @@ const requiredPaths = [
   "packages/client-web/README.md",
   "packages/client-web/src/generated/.gitkeep",
   "packages/client-dart/README.md",
-  "packages/client-dart/generated/.gitkeep",
+  "packages/client-dart/lib/generated/client.dart",
+  "packages/client-dart/lib/generated/models.dart",
+  "packages/client-dart/lib/generated/settleora_api.dart",
   "infra/README.md",
   "infra/env/.env.example",
   "infra/docker-compose.yml"

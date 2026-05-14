@@ -299,7 +299,7 @@ public sealed class SettlementBasketResidualSchemaFoundationTests
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
-        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/generated/client.dart"));
+        var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/client.dart"));
 
         foreach (var generatedOrContract in new[] { openApi, webClient, dartClient })
         {
