@@ -21,9 +21,10 @@ It is an architecture gate for current and future user/group endpoint work. It d
 - `system_role_assignments` stores product-level `owner`, `admin`, and `user` role assignments separately from group membership roles.
 - `local_password_credentials` stores local password verifier hash metadata linked to `auth_accounts`, without plaintext passwords, reset tokens, recovery codes, passkeys, or MFA secrets. The internal credential workflow service can create and verify local password credentials for existing active auth accounts.
 - `auth_sessions` stores server-side session/revocation metadata with token hashes only, not raw bearer or refresh tokens.
-- `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for future rotation and replay detection, using refresh credential hashes only and no raw refresh tokens.
+- `auth_session_families` and `auth_refresh_credentials` store refresh/session-family persistence state for the implemented local sign-in and refresh rotation flow, using refresh credential hashes only and no raw refresh tokens.
 - `auth_audit_events` stores bounded auth audit event metadata without raw secrets, raw tokens, password material, passkey private material, MFA secrets, or full provider payloads.
 - First-owner local bootstrap can create the initial local owner account only when no auth account exists. It is not general public registration, returns no session or password material, and clients must sign in normally after bootstrap.
+- Public auth runtime endpoints exist for local sign-in, refresh, current-user, current-session sign-out, current-account sign-out-all, current-account session list, and current-account session revocation. The `SettleoraSession` bearer scheme validates opaque access-session tokens through the session runtime boundary, and protected handlers consume the server-derived current actor/profile accessor.
 - Guarded admin local-user foundation endpoints can list/read safe user summaries and create normal local users after bootstrap for authenticated system owners/admins. Created users receive only the system `user` role and must sign in through the existing local sign-in endpoint. This is not public self-registration, invitations, or owner/admin role assignment.
 - Guarded group member management endpoints now let active group owners add existing active registered users with auth accounts, update group roles, and mark active memberships `removed` without hard deletion. Successful add, role update, and removal writes bounded auth audit events with secret-free metadata. Active group members can list active memberships. This is not invitations, guest placeholders, default-excluded/left runtime behavior, notifications, billing participation, audit UI, admin audit viewing, audit export, audit retention cleanup, failure-audit coverage for denied or invalid membership requests, or UI behavior.
 - No general registration, public credential management endpoints, invitations, friends, broader admin user-management endpoints, or user business API endpoints beyond self-profile read/update, self payment-details read/update, group create/list/read/update, and group member management exist yet.
@@ -73,9 +74,9 @@ The current `UserProfile` schema remains a profile foundation. Authentication ac
 
 ## Session Model
 
-Future sessions must be designed as security state, not as client convenience state.
+Implemented and future sessions must be designed as security state, not as client convenience state.
 
-The session model must include:
+The current session model includes opaque access-session tokens, hashed token storage, refresh-session families, refresh credential rotation, individual sign-out/revocation, current-account sign-out-all, current-account session listing, and server-side validation for protected endpoints. Further session work must preserve:
 
 - Secure expiry with short-lived access where practical and bounded refresh lifetime.
 - Revocation for individual sessions and, where needed, all sessions for an account.
@@ -155,8 +156,7 @@ This distinction protects local-only use while keeping server-mode collaboration
 
 This document does not authorize:
 
-- Login/current-user auth implementation.
-- Session middleware or runtime session validation.
+- Reimplementing the existing local sign-in, refresh, current-user, sign-out, session-list, session-revocation, bearer middleware, current-actor accessor, or session validation runtime.
 - Additional API endpoints beyond the current auth/session, self-profile, self payment-details, group foundation, and admin local-user foundation slices.
 - Additional OpenAPI changes beyond the current auth/session, self-profile, self payment-details, group foundation, and admin local-user foundation contract.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
@@ -169,8 +169,9 @@ This document does not authorize:
 
 Future work should remain small and reviewable. Good next candidates are:
 
-- Runtime auth/session boundaries only after credential and session policy are reviewed.
-- API current-user boundary that resolves the authenticated account/session to the current `UserProfile` without exposing unrelated user data.
+- Public registration or invite onboarding only after policy, abuse handling, and audit expectations are reviewed.
+- Password reset/change flows, passkeys, MFA, and OIDC runtime only as separate reviewed slices.
+- Admin account/session management beyond the current owner/admin local-user foundation and current-account session endpoints only after authorization and audit policy are explicit.
 - Invitation, guest/default-excluded/left member behavior, and broader admin user-management endpoints only after the current group, group member management, membership audit, and admin local-user foundations are reviewed and the next policy checks are designed.
 
 Each candidate should define its own explicit non-goals, validation, migration expectations, and OpenAPI/generated-client impact before implementation starts.

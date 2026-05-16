@@ -1,6 +1,6 @@
 # Password Hashing Policy
 
-This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and future credential workflows. Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize migrations, OpenAPI changes, additional generated-client changes, login behavior, credential creation behavior, or UI behavior.
+This document defines Settleora's local-account password hashing policy. It is an architecture policy for the internal hashing boundary and reviewed credential workflows. Design-only credential creation, password verification, and rehash workflow boundaries are defined in [AUTH_CREDENTIAL_WORKFLOW_DESIGN.md](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md). It does not authorize migrations, OpenAPI changes, additional generated-client changes, new login behavior beyond the existing local sign-in endpoint, credential creation behavior beyond reviewed bootstrap/admin-local-user paths, or UI behavior.
 
 The policy is based on current OWASP Password Storage Cheat Sheet guidance and NIST SP 800-63B-4 password authenticator guidance. Future auth workflow work must re-check those sources and benchmark deployment hardware before freezing production parameters.
 
@@ -90,7 +90,7 @@ Verification policy:
 - Use constant-time comparison when the implementation exposes raw derived bytes or when Settleora must compare verifier material directly.
 - Prefer the selected library's verified password-check API when it safely handles salt, work factor, and constant-time comparison internally.
 - Do not log plaintext passwords, password hashes, salts, pepper identifiers in sensitive contexts, verifier strings, failed password values, or derived key material.
-- Rate limiting, lockout, credential-stuffing defense, account enumeration behavior, and sign-in audit detail belong in future auth runtime design, not in the internal hashing boundary.
+- Rate limiting, lockout, credential-stuffing defense, account enumeration behavior, and sign-in audit detail belong in auth runtime policy, not in the internal hashing boundary. The current sign-in abuse policy and bounded sign-in audit events are reviewed slices; further hardening should remain separate from password-hash verification code.
 
 ## Rehash And Rotation
 
@@ -106,7 +106,7 @@ Future runtime should set or honor `requires_rehash` when:
 
 On successful sign-in with an active credential, future runtime may rehash the submitted password using the current policy, update the stored verifier output and metadata, clear `requires_rehash`, and emit a safe audit event. Failed verification must not rehash anything.
 
-Disabled credentials must not authenticate but may be preserved for administrative review according to retention policy. Revoked credentials must not authenticate and should record `revoked_at_utc`. Account disablement, account deletion, credential revocation, password reset, and session revocation remain distinct state transitions and must be handled explicitly by future auth runtime design.
+Disabled credentials must not authenticate but may be preserved for administrative review according to retention policy. Revoked credentials must not authenticate and should record `revoked_at_utc`. Account disablement, account deletion, credential revocation, password reset, and session revocation remain distinct state transitions and must be handled explicitly by future account and credential lifecycle design.
 
 ## Operational And Security Boundaries
 
@@ -123,9 +123,9 @@ Disabled credentials must not authenticate but may be preserved for administrati
 This document does not authorize:
 
 - Migrations.
-- Credential creation implementation.
-- Login implementation.
-- Session middleware or token issuance.
+- Credential creation implementation beyond the existing setup-only bootstrap and guarded admin local-user paths.
+- New login implementation beyond the existing local sign-in endpoint.
+- Reimplementation of the existing session middleware, token issuance, refresh, current-user, sign-out, session-list, or session-revocation behavior.
 - OpenAPI changes.
 - Additional generated-client changes beyond the existing web/Dart client foundations.
 - UI behavior.
@@ -137,5 +137,5 @@ Future work should remain small and separately reviewable:
 
 - Benchmark Argon2id work factors on deployment-class hardware and container limits.
 - Define password policy configuration shape and secret-provider boundaries for optional pepper support.
-- Add public auth runtime boundaries only after credential, session, rate limiting, lockout, and audit behavior are reviewed.
-- Design rate limiting, lockout, audit event detail, reset-token storage, and current-user/login endpoint boundaries before adding auth endpoints.
+- Password change and reset-token storage policy.
+- Additional rate limiting, lockout, and audit hardening for the existing local sign-in flow.
