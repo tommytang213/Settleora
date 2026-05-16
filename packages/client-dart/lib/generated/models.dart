@@ -360,6 +360,165 @@ class CurrentUserSession {
   }
 }
 
+/// Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
+class InAppNotificationListResponse {
+  const InAppNotificationListResponse({
+    required this.notifications,
+  });
+
+  final List<InAppNotificationResponse> notifications;
+
+  factory InAppNotificationListResponse.fromJson(JsonObject json) {
+    return InAppNotificationListResponse(
+      notifications: (json["notifications"] as List<dynamic>).map((item) => InAppNotificationResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "notifications": notifications.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Current-user unread notification counts. Archived notifications are excluded.
+class InAppNotificationSummaryResponse {
+  const InAppNotificationSummaryResponse({
+    required this.unreadCount,
+    required this.attentionCount,
+    required this.urgentCount,
+  });
+
+  final int unreadCount;
+  final int attentionCount;
+  final int urgentCount;
+
+  factory InAppNotificationSummaryResponse.fromJson(JsonObject json) {
+    return InAppNotificationSummaryResponse(
+      unreadCount: (json["unreadCount"] as num).toInt(),
+      attentionCount: (json["attentionCount"] as num).toInt(),
+      urgentCount: (json["urgentCount"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "unreadCount": unreadCount,
+      "attentionCount": attentionCount,
+      "urgentCount": urgentCount,
+    };
+  }
+}
+
+/// Safe current-user notification response. It exposes stable event/status/template keys and route-like action URLs only; it never exposes recipient/actor user profile IDs, auth/session/account fields, payment handles/notes, storage provider data, file paths, raw OCR text, proof bytes, or unrelated user data.
+class InAppNotificationResponse {
+  const InAppNotificationResponse({
+    required this.id,
+    required this.eventType,
+    required this.status,
+    required this.priority,
+    required this.subjectType,
+    required this.titleKey,
+    required this.messageKey,
+    required this.safeSummary,
+    required this.actionUrl,
+    required this.groupId,
+    required this.expenseBillId,
+    required this.expenseBillRevisionId,
+    required this.settlementRequestId,
+    required this.settlementPaymentId,
+    required this.recurringBillTemplateId,
+    required this.recurringBillOccurrenceId,
+    required this.createdAtUtc,
+    required this.readAtUtc,
+    required this.archivedAtUtc,
+  });
+
+  final String id;
+  final InAppNotificationEventType eventType;
+  final InAppNotificationStatus status;
+  final InAppNotificationPriority priority;
+  final InAppNotificationSubjectType subjectType;
+  /// Stable localization/template key for the title.
+  final String titleKey;
+  /// Stable localization/template key for the message.
+  final String messageKey;
+  /// Optional bounded non-sensitive summary.
+  final String? safeSummary;
+  /// Optional route-like API path. Clients must still re-authorize linked subject reads.
+  final String? actionUrl;
+  final String? groupId;
+  final String? expenseBillId;
+  final String? expenseBillRevisionId;
+  final String? settlementRequestId;
+  final String? settlementPaymentId;
+  final String? recurringBillTemplateId;
+  final String? recurringBillOccurrenceId;
+  final DateTime createdAtUtc;
+  final DateTime? readAtUtc;
+  final DateTime? archivedAtUtc;
+
+  factory InAppNotificationResponse.fromJson(JsonObject json) {
+    return InAppNotificationResponse(
+      id: json["id"] as String,
+      eventType: json["eventType"] as String,
+      status: json["status"] as String,
+      priority: json["priority"] as String,
+      subjectType: json["subjectType"] as String,
+      titleKey: json["titleKey"] as String,
+      messageKey: json["messageKey"] as String,
+      safeSummary: json["safeSummary"] == null ? null : json["safeSummary"] as String,
+      actionUrl: json["actionUrl"] == null ? null : json["actionUrl"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      expenseBillId: json["expenseBillId"] == null ? null : json["expenseBillId"] as String,
+      expenseBillRevisionId: json["expenseBillRevisionId"] == null ? null : json["expenseBillRevisionId"] as String,
+      settlementRequestId: json["settlementRequestId"] == null ? null : json["settlementRequestId"] as String,
+      settlementPaymentId: json["settlementPaymentId"] == null ? null : json["settlementPaymentId"] as String,
+      recurringBillTemplateId: json["recurringBillTemplateId"] == null ? null : json["recurringBillTemplateId"] as String,
+      recurringBillOccurrenceId: json["recurringBillOccurrenceId"] == null ? null : json["recurringBillOccurrenceId"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      readAtUtc: json["readAtUtc"] == null ? null : DateTime.parse(json["readAtUtc"] as String),
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final safeSummaryJsonValue = safeSummary;
+    final actionUrlJsonValue = actionUrl;
+    final groupIdJsonValue = groupId;
+    final expenseBillIdJsonValue = expenseBillId;
+    final expenseBillRevisionIdJsonValue = expenseBillRevisionId;
+    final settlementRequestIdJsonValue = settlementRequestId;
+    final settlementPaymentIdJsonValue = settlementPaymentId;
+    final recurringBillTemplateIdJsonValue = recurringBillTemplateId;
+    final recurringBillOccurrenceIdJsonValue = recurringBillOccurrenceId;
+    final readAtUtcJsonValue = readAtUtc;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "id": id,
+      "eventType": eventType,
+      "status": status,
+      "priority": priority,
+      "subjectType": subjectType,
+      "titleKey": titleKey,
+      "messageKey": messageKey,
+      "safeSummary": safeSummaryJsonValue,
+      "actionUrl": actionUrlJsonValue,
+      "groupId": groupIdJsonValue,
+      "expenseBillId": expenseBillIdJsonValue,
+      "expenseBillRevisionId": expenseBillRevisionIdJsonValue,
+      "settlementRequestId": settlementRequestIdJsonValue,
+      "settlementPaymentId": settlementPaymentIdJsonValue,
+      "recurringBillTemplateId": recurringBillTemplateIdJsonValue,
+      "recurringBillOccurrenceId": recurringBillOccurrenceIdJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "readAtUtc": readAtUtcJsonValue == null ? null : readAtUtcJsonValue.toUtc().toIso8601String(),
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
 class CreateLocalUserRequest {
   static const Object _unsetDefaultCurrency = Object();
@@ -4783,6 +4942,58 @@ class GroupBillCalculatedAdjustmentAllocationResponse {
       "receivedResidualMinorUnit": receivedResidualMinorUnit,
     };
   }
+}
+
+/// Supported in-app notification event type emitted by Day 1 API actions only.
+typedef InAppNotificationEventType = String;
+class InAppNotificationEventTypeValues {
+  const InAppNotificationEventTypeValues._();
+  static const InAppNotificationEventType billSubmitted = "bill.submitted";
+  static const InAppNotificationEventType billParticipantAccepted = "bill.participant_accepted";
+  static const InAppNotificationEventType billParticipantRejected = "bill.participant_rejected";
+  static const InAppNotificationEventType billConfirmed = "bill.confirmed";
+  static const InAppNotificationEventType settlementRequestCreated = "settlement.request_created";
+  static const InAppNotificationEventType settlementPaymentMarkedPaid = "settlement.payment_marked_paid";
+  static const InAppNotificationEventType settlementPaymentPartiallyPaid = "settlement.payment_partially_paid";
+  static const InAppNotificationEventType settlementPaymentConfirmed = "settlement.payment_confirmed";
+  static const InAppNotificationEventType settlementRequestDisputed = "settlement.request_disputed";
+  static const InAppNotificationEventType settlementPaymentDisputed = "settlement.payment_disputed";
+  static const InAppNotificationEventType settlementRequestCancelled = "settlement.request_cancelled";
+  static const InAppNotificationEventType settlementPaymentCancelled = "settlement.payment_cancelled";
+  static const InAppNotificationEventType settlementProofAttached = "settlement.proof_attached";
+  static const InAppNotificationEventType recurringBillDraftGenerated = "recurring_bill.draft_generated";
+  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDraftGenerated};
+}
+
+/// Current lifecycle state for an in-app notification.
+typedef InAppNotificationStatus = String;
+class InAppNotificationStatusValues {
+  const InAppNotificationStatusValues._();
+  static const InAppNotificationStatus unread = "unread";
+  static const InAppNotificationStatus read = "read";
+  static const InAppNotificationStatus archived = "archived";
+  static const Set<InAppNotificationStatus> values = {unread, read, archived};
+}
+
+/// Bounded in-app notification priority for inbox presentation.
+typedef InAppNotificationPriority = String;
+class InAppNotificationPriorityValues {
+  const InAppNotificationPriorityValues._();
+  static const InAppNotificationPriority normal = "normal";
+  static const InAppNotificationPriority attention = "attention";
+  static const InAppNotificationPriority urgent = "urgent";
+  static const Set<InAppNotificationPriority> values = {normal, attention, urgent};
+}
+
+/// Stable subject family linked by optional IDs on a notification.
+typedef InAppNotificationSubjectType = String;
+class InAppNotificationSubjectTypeValues {
+  const InAppNotificationSubjectTypeValues._();
+  static const InAppNotificationSubjectType expenseBill = "expense_bill";
+  static const InAppNotificationSubjectType settlementRequest = "settlement_request";
+  static const InAppNotificationSubjectType settlementPayment = "settlement_payment";
+  static const InAppNotificationSubjectType recurringBillOccurrence = "recurring_bill_occurrence";
+  static const Set<InAppNotificationSubjectType> values = {expenseBill, settlementRequest, settlementPayment, recurringBillOccurrence};
 }
 
 /// Expense bill root status.

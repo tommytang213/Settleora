@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
@@ -107,6 +108,17 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             "Draft Submit Reset Merchant",
             "Seeded Item",
             ExpenseBillParticipantRejectionReasonCodes.WrongAmount);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(participant.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.BillSubmitted, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/bills/{billId:D}", notification.ActionUrl);
+        Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -910,6 +922,18 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             .ThenBy(auditEvent => GetWorkflowAuditActionOrder(auditEvent.Action))
             .ThenBy(auditEvent => auditEvent.Id)
             .ToArray();
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
+            .ToListAsync();
     }
 
     private static int GetWorkflowAuditActionOrder(string action)

@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Expenses.BillWorkflow;
@@ -51,6 +53,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -82,6 +85,7 @@ internal static class ExpenseBillWorkflowEndpoints
             bill,
             actor,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             PersonalGroupMode,
@@ -95,6 +99,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -127,6 +132,7 @@ internal static class ExpenseBillWorkflowEndpoints
             bill,
             actor,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             GroupMode,
@@ -140,6 +146,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -176,6 +183,7 @@ internal static class ExpenseBillWorkflowEndpoints
             bill,
             actor,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             PersonalGroupMode,
@@ -190,6 +198,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -227,6 +236,7 @@ internal static class ExpenseBillWorkflowEndpoints
             bill,
             actor,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             GroupMode,
@@ -241,6 +251,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -284,6 +295,7 @@ internal static class ExpenseBillWorkflowEndpoints
             actor,
             readResult.ReasonCode,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             PersonalGroupMode,
@@ -299,6 +311,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -343,6 +356,7 @@ internal static class ExpenseBillWorkflowEndpoints
             actor,
             readResult.ReasonCode,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             GroupMode,
@@ -354,6 +368,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ExpenseBill bill,
         AuthenticatedActor actor,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         string groupMode,
@@ -403,6 +418,14 @@ internal static class ExpenseBillWorkflowEndpoints
                 RejectionReasonCode: null,
                 now),
             cancellationToken);
+        await InAppNotificationEvents.WriteBillParticipantNotificationsAsync(
+            notificationWriter,
+            bill,
+            actor.UserProfileId,
+            BillSubmittedAction,
+            InAppNotificationPriorities.Attention,
+            now,
+            cancellationToken);
 
         return await SaveWorkflowAsync(dbContext, cancellationToken);
     }
@@ -411,6 +434,7 @@ internal static class ExpenseBillWorkflowEndpoints
         ExpenseBill bill,
         AuthenticatedActor actor,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         string groupMode,
@@ -467,6 +491,14 @@ internal static class ExpenseBillWorkflowEndpoints
                 RejectionReasonCode: null,
                 now),
             cancellationToken);
+        await InAppNotificationEvents.WriteBillCreatorNotificationAsync(
+            notificationWriter,
+            bill,
+            actor.UserProfileId,
+            BillParticipantAcceptedAction,
+            InAppNotificationPriorities.Normal,
+            now,
+            cancellationToken);
 
         if (confirmed)
         {
@@ -491,6 +523,14 @@ internal static class ExpenseBillWorkflowEndpoints
                     RejectionReasonCode: null,
                     now),
                 cancellationToken);
+            await InAppNotificationEvents.WriteBillCreatorNotificationAsync(
+                notificationWriter,
+                bill,
+                actor.UserProfileId,
+                BillConfirmedAction,
+                InAppNotificationPriorities.Normal,
+                now,
+                cancellationToken);
         }
 
         return await SaveWorkflowAsync(dbContext, cancellationToken);
@@ -501,6 +541,7 @@ internal static class ExpenseBillWorkflowEndpoints
         AuthenticatedActor actor,
         string reasonCode,
         IExpenseBillWorkflowAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         string groupMode,
@@ -553,6 +594,14 @@ internal static class ExpenseBillWorkflowEndpoints
                 bill.TotalAmount,
                 reasonCode,
                 now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteBillCreatorNotificationAsync(
+            notificationWriter,
+            bill,
+            actor.UserProfileId,
+            BillParticipantRejectedAction,
+            InAppNotificationPriorities.Attention,
+            now,
             cancellationToken);
 
         return await SaveWorkflowAsync(dbContext, cancellationToken);

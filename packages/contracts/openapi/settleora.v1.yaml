@@ -21,6 +21,7 @@ info:
     settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
     settlement dispute endpoints, settlement cancellation endpoints, settlement payment proof attach/list/content/remove endpoints,
     recurring bill template and forecast/draft-generation endpoints,
+    guarded current-user in-app notification inbox endpoints,
     personal and group bill attachment attach/list/content/remove endpoints, and settlement balance projection read endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
@@ -4288,6 +4289,211 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications:
+    get:
+      summary: List current-user notifications
+      description: Lists bounded in-app notifications for the authenticated user profile only. Notification visibility is not authorization for the linked subject; clients must re-authorize by fetching the linked bill, settlement, or recurring detail route. The response excludes recipient/actor user profile IDs, auth/session/account fields, payment details, storage/file internals, OCR text, and unrelated users. Archived notifications are excluded by default.
+      operationId: listNotifications
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Optional notification status filter. When omitted, archived notifications are excluded.
+          schema:
+            $ref: "#/components/schemas/InAppNotificationStatus"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum notifications to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: before
+          in: query
+          required: false
+          description: Optional exclusive created-at cursor for older notifications.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Current-user notification inbox page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InAppNotificationListResponse"
+        "400":
+          description: The submitted notification list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications/summary:
+    get:
+      summary: Get current-user notification summary
+      description: Returns unread current-user in-app notification counts only. Archived notifications are excluded and no notification subject details or unrelated user data are returned.
+      operationId: getNotificationSummary
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Current-user unread notification counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InAppNotificationSummaryResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications/read:
+    post:
+      summary: Mark all visible notifications read
+      description: Marks all current-user visible unread, non-archived notifications as read and returns the updated unread summary. This accepts no request body and cannot target another user.
+      operationId: markAllNotificationsRead
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Updated current-user unread notification counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InAppNotificationSummaryResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Notification write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications/{notificationId}/read:
+    post:
+      summary: Mark one notification read
+      description: Marks one current-user visible, non-archived notification read. Missing, cross-user, archived, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
+      operationId: markNotificationRead
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          description: Notification ID to mark read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Updated notification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InAppNotificationResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Notification is missing, archived, cross-user, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Notification write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications/{notificationId}/archive:
+    post:
+      summary: Archive one notification
+      description: Archives one current-user visible notification. Missing, cross-user, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
+      operationId: archiveNotification
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          description: Notification ID to archive.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Archived notification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InAppNotificationResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Notification is missing, cross-user, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Notification write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/recurring-bills:
     post:
       summary: Create recurring bill template
@@ -5723,6 +5929,141 @@ components:
         expiresAtUtc:
           type: string
           format: date-time
+    InAppNotificationListResponse:
+      type: object
+      description: Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
+      required:
+        - notifications
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/InAppNotificationResponse"
+    InAppNotificationSummaryResponse:
+      type: object
+      description: Current-user unread notification counts. Archived notifications are excluded.
+      required:
+        - unreadCount
+        - attentionCount
+        - urgentCount
+      properties:
+        unreadCount:
+          type: integer
+          minimum: 0
+        attentionCount:
+          type: integer
+          minimum: 0
+        urgentCount:
+          type: integer
+          minimum: 0
+    InAppNotificationResponse:
+      type: object
+      description: Safe current-user notification response. It exposes stable event/status/template keys and route-like action URLs only; it never exposes recipient/actor user profile IDs, auth/session/account fields, payment handles/notes, storage provider data, file paths, raw OCR text, proof bytes, or unrelated user data.
+      required:
+        - id
+        - eventType
+        - status
+        - priority
+        - subjectType
+        - titleKey
+        - messageKey
+        - safeSummary
+        - actionUrl
+        - groupId
+        - expenseBillId
+        - expenseBillRevisionId
+        - settlementRequestId
+        - settlementPaymentId
+        - recurringBillTemplateId
+        - recurringBillOccurrenceId
+        - createdAtUtc
+        - readAtUtc
+        - archivedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventType:
+          $ref: "#/components/schemas/InAppNotificationEventType"
+        status:
+          $ref: "#/components/schemas/InAppNotificationStatus"
+        priority:
+          $ref: "#/components/schemas/InAppNotificationPriority"
+        subjectType:
+          $ref: "#/components/schemas/InAppNotificationSubjectType"
+        titleKey:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Stable localization/template key for the title.
+        messageKey:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Stable localization/template key for the message.
+        safeSummary:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 240
+            - type: "null"
+          description: Optional bounded non-sensitive summary.
+        actionUrl:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 240
+              pattern: "^/api/v1/"
+            - type: "null"
+          description: Optional route-like API path. Clients must still re-authorize linked subject reads.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        expenseBillId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        expenseBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        settlementRequestId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        settlementPaymentId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        recurringBillTemplateId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        recurringBillOccurrenceId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        readAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     CreateLocalUserRequest:
       type: object
       description: Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
@@ -8689,6 +9030,46 @@ components:
           minimum: 0
         receivedResidualMinorUnit:
           type: boolean
+    InAppNotificationEventType:
+      type: string
+      description: Supported in-app notification event type emitted by Day 1 API actions only.
+      enum:
+        - bill.submitted
+        - bill.participant_accepted
+        - bill.participant_rejected
+        - bill.confirmed
+        - settlement.request_created
+        - settlement.payment_marked_paid
+        - settlement.payment_partially_paid
+        - settlement.payment_confirmed
+        - settlement.request_disputed
+        - settlement.payment_disputed
+        - settlement.request_cancelled
+        - settlement.payment_cancelled
+        - settlement.proof_attached
+        - recurring_bill.draft_generated
+    InAppNotificationStatus:
+      type: string
+      description: Current lifecycle state for an in-app notification.
+      enum:
+        - unread
+        - read
+        - archived
+    InAppNotificationPriority:
+      type: string
+      description: Bounded in-app notification priority for inbox presentation.
+      enum:
+        - normal
+        - attention
+        - urgent
+    InAppNotificationSubjectType:
+      type: string
+      description: Stable subject family linked by optional IDs on a notification.
+      enum:
+        - expense_bill
+        - settlement_request
+        - settlement_payment
+        - recurring_bill_occurrence
     ExpenseBillStatus:
       type: string
       description: Expense bill root status.

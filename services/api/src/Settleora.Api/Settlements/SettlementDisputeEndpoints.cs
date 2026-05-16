@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
@@ -51,6 +53,7 @@ internal static class SettlementDisputeEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementRequestAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -140,6 +143,14 @@ internal static class SettlementDisputeEndpoints
                 NewRequestStatus = settlementRequest.Status
             },
             cancellationToken);
+        await InAppNotificationEvents.WriteSettlementRequestNotificationAsync(
+            notificationWriter,
+            settlementRequest,
+            actor.UserProfileId,
+            SettlementRequestDisputedAction,
+            InAppNotificationPriorities.Urgent,
+            now,
+            cancellationToken);
 
         try
         {
@@ -160,6 +171,7 @@ internal static class SettlementDisputeEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementPaymentAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -263,6 +275,15 @@ internal static class SettlementDisputeEndpoints
                 PreviousPaymentStatus = previousPaymentStatus,
                 NewPaymentStatus = payment.Status
             },
+            cancellationToken);
+        await InAppNotificationEvents.WriteSettlementPaymentNotificationAsync(
+            notificationWriter,
+            settlementRequest,
+            payment,
+            actor.UserProfileId,
+            SettlementPaymentDisputedAction,
+            InAppNotificationPriorities.Urgent,
+            now,
             cancellationToken);
 
         try

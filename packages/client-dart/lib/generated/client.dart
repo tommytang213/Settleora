@@ -729,6 +729,61 @@ class SettleoraApiClient {
     return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<InAppNotificationListResponse> listNotifications({InAppNotificationStatus? status, int? limit, DateTime? before, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/notifications", {"status": status, "limit": limit, "before": before}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InAppNotificationListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InAppNotificationSummaryResponse> markAllNotificationsRead({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/notifications/read",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InAppNotificationSummaryResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InAppNotificationSummaryResponse> getNotificationSummary({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/notifications/summary",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InAppNotificationSummaryResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InAppNotificationResponse> archiveNotification(String notificationId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/notifications/${Uri.encodeComponent(notificationId.toString())}/archive',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InAppNotificationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InAppNotificationResponse> markNotificationRead(String notificationId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/notifications/${Uri.encodeComponent(notificationId.toString())}/read',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InAppNotificationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<ReceiptOcrReviewListResponse> listReceiptOcrReviews({ReceiptOcrReviewStatus? status, ReceiptOcrReviewSource? source, int? limit, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
