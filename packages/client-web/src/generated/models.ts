@@ -272,6 +272,185 @@ export type GroupRole = "owner" | "member";
 export type GroupMembershipStatus = "active" | "removed";
 
 /**
+ * Recurring bill template creation request. Owner, creator, actor, and authorization identity are derived server-side.
+ */
+export interface CreateRecurringBillTemplateRequest {
+  /**
+   * Optional group ID for a group recurring bill. The authenticated actor must be an active group member.
+   */
+  groupId?: string | null;
+  /**
+   * Optional merchant or template display name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Optional bounded template description. Audit metadata does not log this text.
+   */
+  description?: string | null;
+  schedule: RecurringBillScheduleRequest;
+  billPayload: RecurringBillTemplatePayload;
+}
+
+/**
+ * Safe recurring bill template update request. Historical generated bills are not mutated.
+ */
+export interface UpdateRecurringBillTemplateRequest {
+  /**
+   * Optional merchant or template display name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Optional bounded template description. Audit metadata does not log this text.
+   */
+  description?: string | null;
+  schedule?: RecurringBillScheduleRequest;
+  billPayload?: RecurringBillTemplatePayload;
+}
+
+/**
+ * Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
+ */
+export interface RecurringBillScheduleRequest {
+  type: RecurringBillScheduleType;
+  /**
+   * Positive interval count for weekly, monthly, and yearly schedules.
+   */
+  intervalCount?: number | null;
+  /**
+   * Positive day interval for custom interval day schedules.
+   */
+  intervalDays?: number | null;
+  startDate: string;
+  endDate?: string | null;
+  dueOffsetDays?: number | null;
+}
+
+/**
+ * Versioned template bill payload. It is validated at write time and again at draft generation time; generated expense bill rows remain financial truth.
+ */
+export interface RecurringBillTemplatePayload {
+  currency: CurrencyCode;
+  items: RecurringBillTemplatePayloadItem[];
+  adjustments?: RecurringBillTemplatePayloadAdjustment[];
+  payers?: RecurringBillTemplatePayloadPayer[];
+}
+
+export interface RecurringBillTemplatePayloadItem {
+  name: string;
+  note?: string | null;
+  /**
+   * Decimal-safe amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  splits?: RecurringBillTemplatePayloadItemSplit[];
+}
+
+export interface RecurringBillTemplatePayloadItemSplit {
+  userProfileId: string;
+  splitMethod: ExpenseBillItemSplitMethod;
+  basisValue?: string | null;
+  allocationOrder?: number;
+}
+
+export interface RecurringBillTemplatePayloadAdjustment {
+  type: ExpenseBillAdjustmentType;
+  direction: ExpenseBillAdjustmentDirection;
+  allocationMethod: PersonalBillAdjustmentAllocationMethod;
+  /**
+   * Decimal-safe amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  reasonNote?: string | null;
+}
+
+export interface RecurringBillTemplatePayloadPayer {
+  userProfileId: string;
+  /**
+   * Decimal-safe amount represented as a string.
+   */
+  amount: string;
+  currency?: CurrencyCode;
+  paymentMethodLabelSnapshot?: string | null;
+}
+
+export interface RecurringBillTemplateListResponse {
+  templates: RecurringBillTemplateResponse[];
+}
+
+/**
+ * Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
+ */
+export interface RecurringBillTemplateResponse {
+  id: string;
+  ownerUserProfileId: string;
+  groupId: string | null;
+  merchantName: string | null;
+  description: string | null;
+  status: RecurringBillTemplateStatus;
+  schedule: RecurringBillScheduleResponse;
+  /**
+   * Decimal-safe forecast estimate represented as a string.
+   */
+  forecastAmount: string;
+  forecastCurrency: CurrencyCode;
+  nextOccurrenceDate: string | null;
+  payloadVersion: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  archivedAtUtc: string | null;
+}
+
+export interface RecurringBillScheduleResponse {
+  type: RecurringBillScheduleType;
+  intervalCount: number | null;
+  intervalDays: number | null;
+  startDate: string;
+  endDate: string | null;
+  dueOffsetDays: number | null;
+}
+
+export interface RecurringBillForecastListResponse {
+  occurrences: RecurringBillForecastOccurrenceResponse[];
+}
+
+/**
+ * Forecast occurrence response. Forecast-only rows are estimates and do not imply bill creation.
+ */
+export interface RecurringBillForecastOccurrenceResponse {
+  templateId: string;
+  occurrenceId: string | null;
+  groupId: string | null;
+  occurrenceDate: string;
+  dueDate: string | null;
+  status: RecurringBillOccurrenceStatus;
+  draftGenerated: boolean;
+  generatedBillId: string | null;
+  forecastAmount: string;
+  forecastCurrency: CurrencyCode;
+  merchantName: string | null;
+}
+
+export interface RecurringBillGenerateDraftResponse {
+  templateId: string;
+  occurrenceId: string;
+  occurrenceDate: string;
+  dueDate: string | null;
+  occurrenceStatus: RecurringBillOccurrenceStatus;
+  generatedBillId: string;
+  billStatus: ExpenseBillStatus;
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+}
+
+export type RecurringBillScheduleType = "weekly" | "monthly" | "yearly" | "custom_interval_days";
+
+export type RecurringBillTemplateStatus = "active" | "paused" | "archived";
+
+export type RecurringBillOccurrenceStatus = "forecasted" | "draft_generated" | "skipped" | "cancelled";
+
+/**
  * Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.
  */
 export interface CreatePersonalBillRequest {

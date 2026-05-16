@@ -715,6 +715,730 @@ class GroupMembershipStatusValues {
   static const Set<GroupMembershipStatus> values = {active, removed};
 }
 
+/// Recurring bill template creation request. Owner, creator, actor, and authorization identity are derived server-side.
+class CreateRecurringBillTemplateRequest {
+  static const Object _unsetGroupId = Object();
+  static const Object _unsetMerchantName = Object();
+  static const Object _unsetDescription = Object();
+
+  CreateRecurringBillTemplateRequest({
+    Object? groupId = _unsetGroupId,
+    Object? merchantName = _unsetMerchantName,
+    Object? description = _unsetDescription,
+    required this.schedule,
+    required this.billPayload,
+  })
+      : groupId = identical(groupId, _unsetGroupId) ? null : groupId as String?,
+        _hasGroupId = !identical(groupId, _unsetGroupId),
+        merchantName = identical(merchantName, _unsetMerchantName) ? null : merchantName as String?,
+        _hasMerchantName = !identical(merchantName, _unsetMerchantName),
+        description = identical(description, _unsetDescription) ? null : description as String?,
+        _hasDescription = !identical(description, _unsetDescription);
+
+  /// Optional group ID for a group recurring bill. The authenticated actor must be an active group member.
+  final String? groupId;
+  final bool _hasGroupId;
+  /// Optional merchant or template display name after server-side trimming.
+  final String? merchantName;
+  final bool _hasMerchantName;
+  /// Optional bounded template description. Audit metadata does not log this text.
+  final String? description;
+  final bool _hasDescription;
+  final RecurringBillScheduleRequest schedule;
+  final RecurringBillTemplatePayload billPayload;
+
+  factory CreateRecurringBillTemplateRequest.fromJson(JsonObject json) {
+    return CreateRecurringBillTemplateRequest(
+      groupId: json.containsKey("groupId")
+          ? json["groupId"] == null ? null : json["groupId"] as String
+          : _unsetGroupId,
+      merchantName: json.containsKey("merchantName")
+          ? json["merchantName"] == null ? null : json["merchantName"] as String
+          : _unsetMerchantName,
+      description: json.containsKey("description")
+          ? json["description"] == null ? null : json["description"] as String
+          : _unsetDescription,
+      schedule: RecurringBillScheduleRequest.fromJson(JsonObject.from(json["schedule"] as Map)),
+      billPayload: RecurringBillTemplatePayload.fromJson(JsonObject.from(json["billPayload"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantNameJsonValue = merchantName;
+    final descriptionJsonValue = description;
+
+    return {
+      if (_hasGroupId) "groupId": groupIdJsonValue,
+      if (_hasMerchantName) "merchantName": merchantNameJsonValue,
+      if (_hasDescription) "description": descriptionJsonValue,
+      "schedule": schedule.toJson(),
+      "billPayload": billPayload.toJson(),
+    };
+  }
+}
+
+/// Safe recurring bill template update request. Historical generated bills are not mutated.
+class UpdateRecurringBillTemplateRequest {
+  static const Object _unsetMerchantName = Object();
+  static const Object _unsetDescription = Object();
+
+  UpdateRecurringBillTemplateRequest({
+    Object? merchantName = _unsetMerchantName,
+    Object? description = _unsetDescription,
+    this.schedule,
+    this.billPayload,
+  })
+      : merchantName = identical(merchantName, _unsetMerchantName) ? null : merchantName as String?,
+        _hasMerchantName = !identical(merchantName, _unsetMerchantName),
+        description = identical(description, _unsetDescription) ? null : description as String?,
+        _hasDescription = !identical(description, _unsetDescription);
+
+  /// Optional merchant or template display name after server-side trimming.
+  final String? merchantName;
+  final bool _hasMerchantName;
+  /// Optional bounded template description. Audit metadata does not log this text.
+  final String? description;
+  final bool _hasDescription;
+  final RecurringBillScheduleRequest? schedule;
+  final RecurringBillTemplatePayload? billPayload;
+
+  factory UpdateRecurringBillTemplateRequest.fromJson(JsonObject json) {
+    return UpdateRecurringBillTemplateRequest(
+      merchantName: json.containsKey("merchantName")
+          ? json["merchantName"] == null ? null : json["merchantName"] as String
+          : _unsetMerchantName,
+      description: json.containsKey("description")
+          ? json["description"] == null ? null : json["description"] as String
+          : _unsetDescription,
+      schedule: json["schedule"] == null ? null : RecurringBillScheduleRequest.fromJson(JsonObject.from(json["schedule"] as Map)),
+      billPayload: json["billPayload"] == null ? null : RecurringBillTemplatePayload.fromJson(JsonObject.from(json["billPayload"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final merchantNameJsonValue = merchantName;
+    final descriptionJsonValue = description;
+    final scheduleJsonValue = schedule;
+    final billPayloadJsonValue = billPayload;
+
+    return {
+      if (_hasMerchantName) "merchantName": merchantNameJsonValue,
+      if (_hasDescription) "description": descriptionJsonValue,
+      if (scheduleJsonValue != null) "schedule": scheduleJsonValue.toJson(),
+      if (billPayloadJsonValue != null) "billPayload": billPayloadJsonValue.toJson(),
+    };
+  }
+}
+
+/// Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
+class RecurringBillScheduleRequest {
+  static const Object _unsetIntervalCount = Object();
+  static const Object _unsetIntervalDays = Object();
+  static const Object _unsetEndDate = Object();
+  static const Object _unsetDueOffsetDays = Object();
+
+  RecurringBillScheduleRequest({
+    required this.type,
+    Object? intervalCount = _unsetIntervalCount,
+    Object? intervalDays = _unsetIntervalDays,
+    required this.startDate,
+    Object? endDate = _unsetEndDate,
+    Object? dueOffsetDays = _unsetDueOffsetDays,
+  })
+      : intervalCount = identical(intervalCount, _unsetIntervalCount) ? null : intervalCount as int?,
+        _hasIntervalCount = !identical(intervalCount, _unsetIntervalCount),
+        intervalDays = identical(intervalDays, _unsetIntervalDays) ? null : intervalDays as int?,
+        _hasIntervalDays = !identical(intervalDays, _unsetIntervalDays),
+        endDate = identical(endDate, _unsetEndDate) ? null : endDate as String?,
+        _hasEndDate = !identical(endDate, _unsetEndDate),
+        dueOffsetDays = identical(dueOffsetDays, _unsetDueOffsetDays) ? null : dueOffsetDays as int?,
+        _hasDueOffsetDays = !identical(dueOffsetDays, _unsetDueOffsetDays);
+
+  final RecurringBillScheduleType type;
+  /// Positive interval count for weekly, monthly, and yearly schedules.
+  final int? intervalCount;
+  final bool _hasIntervalCount;
+  /// Positive day interval for custom interval day schedules.
+  final int? intervalDays;
+  final bool _hasIntervalDays;
+  final String startDate;
+  final String? endDate;
+  final bool _hasEndDate;
+  final int? dueOffsetDays;
+  final bool _hasDueOffsetDays;
+
+  factory RecurringBillScheduleRequest.fromJson(JsonObject json) {
+    return RecurringBillScheduleRequest(
+      type: json["type"] as String,
+      intervalCount: json.containsKey("intervalCount")
+          ? json["intervalCount"] == null ? null : (json["intervalCount"] as num).toInt()
+          : _unsetIntervalCount,
+      intervalDays: json.containsKey("intervalDays")
+          ? json["intervalDays"] == null ? null : (json["intervalDays"] as num).toInt()
+          : _unsetIntervalDays,
+      startDate: json["startDate"] as String,
+      endDate: json.containsKey("endDate")
+          ? json["endDate"] == null ? null : json["endDate"] as String
+          : _unsetEndDate,
+      dueOffsetDays: json.containsKey("dueOffsetDays")
+          ? json["dueOffsetDays"] == null ? null : (json["dueOffsetDays"] as num).toInt()
+          : _unsetDueOffsetDays,
+    );
+  }
+
+  JsonObject toJson() {
+    final intervalCountJsonValue = intervalCount;
+    final intervalDaysJsonValue = intervalDays;
+    final endDateJsonValue = endDate;
+    final dueOffsetDaysJsonValue = dueOffsetDays;
+
+    return {
+      "type": type,
+      if (_hasIntervalCount) "intervalCount": intervalCountJsonValue,
+      if (_hasIntervalDays) "intervalDays": intervalDaysJsonValue,
+      "startDate": startDate,
+      if (_hasEndDate) "endDate": endDateJsonValue,
+      if (_hasDueOffsetDays) "dueOffsetDays": dueOffsetDaysJsonValue,
+    };
+  }
+}
+
+/// Versioned template bill payload. It is validated at write time and again at draft generation time; generated expense bill rows remain financial truth.
+class RecurringBillTemplatePayload {
+  const RecurringBillTemplatePayload({
+    required this.currency,
+    required this.items,
+    this.adjustments,
+    this.payers,
+  });
+
+  final CurrencyCode currency;
+  final List<RecurringBillTemplatePayloadItem> items;
+  final List<RecurringBillTemplatePayloadAdjustment>? adjustments;
+  final List<RecurringBillTemplatePayloadPayer>? payers;
+
+  factory RecurringBillTemplatePayload.fromJson(JsonObject json) {
+    return RecurringBillTemplatePayload(
+      currency: json["currency"] as String,
+      items: (json["items"] as List<dynamic>).map((item) => RecurringBillTemplatePayloadItem.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustments: json["adjustments"] == null ? null : (json["adjustments"] as List<dynamic>).map((item) => RecurringBillTemplatePayloadAdjustment.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payers: json["payers"] == null ? null : (json["payers"] as List<dynamic>).map((item) => RecurringBillTemplatePayloadPayer.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final adjustmentsJsonValue = adjustments;
+    final payersJsonValue = payers;
+
+    return {
+      "currency": currency,
+      "items": items.map((item) => item.toJson()).toList(growable: false),
+      if (adjustmentsJsonValue != null) "adjustments": adjustmentsJsonValue.map((item) => item.toJson()).toList(growable: false),
+      if (payersJsonValue != null) "payers": payersJsonValue.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class RecurringBillTemplatePayloadItem {
+  static const Object _unsetNote = Object();
+
+  RecurringBillTemplatePayloadItem({
+    required this.name,
+    Object? note = _unsetNote,
+    required this.amount,
+    this.currency,
+    this.splits,
+  })
+      : note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final String name;
+  final String? note;
+  final bool _hasNote;
+  /// Decimal-safe amount represented as a string.
+  final String amount;
+  final CurrencyCode? currency;
+  final List<RecurringBillTemplatePayloadItemSplit>? splits;
+
+  factory RecurringBillTemplatePayloadItem.fromJson(JsonObject json) {
+    return RecurringBillTemplatePayloadItem(
+      name: json["name"] as String,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+      amount: json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      splits: json["splits"] == null ? null : (json["splits"] as List<dynamic>).map((item) => RecurringBillTemplatePayloadItemSplit.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+    final currencyJsonValue = currency;
+    final splitsJsonValue = splits;
+
+    return {
+      "name": name,
+      if (_hasNote) "note": noteJsonValue,
+      "amount": amount,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+      if (splitsJsonValue != null) "splits": splitsJsonValue.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class RecurringBillTemplatePayloadItemSplit {
+  static const Object _unsetBasisValue = Object();
+
+  RecurringBillTemplatePayloadItemSplit({
+    required this.userProfileId,
+    required this.splitMethod,
+    Object? basisValue = _unsetBasisValue,
+    this.allocationOrder,
+  })
+      : basisValue = identical(basisValue, _unsetBasisValue) ? null : basisValue as String?,
+        _hasBasisValue = !identical(basisValue, _unsetBasisValue);
+
+  final String userProfileId;
+  final ExpenseBillItemSplitMethod splitMethod;
+  final String? basisValue;
+  final bool _hasBasisValue;
+  final int? allocationOrder;
+
+  factory RecurringBillTemplatePayloadItemSplit.fromJson(JsonObject json) {
+    return RecurringBillTemplatePayloadItemSplit(
+      userProfileId: json["userProfileId"] as String,
+      splitMethod: json["splitMethod"] as String,
+      basisValue: json.containsKey("basisValue")
+          ? json["basisValue"] == null ? null : json["basisValue"] as String
+          : _unsetBasisValue,
+      allocationOrder: json["allocationOrder"] == null ? null : (json["allocationOrder"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final basisValueJsonValue = basisValue;
+    final allocationOrderJsonValue = allocationOrder;
+
+    return {
+      "userProfileId": userProfileId,
+      "splitMethod": splitMethod,
+      if (_hasBasisValue) "basisValue": basisValueJsonValue,
+      if (allocationOrderJsonValue != null) "allocationOrder": allocationOrderJsonValue,
+    };
+  }
+}
+
+class RecurringBillTemplatePayloadAdjustment {
+  static const Object _unsetReasonNote = Object();
+
+  RecurringBillTemplatePayloadAdjustment({
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    this.currency,
+    Object? reasonNote = _unsetReasonNote,
+  })
+      : reasonNote = identical(reasonNote, _unsetReasonNote) ? null : reasonNote as String?,
+        _hasReasonNote = !identical(reasonNote, _unsetReasonNote);
+
+  final ExpenseBillAdjustmentType type;
+  final ExpenseBillAdjustmentDirection direction;
+  final PersonalBillAdjustmentAllocationMethod allocationMethod;
+  /// Decimal-safe amount represented as a string.
+  final String amount;
+  final CurrencyCode? currency;
+  final String? reasonNote;
+  final bool _hasReasonNote;
+
+  factory RecurringBillTemplatePayloadAdjustment.fromJson(JsonObject json) {
+    return RecurringBillTemplatePayloadAdjustment(
+      type: json["type"] as String,
+      direction: json["direction"] as String,
+      allocationMethod: json["allocationMethod"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      reasonNote: json.containsKey("reasonNote")
+          ? json["reasonNote"] == null ? null : json["reasonNote"] as String
+          : _unsetReasonNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final currencyJsonValue = currency;
+    final reasonNoteJsonValue = reasonNote;
+
+    return {
+      "type": type,
+      "direction": direction,
+      "allocationMethod": allocationMethod,
+      "amount": amount,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+      if (_hasReasonNote) "reasonNote": reasonNoteJsonValue,
+    };
+  }
+}
+
+class RecurringBillTemplatePayloadPayer {
+  static const Object _unsetPaymentMethodLabelSnapshot = Object();
+
+  RecurringBillTemplatePayloadPayer({
+    required this.userProfileId,
+    required this.amount,
+    this.currency,
+    Object? paymentMethodLabelSnapshot = _unsetPaymentMethodLabelSnapshot,
+  })
+      : paymentMethodLabelSnapshot = identical(paymentMethodLabelSnapshot, _unsetPaymentMethodLabelSnapshot) ? null : paymentMethodLabelSnapshot as String?,
+        _hasPaymentMethodLabelSnapshot = !identical(paymentMethodLabelSnapshot, _unsetPaymentMethodLabelSnapshot);
+
+  final String userProfileId;
+  /// Decimal-safe amount represented as a string.
+  final String amount;
+  final CurrencyCode? currency;
+  final String? paymentMethodLabelSnapshot;
+  final bool _hasPaymentMethodLabelSnapshot;
+
+  factory RecurringBillTemplatePayloadPayer.fromJson(JsonObject json) {
+    return RecurringBillTemplatePayloadPayer(
+      userProfileId: json["userProfileId"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      paymentMethodLabelSnapshot: json.containsKey("paymentMethodLabelSnapshot")
+          ? json["paymentMethodLabelSnapshot"] == null ? null : json["paymentMethodLabelSnapshot"] as String
+          : _unsetPaymentMethodLabelSnapshot,
+    );
+  }
+
+  JsonObject toJson() {
+    final currencyJsonValue = currency;
+    final paymentMethodLabelSnapshotJsonValue = paymentMethodLabelSnapshot;
+
+    return {
+      "userProfileId": userProfileId,
+      "amount": amount,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+      if (_hasPaymentMethodLabelSnapshot) "paymentMethodLabelSnapshot": paymentMethodLabelSnapshotJsonValue,
+    };
+  }
+}
+
+class RecurringBillTemplateListResponse {
+  const RecurringBillTemplateListResponse({
+    required this.templates,
+  });
+
+  final List<RecurringBillTemplateResponse> templates;
+
+  factory RecurringBillTemplateListResponse.fromJson(JsonObject json) {
+    return RecurringBillTemplateListResponse(
+      templates: (json["templates"] as List<dynamic>).map((item) => RecurringBillTemplateResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "templates": templates.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
+class RecurringBillTemplateResponse {
+  const RecurringBillTemplateResponse({
+    required this.id,
+    required this.ownerUserProfileId,
+    required this.groupId,
+    required this.merchantName,
+    required this.description,
+    required this.status,
+    required this.schedule,
+    required this.forecastAmount,
+    required this.forecastCurrency,
+    required this.nextOccurrenceDate,
+    required this.payloadVersion,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.archivedAtUtc,
+  });
+
+  final String id;
+  final String ownerUserProfileId;
+  final String? groupId;
+  final String? merchantName;
+  final String? description;
+  final RecurringBillTemplateStatus status;
+  final RecurringBillScheduleResponse schedule;
+  /// Decimal-safe forecast estimate represented as a string.
+  final String forecastAmount;
+  final CurrencyCode forecastCurrency;
+  final String? nextOccurrenceDate;
+  final int payloadVersion;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? archivedAtUtc;
+
+  factory RecurringBillTemplateResponse.fromJson(JsonObject json) {
+    return RecurringBillTemplateResponse(
+      id: json["id"] as String,
+      ownerUserProfileId: json["ownerUserProfileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
+      description: json["description"] == null ? null : json["description"] as String,
+      status: json["status"] as String,
+      schedule: RecurringBillScheduleResponse.fromJson(JsonObject.from(json["schedule"] as Map)),
+      forecastAmount: json["forecastAmount"] as String,
+      forecastCurrency: json["forecastCurrency"] as String,
+      nextOccurrenceDate: json["nextOccurrenceDate"] == null ? null : json["nextOccurrenceDate"] as String,
+      payloadVersion: (json["payloadVersion"] as num).toInt(),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantNameJsonValue = merchantName;
+    final descriptionJsonValue = description;
+    final nextOccurrenceDateJsonValue = nextOccurrenceDate;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "id": id,
+      "ownerUserProfileId": ownerUserProfileId,
+      "groupId": groupIdJsonValue,
+      "merchantName": merchantNameJsonValue,
+      "description": descriptionJsonValue,
+      "status": status,
+      "schedule": schedule.toJson(),
+      "forecastAmount": forecastAmount,
+      "forecastCurrency": forecastCurrency,
+      "nextOccurrenceDate": nextOccurrenceDateJsonValue,
+      "payloadVersion": payloadVersion,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+class RecurringBillScheduleResponse {
+  const RecurringBillScheduleResponse({
+    required this.type,
+    required this.intervalCount,
+    required this.intervalDays,
+    required this.startDate,
+    required this.endDate,
+    required this.dueOffsetDays,
+  });
+
+  final RecurringBillScheduleType type;
+  final int? intervalCount;
+  final int? intervalDays;
+  final String startDate;
+  final String? endDate;
+  final int? dueOffsetDays;
+
+  factory RecurringBillScheduleResponse.fromJson(JsonObject json) {
+    return RecurringBillScheduleResponse(
+      type: json["type"] as String,
+      intervalCount: json["intervalCount"] == null ? null : (json["intervalCount"] as num).toInt(),
+      intervalDays: json["intervalDays"] == null ? null : (json["intervalDays"] as num).toInt(),
+      startDate: json["startDate"] as String,
+      endDate: json["endDate"] == null ? null : json["endDate"] as String,
+      dueOffsetDays: json["dueOffsetDays"] == null ? null : (json["dueOffsetDays"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final intervalCountJsonValue = intervalCount;
+    final intervalDaysJsonValue = intervalDays;
+    final endDateJsonValue = endDate;
+    final dueOffsetDaysJsonValue = dueOffsetDays;
+
+    return {
+      "type": type,
+      "intervalCount": intervalCountJsonValue,
+      "intervalDays": intervalDaysJsonValue,
+      "startDate": startDate,
+      "endDate": endDateJsonValue,
+      "dueOffsetDays": dueOffsetDaysJsonValue,
+    };
+  }
+}
+
+class RecurringBillForecastListResponse {
+  const RecurringBillForecastListResponse({
+    required this.occurrences,
+  });
+
+  final List<RecurringBillForecastOccurrenceResponse> occurrences;
+
+  factory RecurringBillForecastListResponse.fromJson(JsonObject json) {
+    return RecurringBillForecastListResponse(
+      occurrences: (json["occurrences"] as List<dynamic>).map((item) => RecurringBillForecastOccurrenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "occurrences": occurrences.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Forecast occurrence response. Forecast-only rows are estimates and do not imply bill creation.
+class RecurringBillForecastOccurrenceResponse {
+  const RecurringBillForecastOccurrenceResponse({
+    required this.templateId,
+    required this.occurrenceId,
+    required this.groupId,
+    required this.occurrenceDate,
+    required this.dueDate,
+    required this.status,
+    required this.draftGenerated,
+    required this.generatedBillId,
+    required this.forecastAmount,
+    required this.forecastCurrency,
+    required this.merchantName,
+  });
+
+  final String templateId;
+  final String? occurrenceId;
+  final String? groupId;
+  final String occurrenceDate;
+  final String? dueDate;
+  final RecurringBillOccurrenceStatus status;
+  final bool draftGenerated;
+  final String? generatedBillId;
+  final String forecastAmount;
+  final CurrencyCode forecastCurrency;
+  final String? merchantName;
+
+  factory RecurringBillForecastOccurrenceResponse.fromJson(JsonObject json) {
+    return RecurringBillForecastOccurrenceResponse(
+      templateId: json["templateId"] as String,
+      occurrenceId: json["occurrenceId"] == null ? null : json["occurrenceId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      occurrenceDate: json["occurrenceDate"] as String,
+      dueDate: json["dueDate"] == null ? null : json["dueDate"] as String,
+      status: json["status"] as String,
+      draftGenerated: json["draftGenerated"] as bool,
+      generatedBillId: json["generatedBillId"] == null ? null : json["generatedBillId"] as String,
+      forecastAmount: json["forecastAmount"] as String,
+      forecastCurrency: json["forecastCurrency"] as String,
+      merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final occurrenceIdJsonValue = occurrenceId;
+    final groupIdJsonValue = groupId;
+    final dueDateJsonValue = dueDate;
+    final generatedBillIdJsonValue = generatedBillId;
+    final merchantNameJsonValue = merchantName;
+
+    return {
+      "templateId": templateId,
+      "occurrenceId": occurrenceIdJsonValue,
+      "groupId": groupIdJsonValue,
+      "occurrenceDate": occurrenceDate,
+      "dueDate": dueDateJsonValue,
+      "status": status,
+      "draftGenerated": draftGenerated,
+      "generatedBillId": generatedBillIdJsonValue,
+      "forecastAmount": forecastAmount,
+      "forecastCurrency": forecastCurrency,
+      "merchantName": merchantNameJsonValue,
+    };
+  }
+}
+
+class RecurringBillGenerateDraftResponse {
+  const RecurringBillGenerateDraftResponse({
+    required this.templateId,
+    required this.occurrenceId,
+    required this.occurrenceDate,
+    required this.dueDate,
+    required this.occurrenceStatus,
+    required this.generatedBillId,
+    required this.billStatus,
+    required this.totalAmount,
+    required this.totalCurrency,
+  });
+
+  final String templateId;
+  final String occurrenceId;
+  final String occurrenceDate;
+  final String? dueDate;
+  final RecurringBillOccurrenceStatus occurrenceStatus;
+  final String generatedBillId;
+  final ExpenseBillStatus billStatus;
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+
+  factory RecurringBillGenerateDraftResponse.fromJson(JsonObject json) {
+    return RecurringBillGenerateDraftResponse(
+      templateId: json["templateId"] as String,
+      occurrenceId: json["occurrenceId"] as String,
+      occurrenceDate: json["occurrenceDate"] as String,
+      dueDate: json["dueDate"] == null ? null : json["dueDate"] as String,
+      occurrenceStatus: json["occurrenceStatus"] as String,
+      generatedBillId: json["generatedBillId"] as String,
+      billStatus: json["billStatus"] as String,
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final dueDateJsonValue = dueDate;
+
+    return {
+      "templateId": templateId,
+      "occurrenceId": occurrenceId,
+      "occurrenceDate": occurrenceDate,
+      "dueDate": dueDateJsonValue,
+      "occurrenceStatus": occurrenceStatus,
+      "generatedBillId": generatedBillId,
+      "billStatus": billStatus,
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+    };
+  }
+}
+
+typedef RecurringBillScheduleType = String;
+class RecurringBillScheduleTypeValues {
+  const RecurringBillScheduleTypeValues._();
+  static const RecurringBillScheduleType weekly = "weekly";
+  static const RecurringBillScheduleType monthly = "monthly";
+  static const RecurringBillScheduleType yearly = "yearly";
+  static const RecurringBillScheduleType customIntervalDays = "custom_interval_days";
+  static const Set<RecurringBillScheduleType> values = {weekly, monthly, yearly, customIntervalDays};
+}
+
+typedef RecurringBillTemplateStatus = String;
+class RecurringBillTemplateStatusValues {
+  const RecurringBillTemplateStatusValues._();
+  static const RecurringBillTemplateStatus active = "active";
+  static const RecurringBillTemplateStatus paused = "paused";
+  static const RecurringBillTemplateStatus archived = "archived";
+  static const Set<RecurringBillTemplateStatus> values = {active, paused, archived};
+}
+
+typedef RecurringBillOccurrenceStatus = String;
+class RecurringBillOccurrenceStatusValues {
+  const RecurringBillOccurrenceStatusValues._();
+  static const RecurringBillOccurrenceStatus forecasted = "forecasted";
+  static const RecurringBillOccurrenceStatus draftGenerated = "draft_generated";
+  static const RecurringBillOccurrenceStatus skipped = "skipped";
+  static const RecurringBillOccurrenceStatus cancelled = "cancelled";
+  static const Set<RecurringBillOccurrenceStatus> values = {forecasted, draftGenerated, skipped, cancelled};
+}
+
 /// Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.
 class CreatePersonalBillRequest {
   static const Object _unsetMerchantName = Object();

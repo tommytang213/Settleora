@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Storage;
@@ -62,6 +63,8 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
         modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
+        modelBuilder.Entity<RecurringBillTemplate>(ConfigureRecurringBillTemplate);
+        modelBuilder.Entity<RecurringBillOccurrence>(ConfigureRecurringBillOccurrence);
         modelBuilder.Entity<ExpenseBillRevision>(ConfigureExpenseBillRevision);
         modelBuilder.Entity<ExpenseBillRevisionParticipant>(ConfigureExpenseBillRevisionParticipant);
         modelBuilder.Entity<ExpenseBillRevisionPayer>(ConfigureExpenseBillRevisionPayer);
@@ -1339,6 +1342,267 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(review => review.GroupId)
             .HasConstraintName("fk_receipt_ocr_reviews_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureRecurringBillTemplate(EntityTypeBuilder<RecurringBillTemplate> entity)
+    {
+        entity.ToTable("recurring_bill_templates", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_status",
+                "status IN ('active', 'paused', 'archived')");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_schedule_type",
+                "schedule_type IN ('weekly', 'monthly', 'yearly', 'custom_interval_days')");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_interval_count_positive",
+                "interval_count IS NULL OR interval_count > 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_interval_days_positive",
+                "interval_days IS NULL OR interval_days > 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_interval_shape",
+                "(schedule_type = 'custom_interval_days' AND interval_days IS NOT NULL AND interval_count IS NULL) OR (schedule_type <> 'custom_interval_days' AND interval_count IS NOT NULL AND interval_days IS NULL)");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_end_date_after_start",
+                "end_date IS NULL OR end_date >= start_date");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_due_offset_range",
+                "due_offset_days IS NULL OR (due_offset_days >= -365 AND due_offset_days <= 365)");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_payload_version_positive",
+                "payload_version > 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_payload_json_not_blank",
+                "length(btrim(payload_json)) > 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_forecast_amount_non_negative",
+                "forecast_amount >= 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_forecast_amount_upper_bound",
+                "forecast_amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_forecast_currency_iso",
+                "forecast_currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_merchant_name_not_blank",
+                "merchant_name IS NULL OR length(btrim(merchant_name)) > 0");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_templates_description_not_blank",
+                "description IS NULL OR length(btrim(description)) > 0");
+        });
+
+        entity.HasKey(template => template.Id);
+
+        entity.Property(template => template.Id)
+            .HasColumnName("id");
+
+        entity.Property(template => template.OwnerUserProfileId)
+            .HasColumnName("owner_user_profile_id");
+
+        entity.Property(template => template.CreatedByUserProfileId)
+            .HasColumnName("created_by_user_profile_id");
+
+        entity.Property(template => template.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(template => template.MerchantName)
+            .HasColumnName("merchant_name")
+            .HasMaxLength(RecurringBillConstraints.MerchantNameMaxLength);
+
+        entity.Property(template => template.Description)
+            .HasColumnName("description")
+            .HasMaxLength(RecurringBillConstraints.DescriptionMaxLength);
+
+        entity.Property(template => template.ScheduleType)
+            .HasColumnName("schedule_type")
+            .HasMaxLength(RecurringBillConstraints.ScheduleTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(template => template.IntervalCount)
+            .HasColumnName("interval_count");
+
+        entity.Property(template => template.IntervalDays)
+            .HasColumnName("interval_days");
+
+        entity.Property(template => template.StartDate)
+            .HasColumnName("start_date")
+            .IsRequired();
+
+        entity.Property(template => template.EndDate)
+            .HasColumnName("end_date");
+
+        entity.Property(template => template.DueOffsetDays)
+            .HasColumnName("due_offset_days");
+
+        entity.Property(template => template.NextOccurrenceDate)
+            .HasColumnName("next_occurrence_date");
+
+        entity.Property(template => template.Status)
+            .HasColumnName("status")
+            .HasMaxLength(RecurringBillConstraints.TemplateStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(template => template.PayloadVersion)
+            .HasColumnName("payload_version")
+            .IsRequired();
+
+        entity.Property(template => template.PayloadJson)
+            .HasColumnName("payload_json")
+            .HasMaxLength(RecurringBillConstraints.PayloadJsonMaxLength)
+            .IsRequired();
+
+        entity.Property(template => template.ForecastAmount)
+            .HasColumnName("forecast_amount")
+            .HasPrecision(
+                RecurringBillConstraints.MoneyAmountPrecision,
+                RecurringBillConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(template => template.ForecastCurrency)
+            .HasColumnName("forecast_currency")
+            .HasMaxLength(RecurringBillConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(template => template.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(template => template.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(template => template.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(template => template.OwnerUserProfileId)
+            .HasDatabaseName("ix_recurring_bill_templates_owner_user_profile_id");
+
+        entity.HasIndex(template => template.CreatedByUserProfileId)
+            .HasDatabaseName("ix_recurring_bill_templates_created_by_profile_id");
+
+        entity.HasIndex(template => template.GroupId)
+            .HasDatabaseName("ix_recurring_bill_templates_group_id");
+
+        entity.HasIndex(template => template.Status)
+            .HasDatabaseName("ix_recurring_bill_templates_status");
+
+        entity.HasIndex(template => template.NextOccurrenceDate)
+            .HasDatabaseName("ix_recurring_bill_templates_next_occurrence_date");
+
+        entity.HasIndex(template => new
+            {
+                template.OwnerUserProfileId,
+                template.Status,
+                template.NextOccurrenceDate
+            })
+            .HasDatabaseName("ix_recurring_bill_templates_owner_status_next");
+
+        entity.HasOne(template => template.OwnerUserProfile)
+            .WithMany()
+            .HasForeignKey(template => template.OwnerUserProfileId)
+            .HasConstraintName("fk_recurring_bill_templates_user_profiles_owner_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(template => template.CreatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(template => template.CreatedByUserProfileId)
+            .HasConstraintName("fk_recurring_bill_templates_user_profiles_created_by_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(template => template.Group)
+            .WithMany()
+            .HasForeignKey(template => template.GroupId)
+            .HasConstraintName("fk_recurring_bill_templates_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureRecurringBillOccurrence(EntityTypeBuilder<RecurringBillOccurrence> entity)
+    {
+        entity.ToTable("recurring_bill_occurrences", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_recurring_bill_occurrences_status",
+                "status IN ('forecasted', 'draft_generated', 'skipped', 'cancelled')");
+            table.HasCheckConstraint(
+                "ck_recurring_bill_occurrences_generated_shape",
+                "(status = 'draft_generated' AND generated_expense_bill_id IS NOT NULL AND generated_by_user_profile_id IS NOT NULL AND generated_at_utc IS NOT NULL) OR (status <> 'draft_generated')");
+        });
+
+        entity.HasKey(occurrence => occurrence.Id);
+
+        entity.Property(occurrence => occurrence.Id)
+            .HasColumnName("id");
+
+        entity.Property(occurrence => occurrence.RecurringBillTemplateId)
+            .HasColumnName("recurring_bill_template_id");
+
+        entity.Property(occurrence => occurrence.OccurrenceDate)
+            .HasColumnName("occurrence_date")
+            .IsRequired();
+
+        entity.Property(occurrence => occurrence.DueDate)
+            .HasColumnName("due_date");
+
+        entity.Property(occurrence => occurrence.Status)
+            .HasColumnName("status")
+            .HasMaxLength(RecurringBillConstraints.OccurrenceStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(occurrence => occurrence.GeneratedExpenseBillId)
+            .HasColumnName("generated_expense_bill_id");
+
+        entity.Property(occurrence => occurrence.GeneratedByUserProfileId)
+            .HasColumnName("generated_by_user_profile_id");
+
+        entity.Property(occurrence => occurrence.GeneratedAtUtc)
+            .HasColumnName("generated_at_utc");
+
+        entity.Property(occurrence => occurrence.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(occurrence => occurrence.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(occurrence => occurrence.RecurringBillTemplateId)
+            .HasDatabaseName("ix_recurring_bill_occurrences_template_id");
+
+        entity.HasIndex(occurrence => occurrence.OccurrenceDate)
+            .HasDatabaseName("ix_recurring_bill_occurrences_occurrence_date");
+
+        entity.HasIndex(occurrence => occurrence.GeneratedExpenseBillId)
+            .HasDatabaseName("ix_recurring_bill_occurrences_generated_bill_id");
+
+        entity.HasIndex(occurrence => occurrence.GeneratedByUserProfileId)
+            .HasDatabaseName("ix_recurring_bill_occurrences_generated_by_profile_id");
+
+        entity.HasIndex(occurrence => new
+            {
+                occurrence.RecurringBillTemplateId,
+                occurrence.OccurrenceDate
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_recurring_bill_occurrences_template_date");
+
+        entity.HasOne(occurrence => occurrence.RecurringBillTemplate)
+            .WithMany(template => template.Occurrences)
+            .HasForeignKey(occurrence => occurrence.RecurringBillTemplateId)
+            .HasConstraintName("fk_recurring_bill_occurrences_templates_template_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(occurrence => occurrence.GeneratedExpenseBill)
+            .WithMany()
+            .HasForeignKey(occurrence => occurrence.GeneratedExpenseBillId)
+            .HasConstraintName("fk_recurring_bill_occurrences_expense_bills_generated_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(occurrence => occurrence.GeneratedByUserProfile)
+            .WithMany()
+            .HasForeignKey(occurrence => occurrence.GeneratedByUserProfileId)
+            .HasConstraintName("fk_recurring_bill_occurrences_user_profiles_generated_by_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
