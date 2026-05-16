@@ -664,6 +664,18 @@ public sealed class SettleoraDbContext : DbContext
                 "ck_expense_bills_status",
                 "status IN ('draft', 'pending_confirmation', 'confirmed', 'rejected', 'cancelled', 'finalized', 'archived')");
             table.HasCheckConstraint(
+                "ck_expense_bills_reconciliation_status",
+                "reconciliation_status IN ('unreconciled', 'reconciled', 'ignored')");
+            table.HasCheckConstraint(
+                "ck_expense_bills_reconciliation_note_not_blank",
+                "reconciliation_note IS NULL OR length(btrim(reconciliation_note)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bills_reconciliation_update_actor_pair",
+                "((reconciliation_updated_at_utc IS NULL AND reconciliation_updated_by_user_profile_id IS NULL) OR (reconciliation_updated_at_utc IS NOT NULL AND reconciliation_updated_by_user_profile_id IS NOT NULL))");
+            table.HasCheckConstraint(
+                "ck_expense_bills_reconciled_at_matches_status",
+                "((reconciliation_status = 'reconciled' AND reconciled_at_utc IS NOT NULL) OR (reconciliation_status <> 'reconciled' AND reconciled_at_utc IS NULL))");
+            table.HasCheckConstraint(
                 "ck_expense_bills_total_amount_non_negative",
                 "total_amount >= 0");
             table.HasCheckConstraint(
@@ -705,6 +717,25 @@ public sealed class SettleoraDbContext : DbContext
             .HasMaxLength(ExpenseBillConstraints.BillStatusMaxLength)
             .IsRequired();
 
+        entity.Property(bill => bill.ReconciliationStatus)
+            .HasColumnName("reconciliation_status")
+            .HasMaxLength(ExpenseBillConstraints.BillReconciliationStatusMaxLength)
+            .HasDefaultValue(ExpenseBillReconciliationStatuses.Unreconciled)
+            .IsRequired();
+
+        entity.Property(bill => bill.ReconciliationUpdatedAtUtc)
+            .HasColumnName("reconciliation_updated_at_utc");
+
+        entity.Property(bill => bill.ReconciliationUpdatedByUserProfileId)
+            .HasColumnName("reconciliation_updated_by_user_profile_id");
+
+        entity.Property(bill => bill.ReconciledAtUtc)
+            .HasColumnName("reconciled_at_utc");
+
+        entity.Property(bill => bill.ReconciliationNote)
+            .HasColumnName("reconciliation_note")
+            .HasMaxLength(ExpenseBillConstraints.BillReconciliationNoteMaxLength);
+
         entity.Property(bill => bill.TotalAmount)
             .HasColumnName("total_amount")
             .HasPrecision(
@@ -743,6 +774,12 @@ public sealed class SettleoraDbContext : DbContext
         entity.HasIndex(bill => bill.Status)
             .HasDatabaseName("ix_expense_bills_status");
 
+        entity.HasIndex(bill => bill.ReconciliationStatus)
+            .HasDatabaseName("ix_expense_bills_reconciliation_status");
+
+        entity.HasIndex(bill => bill.ReconciliationUpdatedByUserProfileId)
+            .HasDatabaseName("ix_expense_bills_reconciliation_updated_by_user_profile_id");
+
         entity.HasIndex(bill => bill.BillDate)
             .HasDatabaseName("ix_expense_bills_bill_date");
 
@@ -765,6 +802,12 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(bill => bill.GroupId)
             .HasConstraintName("fk_expense_bills_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(bill => bill.ReconciliationUpdatedByUserProfile)
+            .WithMany()
+            .HasForeignKey(bill => bill.ReconciliationUpdatedByUserProfileId)
+            .HasConstraintName("fk_expense_bills_reconciliation_updated_by_user_profiles")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

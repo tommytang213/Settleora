@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
 
@@ -169,6 +170,7 @@ internal static class GroupBillEndpoints
 
     private static async Task<IResult> ListGroupBillsAsync(
         Guid groupId,
+        string? reconciliationStatus,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -188,7 +190,18 @@ internal static class GroupBillEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var bills = await GroupBillsQuery(dbContext, groupId)
+        if (!TryReadReconciliationStatusFilter(reconciliationStatus, out var statusFilter, out var filterErrors))
+        {
+            return InvalidGroupBillRequest(filterErrors);
+        }
+
+        var query = GroupBillsQuery(dbContext, groupId);
+        if (statusFilter is not null)
+        {
+            query = query.Where(bill => bill.ReconciliationStatus == statusFilter);
+        }
+
+        var bills = await query
             .OrderByDescending(bill => bill.BillDate)
             .ThenByDescending(bill => bill.CreatedAtUtc)
             .ThenByDescending(bill => bill.Id)
@@ -1345,6 +1358,7 @@ internal static class GroupBillEndpoints
             bill.MerchantName,
             bill.BillDate,
             bill.Status,
+            ExpenseBillReconciliationEndpoints.MapReconciliationResponse(bill),
             FormatAmount(bill.TotalAmount),
             bill.TotalCurrency,
             bill.CreatedAtUtc,
@@ -1508,6 +1522,32 @@ internal static class GroupBillEndpoints
             or ExpenseBillItemSplitMethods.Percentage
             or ExpenseBillItemSplitMethods.Ratio
             or ExpenseBillItemSplitMethods.ShareWeight;
+    }
+
+    private static bool TryReadReconciliationStatusFilter(
+        string? submittedStatus,
+        out string? status,
+        out IDictionary<string, string[]> errors)
+    {
+        status = null;
+        errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (submittedStatus is null)
+        {
+            return true;
+        }
+
+        var trimmedStatus = submittedStatus.Trim();
+        if (ExpenseBillReconciliationStatuses.IsSupported(trimmedStatus))
+        {
+            status = trimmedStatus;
+            return true;
+        }
+
+        errors = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["reconciliationStatus"] = ["Reconciliation status is not supported."]
+        };
+        return false;
     }
 
     private static bool IsPlainDecimalString(string value)

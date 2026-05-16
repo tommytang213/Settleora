@@ -27,6 +27,18 @@ public sealed class ExpenseBill
 
     public string Status { get; set; } = ExpenseBillStatuses.Draft;
 
+    public string ReconciliationStatus { get; set; } = ExpenseBillReconciliationStatuses.Unreconciled;
+
+    public DateTimeOffset? ReconciliationUpdatedAtUtc { get; set; }
+
+    public Guid? ReconciliationUpdatedByUserProfileId { get; set; }
+
+    public UserProfile? ReconciliationUpdatedByUserProfile { get; set; }
+
+    public DateTimeOffset? ReconciledAtUtc { get; set; }
+
+    public string? ReconciliationNote { get; set; }
+
     public decimal TotalAmount { get; set; }
 
     public string TotalCurrency { get; set; } = string.Empty;

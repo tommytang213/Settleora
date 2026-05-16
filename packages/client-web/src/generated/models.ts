@@ -686,6 +686,28 @@ export interface BillRevisionApprovalResponse {
 }
 
 /**
+ * Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
+ */
+export interface ExpenseBillReconciliationUpdateRequest {
+  status: ExpenseBillReconciliationStatus;
+  /**
+   * Optional bounded note or reference label. This note is not copied into audit metadata.
+   */
+  note?: string | null;
+}
+
+/**
+ * Manual reconciliation state for a visible bill. These fields are recordkeeping only and do not represent bill, split, settlement, payer, receipt, OCR, or balance truth.
+ */
+export interface ExpenseBillReconciliationResponse {
+  status: ExpenseBillReconciliationStatus;
+  updatedAtUtc: string | null;
+  updatedByUserProfileId: string | null;
+  reconciledAtUtc: string | null;
+  note: string | null;
+}
+
+/**
  * Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
  */
 export interface PersonalBillListResponse {
@@ -700,6 +722,7 @@ export interface PersonalBillResponse {
   merchantName: string | null;
   billDate: string;
   status: ExpenseBillStatus;
+  reconciliation: ExpenseBillReconciliationResponse;
   /**
    * Decimal-safe total amount represented as a string.
    */
@@ -967,6 +990,50 @@ export interface SettlementRequestLineResponse {
   status: SettlementRequestLineStatus;
   createdAtUtc: string;
   updatedAtUtc: string;
+}
+
+/**
+ * Read-only monthly report summary derived from authorized bill and settlement state. Monetary totals are bucketed by currency and no FX conversion or report-cache write is performed.
+ */
+export interface MonthlyReportResponse {
+  month: string;
+  groupId: string | null;
+  generatedAtUtc: string;
+  billCount: number;
+  totalByCurrency: MonthlyReportCurrencyTotal[];
+  /**
+   * Current actor participant-share totals by currency for bills included in the report.
+   */
+  actorShareByCurrency: MonthlyReportCurrencyTotal[];
+  /**
+   * Current actor payer contribution totals by currency for bills included in the report.
+   */
+  actorPaidByCurrency: MonthlyReportCurrencyTotal[];
+  reconciliationCounts: MonthlyReportStatusCount[];
+  /**
+   * Counts by settlement request status for report bills where the current actor is involved in the settlement request.
+   */
+  settlementRequestCounts: MonthlyReportStatusCount[];
+  /**
+   * Counts by settlement payment status for report bills where the current actor is involved in the settlement request or payment.
+   */
+  settlementPaymentCounts: MonthlyReportStatusCount[];
+}
+
+export interface MonthlyReportCurrencyTotal {
+  currency: CurrencyCode;
+  /**
+   * Decimal-safe amount represented as a string.
+   */
+  amount: string;
+}
+
+export interface MonthlyReportStatusCount {
+  /**
+   * Bounded status value for the related count family.
+   */
+  status: string;
+  count: number;
 }
 
 /**
@@ -1613,6 +1680,7 @@ export interface GroupBillResponse {
   merchantName: string | null;
   billDate: string;
   status: ExpenseBillStatus;
+  reconciliation: ExpenseBillReconciliationResponse;
   /**
    * Decimal-safe total amount represented as a string.
    */
@@ -1714,6 +1782,11 @@ export type InAppNotificationSubjectType = "expense_bill" | "settlement_request"
  * Expense bill root status.
  */
 export type ExpenseBillStatus = "draft" | "pending_confirmation" | "confirmed" | "rejected" | "cancelled" | "finalized" | "archived";
+
+/**
+ * Manual bill reconciliation status. This is a recordkeeping label only and does not change financial truth, bill totals, split shares, settlement state, payer state, files, or OCR state.
+ */
+export type ExpenseBillReconciliationStatus = "unreconciled" | "reconciled" | "ignored";
 
 /**
  * Expense bill participant status.

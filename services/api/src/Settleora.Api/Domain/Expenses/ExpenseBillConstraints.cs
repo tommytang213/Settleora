@@ -4,6 +4,8 @@ public static class ExpenseBillConstraints
 {
     public const int MerchantNameMaxLength = 200;
     public const int BillStatusMaxLength = 32;
+    public const int BillReconciliationStatusMaxLength = 32;
+    public const int BillReconciliationNoteMaxLength = 120;
     public const int BillRevisionStatusMaxLength = 40;
     public const int BillRevisionApprovalStatusMaxLength = 40;
     public const int BillRevisionCalculationHashMaxLength = 128;
