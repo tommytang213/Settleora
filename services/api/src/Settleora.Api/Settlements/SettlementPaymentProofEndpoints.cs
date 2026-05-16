@@ -4,6 +4,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 using Settleora.Api.Storage;
 
@@ -97,6 +98,7 @@ internal static class SettlementPaymentProofEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementPaymentAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         IFileObjectLifecycleService fileObjectLifecycleService,
         IFileObjectStorageProvider storageProvider,
         SettleoraDbContext dbContext,
@@ -220,6 +222,17 @@ internal static class SettlementPaymentProofEndpoints
             SettlementProofAttachedAction,
             "proof_attached",
             activeResult.FileObject.Id,
+            now,
+            cancellationToken);
+        await InAppNotificationEvents.WriteSettlementProofAttachedNotificationAsync(
+            notificationWriter,
+            paymentContext.DebtorUserProfileId,
+            paymentContext.CreditorUserProfileId,
+            actor.UserProfileId,
+            paymentContext.GroupId,
+            paymentContext.SourceExpenseBillId,
+            paymentContext.SettlementRequestId,
+            paymentContext.SettlementPaymentId,
             now,
             cancellationToken);
 

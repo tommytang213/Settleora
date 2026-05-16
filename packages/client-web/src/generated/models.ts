@@ -143,6 +143,59 @@ export interface CurrentUserSession {
 }
 
 /**
+ * Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
+ */
+export interface InAppNotificationListResponse {
+  notifications: InAppNotificationResponse[];
+}
+
+/**
+ * Current-user unread notification counts. Archived notifications are excluded.
+ */
+export interface InAppNotificationSummaryResponse {
+  unreadCount: number;
+  attentionCount: number;
+  urgentCount: number;
+}
+
+/**
+ * Safe current-user notification response. It exposes stable event/status/template keys and route-like action URLs only; it never exposes recipient/actor user profile IDs, auth/session/account fields, payment handles/notes, storage provider data, file paths, raw OCR text, proof bytes, or unrelated user data.
+ */
+export interface InAppNotificationResponse {
+  id: string;
+  eventType: InAppNotificationEventType;
+  status: InAppNotificationStatus;
+  priority: InAppNotificationPriority;
+  subjectType: InAppNotificationSubjectType;
+  /**
+   * Stable localization/template key for the title.
+   */
+  titleKey: string;
+  /**
+   * Stable localization/template key for the message.
+   */
+  messageKey: string;
+  /**
+   * Optional bounded non-sensitive summary.
+   */
+  safeSummary: string | null;
+  /**
+   * Optional route-like API path. Clients must still re-authorize linked subject reads.
+   */
+  actionUrl: string | null;
+  groupId: string | null;
+  expenseBillId: string | null;
+  expenseBillRevisionId: string | null;
+  settlementRequestId: string | null;
+  settlementPaymentId: string | null;
+  recurringBillTemplateId: string | null;
+  recurringBillOccurrenceId: string | null;
+  createdAtUtc: string;
+  readAtUtc: string | null;
+  archivedAtUtc: string | null;
+}
+
+/**
  * Authenticated owner/admin local-user creation request. The server derives the actor and assigns only the default system user role.
  */
 export interface CreateLocalUserRequest {
@@ -1636,6 +1689,26 @@ export interface GroupBillCalculatedAdjustmentAllocationResponse {
   allocationOrder: number;
   receivedResidualMinorUnit: boolean;
 }
+
+/**
+ * Supported in-app notification event type emitted by Day 1 API actions only.
+ */
+export type InAppNotificationEventType = "bill.submitted" | "bill.participant_accepted" | "bill.participant_rejected" | "bill.confirmed" | "settlement.request_created" | "settlement.payment_marked_paid" | "settlement.payment_partially_paid" | "settlement.payment_confirmed" | "settlement.request_disputed" | "settlement.payment_disputed" | "settlement.request_cancelled" | "settlement.payment_cancelled" | "settlement.proof_attached" | "recurring_bill.draft_generated";
+
+/**
+ * Current lifecycle state for an in-app notification.
+ */
+export type InAppNotificationStatus = "unread" | "read" | "archived";
+
+/**
+ * Bounded in-app notification priority for inbox presentation.
+ */
+export type InAppNotificationPriority = "normal" | "attention" | "urgent";
+
+/**
+ * Stable subject family linked by optional IDs on a notification.
+ */
+export type InAppNotificationSubjectType = "expense_bill" | "settlement_request" | "settlement_payment" | "recurring_bill_occurrence";
 
 /**
  * Expense bill root status.

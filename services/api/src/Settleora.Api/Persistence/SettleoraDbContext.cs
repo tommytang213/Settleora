@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
@@ -84,6 +85,207 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthAuditEvent>(ConfigureAuthAuditEvent);
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
+        modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
+    }
+
+    private static void ConfigureInAppNotification(EntityTypeBuilder<InAppNotification> entity)
+    {
+        entity.ToTable("user_notifications", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_user_notifications_event_type",
+                "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.draft_generated')");
+            table.HasCheckConstraint(
+                "ck_user_notifications_status",
+                "status IN ('unread', 'read', 'archived')");
+            table.HasCheckConstraint(
+                "ck_user_notifications_priority",
+                "priority IN ('normal', 'attention', 'urgent')");
+            table.HasCheckConstraint(
+                "ck_user_notifications_subject_type",
+                "subject_type IN ('expense_bill', 'settlement_request', 'settlement_payment', 'recurring_bill_occurrence')");
+            table.HasCheckConstraint(
+                "ck_user_notifications_title_key_not_blank",
+                "length(btrim(title_key)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_notifications_message_key_not_blank",
+                "length(btrim(message_key)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_notifications_safe_summary_not_blank",
+                "safe_summary IS NULL OR length(btrim(safe_summary)) > 0");
+            table.HasCheckConstraint(
+                "ck_user_notifications_action_url_route_like",
+                "action_url IS NULL OR (action_url LIKE '/api/v1/%' AND action_url NOT LIKE '%://%' AND action_url NOT LIKE '%\\\\%')");
+        });
+
+        entity.HasKey(notification => notification.Id);
+
+        entity.Property(notification => notification.Id)
+            .HasColumnName("id");
+
+        entity.Property(notification => notification.RecipientUserProfileId)
+            .HasColumnName("recipient_user_profile_id");
+
+        entity.Property(notification => notification.ActorUserProfileId)
+            .HasColumnName("actor_user_profile_id");
+
+        entity.Property(notification => notification.EventType)
+            .HasColumnName("event_type")
+            .HasMaxLength(InAppNotificationConstraints.EventTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.Status)
+            .HasColumnName("status")
+            .HasMaxLength(InAppNotificationConstraints.StatusMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.Priority)
+            .HasColumnName("priority")
+            .HasMaxLength(InAppNotificationConstraints.PriorityMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.SubjectType)
+            .HasColumnName("subject_type")
+            .HasMaxLength(InAppNotificationConstraints.SubjectTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.TitleKey)
+            .HasColumnName("title_key")
+            .HasMaxLength(InAppNotificationConstraints.TemplateKeyMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.MessageKey)
+            .HasColumnName("message_key")
+            .HasMaxLength(InAppNotificationConstraints.TemplateKeyMaxLength)
+            .IsRequired();
+
+        entity.Property(notification => notification.SafeSummary)
+            .HasColumnName("safe_summary")
+            .HasMaxLength(InAppNotificationConstraints.SafeSummaryMaxLength);
+
+        entity.Property(notification => notification.ActionUrl)
+            .HasColumnName("action_url")
+            .HasMaxLength(InAppNotificationConstraints.ActionUrlMaxLength);
+
+        entity.Property(notification => notification.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(notification => notification.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(notification => notification.ExpenseBillRevisionId)
+            .HasColumnName("expense_bill_revision_id");
+
+        entity.Property(notification => notification.SettlementRequestId)
+            .HasColumnName("settlement_request_id");
+
+        entity.Property(notification => notification.SettlementPaymentId)
+            .HasColumnName("settlement_payment_id");
+
+        entity.Property(notification => notification.RecurringBillTemplateId)
+            .HasColumnName("recurring_bill_template_id");
+
+        entity.Property(notification => notification.RecurringBillOccurrenceId)
+            .HasColumnName("recurring_bill_occurrence_id");
+
+        entity.Property(notification => notification.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(notification => notification.ReadAtUtc)
+            .HasColumnName("read_at_utc");
+
+        entity.Property(notification => notification.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(notification => new
+            {
+                notification.RecipientUserProfileId,
+                notification.Status,
+                notification.CreatedAtUtc
+            })
+            .HasDatabaseName("ix_user_notifications_recipient_status_created");
+
+        entity.HasIndex(notification => notification.RecipientUserProfileId)
+            .HasDatabaseName("ix_user_notifications_recipient_user_profile_id");
+
+        entity.HasIndex(notification => notification.ActorUserProfileId)
+            .HasDatabaseName("ix_user_notifications_actor_user_profile_id");
+
+        entity.HasIndex(notification => notification.GroupId)
+            .HasDatabaseName("ix_user_notifications_group_id");
+
+        entity.HasIndex(notification => notification.ExpenseBillId)
+            .HasDatabaseName("ix_user_notifications_expense_bill_id");
+
+        entity.HasIndex(notification => notification.ExpenseBillRevisionId)
+            .HasDatabaseName("ix_user_notifications_expense_bill_revision_id");
+
+        entity.HasIndex(notification => notification.SettlementRequestId)
+            .HasDatabaseName("ix_user_notifications_settlement_request_id");
+
+        entity.HasIndex(notification => notification.SettlementPaymentId)
+            .HasDatabaseName("ix_user_notifications_settlement_payment_id");
+
+        entity.HasIndex(notification => notification.RecurringBillTemplateId)
+            .HasDatabaseName("ix_user_notifications_recurring_bill_template_id");
+
+        entity.HasIndex(notification => notification.RecurringBillOccurrenceId)
+            .HasDatabaseName("ix_user_notifications_recurring_bill_occurrence_id");
+
+        entity.HasOne(notification => notification.RecipientUserProfile)
+            .WithMany()
+            .HasForeignKey(notification => notification.RecipientUserProfileId)
+            .HasConstraintName("fk_user_notifications_recipient_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.ActorUserProfile)
+            .WithMany()
+            .HasForeignKey(notification => notification.ActorUserProfileId)
+            .HasConstraintName("fk_user_notifications_actor_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.Group)
+            .WithMany()
+            .HasForeignKey(notification => notification.GroupId)
+            .HasConstraintName("fk_user_notifications_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.ExpenseBill)
+            .WithMany()
+            .HasForeignKey(notification => notification.ExpenseBillId)
+            .HasConstraintName("fk_user_notifications_expense_bills_expense_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.ExpenseBillRevision)
+            .WithMany()
+            .HasForeignKey(notification => notification.ExpenseBillRevisionId)
+            .HasConstraintName("fk_user_notifications_expense_bill_revisions_revision_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.SettlementRequest)
+            .WithMany()
+            .HasForeignKey(notification => notification.SettlementRequestId)
+            .HasConstraintName("fk_user_notifications_settlement_requests_request_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.SettlementPayment)
+            .WithMany()
+            .HasForeignKey(notification => notification.SettlementPaymentId)
+            .HasConstraintName("fk_user_notifications_settlement_payments_payment_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.RecurringBillTemplate)
+            .WithMany()
+            .HasForeignKey(notification => notification.RecurringBillTemplateId)
+            .HasConstraintName("fk_user_notifications_recurring_bill_templates_template_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.RecurringBillOccurrence)
+            .WithMany()
+            .HasForeignKey(notification => notification.RecurringBillOccurrenceId)
+            .HasConstraintName("fk_user_notifications_recurring_bill_occurrences_occurrence_id")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureFileObject(EntityTypeBuilder<FileObject> entity)

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
@@ -37,6 +39,7 @@ internal static class SettlementPaymentConfirmationEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementPaymentAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -134,6 +137,15 @@ internal static class SettlementPaymentConfirmationEndpoints
                 payment.Currency,
                 payment.PaymentDate,
                 now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteSettlementPaymentNotificationAsync(
+            notificationWriter,
+            settlementRequest,
+            payment,
+            actor.UserProfileId,
+            SettlementPaymentConfirmedAction,
+            InAppNotificationPriorities.Normal,
+            now,
             cancellationToken);
 
         try

@@ -2,9 +2,11 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
@@ -41,6 +43,7 @@ internal static class SettlementPaymentClaimEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ISettlementPaymentAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettlementResidualPolicyService residualPolicyService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -191,12 +194,13 @@ internal static class SettlementPaymentClaimEndpoints
             dbContext.Set<SettlementResidual>().Add(residual);
         }
 
+        var notificationEventType = newRequestStatus is SettlementRequestStatuses.MarkedPaid
+            ? SettlementPaymentMarkedPaidAction
+            : SettlementPaymentPartiallyPaidAction;
         await auditWriter.WriteAsync(
             new SettlementPaymentAuditEvent(
                 SettlementPaymentClaimWorkflowName,
-                newRequestStatus is SettlementRequestStatuses.MarkedPaid
-                    ? SettlementPaymentMarkedPaidAction
-                    : SettlementPaymentPartiallyPaidAction,
+                notificationEventType,
                 actor.AuthAccountId,
                 actor.AuthAccountId,
                 settlementRequest.Id,
@@ -217,6 +221,15 @@ internal static class SettlementPaymentClaimEndpoints
                 payment.Currency,
                 payment.PaymentDate,
                 now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteSettlementPaymentNotificationAsync(
+            notificationWriter,
+            settlementRequest,
+            payment,
+            actor.UserProfileId,
+            notificationEventType,
+            InAppNotificationPriorities.Attention,
+            now,
             cancellationToken);
 
         try

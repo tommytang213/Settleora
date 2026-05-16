@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -144,6 +145,18 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
             creditor.UserProfileId,
             "50",
             "USD");
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(creditor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(debtorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementRequestCreated, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementRequest, notification.SubjectType);
+        Assert.Equal(settlementRequest.Id, notification.SettlementRequestId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/settlements/{settlementRequest.Id:D}", notification.ActionUrl);
+        Assert.Equal(ValidationTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -1135,6 +1148,18 @@ public sealed class SettlementRequestCreateEndpointTests : IClassFixture<WebAppl
                 .Where(auditEvent => auditEvent.Action == "settlement.request_created")
                 .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
                 .ToListAsync());
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
+            .ToListAsync();
     }
 
     private static async Task AssertNoSettlementSideEffectsAsync(WebApplicationFactory<Program> testFactory)

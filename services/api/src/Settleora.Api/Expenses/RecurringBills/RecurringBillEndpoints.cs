@@ -6,6 +6,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Expenses.RecurringBills;
@@ -504,6 +505,7 @@ internal static class RecurringBillEndpoints
         string occurrenceDate,
         ICurrentActorAccessor currentActorAccessor,
         IRecurringBillAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         RecurringBillScheduleService scheduleService,
         ExpenseBillCalculationService calculationService,
         SettleoraDbContext dbContext,
@@ -663,6 +665,14 @@ internal static class RecurringBillEndpoints
                 parsedOccurrenceDate,
                 bill.Id,
                 now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteRecurringDraftGeneratedNotificationAsync(
+            notificationWriter,
+            template,
+            occurrence,
+            bill,
+            actor.UserProfileId,
+            now,
             cancellationToken);
 
         try

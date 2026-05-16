@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Expenses.RecurringBills;
@@ -352,6 +353,56 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
             auditEvent => auditEvent.Action == "recurring_bill.draft_generated");
         Assert.DoesNotContain(actor.RawSessionToken, auditEvent.SafeMetadataJson);
         Assert.DoesNotContain("Generate Template", auditEvent.SafeMetadataJson);
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task GroupMemberGenerateDraftNotifiesTemplateOwnerWithoutSelfNotification()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Notification Owner");
+        var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Notification Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            "Recurring Notification Group",
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(member.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var templateId = await SeedGroupTemplateAsync(
+            testFactory,
+            owner.UserProfileId,
+            groupId,
+            "Recurring Owner Notification Template",
+            [owner.UserProfileId, member.UserProfileId]);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{templateId:D}/occurrences/2026-06-01/generate-draft",
+            member.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.Created, content);
+        using var payload = JsonDocument.Parse(content);
+        var billId = payload.RootElement.GetProperty("generatedBillId").GetGuid();
+        var occurrenceId = payload.RootElement.GetProperty("occurrenceId").GetGuid();
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(owner.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(member.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.RecurringBillDraftGenerated, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Normal, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.RecurringBillOccurrence, notification.SubjectType);
+        Assert.Equal(groupId, notification.GroupId);
+        Assert.Equal(templateId, notification.RecurringBillTemplateId);
+        Assert.Equal(occurrenceId, notification.RecurringBillOccurrenceId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/groups/{groupId:D}/bills/{billId:D}", notification.ActionUrl);
+        Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
     }
 
     private FactoryTestContext CreateFactory()
@@ -515,6 +566,54 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         return templateId;
     }
 
+    private static async Task<Guid> SeedGroupTemplateAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid ownerUserProfileId,
+        Guid groupId,
+        string merchantName,
+        IReadOnlyList<Guid> splitUserProfileIds)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var templateId = Guid.NewGuid();
+        var amount = splitUserProfileIds.Count * 50m;
+        var splits = splitUserProfileIds
+            .Select((userProfileId, index) => new RecurringBillTemplatePayloadItemSplit(
+                userProfileId,
+                ExpenseBillItemSplitMethods.ExactAmount,
+                50m,
+                index))
+            .ToArray();
+        var payload = new RecurringBillTemplatePayload(
+            "USD",
+            [new RecurringBillTemplatePayloadItem("Seed Group Item", null, amount, "USD", splits)],
+            [],
+            []);
+        dbContext.Set<RecurringBillTemplate>().Add(new RecurringBillTemplate
+        {
+            Id = templateId,
+            OwnerUserProfileId = ownerUserProfileId,
+            CreatedByUserProfileId = ownerUserProfileId,
+            GroupId = groupId,
+            MerchantName = merchantName,
+            ScheduleType = RecurringBillScheduleTypes.Monthly,
+            IntervalCount = 1,
+            StartDate = new DateOnly(2026, 6, 1),
+            DueOffsetDays = 2,
+            NextOccurrenceDate = new DateOnly(2026, 6, 1),
+            Status = RecurringBillTemplateStatuses.Active,
+            PayloadVersion = 1,
+            PayloadJson = RecurringBillTemplatePayloadCodec.Serialize(payload),
+            ForecastAmount = amount,
+            ForecastCurrency = "USD",
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        await dbContext.SaveChangesAsync();
+
+        return templateId;
+    }
+
     private static string CreateGroupTemplateJson(
         Guid groupId,
         Guid actorUserProfileId,
@@ -600,6 +699,18 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         using var scope = testFactory.Services.CreateScope();
         return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
             .Set<RecurringBillOccurrence>()
+            .ToListAsync();
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
             .ToListAsync();
     }
 

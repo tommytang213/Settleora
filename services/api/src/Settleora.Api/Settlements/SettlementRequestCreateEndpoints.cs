@@ -2,8 +2,10 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Settlements;
@@ -54,6 +56,7 @@ internal static class SettlementRequestCreateEndpoints
         IBusinessAuthorizationService businessAuthorizationService,
         SettlementCandidateDerivationService candidateDerivationService,
         ISettlementRequestAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -92,6 +95,7 @@ internal static class SettlementRequestCreateEndpoints
             actor,
             candidateDerivationService,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             SettlementRuntimePolicy.PersonalGroupMode,
@@ -107,6 +111,7 @@ internal static class SettlementRequestCreateEndpoints
         IBusinessAuthorizationService businessAuthorizationService,
         SettlementCandidateDerivationService candidateDerivationService,
         ISettlementRequestAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -145,6 +150,7 @@ internal static class SettlementRequestCreateEndpoints
             actor,
             candidateDerivationService,
             auditWriter,
+            notificationWriter,
             dbContext,
             timeProvider,
             SettlementRuntimePolicy.GroupMode,
@@ -158,6 +164,7 @@ internal static class SettlementRequestCreateEndpoints
         AuthenticatedActor actor,
         SettlementCandidateDerivationService candidateDerivationService,
         ISettlementRequestAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         string groupMode,
@@ -237,6 +244,14 @@ internal static class SettlementRequestCreateEndpoints
                 settlementRequest.Currency,
                 matchedCandidate.Basis,
                 now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteSettlementRequestNotificationAsync(
+            notificationWriter,
+            settlementRequest,
+            actor.UserProfileId,
+            SettlementRequestCreatedAction,
+            InAppNotificationPriorities.Attention,
+            now,
             cancellationToken);
 
         try
