@@ -740,6 +740,105 @@ class SettleoraApiClient {
     return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<RecurringBillTemplateListResponse> listRecurringBillTemplates({RecurringBillTemplateStatus? status, String? groupId, String? fromDate, String? toDate, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/recurring-bills", {"status": status, "groupId": groupId, "fromDate": fromDate, "toDate": toDate}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> createRecurringBillTemplate(CreateRecurringBillTemplateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/recurring-bills",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillForecastListResponse> listRecurringBillForecast({String? fromDate, String? toDate, int? limit, String? groupId, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/recurring-bills/forecast", {"fromDate": fromDate, "toDate": toDate, "limit": limit, "groupId": groupId}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillForecastListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> getRecurringBillTemplate(String templateId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> updateRecurringBillTemplate(String templateId, UpdateRecurringBillTemplateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> archiveRecurringBillTemplate(String templateId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}/archive',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillGenerateDraftResponse> generateRecurringBillDraft(String templateId, String occurrenceDate, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}/occurrences/${Uri.encodeComponent(occurrenceDate.toString())}/generate-draft',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillGenerateDraftResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> pauseRecurringBillTemplate(String templateId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}/pause',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecurringBillTemplateResponse> resumeRecurringBillTemplate(String templateId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/recurring-bills/${Uri.encodeComponent(templateId.toString())}/resume',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SettlementBalanceProjectionListResponse> listSettlementBalanceProjections({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

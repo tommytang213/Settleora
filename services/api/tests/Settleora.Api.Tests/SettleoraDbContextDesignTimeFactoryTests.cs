@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Persistence;
 
@@ -26,7 +27,7 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(32, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(34, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBill)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillItemSplit)));
@@ -36,6 +37,8 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillRevisionParticipant)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillRevisionPayer)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillRevisionApproval)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(RecurringBillTemplate)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(RecurringBillOccurrence)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementRequest)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementRequestLine)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(SettlementPayment)));

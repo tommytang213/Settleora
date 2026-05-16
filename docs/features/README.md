@@ -47,6 +47,7 @@ auth-session
 expenses-bills
 receipt-ocr
 reconciliation
+recurring-bills
 settlements
 sync-offline
 payment-integration

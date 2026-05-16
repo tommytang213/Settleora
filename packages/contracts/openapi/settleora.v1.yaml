@@ -20,6 +20,7 @@ info:
     read endpoints, settlement-scoped counterparty payment QR content reads,
     settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
     settlement dispute endpoints, settlement cancellation endpoints, settlement payment proof attach/list/content/remove endpoints,
+    recurring bill template and forecast/draft-generation endpoints,
     personal and group bill attachment attach/list/content/remove endpoints, and settlement balance projection read endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
@@ -4287,6 +4288,514 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills:
+    post:
+      summary: Create recurring bill template
+      description: Creates an API-owned recurring bill template for the authenticated actor. The server derives owner and creator identity from the current session, validates schedule and bounded template payload, calculates forecast amount server-side, and does not create any expense bill during template creation.
+      operationId: createRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecurringBillTemplateRequest"
+      responses:
+        "201":
+          description: Recurring bill template created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "400":
+          description: The submitted recurring bill template request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile, group, or submitted participant context is unavailable or not visible to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Recurring bill template creation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: List recurring bill templates
+      description: Lists recurring bill templates visible to the authenticated actor. Personal templates are owner-only; group templates require active group membership. This read does not create bills or forecast occurrence rows.
+      operationId: listRecurringBillTemplates
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Optional template status filter.
+          schema:
+            $ref: "#/components/schemas/RecurringBillTemplateStatus"
+        - name: groupId
+          in: query
+          required: false
+          description: Optional group filter.
+          schema:
+            type: string
+            format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive schedule overlap start date.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive schedule overlap end date.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Recurring bill templates visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateListResponse"
+        "400":
+          description: The submitted recurring bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/forecast:
+    get:
+      summary: List recurring bill forecast occurrences
+      description: Lists bounded upcoming forecast occurrences from active visible recurring templates. Forecast rows are estimates only and this read does not create expense bills or occurrence rows.
+      operationId: listRecurringBillForecast
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: fromDate
+          in: query
+          required: false
+          description: Inclusive forecast range start date. Defaults to the server's current UTC date.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Inclusive forecast range end date. Defaults to 60 days after fromDate.
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          required: false
+          description: Maximum forecast rows to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: groupId
+          in: query
+          required: false
+          description: Optional group filter.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bounded recurring bill forecast occurrences visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillForecastListResponse"
+        "400":
+          description: The submitted forecast filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/{templateId}:
+    get:
+      summary: Get recurring bill template
+      description: Returns one recurring bill template visible to the authenticated actor. Missing, personal cross-user, group non-member, removed-member, deleted-profile, or deleted-group cases fail closed with the same safe 404.
+      operationId: getRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recurring bill template visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update recurring bill template
+      description: Updates safe recurring template fields without mutating historical bills or generated drafts. The server revalidates schedule, payload, money, membership, and forecast amount before persisting the update.
+      operationId: updateRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRecurringBillTemplateRequest"
+      responses:
+        "200":
+          description: Recurring bill template updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "400":
+          description: The submitted recurring template update is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Recurring template state does not allow update.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Recurring template update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/{templateId}/pause:
+    post:
+      summary: Pause recurring bill template
+      description: Pauses a visible non-archived recurring bill template. Paused templates remain readable but cannot generate new draft bills.
+      operationId: pauseRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recurring bill template paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Recurring template state does not allow pause.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Recurring template pause could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/{templateId}/resume:
+    post:
+      summary: Resume recurring bill template
+      description: Resumes a visible non-archived recurring bill template and recomputes its next occurrence date from the server's current UTC date.
+      operationId: resumeRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recurring bill template resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Recurring template state does not allow resume.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Recurring template resume could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/{templateId}/archive:
+    post:
+      summary: Archive recurring bill template
+      description: Archives a visible recurring bill template. Archived templates remain readable but cannot generate new draft bills.
+      operationId: archiveRecurringBillTemplate
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recurring bill template archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillTemplateResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Recurring template archive could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/recurring-bills/{templateId}/occurrences/{occurrenceDate}/generate-draft:
+    post:
+      summary: Generate recurring bill draft
+      description: Generates one draft expense bill for a visible active recurring template occurrence after explicit user action. The server revalidates current actor access, group membership, schedule membership, template payload, money, currency, participants, and payer policy at write time. Repeating the same template and occurrence date returns the existing generated draft instead of creating duplicate money records.
+      operationId: generateRecurringBillDraft
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Recurring bill template ID.
+          schema:
+            type: string
+            format: uuid
+        - name: occurrenceDate
+          in: path
+          required: true
+          description: Occurrence date to generate as a draft bill.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Draft had already been generated for this template occurrence and is returned idempotently.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillGenerateDraftResponse"
+        "201":
+          description: Draft bill generated for this template occurrence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringBillGenerateDraftResponse"
+        "400":
+          description: The occurrence date is invalid or not generated by the template schedule.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recurring template is missing, deleted, unrelated, group-inactive, or otherwise unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Template or occurrence state does not allow draft generation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Draft generation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/groups:
     post:
       summary: Create group
@@ -5434,6 +5943,440 @@ components:
       enum:
         - active
         - removed
+    CreateRecurringBillTemplateRequest:
+      type: object
+      description: Recurring bill template creation request. Owner, creator, actor, and authorization identity are derived server-side.
+      additionalProperties: false
+      required:
+        - schedule
+        - billPayload
+      properties:
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional group ID for a group recurring bill. The authenticated actor must be an active group member.
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+          description: Optional merchant or template display name after server-side trimming.
+        description:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+          description: Optional bounded template description. Audit metadata does not log this text.
+        schedule:
+          $ref: "#/components/schemas/RecurringBillScheduleRequest"
+        billPayload:
+          $ref: "#/components/schemas/RecurringBillTemplatePayload"
+    UpdateRecurringBillTemplateRequest:
+      type: object
+      description: Safe recurring bill template update request. Historical generated bills are not mutated.
+      additionalProperties: false
+      properties:
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+          description: Optional merchant or template display name after server-side trimming.
+        description:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+          description: Optional bounded template description. Audit metadata does not log this text.
+        schedule:
+          $ref: "#/components/schemas/RecurringBillScheduleRequest"
+        billPayload:
+          $ref: "#/components/schemas/RecurringBillTemplatePayload"
+    RecurringBillScheduleRequest:
+      type: object
+      description: Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
+      additionalProperties: false
+      required:
+        - type
+        - startDate
+      properties:
+        type:
+          $ref: "#/components/schemas/RecurringBillScheduleType"
+        intervalCount:
+          oneOf:
+            - type: integer
+              minimum: 1
+              maximum: 120
+            - type: "null"
+          description: Positive interval count for weekly, monthly, and yearly schedules.
+        intervalDays:
+          oneOf:
+            - type: integer
+              minimum: 1
+              maximum: 3660
+            - type: "null"
+          description: Positive day interval for custom interval day schedules.
+        startDate:
+          type: string
+          format: date
+        endDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        dueOffsetDays:
+          oneOf:
+            - type: integer
+              minimum: -365
+              maximum: 365
+            - type: "null"
+    RecurringBillTemplatePayload:
+      type: object
+      description: Versioned template bill payload. It is validated at write time and again at draft generation time; generated expense bill rows remain financial truth.
+      additionalProperties: false
+      required:
+        - currency
+        - items
+      properties:
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/RecurringBillTemplatePayloadItem"
+        adjustments:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringBillTemplatePayloadAdjustment"
+        payers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringBillTemplatePayloadPayer"
+    RecurringBillTemplatePayloadItem:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - amount
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 240
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        splits:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringBillTemplatePayloadItemSplit"
+    RecurringBillTemplatePayloadItemSplit:
+      type: object
+      additionalProperties: false
+      required:
+        - userProfileId
+        - splitMethod
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        splitMethod:
+          $ref: "#/components/schemas/ExpenseBillItemSplitMethod"
+        basisValue:
+          oneOf:
+            - type: string
+              description: Decimal-safe split basis value represented as a string.
+            - type: "null"
+        allocationOrder:
+          type: integer
+          minimum: 0
+          default: 0
+    RecurringBillTemplatePayloadAdjustment:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - direction
+        - allocationMethod
+        - amount
+      properties:
+        type:
+          $ref: "#/components/schemas/ExpenseBillAdjustmentType"
+        direction:
+          $ref: "#/components/schemas/ExpenseBillAdjustmentDirection"
+        allocationMethod:
+          $ref: "#/components/schemas/PersonalBillAdjustmentAllocationMethod"
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        reasonNote:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+    RecurringBillTemplatePayloadPayer:
+      type: object
+      additionalProperties: false
+      required:
+        - userProfileId
+        - amount
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        paymentMethodLabelSnapshot:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+    RecurringBillTemplateListResponse:
+      type: object
+      required:
+        - templates
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringBillTemplateResponse"
+    RecurringBillTemplateResponse:
+      type: object
+      description: Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
+      required:
+        - id
+        - ownerUserProfileId
+        - groupId
+        - merchantName
+        - description
+        - status
+        - schedule
+        - forecastAmount
+        - forecastCurrency
+        - nextOccurrenceDate
+        - payloadVersion
+        - createdAtUtc
+        - updatedAtUtc
+        - archivedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerUserProfileId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        description:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/RecurringBillTemplateStatus"
+        schedule:
+          $ref: "#/components/schemas/RecurringBillScheduleResponse"
+        forecastAmount:
+          type: string
+          description: Decimal-safe forecast estimate represented as a string.
+        forecastCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        nextOccurrenceDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        payloadVersion:
+          type: integer
+          minimum: 1
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    RecurringBillScheduleResponse:
+      type: object
+      required:
+        - type
+        - intervalCount
+        - intervalDays
+        - startDate
+        - endDate
+        - dueOffsetDays
+      properties:
+        type:
+          $ref: "#/components/schemas/RecurringBillScheduleType"
+        intervalCount:
+          oneOf:
+            - type: integer
+            - type: "null"
+        intervalDays:
+          oneOf:
+            - type: integer
+            - type: "null"
+        startDate:
+          type: string
+          format: date
+        endDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        dueOffsetDays:
+          oneOf:
+            - type: integer
+            - type: "null"
+    RecurringBillForecastListResponse:
+      type: object
+      required:
+        - occurrences
+      properties:
+        occurrences:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringBillForecastOccurrenceResponse"
+    RecurringBillForecastOccurrenceResponse:
+      type: object
+      description: Forecast occurrence response. Forecast-only rows are estimates and do not imply bill creation.
+      required:
+        - templateId
+        - occurrenceId
+        - groupId
+        - occurrenceDate
+        - dueDate
+        - status
+        - draftGenerated
+        - generatedBillId
+        - forecastAmount
+        - forecastCurrency
+        - merchantName
+      properties:
+        templateId:
+          type: string
+          format: uuid
+        occurrenceId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        occurrenceDate:
+          type: string
+          format: date
+        dueDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/RecurringBillOccurrenceStatus"
+        draftGenerated:
+          type: boolean
+        generatedBillId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        forecastAmount:
+          type: string
+        forecastCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+    RecurringBillGenerateDraftResponse:
+      type: object
+      required:
+        - templateId
+        - occurrenceId
+        - occurrenceDate
+        - dueDate
+        - occurrenceStatus
+        - generatedBillId
+        - billStatus
+        - totalAmount
+        - totalCurrency
+      properties:
+        templateId:
+          type: string
+          format: uuid
+        occurrenceId:
+          type: string
+          format: uuid
+        occurrenceDate:
+          type: string
+          format: date
+        dueDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        occurrenceStatus:
+          $ref: "#/components/schemas/RecurringBillOccurrenceStatus"
+        generatedBillId:
+          type: string
+          format: uuid
+        billStatus:
+          $ref: "#/components/schemas/ExpenseBillStatus"
+        totalAmount:
+          type: string
+        totalCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+    RecurringBillScheduleType:
+      type: string
+      enum:
+        - weekly
+        - monthly
+        - yearly
+        - custom_interval_days
+    RecurringBillTemplateStatus:
+      type: string
+      enum:
+        - active
+        - paused
+        - archived
+    RecurringBillOccurrenceStatus:
+      type: string
+      enum:
+        - forecasted
+        - draft_generated
+        - skipped
+        - cancelled
     CreatePersonalBillRequest:
       type: object
       description: Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.
