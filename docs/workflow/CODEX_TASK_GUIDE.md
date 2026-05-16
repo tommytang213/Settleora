@@ -39,6 +39,9 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - Run npm validation for repo tooling, documentation, or contract changes.
 - Run `npm run generate:clients` and `npm run validate:clients` when OpenAPI or generated client output changes.
 - Run Docker validation for Docker, compose, or API runtime changes.
+- For changes limited to documentation-only paths such as `docs/**/*.md`, `README.md`, and static docs assets, skip slow npm/dotnet/Docker validation unless the diff touches package files, validation scripts, OpenAPI/contracts, generated clients, code, tests, migrations, Docker/compose, CI, or runtime config.
+- For docs-only changes run at minimum `git status --short`, `git diff --name-only`, and `git diff --check`.
+- Do not weaken validation for code, API, security, runtime, migration, generated-client, or infrastructure changes.
 - Do not fake validation success; report the exact failing command and error summary.
 
 ## Git Rules
