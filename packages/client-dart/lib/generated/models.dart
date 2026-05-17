@@ -2394,6 +2394,140 @@ class ExpenseBillExportRowResponse {
   }
 }
 
+/// Bounded bill CSV import result. Row errors are safe codes/messages and never echo raw CSV cell values. Imported bill summaries expose stable IDs and calculated counts/totals only; merchant names, item names, notes, payment labels, auth/session data, storage internals, OCR text, proof bytes, and raw request bodies are excluded. If errors is non-empty, importedBillCount is 0 and no bills were created.
+class BillCsvImportResponse {
+  const BillCsvImportResponse({
+    required this.rowCount,
+    required this.importedBillCount,
+    required this.rejectedRowCount,
+    required this.errors,
+    required this.bills,
+  });
+
+  /// Number of non-header CSV data rows accepted for validation.
+  final int rowCount;
+  /// Number of draft bills created by this request. This is zero when any row errors are present.
+  final int importedBillCount;
+  /// Number of CSV data rows rejected by validation. For header-level errors, all data rows are considered rejected.
+  final int rejectedRowCount;
+  final List<BillCsvImportRowErrorResponse> errors;
+  final List<BillCsvImportedBillSummaryResponse> bills;
+
+  factory BillCsvImportResponse.fromJson(JsonObject json) {
+    return BillCsvImportResponse(
+      rowCount: (json["rowCount"] as num).toInt(),
+      importedBillCount: (json["importedBillCount"] as num).toInt(),
+      rejectedRowCount: (json["rejectedRowCount"] as num).toInt(),
+      errors: (json["errors"] as List<dynamic>).map((item) => BillCsvImportRowErrorResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      bills: (json["bills"] as List<dynamic>).map((item) => BillCsvImportedBillSummaryResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "rowCount": rowCount,
+      "importedBillCount": importedBillCount,
+      "rejectedRowCount": rejectedRowCount,
+      "errors": errors.map((item) => item.toJson()).toList(growable: false),
+      "bills": bills.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe CSV import validation error for one row or the header. It contains stable field/code/message data only and does not echo submitted cell values.
+class BillCsvImportRowErrorResponse {
+  const BillCsvImportRowErrorResponse({
+    required this.rowNumber,
+    required this.field,
+    required this.code,
+    required this.message,
+  });
+
+  /// One-based CSV row number. Header errors use row 1.
+  final int rowNumber;
+  /// Stable CSV field name or header/body/row.
+  final String field;
+  /// Stable validation code suitable for client display mapping.
+  final String code;
+  /// Bounded safe validation message with no raw submitted cell content.
+  final String message;
+
+  factory BillCsvImportRowErrorResponse.fromJson(JsonObject json) {
+    return BillCsvImportRowErrorResponse(
+      rowNumber: (json["rowNumber"] as num).toInt(),
+      field: json["field"] as String,
+      code: json["code"] as String,
+      message: json["message"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "rowNumber": rowNumber,
+      "field": field,
+      "code": code,
+      "message": message,
+    };
+  }
+}
+
+/// Safe summary for one imported draft bill. It intentionally excludes raw merchant/item/note text and exposes only IDs, date, status, calculated totals, currency, and bounded counts.
+class BillCsvImportedBillSummaryResponse {
+  const BillCsvImportedBillSummaryResponse({
+    required this.billId,
+    required this.groupId,
+    required this.billDate,
+    required this.status,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.itemCount,
+    required this.participantCount,
+    required this.payerCount,
+  });
+
+  final String billId;
+  /// Route group ID for group imports, or null for personal imports.
+  final String? groupId;
+  final String billDate;
+  final ExpenseBillStatus status;
+  /// Decimal-safe calculated bill total represented as a string.
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+  final int itemCount;
+  final int participantCount;
+  final int payerCount;
+
+  factory BillCsvImportedBillSummaryResponse.fromJson(JsonObject json) {
+    return BillCsvImportedBillSummaryResponse(
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      billDate: json["billDate"] as String,
+      status: json["status"] as String,
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+      itemCount: (json["itemCount"] as num).toInt(),
+      participantCount: (json["participantCount"] as num).toInt(),
+      payerCount: (json["payerCount"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "billDate": billDate,
+      "status": status,
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+      "itemCount": itemCount,
+      "participantCount": participantCount,
+      "payerCount": payerCount,
+    };
+  }
+}
+
 /// Personal bills visible to the authenticated actor after bounded filter and limit application.
 class PersonalBillListResponse {
   const PersonalBillListResponse({

@@ -725,6 +725,58 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/import.csv:
+    post:
+      summary: Import personal bill drafts from CSV
+      description: Imports a bounded UTF-8 text/csv body into one or more personal draft bills for the authenticated actor. Rows are grouped by clientBillKey, creator/owner/participant/payer identity is derived or checked against the current actor, bill totals and splits are calculated server-side, and invalid rows return a safe all-or-nothing result without storing partial bills. The clientBillKey is a request-local grouping key only; Day 1 import does not provide durable idempotency or duplicate suppression across repeated uploads. Raw CSV, item notes, auth/session data, storage details, payment details, OCR text, and file/proof contents are never returned.
+      operationId: importPersonalBillsCsv
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: UTF-8 CSV body with header columns clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue. Optional personal payer/split profile IDs must match the authenticated actor.
+      responses:
+        "200":
+          description: Import result. If row errors are present, no bills were created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Personal bill CSV import could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/export.json:
     get:
       summary: Export personal bills as JSON
@@ -2579,6 +2631,66 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group is missing, deleted, unrelated, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/import.csv:
+    post:
+      summary: Import group bill drafts from CSV
+      description: Imports a bounded UTF-8 text/csv body into one or more draft bills for the route group. The authenticated actor must be an active group member, route groupId is authoritative, referenced split and payer profile IDs must be active members of the route group, rows are grouped by clientBillKey, bill totals and splits are calculated server-side, and invalid rows return a safe all-or-nothing result without storing partial bills. The clientBillKey is a request-local grouping key only; Day 1 import does not provide durable idempotency or duplicate suppression across repeated uploads. Raw CSV, item notes, auth/session data, storage details, payment details, OCR text, and file/proof contents are never returned.
+      operationId: importGroupBillsCsv
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns imported draft bills.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: UTF-8 CSV body with header columns clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue. Group split profile IDs are required; payer profile IDs default to the authenticated actor when omitted.
+      responses:
+        "200":
+          description: Import result. If row errors are present, no bills were created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, profile, membership, or submitted member identity is missing, deleted, unrelated, inactive, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill CSV import could not be completed.
           content:
             application/problem+json:
               schema:
@@ -7969,6 +8081,111 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    BillCsvImportResponse:
+      type: object
+      description: Bounded bill CSV import result. Row errors are safe codes/messages and never echo raw CSV cell values. Imported bill summaries expose stable IDs and calculated counts/totals only; merchant names, item names, notes, payment labels, auth/session data, storage internals, OCR text, proof bytes, and raw request bodies are excluded. If errors is non-empty, importedBillCount is 0 and no bills were created.
+      required:
+        - rowCount
+        - importedBillCount
+        - rejectedRowCount
+        - errors
+        - bills
+      properties:
+        rowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of non-header CSV data rows accepted for validation.
+        importedBillCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of draft bills created by this request. This is zero when any row errors are present.
+        rejectedRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of CSV data rows rejected by validation. For header-level errors, all data rows are considered rejected.
+        errors:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/BillCsvImportRowErrorResponse"
+        bills:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/BillCsvImportedBillSummaryResponse"
+    BillCsvImportRowErrorResponse:
+      type: object
+      description: Safe CSV import validation error for one row or the header. It contains stable field/code/message data only and does not echo submitted cell values.
+      required:
+        - rowNumber
+        - field
+        - code
+        - message
+      properties:
+        rowNumber:
+          type: integer
+          minimum: 1
+          description: One-based CSV row number. Header errors use row 1.
+        field:
+          type: string
+          maxLength: 64
+          description: Stable CSV field name or header/body/row.
+        code:
+          type: string
+          maxLength: 80
+          description: Stable validation code suitable for client display mapping.
+        message:
+          type: string
+          maxLength: 240
+          description: Bounded safe validation message with no raw submitted cell content.
+    BillCsvImportedBillSummaryResponse:
+      type: object
+      description: Safe summary for one imported draft bill. It intentionally excludes raw merchant/item/note text and exposes only IDs, date, status, calculated totals, currency, and bounded counts.
+      required:
+        - billId
+        - groupId
+        - billDate
+        - status
+        - totalAmount
+        - totalCurrency
+        - itemCount
+        - participantCount
+        - payerCount
+      properties:
+        billId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group imports, or null for personal imports.
+        billDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/ExpenseBillStatus"
+        totalAmount:
+          type: string
+          description: Decimal-safe calculated bill total represented as a string.
+        totalCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        itemCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+        participantCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+        payerCount:
+          type: integer
+          minimum: 1
+          maximum: 100
     PersonalBillListResponse:
       type: object
       description: Personal bills visible to the authenticated actor after bounded filter and limit application.

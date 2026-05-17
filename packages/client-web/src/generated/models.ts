@@ -754,6 +754,69 @@ export interface ExpenseBillExportRowResponse {
 }
 
 /**
+ * Bounded bill CSV import result. Row errors are safe codes/messages and never echo raw CSV cell values. Imported bill summaries expose stable IDs and calculated counts/totals only; merchant names, item names, notes, payment labels, auth/session data, storage internals, OCR text, proof bytes, and raw request bodies are excluded. If errors is non-empty, importedBillCount is 0 and no bills were created.
+ */
+export interface BillCsvImportResponse {
+  /**
+   * Number of non-header CSV data rows accepted for validation.
+   */
+  rowCount: number;
+  /**
+   * Number of draft bills created by this request. This is zero when any row errors are present.
+   */
+  importedBillCount: number;
+  /**
+   * Number of CSV data rows rejected by validation. For header-level errors, all data rows are considered rejected.
+   */
+  rejectedRowCount: number;
+  errors: BillCsvImportRowErrorResponse[];
+  bills: BillCsvImportedBillSummaryResponse[];
+}
+
+/**
+ * Safe CSV import validation error for one row or the header. It contains stable field/code/message data only and does not echo submitted cell values.
+ */
+export interface BillCsvImportRowErrorResponse {
+  /**
+   * One-based CSV row number. Header errors use row 1.
+   */
+  rowNumber: number;
+  /**
+   * Stable CSV field name or header/body/row.
+   */
+  field: string;
+  /**
+   * Stable validation code suitable for client display mapping.
+   */
+  code: string;
+  /**
+   * Bounded safe validation message with no raw submitted cell content.
+   */
+  message: string;
+}
+
+/**
+ * Safe summary for one imported draft bill. It intentionally excludes raw merchant/item/note text and exposes only IDs, date, status, calculated totals, currency, and bounded counts.
+ */
+export interface BillCsvImportedBillSummaryResponse {
+  billId: string;
+  /**
+   * Route group ID for group imports, or null for personal imports.
+   */
+  groupId: string | null;
+  billDate: string;
+  status: ExpenseBillStatus;
+  /**
+   * Decimal-safe calculated bill total represented as a string.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  itemCount: number;
+  participantCount: number;
+  payerCount: number;
+}
+
+/**
  * Personal bills visible to the authenticated actor after bounded filter and limit application.
  */
 export interface PersonalBillListResponse {
