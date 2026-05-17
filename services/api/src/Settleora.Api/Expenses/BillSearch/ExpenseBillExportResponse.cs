@@ -14,6 +14,7 @@ internal sealed record ExpenseBillExportFilterResponse(
     string? Currency,
     string? Merchant,
     string? Search,
+    string ArchiveState,
     int Limit);
 
 internal sealed record ExpenseBillExportRowResponse(

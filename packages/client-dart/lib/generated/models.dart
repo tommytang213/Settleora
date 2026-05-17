@@ -2274,6 +2274,7 @@ class ExpenseBillExportFilterResponse {
     required this.currency,
     required this.merchant,
     required this.search,
+    required this.archiveState,
     required this.limit,
   });
 
@@ -2284,6 +2285,7 @@ class ExpenseBillExportFilterResponse {
   final CurrencyCode? currency;
   final String? merchant;
   final String? search;
+  final ExpenseBillArchiveState archiveState;
   final int limit;
 
   factory ExpenseBillExportFilterResponse.fromJson(JsonObject json) {
@@ -2295,6 +2297,7 @@ class ExpenseBillExportFilterResponse {
       currency: json["currency"] == null ? null : json["currency"] as String,
       merchant: json["merchant"] == null ? null : json["merchant"] as String,
       search: json["search"] == null ? null : json["search"] as String,
+      archiveState: json["archiveState"] as String,
       limit: (json["limit"] as num).toInt(),
     );
   }
@@ -2316,6 +2319,7 @@ class ExpenseBillExportFilterResponse {
       "currency": currencyJsonValue,
       "merchant": merchantJsonValue,
       "search": searchJsonValue,
+      "archiveState": archiveState,
       "limit": limit,
     };
   }
@@ -2524,6 +2528,50 @@ class BillCsvImportedBillSummaryResponse {
       "itemCount": itemCount,
       "participantCount": participantCount,
       "payerCount": payerCount,
+    };
+  }
+}
+
+/// Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
+class ExpenseBillLifecycleResponse {
+  const ExpenseBillLifecycleResponse({
+    required this.billId,
+    required this.groupId,
+    required this.status,
+    required this.archiveState,
+    required this.archivedAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String billId;
+  final String? groupId;
+  final ExpenseBillStatus status;
+  final ExpenseBillArchiveState archiveState;
+  final DateTime? archivedAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ExpenseBillLifecycleResponse.fromJson(JsonObject json) {
+    return ExpenseBillLifecycleResponse(
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      status: json["status"] as String,
+      archiveState: json["archiveState"] as String,
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "status": status,
+      "archiveState": archiveState,
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
   }
 }
@@ -5489,6 +5537,16 @@ class InAppNotificationSubjectTypeValues {
   static const InAppNotificationSubjectType settlementPayment = "settlement_payment";
   static const InAppNotificationSubjectType recurringBillOccurrence = "recurring_bill_occurrence";
   static const Set<InAppNotificationSubjectType> values = {expenseBill, settlementRequest, settlementPayment, recurringBillOccurrence};
+}
+
+/// Bounded archive visibility filter or lifecycle state for expense bills.
+typedef ExpenseBillArchiveState = String;
+class ExpenseBillArchiveStateValues {
+  const ExpenseBillArchiveStateValues._();
+  static const ExpenseBillArchiveState active = "active";
+  static const ExpenseBillArchiveState archived = "archived";
+  static const ExpenseBillArchiveState all = "all";
+  static const Set<ExpenseBillArchiveState> values = {active, archived, all};
 }
 
 /// Expense bill root status.

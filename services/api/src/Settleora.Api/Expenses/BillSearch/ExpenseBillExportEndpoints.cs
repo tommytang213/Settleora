@@ -56,6 +56,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -71,6 +72,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             currentActorAccessor,
             businessAuthorizationService,
@@ -89,6 +91,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -104,6 +107,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             currentActorAccessor,
             businessAuthorizationService,
@@ -123,6 +127,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -139,6 +144,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             currentActorAccessor,
             businessAuthorizationService,
@@ -158,6 +164,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -174,6 +181,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             currentActorAccessor,
             businessAuthorizationService,
@@ -192,6 +200,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -220,6 +229,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             out var filter,
             out var errors))
@@ -228,7 +238,7 @@ internal static class ExpenseBillExportEndpoints
         }
 
         var rows = await LoadRowsAsync(
-            ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, actor.UserProfileId),
+            ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId),
             filter,
             cancellationToken);
 
@@ -244,6 +254,7 @@ internal static class ExpenseBillExportEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -272,6 +283,7 @@ internal static class ExpenseBillExportEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             out var filter,
             out var errors))
@@ -280,7 +292,7 @@ internal static class ExpenseBillExportEndpoints
         }
 
         var rows = await LoadRowsAsync(
-            ExpenseBillSearchQueries.VisibleGroupBills(dbContext, groupId),
+            ExpenseBillSearchQueries.VisibleGroupBillsIncludingArchived(dbContext, groupId),
             filter,
             cancellationToken);
 
@@ -319,6 +331,7 @@ internal static class ExpenseBillExportEndpoints
                 filter.Currency,
                 filter.Merchant,
                 filter.Search,
+                filter.ArchiveState,
                 filter.Limit),
             rows.Count,
             rows);

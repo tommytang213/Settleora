@@ -634,7 +634,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List personal bills
-      description: Lists non-archived personal bills visible to the authenticated actor where groupId is null. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, and result limit.
+      description: Lists active personal bills visible to the authenticated actor where groupId is null by default. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, explicit archive visibility, and result limit.
       operationId: listPersonalBills
       security:
         - SessionBearerAuth: []
@@ -685,6 +685,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary list results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -780,7 +786,7 @@ paths:
   /api/v1/bills/export.json:
     get:
       summary: Export personal bills as JSON
-      description: Returns a bounded read-only JSON export of non-archived personal bills visible to the authenticated actor using the same filters as the personal bill list endpoint. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+      description: Returns a bounded read-only JSON export of active personal bills by default using the same filters as the personal bill list endpoint, including explicit archive visibility. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
       operationId: exportPersonalBillsJson
       security:
         - SessionBearerAuth: []
@@ -831,6 +837,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -874,7 +886,7 @@ paths:
   /api/v1/bills/export.csv:
     get:
       summary: Export personal bills as CSV
-      description: Returns a bounded read-only CSV export of non-archived personal bills visible to the authenticated actor using the same filters as the personal bill list endpoint. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
+      description: Returns a bounded read-only CSV export of active personal bills by default using the same filters as the personal bill list endpoint, including explicit archive visibility. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
       operationId: exportPersonalBillsCsv
       security:
         - SessionBearerAuth: []
@@ -925,6 +937,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -996,6 +1014,104 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Bill is missing, archived, a group bill, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/archive:
+    post:
+      summary: Archive personal bill
+      description: Archives one personal bill by setting its archive timestamp without deleting or mutating money totals, items, splits, participants, payers, adjustments, attachments, OCR reviews, settlement rows, recurring links, or file objects. The authenticated actor must be the bill creator or owner/responsible editor. Repeated archive requests are idempotent and return the current lifecycle state. Visible bills with active linked settlement state return a safe conflict instead of silently mutating settlements.
+      operationId: archivePersonalBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID to archive.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current personal bill lifecycle state after archive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillLifecycleResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, a group bill, unrelated, not creator/owner-accessible, deleted through its profile relationship, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Bill archive is blocked by visible lifecycle or active settlement state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill archive could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/restore:
+    post:
+      summary: Restore personal bill
+      description: Restores one archived personal bill by clearing its archive timestamp without changing bill status, totals, splits, participants, payers, adjustments, attachments, OCR reviews, settlement rows, recurring links, or file objects. The authenticated actor must be the bill creator or owner/responsible editor. Repeated restore requests are idempotent and return the current lifecycle state.
+      operationId: restorePersonalBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID to restore.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current personal bill lifecycle state after restore.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillLifecycleResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, a group bill, unrelated, not creator/owner-accessible, deleted through its profile relationship, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill restore could not be completed.
           content:
             application/problem+json:
               schema:
@@ -2543,7 +2659,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List group bills
-      description: Lists non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Personal, archived, unrelated, and other-group bills are excluded. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, and result limit.
+      description: Lists active bills in the route group by default only when the authenticated actor is an active member of that non-deleted group. Personal, unrelated, and other-group bills are excluded. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, explicit archive visibility, and result limit.
       operationId: listGroupBills
       security:
         - SessionBearerAuth: []
@@ -2601,6 +2717,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary list results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -2704,7 +2826,7 @@ paths:
   /api/v1/groups/{groupId}/bills/export.json:
     get:
       summary: Export group bills as JSON
-      description: Returns a bounded read-only JSON export of non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+      description: Returns a bounded read-only JSON export of active route-group bills by default only when the authenticated actor is an active member of that non-deleted group, using the same filters as the group bill list endpoint including explicit archive visibility. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
       operationId: exportGroupBillsJson
       security:
         - SessionBearerAuth: []
@@ -2762,6 +2884,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -2805,7 +2933,7 @@ paths:
   /api/v1/groups/{groupId}/bills/export.csv:
     get:
       summary: Export group bills as CSV
-      description: Returns a bounded read-only CSV export of non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
+      description: Returns a bounded read-only CSV export of active route-group bills by default only when the authenticated actor is an active member of that non-deleted group, using the same filters as the group bill list endpoint including explicit archive visibility. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
       operationId: exportGroupBillsCsv
       security:
         - SessionBearerAuth: []
@@ -2863,6 +2991,12 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export results.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
         - name: limit
           in: query
           required: false
@@ -2941,6 +3075,118 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/archive:
+    post:
+      summary: Archive group bill
+      description: Archives one bill in the route group by setting its archive timestamp without deleting or mutating money totals, items, splits, participants, payers, adjustments, attachments, OCR reviews, settlement rows, recurring links, or file objects. The authenticated actor must have active route-group access, and the bill must belong to that group. Repeated archive requests are idempotent and return the current lifecycle state. Visible bills with active linked settlement state return a safe conflict instead of silently mutating settlements.
+      operationId: archiveGroupBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID to archive.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current group bill lifecycle state after archive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillLifecycleResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or bill is missing, deleted, archived through unavailable relationships, personal, unrelated, in another group, inactive, removed, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Group bill archive is blocked by visible lifecycle or active settlement state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill archive could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/restore:
+    post:
+      summary: Restore group bill
+      description: Restores one archived bill in the route group by clearing its archive timestamp without changing bill status, totals, splits, participants, payers, adjustments, attachments, OCR reviews, settlement rows, recurring links, or file objects. The authenticated actor must have active route-group access, and the bill must belong to that group. Repeated restore requests are idempotent and return the current lifecycle state.
+      operationId: restoreGroupBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID to restore.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current group bill lifecycle state after restore.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillLifecycleResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or bill is missing, deleted, archived through unavailable relationships, personal, unrelated, in another group, inactive, removed, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Group bill restore could not be completed.
           content:
             application/problem+json:
               schema:
@@ -7985,6 +8231,7 @@ components:
         - currency
         - merchant
         - search
+        - archiveState
         - limit
       properties:
         fromDate:
@@ -8019,6 +8266,8 @@ components:
             - type: string
               maxLength: 120
             - type: "null"
+        archiveState:
+          $ref: "#/components/schemas/ExpenseBillArchiveState"
         limit:
           type: integer
           minimum: 1
@@ -8186,6 +8435,37 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+    ExpenseBillLifecycleResponse:
+      type: object
+      description: Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
+      required:
+        - billId
+        - groupId
+        - status
+        - archiveState
+        - archivedAtUtc
+        - updatedAtUtc
+      properties:
+        billId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/ExpenseBillStatus"
+        archiveState:
+          $ref: "#/components/schemas/ExpenseBillArchiveState"
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedAtUtc:
+          type: string
+          format: date-time
     PersonalBillListResponse:
       type: object
       description: Personal bills visible to the authenticated actor after bounded filter and limit application.
@@ -10244,6 +10524,13 @@ components:
         - settlement_request
         - settlement_payment
         - recurring_bill_occurrence
+    ExpenseBillArchiveState:
+      type: string
+      description: Bounded archive visibility filter or lifecycle state for expense bills.
+      enum:
+        - active
+        - archived
+        - all
     ExpenseBillStatus:
       type: string
       description: Expense bill root status.
