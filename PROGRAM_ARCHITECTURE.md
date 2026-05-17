@@ -12,6 +12,14 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - Frontend clients may cache, validate forms, and queue offline work, but server authorization and business rules remain authoritative in server mode.
 - Database foundation details are defined in [docs/architecture/DATABASE_FOUNDATION.md](docs/architecture/DATABASE_FOUNDATION.md).
 
+## Workspace And Deployment Authority Boundaries
+
+- Local-only devices, self-hosted Settleora servers, and future Settleora Cloud managed workspaces are separate authority boundaries.
+- One workspace has exactly one authority boundary, and live collaboration occurs only inside that boundary.
+- In server/cloud mode, the API remains authoritative for auth, authorization, current actor/profile resolution, money, status transitions, file access, sync acceptance, and audit.
+- Day 1 through Day 3 do not implement cross-server live collaboration, shared multi-tenant SaaS, federation, subscription billing, or Settleora Cloud runtime behavior.
+- Cloud v1 readiness rules are defined in [docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md](docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md).
+
 ## OpenAPI And Generated Clients
 
 - OpenAPI is the source of truth for mobile and web generated clients.

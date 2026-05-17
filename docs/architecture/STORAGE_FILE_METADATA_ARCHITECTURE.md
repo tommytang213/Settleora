@@ -38,6 +38,7 @@ This document began as a design gate. The current repository now includes the ex
 - File metadata belongs in PostgreSQL.
 - API responses expose stable file IDs and safe metadata only.
 - API responses must not expose filesystem paths, object keys, bucket names, provider URLs, temporary local paths, mounted volume paths, or storage internals.
+- The storage provider abstraction must remain compatible with future managed object storage while continuing to hide provider object keys, bucket internals, direct object URLs, and filesystem paths from clients and generated contracts.
 - Reads and writes require API authorization.
 - API/domain services own file authorization, lifecycle policy, audit, retention, and subject association.
 - Workers must not mutate core business tables or file metadata tables directly.

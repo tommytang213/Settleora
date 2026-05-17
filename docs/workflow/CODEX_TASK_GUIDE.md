@@ -8,6 +8,7 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - [README.md](../../README.md)
 - Relevant service, app, infrastructure, contract, or workflow docs for the requested change.
 - Relevant architecture docs only when the task touches that area.
+- [SETTLEORA_CLOUD_SAAS_READINESS.md](../architecture/SETTLEORA_CLOUD_SAAS_READINESS.md) for cloud, hosted deployment, subscription entitlement, managed provisioning, multi-tenant SaaS, or federation work.
 
 ## Standard Task Boundaries
 

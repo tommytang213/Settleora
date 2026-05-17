@@ -233,6 +233,9 @@ Day 1 includes:
 - Local-only profiles are locally authoritative.
 - Server-mode profiles are server-authoritative.
 - Offline changes queue locally.
+- Day 1 does not implement Settleora Cloud, but it must avoid making explicit export, import, backup, restore, or migration paths impossible later.
+- Local-only data and server/cloud data must not silently merge; any move between authority boundaries requires explicit user-approved migration or import/export.
+- Future Settleora Cloud compatibility does not reduce the Day 1 local-only or self-hosted scope.
 - Sync states include:
 
 ```text
@@ -277,3 +280,4 @@ Traditional Chinese support is planned for Day 2.
 - Silent AI or import-driven financial record mutation.
 - Multiple competing active official correction proposals per bill in Day 1.
 - Silent bill-revision-driven settlement mutation.
+- Settleora Cloud runtime, managed provisioning, shared multi-tenant SaaS, federation, and cross-server live collaboration.

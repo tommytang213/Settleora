@@ -12,6 +12,13 @@ Define implementation boundaries for local-only mode, server-mode sync, offline 
 - Clients must not bypass server validation, authorization, money, or status policies.
 - Conflict handling must preserve local pending edits until resolved.
 
+## Authority Boundary Rules
+
+- Sync applies only inside the configured authority boundary: local-only device, one self-hosted server, or one future Settleora Cloud managed workspace.
+- Moving between local-only, self-hosted, and cloud modes requires an explicit user-approved export, import, or migration flow.
+- Local-only data, self-hosted server data, and cloud workspace data must not silently merge because a client changes configuration or discovers another endpoint.
+- Day 4 Settleora Cloud v1 must not introduce cross-server live sync or federation; those require a separate future architecture review.
+
 ## Domain concepts
 
 Suggested client-side concepts:

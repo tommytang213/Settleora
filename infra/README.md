@@ -21,6 +21,8 @@ Additional application services will be added later once real projects exist.
 
 Docker/Compose support is currently a development scaffold only.
 
+Optional Settleora Cloud support is future managed-workspace architecture work, not part of this local compose scaffold. Cloud runtime, managed provisioning, autoscaling, shared multi-tenant SaaS, subscription billing, and federation require separate design gates; see [../docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md](../docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md).
+
 Compose passes future API runtime configuration with ASP.NET Core environment variable keys:
 
 - `Settleora__Database__ConnectionString`

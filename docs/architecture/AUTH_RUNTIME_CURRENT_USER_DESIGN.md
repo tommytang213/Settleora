@@ -48,6 +48,12 @@ The API owns authentication and session validation in server mode.
 
 Future implementation should keep runtime auth decisions behind cohesive API/domain service boundaries so endpoint handlers, clients, workers, and generated code do not duplicate sensitive policy.
 
+## Subscription Entitlement Boundary
+
+Future Settleora Cloud subscription entitlement may gate access to a managed cloud workspace, but it is not current-user authority, financial truth, authorization truth, or file/sync/audit authority. The API/domain auth and authorization boundaries still derive the current actor from validated session state and enforce membership, money, status, file, sync, and audit policy server-side.
+
+Clients must not treat subscription state, app store purchase state, generated client availability, cloud route visibility, cached profile rows, or UI state as proof that a user can access protected records. Subscription, billing, and app store entitlement runtime require separate future design gates.
+
 ## Sign-In Boundary
 
 The implemented local sign-in endpoint accepts identifier and password input at `POST /api/v1/auth/sign-in`, calls the internal local sign-in orchestration service, maps ordinary failures to a generic `401`, and maps throttled failures to a generic `429` without exposing account, identity, credential, or policy state.

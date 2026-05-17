@@ -4,6 +4,7 @@ The canonical high-level architecture summary is [PROGRAM_ARCHITECTURE.md](../..
 
 This directory keeps supporting architecture and release-process notes.
 
+- [Settleora Cloud SaaS readiness](SETTLEORA_CLOUD_SAAS_READINESS.md): future optional managed single-tenant/workspace hosting boundaries, explicit migration/export rules, subscription entitlement limits, and non-goals for shared multi-tenant SaaS and federation.
 - [Auth identity foundation](AUTH_IDENTITY_FOUNDATION.md): auth/account versus profile boundaries, session and authorization rules, role separation, audit requirements, and non-goals before auth or user/group endpoint implementation.
 - [Auth credentials, sessions, and audit design](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md): local password credential, session metadata, auth audit schema foundation, future passkey/MFA direction, retention, and non-goals before auth runtime implementation.
 - [Auth credential workflow design](AUTH_CREDENTIAL_WORKFLOW_DESIGN.md): design-only credential creation, password verification, rehash, audit, transaction, and service-boundary rules for future local password workflows.

@@ -4,9 +4,12 @@ Settleora is a self-hosted cross-platform expense management, shared bill tracki
 
 This repository is still not a feature-complete Day 1 MVP, but it is no longer only a scaffold. It preserves the existing Flutter mobile app and now includes early backend slices for auth/session, self profile, self payment details and QR files, groups, personal/group bills, bill attachment receipt/supporting-file runtime, bill-scoped receipt OCR review intake, apply-preview, and explicit draft-only apply for existing receipt attachments, a starter mobile receipt OCR review queue/detail/edit foundation, mobile first-launch server/local configuration, secure session-storage boundaries, and a minimal server-mode auth/session lifecycle shell with refresh, logout, session list, and per-session revocation, settlement request/payment/proof flows, recurring bill templates with safe forecast reads and explicit draft generation, file metadata/lifecycle, generated clients, contracts, and local infrastructure. Web/admin portals, OCR engines/workers, broader mobile product UI beyond the starter auth/session and receipt-review flows, mobile OCR extraction/capture, automatic OCR-to-bill finalization, non-draft OCR revision apply, recurring auto-generation workers, reminders/notifications, advanced recurring exceptions, reconciliation, full sync, and broader product UI remain placeholders or future work.
 
+Future optional Settleora Cloud support is an architecture direction for managed single-tenant/workspace hosting only. Current implementation remains local-only and self-hosted focused, and cloud runtime, shared multi-tenant SaaS, federation, and subscription billing are not implemented.
+
 ## Key References
 
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
+- [Settleora Cloud SaaS readiness](docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md)
 - [MVP Day 1 scope](docs/prd/MVP_DAY1_SCOPE.md)
 - [Day 2 scope](docs/prd/DAY2_SCOPE.md)
 - [Day 3 AI insights scope](docs/prd/DAY3_AI_INSIGHTS_SCOPE.md)
