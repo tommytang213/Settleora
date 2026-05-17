@@ -6241,6 +6241,223 @@ class RoundingModeValues {
   static const Set<RoundingMode> values = {up, down, nearest, bankers};
 }
 
+/// Day 1 sync operation types accepted by the server sync foundation.
+typedef SyncOperationType = String;
+class SyncOperationTypeValues {
+  const SyncOperationTypeValues._();
+  static const SyncOperationType billArchive = "bill_archive";
+  static const SyncOperationType billRestore = "bill_restore";
+  static const Set<SyncOperationType> values = {billArchive, billRestore};
+}
+
+/// Day 1 resource types supported by the server sync foundation.
+typedef SyncResourceType = String;
+class SyncResourceTypeValues {
+  const SyncResourceTypeValues._();
+  static const SyncResourceType expenseBill = "expense_bill";
+  static const Set<SyncResourceType> values = {expenseBill};
+}
+
+/// Safe sync operation result status.
+typedef SyncOperationStatus = String;
+class SyncOperationStatusValues {
+  const SyncOperationStatusValues._();
+  static const SyncOperationStatus accepted = "accepted";
+  static const SyncOperationStatus replayed = "replayed";
+  static const SyncOperationStatus rejected = "rejected";
+  static const SyncOperationStatus conflict = "conflict";
+  static const Set<SyncOperationStatus> values = {accepted, replayed, rejected, conflict};
+}
+
+/// Metadata-only change kind for cache invalidation.
+typedef SyncChangeKind = String;
+class SyncChangeKindValues {
+  const SyncChangeKindValues._();
+  static const SyncChangeKind updated = "updated";
+  static const SyncChangeKind archived = "archived";
+  static const SyncChangeKind restored = "restored";
+  static const Set<SyncChangeKind> values = {updated, archived, restored};
+}
+
+/// Bounded server-mode sync operation envelope. Actor, profile, group, totals, settlement state, storage, file, OCR, auth, and audit authority are derived server-side.
+class SyncOperationRequest {
+  const SyncOperationRequest({
+    required this.idempotencyKey,
+    required this.operationType,
+    required this.resourceType,
+    required this.resourceId,
+    required this.baseVersion,
+    required this.payload,
+  });
+
+  /// Actor-scoped idempotency key for this queued operation.
+  final String idempotencyKey;
+  final SyncOperationType operationType;
+  final SyncResourceType resourceType;
+  /// Server resource ID for the operation target.
+  final String resourceId;
+  /// Last known server resource version, or null when the client has no version.
+  final int? baseVersion;
+  /// Bounded operation payload. Bill archive and restore currently accept an empty object only.
+  final JsonObject payload;
+
+  factory SyncOperationRequest.fromJson(JsonObject json) {
+    return SyncOperationRequest(
+      idempotencyKey: json["idempotencyKey"] as String,
+      operationType: json["operationType"] as String,
+      resourceType: json["resourceType"] as String,
+      resourceId: json["resourceId"] as String,
+      baseVersion: json["baseVersion"] == null ? null : (json["baseVersion"] as num).toInt(),
+      payload: JsonObject.from(json["payload"] as Map),
+    );
+  }
+
+  JsonObject toJson() {
+    final baseVersionJsonValue = baseVersion;
+
+    return {
+      "idempotencyKey": idempotencyKey,
+      "operationType": operationType,
+      "resourceType": resourceType,
+      "resourceId": resourceId,
+      "baseVersion": baseVersionJsonValue,
+      "payload": payload,
+    };
+  }
+}
+
+/// Safe sync operation result. It excludes raw payloads, merchant text, item notes, payment details, storage paths, OCR text, tokens, auth account IDs, and private notes.
+class SyncOperationResponse {
+  const SyncOperationResponse({
+    required this.operationId,
+    required this.status,
+    required this.resourceType,
+    required this.resourceId,
+    required this.resultingVersion,
+    required this.safeErrorCode,
+    required this.safeMessage,
+  });
+
+  final String operationId;
+  final SyncOperationStatus status;
+  final SyncResourceType resourceType;
+  final String? resourceId;
+  final int? resultingVersion;
+  final String? safeErrorCode;
+  final String? safeMessage;
+
+  factory SyncOperationResponse.fromJson(JsonObject json) {
+    return SyncOperationResponse(
+      operationId: json["operationId"] as String,
+      status: json["status"] as String,
+      resourceType: json["resourceType"] as String,
+      resourceId: json["resourceId"] == null ? null : json["resourceId"] as String,
+      resultingVersion: json["resultingVersion"] == null ? null : (json["resultingVersion"] as num).toInt(),
+      safeErrorCode: json["safeErrorCode"] == null ? null : json["safeErrorCode"] as String,
+      safeMessage: json["safeMessage"] == null ? null : json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final resourceIdJsonValue = resourceId;
+    final resultingVersionJsonValue = resultingVersion;
+    final safeErrorCodeJsonValue = safeErrorCode;
+    final safeMessageJsonValue = safeMessage;
+
+    return {
+      "operationId": operationId,
+      "status": status,
+      "resourceType": resourceType,
+      "resourceId": resourceIdJsonValue,
+      "resultingVersion": resultingVersionJsonValue,
+      "safeErrorCode": safeErrorCodeJsonValue,
+      "safeMessage": safeMessageJsonValue,
+    };
+  }
+}
+
+/// Bounded metadata-only sync change feed for resources visible to the current actor.
+class SyncChangesResponse {
+  const SyncChangesResponse({
+    required this.sinceVersion,
+    required this.nextSinceVersion,
+    required this.limit,
+    required this.resourceType,
+    required this.changes,
+  });
+
+  final int sinceVersion;
+  final int nextSinceVersion;
+  final int limit;
+  final SyncResourceType? resourceType;
+  final List<SyncChange> changes;
+
+  factory SyncChangesResponse.fromJson(JsonObject json) {
+    return SyncChangesResponse(
+      sinceVersion: (json["sinceVersion"] as num).toInt(),
+      nextSinceVersion: (json["nextSinceVersion"] as num).toInt(),
+      limit: (json["limit"] as num).toInt(),
+      resourceType: json["resourceType"] == null ? null : json["resourceType"] as String,
+      changes: (json["changes"] as List<dynamic>).map((item) => SyncChange.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final resourceTypeJsonValue = resourceType;
+
+    return {
+      "sinceVersion": sinceVersion,
+      "nextSinceVersion": nextSinceVersion,
+      "limit": limit,
+      "resourceType": resourceTypeJsonValue,
+      "changes": changes.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe metadata for one visible resource version. Clients must call authorized resource endpoints to hydrate details.
+class SyncChange {
+  const SyncChange({
+    required this.resourceType,
+    required this.resourceId,
+    required this.version,
+    required this.changedAtUtc,
+    required this.changeKind,
+    required this.groupId,
+  });
+
+  final SyncResourceType resourceType;
+  final String resourceId;
+  final int version;
+  final DateTime changedAtUtc;
+  final SyncChangeKind changeKind;
+  final String? groupId;
+
+  factory SyncChange.fromJson(JsonObject json) {
+    return SyncChange(
+      resourceType: json["resourceType"] as String,
+      resourceId: json["resourceId"] as String,
+      version: (json["version"] as num).toInt(),
+      changedAtUtc: DateTime.parse(json["changedAtUtc"] as String),
+      changeKind: json["changeKind"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "resourceType": resourceType,
+      "resourceId": resourceId,
+      "version": version,
+      "changedAtUtc": changedAtUtc.toUtc().toIso8601String(),
+      "changeKind": changeKind,
+      "groupId": groupIdJsonValue,
+    };
+  }
+}
+
 /// Placeholder sync state values shared by local and server-mode clients.
 typedef SyncState = String;
 class SyncStateValues {

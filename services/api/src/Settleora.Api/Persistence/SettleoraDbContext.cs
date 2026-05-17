@@ -6,6 +6,7 @@ using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Sync;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Storage;
 
@@ -86,6 +87,237 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
+        modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
+        modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
+    }
+
+    private static void ConfigureSyncOperation(EntityTypeBuilder<SyncOperation> entity)
+    {
+        entity.ToTable("sync_operations", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_sync_operations_idempotency_key_not_blank",
+                "length(btrim(idempotency_key)) > 0");
+            table.HasCheckConstraint(
+                "ck_sync_operations_payload_hash_lower_hex",
+                "request_payload_hash ~ '^[a-f0-9]{64}$'");
+            table.HasCheckConstraint(
+                "ck_sync_operations_operation_type",
+                "operation_type IN ('bill_archive', 'bill_restore')");
+            table.HasCheckConstraint(
+                "ck_sync_operations_resource_type",
+                "resource_type IN ('expense_bill')");
+            table.HasCheckConstraint(
+                "ck_sync_operations_status",
+                "status IN ('accepted', 'rejected', 'conflict')");
+            table.HasCheckConstraint(
+                "ck_sync_operations_base_version_non_negative",
+                "base_version IS NULL OR base_version >= 0");
+            table.HasCheckConstraint(
+                "ck_sync_operations_result_version_positive",
+                "result_version IS NULL OR result_version > 0");
+            table.HasCheckConstraint(
+                "ck_sync_operations_safe_error_code_not_blank",
+                "safe_error_code IS NULL OR length(btrim(safe_error_code)) > 0");
+            table.HasCheckConstraint(
+                "ck_sync_operations_result_pair",
+                "((status = 'accepted' AND result_resource_id IS NOT NULL AND result_version IS NOT NULL AND safe_error_code IS NULL) OR (status <> 'accepted'))");
+        });
+
+        entity.HasKey(operation => operation.Id);
+
+        entity.Property(operation => operation.Id)
+            .HasColumnName("id");
+
+        entity.Property(operation => operation.ActorUserProfileId)
+            .HasColumnName("actor_user_profile_id");
+
+        entity.Property(operation => operation.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasMaxLength(SyncConstraints.IdempotencyKeyMaxLength)
+            .IsRequired();
+
+        entity.Property(operation => operation.RequestPayloadHash)
+            .HasColumnName("request_payload_hash")
+            .HasMaxLength(SyncConstraints.RequestPayloadHashMaxLength)
+            .IsRequired();
+
+        entity.Property(operation => operation.OperationType)
+            .HasColumnName("operation_type")
+            .HasMaxLength(SyncConstraints.OperationTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(operation => operation.ResourceType)
+            .HasColumnName("resource_type")
+            .HasMaxLength(SyncConstraints.ResourceTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(operation => operation.ResourceId)
+            .HasColumnName("resource_id");
+
+        entity.Property(operation => operation.BaseVersion)
+            .HasColumnName("base_version");
+
+        entity.Property(operation => operation.Status)
+            .HasColumnName("status")
+            .HasMaxLength(SyncConstraints.OperationStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(operation => operation.ResultResourceId)
+            .HasColumnName("result_resource_id");
+
+        entity.Property(operation => operation.ResultVersion)
+            .HasColumnName("result_version");
+
+        entity.Property(operation => operation.SafeErrorCode)
+            .HasColumnName("safe_error_code")
+            .HasMaxLength(SyncConstraints.SafeErrorCodeMaxLength);
+
+        entity.Property(operation => operation.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(operation => operation.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(operation => new
+            {
+                operation.ActorUserProfileId,
+                operation.IdempotencyKey
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_sync_operations_actor_idempotency_key");
+
+        entity.HasIndex(operation => new
+            {
+                operation.ActorUserProfileId,
+                operation.Status,
+                operation.CreatedAtUtc
+            })
+            .HasDatabaseName("ix_sync_operations_actor_status_created");
+
+        entity.HasIndex(operation => new
+            {
+                operation.ResourceType,
+                operation.ResourceId
+            })
+            .HasDatabaseName("ix_sync_operations_resource");
+
+        entity.HasOne(operation => operation.ActorUserProfile)
+            .WithMany()
+            .HasForeignKey(operation => operation.ActorUserProfileId)
+            .HasConstraintName("fk_sync_operations_actor_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureSyncResourceVersion(EntityTypeBuilder<SyncResourceVersion> entity)
+    {
+        entity.ToTable("sync_resource_versions", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_sync_resource_versions_resource_type",
+                "resource_type IN ('expense_bill')");
+            table.HasCheckConstraint(
+                "ck_sync_resource_versions_version_positive",
+                "version > 0");
+            table.HasCheckConstraint(
+                "ck_sync_resource_versions_change_kind",
+                "change_kind IN ('updated', 'archived', 'restored')");
+            table.HasCheckConstraint(
+                "ck_sync_resource_versions_visibility_scope",
+                "owner_user_profile_id IS NOT NULL OR group_id IS NOT NULL");
+        });
+
+        entity.HasKey(version => version.Id);
+
+        entity.Property(version => version.Id)
+            .HasColumnName("id");
+
+        entity.Property(version => version.ResourceType)
+            .HasColumnName("resource_type")
+            .HasMaxLength(SyncConstraints.ResourceTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(version => version.ResourceId)
+            .HasColumnName("resource_id");
+
+        entity.Property(version => version.Version)
+            .HasColumnName("version")
+            .IsRequired();
+
+        entity.Property(version => version.ChangeKind)
+            .HasColumnName("change_kind")
+            .HasMaxLength(SyncConstraints.ChangeKindMaxLength)
+            .IsRequired();
+
+        entity.Property(version => version.ChangedAtUtc)
+            .HasColumnName("changed_at_utc")
+            .IsRequired();
+
+        entity.Property(version => version.ChangedByUserProfileId)
+            .HasColumnName("changed_by_user_profile_id");
+
+        entity.Property(version => version.OwnerUserProfileId)
+            .HasColumnName("owner_user_profile_id");
+
+        entity.Property(version => version.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(version => version.IsArchived)
+            .HasColumnName("is_archived")
+            .IsRequired();
+
+        entity.HasIndex(version => new
+            {
+                version.ResourceType,
+                version.ResourceId
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_sync_resource_versions_resource");
+
+        entity.HasIndex(version => version.Version)
+            .IsUnique()
+            .HasDatabaseName("ux_sync_resource_versions_version");
+
+        entity.HasIndex(version => new
+            {
+                version.ResourceType,
+                version.Version
+            })
+            .HasDatabaseName("ix_sync_resource_versions_resource_type_version");
+
+        entity.HasIndex(version => new
+            {
+                version.OwnerUserProfileId,
+                version.Version
+            })
+            .HasDatabaseName("ix_sync_resource_versions_owner_version");
+
+        entity.HasIndex(version => new
+            {
+                version.GroupId,
+                version.Version
+            })
+            .HasDatabaseName("ix_sync_resource_versions_group_version");
+
+        entity.HasOne(version => version.ChangedByUserProfile)
+            .WithMany()
+            .HasForeignKey(version => version.ChangedByUserProfileId)
+            .HasConstraintName("fk_sync_resource_versions_changed_by_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(version => version.OwnerUserProfile)
+            .WithMany()
+            .HasForeignKey(version => version.OwnerUserProfileId)
+            .HasConstraintName("fk_sync_resource_versions_owner_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(version => version.Group)
+            .WithMany()
+            .HasForeignKey(version => version.GroupId)
+            .HasConstraintName("fk_sync_resource_versions_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureInAppNotification(EntityTypeBuilder<InAppNotification> entity)

@@ -1251,6 +1251,28 @@ class SettleoraApiClient {
     return SettlementPaymentResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SyncChangesResponse> listSyncChanges({int? sinceVersion, int? limit, SyncResourceType? resourceType, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/sync/changes", {"sinceVersion": sinceVersion, "limit": limit, "resourceType": resourceType}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SyncChangesResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<SyncOperationResponse> submitSyncOperation(SyncOperationRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/sync/operations",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SyncOperationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SelfPaymentDetailsResponse> getSelfPaymentDetails({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

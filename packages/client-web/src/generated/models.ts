@@ -2184,6 +2184,86 @@ export interface Money {
 export type RoundingMode = "up" | "down" | "nearest" | "bankers";
 
 /**
+ * Day 1 sync operation types accepted by the server sync foundation.
+ */
+export type SyncOperationType = "bill_archive" | "bill_restore";
+
+/**
+ * Day 1 resource types supported by the server sync foundation.
+ */
+export type SyncResourceType = "expense_bill";
+
+/**
+ * Safe sync operation result status.
+ */
+export type SyncOperationStatus = "accepted" | "replayed" | "rejected" | "conflict";
+
+/**
+ * Metadata-only change kind for cache invalidation.
+ */
+export type SyncChangeKind = "updated" | "archived" | "restored";
+
+/**
+ * Bounded server-mode sync operation envelope. Actor, profile, group, totals, settlement state, storage, file, OCR, auth, and audit authority are derived server-side.
+ */
+export interface SyncOperationRequest {
+  /**
+   * Actor-scoped idempotency key for this queued operation.
+   */
+  idempotencyKey: string;
+  operationType: SyncOperationType;
+  resourceType: SyncResourceType;
+  /**
+   * Server resource ID for the operation target.
+   */
+  resourceId: string;
+  /**
+   * Last known server resource version, or null when the client has no version.
+   */
+  baseVersion: number | null;
+  /**
+   * Bounded operation payload. Bill archive and restore currently accept an empty object only.
+   */
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Safe sync operation result. It excludes raw payloads, merchant text, item notes, payment details, storage paths, OCR text, tokens, auth account IDs, and private notes.
+ */
+export interface SyncOperationResponse {
+  operationId: string;
+  status: SyncOperationStatus;
+  resourceType: SyncResourceType;
+  resourceId: string | null;
+  resultingVersion: number | null;
+  safeErrorCode: string | null;
+  safeMessage: string | null;
+}
+
+/**
+ * Bounded metadata-only sync change feed for resources visible to the current actor.
+ */
+export interface SyncChangesResponse {
+  sinceVersion: number;
+  nextSinceVersion: number;
+  limit: number;
+  resourceType: SyncResourceType | null;
+  changes: SyncChange[];
+}
+
+/**
+ * Safe metadata for one visible resource version. Clients must call authorized resource endpoints to hydrate details.
+ */
+export interface SyncChange {
+  resourceType: SyncResourceType;
+  resourceId: string;
+  version: number;
+  changedAtUtc: string;
+  changeKind: SyncChangeKind;
+  groupId: string | null;
+}
+
+/**
  * Placeholder sync state values shared by local and server-mode clients.
  */
 export type SyncState = "queued" | "synced" | "conflict" | "failed";

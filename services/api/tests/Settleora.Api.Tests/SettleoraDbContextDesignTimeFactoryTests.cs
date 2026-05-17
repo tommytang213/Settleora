@@ -5,6 +5,7 @@ using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Sync;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Tests;
@@ -28,9 +29,11 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(35, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(37, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(InAppNotification)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(SyncOperation)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(SyncResourceVersion)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBill)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillItemSplit)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ReceiptOcrReview)));
