@@ -634,10 +634,17 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List personal bills
-      description: Lists non-archived personal bills created by the authenticated actor where groupId is null. This first foundation endpoint is intentionally unpaginated; future bill list slices are expected to add pagination or filtering when needed.
+      description: Lists non-archived personal bills visible to the authenticated actor where groupId is null. This first foundation endpoint is intentionally unpaginated and supports a basic reconciliation-status filter.
       operationId: listPersonalBills
       security:
         - SessionBearerAuth: []
+      parameters:
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
       responses:
         "200":
           description: Personal bills visible to the authenticated actor.
@@ -645,6 +652,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PersonalBillListResponse"
+        "400":
+          description: The submitted bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -693,6 +706,64 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Bill is missing, archived, a group bill, unrelated, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/reconciliation:
+    patch:
+      summary: Update personal bill reconciliation status
+      description: Updates the manual reconciliation status for a visible personal bill owned by the authenticated actor. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
+      operationId: updatePersonalBillReconciliation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID to reconcile.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseBillReconciliationUpdateRequest"
+      responses:
+        "200":
+          description: Updated manual reconciliation state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
+        "400":
+          description: The submitted reconciliation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill is missing, archived, a group bill, unrelated, not owned by the authenticated actor, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Reconciliation update could not be completed.
           content:
             application/problem+json:
               schema:
@@ -2182,7 +2253,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List group bills
-      description: Lists non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Personal, archived, unrelated, and other-group bills are excluded. This first foundation response is intentionally unpaginated.
+      description: Lists non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Personal, archived, unrelated, and other-group bills are excluded. This first foundation response is intentionally unpaginated and supports a basic reconciliation-status filter.
       operationId: listGroupBills
       security:
         - SessionBearerAuth: []
@@ -2194,6 +2265,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
       responses:
         "200":
           description: Group bills visible to the authenticated active group member.
@@ -2201,6 +2278,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GroupBillListResponse"
+        "400":
+          description: The submitted group bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -2256,6 +2339,71 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/reconciliation:
+    patch:
+      summary: Update group bill reconciliation status
+      description: Updates the manual reconciliation status for a bill in the route group when the authenticated actor is an active member authorized to access that group. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
+      operationId: updateGroupBillReconciliation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID that owns the bill.
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          description: Group bill ID to reconcile.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseBillReconciliationUpdateRequest"
+      responses:
+        "200":
+          description: Updated manual reconciliation state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
+        "400":
+          description: The submitted reconciliation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group or bill is missing, deleted, archived, personal, unrelated, in another group, inactive, removed, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Reconciliation update could not be completed.
           content:
             application/problem+json:
               schema:
@@ -3138,6 +3286,61 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Actor profile, counterparty profile, group, or required active group membership visibility is missing, deleted, inactive, removed, unrelated, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/reports/monthly:
+    get:
+      summary: Get monthly report
+      description: Returns a read-only monthly summary derived from existing bills and actor-visible settlement state. Without groupId, the report includes only personal bills visible to the authenticated actor. With groupId, the actor must be an active member of the route group and the report includes bills in that group. Monetary totals are currency-bucketed and no FX conversion, bill mutation, settlement mutation, cached report write, payment-details exposure, storage/file exposure, OCR raw text exposure, or auth/session exposure occurs in this slice.
+      operationId: getMonthlyReport
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: month
+          in: query
+          required: true
+          description: Report month in yyyy-MM format.
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+            examples:
+              - "2026-05"
+        - name: groupId
+          in: query
+          required: false
+          description: Optional group filter. When omitted, only visible personal bills are summarized.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Monthly report derived from authorized bill and settlement state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyReportResponse"
+        "400":
+          description: The submitted monthly report request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Actor profile or requested group report scope is missing, deleted, inactive, removed, unrelated, or unavailable.
           content:
             application/problem+json:
               schema:
@@ -7098,6 +7301,54 @@ components:
             - type: string
               format: date-time
             - type: "null"
+    ExpenseBillReconciliationUpdateRequest:
+      type: object
+      description: Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        note:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Optional bounded note or reference label. This note is not copied into audit metadata.
+    ExpenseBillReconciliationResponse:
+      type: object
+      description: Manual reconciliation state for a visible bill. These fields are recordkeeping only and do not represent bill, split, settlement, payer, receipt, OCR, or balance truth.
+      required:
+        - status
+        - updatedAtUtc
+        - updatedByUserProfileId
+        - reconciledAtUtc
+        - note
+      properties:
+        status:
+          $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        updatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedByUserProfileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        reconciledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        note:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
     PersonalBillListResponse:
       type: object
       description: Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
@@ -7116,6 +7367,7 @@ components:
         - merchantName
         - billDate
         - status
+        - reconciliation
         - totalAmount
         - totalCurrency
         - createdAtUtc
@@ -7139,6 +7391,8 @@ components:
           format: date
         status:
           $ref: "#/components/schemas/ExpenseBillStatus"
+        reconciliation:
+          $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
         totalAmount:
           type: string
           description: Decimal-safe total amount represented as a string.
@@ -7673,6 +7927,86 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    MonthlyReportResponse:
+      type: object
+      description: Read-only monthly report summary derived from authorized bill and settlement state. Monetary totals are bucketed by currency and no FX conversion or report-cache write is performed.
+      required:
+        - month
+        - groupId
+        - generatedAtUtc
+        - billCount
+        - totalByCurrency
+        - actorShareByCurrency
+        - actorPaidByCurrency
+        - reconciliationCounts
+        - settlementRequestCounts
+        - settlementPaymentCounts
+      properties:
+        month:
+          type: string
+          pattern: "^\\d{4}-\\d{2}$"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        generatedAtUtc:
+          type: string
+          format: date-time
+        billCount:
+          type: integer
+          minimum: 0
+        totalByCurrency:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlyReportCurrencyTotal"
+        actorShareByCurrency:
+          type: array
+          description: Current actor participant-share totals by currency for bills included in the report.
+          items:
+            $ref: "#/components/schemas/MonthlyReportCurrencyTotal"
+        actorPaidByCurrency:
+          type: array
+          description: Current actor payer contribution totals by currency for bills included in the report.
+          items:
+            $ref: "#/components/schemas/MonthlyReportCurrencyTotal"
+        reconciliationCounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlyReportStatusCount"
+        settlementRequestCounts:
+          type: array
+          description: Counts by settlement request status for report bills where the current actor is involved in the settlement request.
+          items:
+            $ref: "#/components/schemas/MonthlyReportStatusCount"
+        settlementPaymentCounts:
+          type: array
+          description: Counts by settlement payment status for report bills where the current actor is involved in the settlement request or payment.
+          items:
+            $ref: "#/components/schemas/MonthlyReportStatusCount"
+    MonthlyReportCurrencyTotal:
+      type: object
+      required:
+        - currency
+        - amount
+      properties:
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string.
+    MonthlyReportStatusCount:
+      type: object
+      required:
+        - status
+        - count
+      properties:
+        status:
+          type: string
+          description: Bounded status value for the related count family.
+        count:
+          type: integer
+          minimum: 0
     SettlementBalanceProjectionListResponse:
       type: object
       description: Bounded read-only settlement balance projection list for the authenticated actor. It contains only debtor/creditor balance rows that can be safely rebuilt from settlement request lines and payment allocations, and excludes requester-only records, bill merchant/item details, payment details, proof/file/storage internals, auth/session data, raw audit metadata, raw request bodies, and unrelated users.
@@ -8802,6 +9136,7 @@ components:
         - merchantName
         - billDate
         - status
+        - reconciliation
         - totalAmount
         - totalCurrency
         - createdAtUtc
@@ -8828,6 +9163,8 @@ components:
           format: date
         status:
           $ref: "#/components/schemas/ExpenseBillStatus"
+        reconciliation:
+          $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
         totalAmount:
           type: string
           description: Decimal-safe total amount represented as a string.
@@ -9081,6 +9418,13 @@ components:
         - cancelled
         - finalized
         - archived
+    ExpenseBillReconciliationStatus:
+      type: string
+      description: Manual bill reconciliation status. This is a recordkeeping label only and does not change financial truth, bill totals, split shares, settlement state, payer state, files, or OCR state.
+      enum:
+        - unreconciled
+        - reconciled
+        - ignored
     ExpenseBillParticipantStatus:
       type: string
       description: Expense bill participant status.

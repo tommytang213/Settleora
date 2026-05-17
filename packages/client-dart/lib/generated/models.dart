@@ -2154,6 +2154,83 @@ class BillRevisionApprovalResponse {
   }
 }
 
+/// Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
+class ExpenseBillReconciliationUpdateRequest {
+  static const Object _unsetNote = Object();
+
+  ExpenseBillReconciliationUpdateRequest({
+    required this.status,
+    Object? note = _unsetNote,
+  })
+      : note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final ExpenseBillReconciliationStatus status;
+  /// Optional bounded note or reference label. This note is not copied into audit metadata.
+  final String? note;
+  final bool _hasNote;
+
+  factory ExpenseBillReconciliationUpdateRequest.fromJson(JsonObject json) {
+    return ExpenseBillReconciliationUpdateRequest(
+      status: json["status"] as String,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+
+    return {
+      "status": status,
+      if (_hasNote) "note": noteJsonValue,
+    };
+  }
+}
+
+/// Manual reconciliation state for a visible bill. These fields are recordkeeping only and do not represent bill, split, settlement, payer, receipt, OCR, or balance truth.
+class ExpenseBillReconciliationResponse {
+  const ExpenseBillReconciliationResponse({
+    required this.status,
+    required this.updatedAtUtc,
+    required this.updatedByUserProfileId,
+    required this.reconciledAtUtc,
+    required this.note,
+  });
+
+  final ExpenseBillReconciliationStatus status;
+  final DateTime? updatedAtUtc;
+  final String? updatedByUserProfileId;
+  final DateTime? reconciledAtUtc;
+  final String? note;
+
+  factory ExpenseBillReconciliationResponse.fromJson(JsonObject json) {
+    return ExpenseBillReconciliationResponse(
+      status: json["status"] as String,
+      updatedAtUtc: json["updatedAtUtc"] == null ? null : DateTime.parse(json["updatedAtUtc"] as String),
+      updatedByUserProfileId: json["updatedByUserProfileId"] == null ? null : json["updatedByUserProfileId"] as String,
+      reconciledAtUtc: json["reconciledAtUtc"] == null ? null : DateTime.parse(json["reconciledAtUtc"] as String),
+      note: json["note"] == null ? null : json["note"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final updatedAtUtcJsonValue = updatedAtUtc;
+    final updatedByUserProfileIdJsonValue = updatedByUserProfileId;
+    final reconciledAtUtcJsonValue = reconciledAtUtc;
+    final noteJsonValue = note;
+
+    return {
+      "status": status,
+      "updatedAtUtc": updatedAtUtcJsonValue == null ? null : updatedAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedByUserProfileId": updatedByUserProfileIdJsonValue,
+      "reconciledAtUtc": reconciledAtUtcJsonValue == null ? null : reconciledAtUtcJsonValue.toUtc().toIso8601String(),
+      "note": noteJsonValue,
+    };
+  }
+}
+
 /// Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
 class PersonalBillListResponse {
   const PersonalBillListResponse({
@@ -2182,6 +2259,7 @@ class PersonalBillResponse {
     required this.merchantName,
     required this.billDate,
     required this.status,
+    required this.reconciliation,
     required this.totalAmount,
     required this.totalCurrency,
     required this.createdAtUtc,
@@ -2197,6 +2275,7 @@ class PersonalBillResponse {
   final String? merchantName;
   final String billDate;
   final ExpenseBillStatus status;
+  final ExpenseBillReconciliationResponse reconciliation;
   /// Decimal-safe total amount represented as a string.
   final String totalAmount;
   final CurrencyCode totalCurrency;
@@ -2215,6 +2294,7 @@ class PersonalBillResponse {
       merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
       billDate: json["billDate"] as String,
       status: json["status"] as String,
+      reconciliation: ExpenseBillReconciliationResponse.fromJson(JsonObject.from(json["reconciliation"] as Map)),
       totalAmount: json["totalAmount"] as String,
       totalCurrency: json["totalCurrency"] as String,
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
@@ -2235,6 +2315,7 @@ class PersonalBillResponse {
       "merchantName": merchantNameJsonValue,
       "billDate": billDate,
       "status": status,
+      "reconciliation": reconciliation.toJson(),
       "totalAmount": totalAmount,
       "totalCurrency": totalCurrency,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
@@ -2981,6 +3062,119 @@ class SettlementRequestLineResponse {
       "status": status,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Read-only monthly report summary derived from authorized bill and settlement state. Monetary totals are bucketed by currency and no FX conversion or report-cache write is performed.
+class MonthlyReportResponse {
+  const MonthlyReportResponse({
+    required this.month,
+    required this.groupId,
+    required this.generatedAtUtc,
+    required this.billCount,
+    required this.totalByCurrency,
+    required this.actorShareByCurrency,
+    required this.actorPaidByCurrency,
+    required this.reconciliationCounts,
+    required this.settlementRequestCounts,
+    required this.settlementPaymentCounts,
+  });
+
+  final String month;
+  final String? groupId;
+  final DateTime generatedAtUtc;
+  final int billCount;
+  final List<MonthlyReportCurrencyTotal> totalByCurrency;
+  /// Current actor participant-share totals by currency for bills included in the report.
+  final List<MonthlyReportCurrencyTotal> actorShareByCurrency;
+  /// Current actor payer contribution totals by currency for bills included in the report.
+  final List<MonthlyReportCurrencyTotal> actorPaidByCurrency;
+  final List<MonthlyReportStatusCount> reconciliationCounts;
+  /// Counts by settlement request status for report bills where the current actor is involved in the settlement request.
+  final List<MonthlyReportStatusCount> settlementRequestCounts;
+  /// Counts by settlement payment status for report bills where the current actor is involved in the settlement request or payment.
+  final List<MonthlyReportStatusCount> settlementPaymentCounts;
+
+  factory MonthlyReportResponse.fromJson(JsonObject json) {
+    return MonthlyReportResponse(
+      month: json["month"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      billCount: (json["billCount"] as num).toInt(),
+      totalByCurrency: (json["totalByCurrency"] as List<dynamic>).map((item) => MonthlyReportCurrencyTotal.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      actorShareByCurrency: (json["actorShareByCurrency"] as List<dynamic>).map((item) => MonthlyReportCurrencyTotal.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      actorPaidByCurrency: (json["actorPaidByCurrency"] as List<dynamic>).map((item) => MonthlyReportCurrencyTotal.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      reconciliationCounts: (json["reconciliationCounts"] as List<dynamic>).map((item) => MonthlyReportStatusCount.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      settlementRequestCounts: (json["settlementRequestCounts"] as List<dynamic>).map((item) => MonthlyReportStatusCount.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      settlementPaymentCounts: (json["settlementPaymentCounts"] as List<dynamic>).map((item) => MonthlyReportStatusCount.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "month": month,
+      "groupId": groupIdJsonValue,
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "billCount": billCount,
+      "totalByCurrency": totalByCurrency.map((item) => item.toJson()).toList(growable: false),
+      "actorShareByCurrency": actorShareByCurrency.map((item) => item.toJson()).toList(growable: false),
+      "actorPaidByCurrency": actorPaidByCurrency.map((item) => item.toJson()).toList(growable: false),
+      "reconciliationCounts": reconciliationCounts.map((item) => item.toJson()).toList(growable: false),
+      "settlementRequestCounts": settlementRequestCounts.map((item) => item.toJson()).toList(growable: false),
+      "settlementPaymentCounts": settlementPaymentCounts.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+class MonthlyReportCurrencyTotal {
+  const MonthlyReportCurrencyTotal({
+    required this.currency,
+    required this.amount,
+  });
+
+  final CurrencyCode currency;
+  /// Decimal-safe amount represented as a string.
+  final String amount;
+
+  factory MonthlyReportCurrencyTotal.fromJson(JsonObject json) {
+    return MonthlyReportCurrencyTotal(
+      currency: json["currency"] as String,
+      amount: json["amount"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "currency": currency,
+      "amount": amount,
+    };
+  }
+}
+
+class MonthlyReportStatusCount {
+  const MonthlyReportStatusCount({
+    required this.status,
+    required this.count,
+  });
+
+  /// Bounded status value for the related count family.
+  final String status;
+  final int count;
+
+  factory MonthlyReportStatusCount.fromJson(JsonObject json) {
+    return MonthlyReportStatusCount(
+      status: json["status"] as String,
+      count: (json["count"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "status": status,
+      "count": count,
     };
   }
 }
@@ -4612,6 +4806,7 @@ class GroupBillResponse {
     required this.merchantName,
     required this.billDate,
     required this.status,
+    required this.reconciliation,
     required this.totalAmount,
     required this.totalCurrency,
     required this.createdAtUtc,
@@ -4628,6 +4823,7 @@ class GroupBillResponse {
   final String? merchantName;
   final String billDate;
   final ExpenseBillStatus status;
+  final ExpenseBillReconciliationResponse reconciliation;
   /// Decimal-safe total amount represented as a string.
   final String totalAmount;
   final CurrencyCode totalCurrency;
@@ -4647,6 +4843,7 @@ class GroupBillResponse {
       merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
       billDate: json["billDate"] as String,
       status: json["status"] as String,
+      reconciliation: ExpenseBillReconciliationResponse.fromJson(JsonObject.from(json["reconciliation"] as Map)),
       totalAmount: json["totalAmount"] as String,
       totalCurrency: json["totalCurrency"] as String,
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
@@ -4668,6 +4865,7 @@ class GroupBillResponse {
       "merchantName": merchantNameJsonValue,
       "billDate": billDate,
       "status": status,
+      "reconciliation": reconciliation.toJson(),
       "totalAmount": totalAmount,
       "totalCurrency": totalCurrency,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
@@ -5008,6 +5206,16 @@ class ExpenseBillStatusValues {
   static const ExpenseBillStatus finalized = "finalized";
   static const ExpenseBillStatus archived = "archived";
   static const Set<ExpenseBillStatus> values = {draft, pendingConfirmation, confirmed, rejected, cancelled, finalized, archived};
+}
+
+/// Manual bill reconciliation status. This is a recordkeeping label only and does not change financial truth, bill totals, split shares, settlement state, payer state, files, or OCR state.
+typedef ExpenseBillReconciliationStatus = String;
+class ExpenseBillReconciliationStatusValues {
+  const ExpenseBillReconciliationStatusValues._();
+  static const ExpenseBillReconciliationStatus unreconciled = "unreconciled";
+  static const ExpenseBillReconciliationStatus reconciled = "reconciled";
+  static const ExpenseBillReconciliationStatus ignored = "ignored";
+  static const Set<ExpenseBillReconciliationStatus> values = {unreconciled, reconciled, ignored};
 }
 
 /// Expense bill participant status.

@@ -1,3 +1,5 @@
+using Settleora.Api.Expenses.Reconciliation;
+
 namespace Settleora.Api.Expenses.GroupBills;
 
 internal sealed record GroupBillListResponse(
@@ -9,6 +11,7 @@ internal sealed record GroupBillResponse(
     string? MerchantName,
     DateOnly BillDate,
     string Status,
+    ExpenseBillReconciliationResponse Reconciliation,
     string TotalAmount,
     string TotalCurrency,
     DateTimeOffset CreatedAtUtc,

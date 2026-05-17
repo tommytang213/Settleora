@@ -460,7 +460,8 @@ function generateTypeScriptOperation(operation) {
       ? "Blob"
       : "void";
   const queryType = operation.queryParameters.length > 0 ? typescriptQueryType(operation.queryParameters) : null;
-  const queryParameter = queryType ? [`query: ${queryType} = {}`] : [];
+  const hasRequiredQueryParameter = operation.queryParameters.some((parameter) => parameter.required);
+  const queryParameter = queryType ? [`query: ${queryType}${hasRequiredQueryParameter ? "" : " = {}"}`] : [];
   const optionsParameter = operation.requiresAuth
     ? "options: SettleoraAuthenticatedRequestOptions"
     : "options: SettleoraRequestOptions = {}";
@@ -1015,7 +1016,7 @@ function generateDartOperation(operation) {
     ...(operation.requestKind === "json" && operation.requestSchema ? [`${dartType(operation.requestSchema, { nullable: false })} body`] : [])
   ];
   const namedParameters = [
-    ...queryParameters.map((parameter) => `${dartType(parameter.schema, { nullable: !parameter.required })} ${toCamelCase(parameter.name)}`),
+    ...queryParameters.map((parameter) => `${parameter.required ? "required " : ""}${dartType(parameter.schema, { nullable: !parameter.required })} ${toCamelCase(parameter.name)}`),
     ...(operation.requiresAuth ? ["required String accessToken"] : []),
     "Map<String, String>? headers"
   ];

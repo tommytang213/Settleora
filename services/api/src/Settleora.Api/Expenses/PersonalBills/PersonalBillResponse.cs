@@ -1,3 +1,5 @@
+using Settleora.Api.Expenses.Reconciliation;
+
 namespace Settleora.Api.Expenses.PersonalBills;
 
 internal sealed record PersonalBillListResponse(
@@ -8,6 +10,7 @@ internal sealed record PersonalBillResponse(
     string? MerchantName,
     DateOnly BillDate,
     string Status,
+    ExpenseBillReconciliationResponse Reconciliation,
     string TotalAmount,
     string TotalCurrency,
     DateTimeOffset CreatedAtUtc,

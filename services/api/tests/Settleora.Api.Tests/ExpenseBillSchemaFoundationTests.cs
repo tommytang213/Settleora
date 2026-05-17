@@ -37,6 +37,8 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.Equal(40, ExpenseBillConstraints.BillRevisionApprovalStatusMaxLength);
         Assert.Equal(128, ExpenseBillConstraints.BillRevisionCalculationHashMaxLength);
         Assert.Equal(32, ExpenseBillConstraints.PayerConfirmationStatusMaxLength);
+        Assert.Equal(32, ExpenseBillConstraints.BillReconciliationStatusMaxLength);
+        Assert.Equal(120, ExpenseBillConstraints.BillReconciliationNoteMaxLength);
 
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.Draft));
         Assert.True(ExpenseBillStatuses.IsSupported(ExpenseBillStatuses.PendingConfirmation));
@@ -50,6 +52,11 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.PendingAcceptance));
         Assert.True(ExpenseBillParticipantStatuses.IsSupported(ExpenseBillParticipantStatuses.ConfirmedPaid));
         Assert.False(ExpenseBillParticipantStatuses.IsSupported("invited"));
+
+        Assert.True(ExpenseBillReconciliationStatuses.IsSupported(ExpenseBillReconciliationStatuses.Unreconciled));
+        Assert.True(ExpenseBillReconciliationStatuses.IsSupported(ExpenseBillReconciliationStatuses.Reconciled));
+        Assert.True(ExpenseBillReconciliationStatuses.IsSupported(ExpenseBillReconciliationStatuses.Ignored));
+        Assert.False(ExpenseBillReconciliationStatuses.IsSupported("matched"));
 
         Assert.True(ExpenseBillRevisionStatuses.IsActivePending(ExpenseBillRevisionStatuses.DraftRevision));
         Assert.True(ExpenseBillRevisionStatuses.IsActivePending(ExpenseBillRevisionStatuses.SubmittedForReview));
@@ -109,6 +116,11 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertColumn(entity, storeObject, "MerchantName", "merchant_name", isNullable: true, maxLength: 200);
         AssertColumn(entity, storeObject, "BillDate", "bill_date", isNullable: false, columnType: "date");
         AssertColumn(entity, storeObject, "Status", "status", isNullable: false, maxLength: 32);
+        AssertColumn(entity, storeObject, "ReconciliationStatus", "reconciliation_status", isNullable: false, maxLength: 32);
+        AssertColumn(entity, storeObject, "ReconciliationUpdatedAtUtc", "reconciliation_updated_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "ReconciliationUpdatedByUserProfileId", "reconciliation_updated_by_user_profile_id", isNullable: true);
+        AssertColumn(entity, storeObject, "ReconciledAtUtc", "reconciled_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "ReconciliationNote", "reconciliation_note", isNullable: true, maxLength: 120);
         AssertMoneyColumn(entity, storeObject, "TotalAmount", "total_amount");
         AssertColumn(entity, storeObject, "TotalCurrency", "total_currency", isNullable: false, maxLength: 3);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
@@ -120,11 +132,14 @@ public sealed class ExpenseBillSchemaFoundationTests
         AssertIndex(entity, "ix_expense_bills_active_accepted_revision_id", ["ActiveAcceptedBillRevisionId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_group_id", ["GroupId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_status", ["Status"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bills_reconciliation_status", ["ReconciliationStatus"], isUnique: false);
+        AssertIndex(entity, "ix_expense_bills_reconciliation_updated_by_user_profile_id", ["ReconciliationUpdatedByUserProfileId"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_bill_date", ["BillDate"], isUnique: false);
         AssertIndex(entity, "ix_expense_bills_archived_at_utc", ["ArchivedAtUtc"], isUnique: false);
 
         AssertForeignKey(entity, typeof(UserProfile), ["CreatedByUserProfileId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserProfile), ["BillOwnerUserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(UserProfile), ["ReconciliationUpdatedByUserProfileId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserGroup), ["GroupId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(
@@ -135,6 +150,22 @@ public sealed class ExpenseBillSchemaFoundationTests
             entity,
             "ck_expense_bills_status",
             "status IN ('draft', 'pending_confirmation', 'confirmed', 'rejected', 'cancelled', 'finalized', 'archived')");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bills_reconciliation_status",
+            "reconciliation_status IN ('unreconciled', 'reconciled', 'ignored')");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bills_reconciliation_note_not_blank",
+            "reconciliation_note IS NULL OR length(btrim(reconciliation_note)) > 0");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bills_reconciliation_update_actor_pair",
+            "((reconciliation_updated_at_utc IS NULL AND reconciliation_updated_by_user_profile_id IS NULL) OR (reconciliation_updated_at_utc IS NOT NULL AND reconciliation_updated_by_user_profile_id IS NOT NULL))");
+        AssertCheckConstraint(
+            entity,
+            "ck_expense_bills_reconciled_at_matches_status",
+            "((reconciliation_status = 'reconciled' AND reconciled_at_utc IS NOT NULL) OR (reconciliation_status <> 'reconciled' AND reconciled_at_utc IS NULL))");
         AssertCheckConstraint(entity, "ck_expense_bills_total_amount_non_negative", "total_amount >= 0");
         AssertCheckConstraint(entity, "ck_expense_bills_total_amount_upper_bound", "total_amount <= 999999999999999.9999");
         AssertCheckConstraint(
@@ -845,6 +876,98 @@ public sealed class ExpenseBillSchemaFoundationTests
         Assert.DoesNotContain(names, name => name.Contains("recurring", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(names, name => name.Contains("balance", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(names, name => name.Contains("reconciliation", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExpenseBillReconciliationReportingMigrationIsRegisteredAdditiveAndConstrained()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddBillReconciliationReportingFoundation", StringComparison.Ordinal));
+
+        var migration = new AddBillReconciliationReportingFoundation();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var addColumns = migration.UpOperations.OfType<AddColumnOperation>().ToArray();
+        Assert.Equal(
+            [
+                "reconciled_at_utc",
+                "reconciliation_note",
+                "reconciliation_status",
+                "reconciliation_updated_at_utc",
+                "reconciliation_updated_by_user_profile_id"
+            ],
+            addColumns.Select(column => column.Name));
+        Assert.All(addColumns, column => Assert.Equal("expense_bills", column.Table));
+
+        var statusColumn = Assert.Single(addColumns, column => column.Name == "reconciliation_status");
+        Assert.Equal(typeof(string), statusColumn.ClrType);
+        Assert.Equal("character varying(32)", statusColumn.ColumnType);
+        Assert.False(statusColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.BillReconciliationStatusMaxLength, statusColumn.MaxLength);
+        Assert.Equal(ExpenseBillReconciliationStatuses.Unreconciled, statusColumn.DefaultValue);
+
+        var noteColumn = Assert.Single(addColumns, column => column.Name == "reconciliation_note");
+        Assert.Equal(typeof(string), noteColumn.ClrType);
+        Assert.Equal("character varying(120)", noteColumn.ColumnType);
+        Assert.True(noteColumn.IsNullable);
+        Assert.Equal(ExpenseBillConstraints.BillReconciliationNoteMaxLength, noteColumn.MaxLength);
+
+        var actorColumn = Assert.Single(addColumns, column => column.Name == "reconciliation_updated_by_user_profile_id");
+        Assert.Equal(typeof(Guid), actorColumn.ClrType);
+        Assert.Equal("uuid", actorColumn.ColumnType);
+        Assert.True(actorColumn.IsNullable);
+
+        var indexes = migration.UpOperations.OfType<CreateIndexOperation>().ToArray();
+        AssertMigrationIndex(
+            indexes,
+            "ix_expense_bills_reconciliation_status",
+            "expense_bills",
+            ["reconciliation_status"]);
+        AssertMigrationIndex(
+            indexes,
+            "ix_expense_bills_reconciliation_updated_by_user_profile_id",
+            "expense_bills",
+            ["reconciliation_updated_by_user_profile_id"]);
+
+        Assert.Contains(
+            migration.UpOperations.OfType<AddForeignKeyOperation>(),
+            foreignKey => foreignKey.Name == "fk_expense_bills_reconciliation_updated_by_user_profiles"
+                && foreignKey.Table == "expense_bills"
+                && foreignKey.PrincipalTable == "user_profiles"
+                && foreignKey.Columns.SequenceEqual(["reconciliation_updated_by_user_profile_id"])
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+
+        var checkConstraints = migration.UpOperations.OfType<AddCheckConstraintOperation>().ToArray();
+        Assert.Contains(
+            checkConstraints,
+            constraint => constraint.Name == "ck_expense_bills_reconciliation_status"
+                && constraint.Table == "expense_bills"
+                && constraint.Sql == "reconciliation_status IN ('unreconciled', 'reconciled', 'ignored')");
+        Assert.Contains(
+            checkConstraints,
+            constraint => constraint.Name == "ck_expense_bills_reconciliation_note_not_blank"
+                && constraint.Table == "expense_bills"
+                && constraint.Sql == "reconciliation_note IS NULL OR length(btrim(reconciliation_note)) > 0");
+        Assert.Contains(
+            checkConstraints,
+            constraint => constraint.Name == "ck_expense_bills_reconciliation_update_actor_pair"
+                && constraint.Table == "expense_bills"
+                && constraint.Sql == "((reconciliation_updated_at_utc IS NULL AND reconciliation_updated_by_user_profile_id IS NULL) OR (reconciliation_updated_at_utc IS NOT NULL AND reconciliation_updated_by_user_profile_id IS NOT NULL))");
+        Assert.Contains(
+            checkConstraints,
+            constraint => constraint.Name == "ck_expense_bills_reconciled_at_matches_status"
+                && constraint.Table == "expense_bills"
+                && constraint.Sql == "((reconciliation_status = 'reconciled' AND reconciled_at_utc IS NOT NULL) OR (reconciliation_status <> 'reconciled' AND reconciled_at_utc IS NULL))");
     }
 
     [Fact]

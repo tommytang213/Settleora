@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
 
@@ -204,6 +205,7 @@ internal static class PersonalBillEndpoints
     }
 
     private static async Task<IResult> ListPersonalBillsAsync(
+        string? reconciliationStatus,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -223,7 +225,18 @@ internal static class PersonalBillEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var bills = await PersonalBillsQuery(dbContext, actor.UserProfileId)
+        if (!TryReadReconciliationStatusFilter(reconciliationStatus, out var statusFilter, out var filterErrors))
+        {
+            return InvalidBillRequest(filterErrors);
+        }
+
+        var query = PersonalBillsQuery(dbContext, actor.UserProfileId);
+        if (statusFilter is not null)
+        {
+            query = query.Where(bill => bill.ReconciliationStatus == statusFilter);
+        }
+
+        var bills = await query
             .OrderByDescending(bill => bill.BillDate)
             .ThenByDescending(bill => bill.CreatedAtUtc)
             .ThenByDescending(bill => bill.Id)
@@ -890,6 +903,7 @@ internal static class PersonalBillEndpoints
             bill.MerchantName,
             bill.BillDate,
             bill.Status,
+            ExpenseBillReconciliationEndpoints.MapReconciliationResponse(bill),
             FormatAmount(bill.TotalAmount),
             bill.TotalCurrency,
             bill.CreatedAtUtc,
@@ -1042,6 +1056,32 @@ internal static class PersonalBillEndpoints
             "payers.currency" => "currency",
             _ => field
         };
+    }
+
+    private static bool TryReadReconciliationStatusFilter(
+        string? submittedStatus,
+        out string? status,
+        out IDictionary<string, string[]> errors)
+    {
+        status = null;
+        errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (submittedStatus is null)
+        {
+            return true;
+        }
+
+        var trimmedStatus = submittedStatus.Trim();
+        if (ExpenseBillReconciliationStatuses.IsSupported(trimmedStatus))
+        {
+            status = trimmedStatus;
+            return true;
+        }
+
+        errors = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["reconciliationStatus"] = ["Reconciliation status is not supported."]
+        };
+        return false;
     }
 
     private static void AddUnsupportedFieldError(Dictionary<string, List<string>> errors)

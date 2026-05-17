@@ -168,10 +168,10 @@ class SettleoraApiClient {
     );
   }
 
-  Future<PersonalBillListResponse> listPersonalBills({required String accessToken, Map<String, String>? headers}) async {
+  Future<PersonalBillListResponse> listPersonalBills({ExpenseBillReconciliationStatus? reconciliationStatus, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
-      "/api/v1/bills",
+      _withQuery("/api/v1/bills", {"reconciliationStatus": reconciliationStatus}),
       body: null,
       accessToken: accessToken,
       headers: headers,
@@ -316,6 +316,17 @@ class SettleoraApiClient {
       accessToken: accessToken,
       headers: headers,
     );
+  }
+
+  Future<ExpenseBillReconciliationResponse> updatePersonalBillReconciliation(String billId, ExpenseBillReconciliationUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/reconciliation',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ExpenseBillReconciliationResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<BillRevisionListResponse> listBillRevisions(String billId, {required String accessToken, Map<String, String>? headers}) async {
@@ -493,10 +504,10 @@ class SettleoraApiClient {
     return GroupResponse.fromJson(JsonObject.from(payload as Map));
   }
 
-  Future<GroupBillListResponse> listGroupBills(String groupId, {required String accessToken, Map<String, String>? headers}) async {
+  Future<GroupBillListResponse> listGroupBills(String groupId, {ExpenseBillReconciliationStatus? reconciliationStatus, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
-      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills',
+      _withQuery('/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills', {"reconciliationStatus": reconciliationStatus}),
       body: null,
       accessToken: accessToken,
       headers: headers,
@@ -641,6 +652,17 @@ class SettleoraApiClient {
       accessToken: accessToken,
       headers: headers,
     );
+  }
+
+  Future<ExpenseBillReconciliationResponse> updateGroupBillReconciliation(String groupId, String billId, ExpenseBillReconciliationUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/${Uri.encodeComponent(billId.toString())}/reconciliation',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ExpenseBillReconciliationResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<SettlementCandidateListResponse> listGroupBillSettlementCandidates(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {
@@ -892,6 +914,17 @@ class SettleoraApiClient {
       headers: headers,
     );
     return RecurringBillTemplateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<MonthlyReportResponse> getMonthlyReport({required String month, String? groupId, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/reports/monthly", {"month": month, "groupId": groupId}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return MonthlyReportResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<SettlementBalanceProjectionListResponse> listSettlementBalanceProjections({required String accessToken, Map<String, String>? headers}) async {
