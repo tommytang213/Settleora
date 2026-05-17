@@ -82,21 +82,27 @@ void main() {
       expect(currentUser.toString(), isNot(contains(_accessToken)));
     });
 
-    test('refresh rotates session material through the generated client', () async {
-      final client = FakeAuthGeneratedClient();
-      final repository = GeneratedSettleoraAuthRepository(client: client);
+    test(
+      'refresh rotates session material through the generated client',
+      () async {
+        final client = FakeAuthGeneratedClient();
+        final repository = GeneratedSettleoraAuthRepository(client: client);
 
-      final session = await repository.refreshSession(
-        refreshCredential: '  $_refreshCredential  ',
-      );
+        final session = await repository.refreshSession(
+          refreshCredential: '  $_refreshCredential  ',
+        );
 
-      expect(client.refreshCalls, 1);
-      expect(client.lastRefreshRequest?.refreshCredential, _refreshCredential);
-      expect(session.accessToken, _accessToken);
-      expect(session.refreshCredential, _refreshCredential);
-      expect(session.toString(), isNot(contains(_accessToken)));
-      expect(session.toString(), isNot(contains(_refreshCredential)));
-    });
+        expect(client.refreshCalls, 1);
+        expect(
+          client.lastRefreshRequest?.refreshCredential,
+          _refreshCredential,
+        );
+        expect(session.accessToken, _accessToken);
+        expect(session.refreshCredential, _refreshCredential);
+        expect(session.toString(), isNot(contains(_accessToken)));
+        expect(session.toString(), isNot(contains(_refreshCredential)));
+      },
+    );
 
     test('lists and revokes sessions through generated methods', () async {
       final client = FakeAuthGeneratedClient();

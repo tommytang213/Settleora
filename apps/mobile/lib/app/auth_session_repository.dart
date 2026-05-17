@@ -151,9 +151,7 @@ abstract interface class SettleoraAuthGeneratedClient {
 
   Future<void> signOutCurrentSession({required String accessToken});
 
-  Future<void> signOutAllCurrentAccountSessions({
-    required String accessToken,
-  });
+  Future<void> signOutAllCurrentAccountSessions({required String accessToken});
 
   Future<api.SessionListResponse> listCurrentAccountSessions({
     required String accessToken,
@@ -195,9 +193,7 @@ class SettleoraGeneratedAuthClient implements SettleoraAuthGeneratedClient {
   }
 
   @override
-  Future<void> signOutAllCurrentAccountSessions({
-    required String accessToken,
-  }) {
+  Future<void> signOutAllCurrentAccountSessions({required String accessToken}) {
     return _client.signOutAllCurrentAccountSessions(accessToken: accessToken);
   }
 
@@ -418,8 +414,7 @@ SettleoraServerSessionMaterial _mapSessionMaterial({
     accessSessionExpiresAtUtc: session.expiresAtUtc.toUtc(),
     refreshCredential: refreshCredential.token,
     refreshIdleExpiresAtUtc: refreshCredential.idleExpiresAtUtc.toUtc(),
-    refreshAbsoluteExpiresAtUtc: refreshCredential.absoluteExpiresAtUtc
-        .toUtc(),
+    refreshAbsoluteExpiresAtUtc: refreshCredential.absoluteExpiresAtUtc.toUtc(),
   );
 }
 

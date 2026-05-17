@@ -124,77 +124,86 @@ void main() {
       expect(await provider.accessToken(), isNull);
     });
 
-    test('rotates expired access sessions with usable refresh material', () async {
-      final keyValueStore = InMemorySecureKeyValueStore();
-      final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
-      final authRepository = FakeAuthRepository(
-        refreshedSession: SettleoraServerSessionMaterial(
-          accessToken: 'rotated-access',
-          accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
-          refreshCredential: 'rotated-refresh',
-          refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
-          refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
-        ),
-      );
-      final provider = SecureSessionAccessTokenProvider(
-        secureStorage: storage,
-        authRepository: authRepository,
-        now: () => DateTime.utc(2026, 5, 14),
-      );
+    test(
+      'rotates expired access sessions with usable refresh material',
+      () async {
+        final keyValueStore = InMemorySecureKeyValueStore();
+        final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
+        final authRepository = FakeAuthRepository(
+          refreshedSession: SettleoraServerSessionMaterial(
+            accessToken: 'rotated-access',
+            accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+            refreshCredential: 'rotated-refresh',
+            refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+            refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+          ),
+        );
+        final provider = SecureSessionAccessTokenProvider(
+          secureStorage: storage,
+          authRepository: authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        );
 
-      await storage.writeServerSession(
-        SettleoraServerSessionMaterial(
-          accessToken: 'expired-access',
-          accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
-          refreshCredential: 'redacted-refresh-material',
-          refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
-          refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
-        ),
-      );
+        await storage.writeServerSession(
+          SettleoraServerSessionMaterial(
+            accessToken: 'expired-access',
+            accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
+            refreshCredential: 'redacted-refresh-material',
+            refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+            refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+          ),
+        );
 
-      expect(await provider.accessToken(), 'rotated-access');
-      expect(authRepository.refreshCalls, 1);
-      expect(authRepository.lastRefreshCredential, 'redacted-refresh-material');
+        expect(await provider.accessToken(), 'rotated-access');
+        expect(authRepository.refreshCalls, 1);
+        expect(
+          authRepository.lastRefreshCredential,
+          'redacted-refresh-material',
+        );
 
-      final restored = await storage.readServerSession();
-      expect(restored?.accessToken, 'rotated-access');
-      expect(restored?.refreshCredential, 'rotated-refresh');
-    });
+        final restored = await storage.readServerSession();
+        expect(restored?.accessToken, 'rotated-access');
+        expect(restored?.refreshCredential, 'rotated-refresh');
+      },
+    );
 
-    test('unauthorized refresh clears local session without leaking secrets', () async {
-      final keyValueStore = InMemorySecureKeyValueStore();
-      final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
-      final authRepository = FakeAuthRepository(
-        refreshFailure: const SettleoraAuthFailure(
-          kind: SettleoraAuthFailureKind.sessionExpired,
-          message: 'Your session has expired. Sign in again.',
-          statusCode: 401,
-        ),
-      );
-      final provider = SecureSessionAccessTokenProvider(
-        secureStorage: storage,
-        authRepository: authRepository,
-        now: () => DateTime.utc(2026, 5, 14),
-      );
+    test(
+      'unauthorized refresh clears local session without leaking secrets',
+      () async {
+        final keyValueStore = InMemorySecureKeyValueStore();
+        final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
+        final authRepository = FakeAuthRepository(
+          refreshFailure: const SettleoraAuthFailure(
+            kind: SettleoraAuthFailureKind.sessionExpired,
+            message: 'Your session has expired. Sign in again.',
+            statusCode: 401,
+          ),
+        );
+        final provider = SecureSessionAccessTokenProvider(
+          secureStorage: storage,
+          authRepository: authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        );
 
-      await storage.writeServerSession(
-        SettleoraServerSessionMaterial(
-          accessToken: 'expired-access',
-          accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
-          refreshCredential: 'redacted-refresh-material',
-          refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
-          refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
-        ),
-      );
+        await storage.writeServerSession(
+          SettleoraServerSessionMaterial(
+            accessToken: 'expired-access',
+            accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
+            refreshCredential: 'redacted-refresh-material',
+            refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+            refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+          ),
+        );
 
-      expect(await provider.accessToken(), isNull);
-      expect(await storage.readServerSession(), isNull);
-      expect(authRepository.refreshCalls, 1);
-      expect(
-        authRepository.refreshFailure.toString(),
-        isNot(contains('redacted-refresh-material')),
-      );
-    });
+        expect(await provider.accessToken(), isNull);
+        expect(await storage.readServerSession(), isNull);
+        expect(authRepository.refreshCalls, 1);
+        expect(
+          authRepository.refreshFailure.toString(),
+          isNot(contains('redacted-refresh-material')),
+        );
+      },
+    );
   });
 }
 
@@ -267,9 +276,7 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   }
 
   @override
-  Future<void> signOutAllCurrentAccountSessions({
-    required String accessToken,
-  }) {
+  Future<void> signOutAllCurrentAccountSessions({required String accessToken}) {
     throw UnimplementedError();
   }
 

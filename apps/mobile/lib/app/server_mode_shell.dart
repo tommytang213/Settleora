@@ -152,9 +152,9 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -546,9 +546,7 @@ class _SessionStatePanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            requiresSignIn
-                ? Icons.lock_outline
-                : Icons.cloud_off_outlined,
+            requiresSignIn ? Icons.lock_outline : Icons.cloud_off_outlined,
             size: 42,
             color: Theme.of(context).colorScheme.primary,
           ),

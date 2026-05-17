@@ -441,7 +441,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('server-shell-sign-out')));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(authRepository.signOutCurrentCalls, 1);
       expect(storage.session, isNotNull);
@@ -496,8 +497,14 @@ void main() {
     expect(find.text('This device'), findsOneWidget);
     expect(find.text('Tablet'), findsOneWidget);
     expect(find.text('Current'), findsOneWidget);
-    expect(visibleText(tester), isNot(contains('current-session-id-not-visible')));
-    expect(visibleText(tester), isNot(contains('other-session-id-not-visible')));
+    expect(
+      visibleText(tester),
+      isNot(contains('current-session-id-not-visible')),
+    );
+    expect(
+      visibleText(tester),
+      isNot(contains('other-session-id-not-visible')),
+    );
     expect(visibleText(tester), isNot(contains('redacted-signed-in-access')));
     expect(visibleText(tester), isNot(contains('redacted-signed-in-refresh')));
 
@@ -510,40 +517,41 @@ void main() {
     expect(authRepository.lastRevokedSessionId, 'other-session-id-not-visible');
   });
 
-  testWidgets('session list sign-out-all clears local session after backend call', (
-    tester,
-  ) async {
-    final storage = FakeSecureStorage(
-      configuration: SettleoraAppConfiguration.server(
-        serverBaseUri: Uri.parse('https://settleora.example/'),
-      ),
-      session: sampleSessionMaterial(),
-    );
-    final authRepository = FakeAuthRepository(
-      sessions: [sampleSessionSummary(isCurrent: true)],
-    );
+  testWidgets(
+    'session list sign-out-all clears local session after backend call',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final authRepository = FakeAuthRepository(
+        sessions: [sampleSessionSummary(isCurrent: true)],
+      );
 
-    await tester.pumpWidget(
-      SettleoraMobileApp(
-        secureStorage: storage,
-        authRepositoryFactory: (_) => authRepository,
-        now: () => DateTime.utc(2026, 5, 14),
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('server-shell-sessions')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Sign Out All'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign Out All'));
+      await tester.pumpAndSettle();
 
-    expect(authRepository.signOutAllCalls, 1);
-    expect(authRepository.lastAccessToken, 'redacted-signed-in-access');
-    expect(storage.session, isNull);
-    expect(find.text('Sign in to Settleora'), findsOneWidget);
-  });
+      expect(authRepository.signOutAllCalls, 1);
+      expect(authRepository.lastAccessToken, 'redacted-signed-in-access');
+      expect(storage.session, isNull);
+      expect(find.text('Sign in to Settleora'), findsOneWidget);
+    },
+  );
 
   testWidgets('queue renders empty state from repository', (tester) async {
     final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
