@@ -13,43 +13,20 @@ class SettleoraMobileApp extends StatelessWidget {
     SettleoraSecureStorageBoundary? secureStorage,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
+    this.billRepositoryFactory,
+    this.billSyncControllerFactory,
     this.now,
   }) : secureStorage = secureStorage ?? SettleoraSecureStorage();
 
   final SettleoraSecureStorageBoundary secureStorage;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
+  final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
-    final receiptFactory = receiptOcrReviewRepositoryFactory;
-    final authFactory = authRepositoryFactory;
-
-    Widget home;
-    if (receiptFactory != null && authFactory != null) {
-      home = SettleoraAppBootstrap(
-        secureStorage: secureStorage,
-        receiptOcrReviewRepositoryFactory: receiptFactory,
-        authRepositoryFactory: authFactory,
-        now: now,
-      );
-    } else if (receiptFactory != null) {
-      home = SettleoraAppBootstrap(
-        secureStorage: secureStorage,
-        receiptOcrReviewRepositoryFactory: receiptFactory,
-        now: now,
-      );
-    } else if (authFactory != null) {
-      home = SettleoraAppBootstrap(
-        secureStorage: secureStorage,
-        authRepositoryFactory: authFactory,
-        now: now,
-      );
-    } else {
-      home = SettleoraAppBootstrap(secureStorage: secureStorage, now: now);
-    }
-
     return MaterialApp(
       title: 'Settleora',
       theme: ThemeData(
@@ -59,7 +36,14 @@ class SettleoraMobileApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: home,
+      home: SettleoraAppBootstrap(
+        secureStorage: secureStorage,
+        receiptOcrReviewRepositoryFactory: receiptOcrReviewRepositoryFactory,
+        authRepositoryFactory: authRepositoryFactory,
+        billRepositoryFactory: billRepositoryFactory,
+        billSyncControllerFactory: billSyncControllerFactory,
+        now: now,
+      ),
     );
   }
 }

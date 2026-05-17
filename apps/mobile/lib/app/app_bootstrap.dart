@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_repository.dart';
+import '../bills/bill_sync_controller.dart';
+import '../bills/generated_bill_repository.dart';
 import '../receipt_ocr_review/generated_receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../sync/generated_sync_repository.dart';
+import '../sync/sync_queue.dart';
+import '../sync/sync_queue_processor.dart';
+import '../sync/sync_repository.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
 import 'secure_session_access_token_provider.dart';
@@ -20,19 +27,42 @@ typedef ReceiptOcrReviewRepositoryFactory =
 typedef SettleoraAuthRepositoryFactory =
     SettleoraAuthRepository Function(SettleoraApiConfiguration configuration);
 
+typedef SettleoraBillRepositoryFactory =
+    SettleoraBillRepository Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
+typedef SettleoraSyncRepositoryFactory =
+    SettleoraSyncRepository Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
+typedef SettleoraSyncQueueStoreFactory = SettleoraSyncQueueStore Function();
+
+typedef SettleoraBillSyncControllerFactory =
+    SettleoraBillSyncController Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
 class SettleoraAppBootstrap extends StatefulWidget {
   const SettleoraAppBootstrap({
     super.key,
     required this.secureStorage,
-    this.receiptOcrReviewRepositoryFactory =
-        _defaultReceiptOcrReviewRepositoryFactory,
-    this.authRepositoryFactory = _defaultAuthRepositoryFactory,
+    this.receiptOcrReviewRepositoryFactory,
+    this.authRepositoryFactory,
+    this.billRepositoryFactory,
+    this.billSyncControllerFactory,
     this.now,
   });
 
   final SettleoraSecureStorageBoundary secureStorage;
-  final ReceiptOcrReviewRepositoryFactory receiptOcrReviewRepositoryFactory;
-  final SettleoraAuthRepositoryFactory authRepositoryFactory;
+  final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
+  final SettleoraAuthRepositoryFactory? authRepositoryFactory;
+  final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
 
   @override
@@ -70,7 +100,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       if (configuration?.mode == SettleoraAppMode.server && session != null) {
         final baseUri = configuration?.serverBaseUri;
         if (baseUri != null) {
-          final authRepository = widget.authRepositoryFactory(
+          final authRepository = _authRepositoryFactory(
             SettleoraApiConfiguration(baseUri: baseUri),
           );
           final tokenProvider = SecureSessionAccessTokenProvider(
@@ -152,7 +182,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       );
     }
 
-    final repository = widget.authRepositoryFactory(
+    final repository = _authRepositoryFactory(
       SettleoraApiConfiguration(baseUri: baseUri),
     );
     final session = await repository.signIn(submission);
@@ -278,7 +308,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       );
     }
 
-    final authRepository = widget.authRepositoryFactory(
+    final authRepository = _authRepositoryFactory(
       SettleoraApiConfiguration(baseUri: baseUri),
     );
     final tokenProvider = SecureSessionAccessTokenProvider(
@@ -286,19 +316,43 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       authRepository: authRepository,
       now: widget.now,
     );
-    final repository = widget.receiptOcrReviewRepositoryFactory(
-      SettleoraApiConfiguration(baseUri: baseUri),
+    final apiConfiguration = SettleoraApiConfiguration(baseUri: baseUri);
+    final repository = _receiptOcrReviewRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
+    final billRepository = _billRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
+    final billSyncController = _billSyncControllerFactory(
+      apiConfiguration,
       tokenProvider,
     );
 
     return SettleoraAuthenticatedServerShell(
       currentUser: snapshot.currentUser!,
       receiptOcrReviewRepository: repository,
+      billRepository: billRepository,
+      billSyncController: billSyncController,
       authRepository: authRepository,
       accessTokenProvider: tokenProvider,
       onSessionEnded: _clearSessionAndLoad,
     );
   }
+
+  ReceiptOcrReviewRepositoryFactory get _receiptOcrReviewRepositoryFactory =>
+      widget.receiptOcrReviewRepositoryFactory ??
+      _defaultReceiptOcrReviewRepositoryFactory;
+
+  SettleoraAuthRepositoryFactory get _authRepositoryFactory =>
+      widget.authRepositoryFactory ?? _defaultAuthRepositoryFactory;
+
+  SettleoraBillRepositoryFactory get _billRepositoryFactory =>
+      widget.billRepositoryFactory ?? _defaultBillRepositoryFactory;
+
+  SettleoraBillSyncControllerFactory get _billSyncControllerFactory =>
+      widget.billSyncControllerFactory ?? _defaultBillSyncControllerFactory;
 }
 
 class _BootstrapSnapshot {
@@ -380,6 +434,45 @@ SettleoraAuthRepository _defaultAuthRepositoryFactory(
 ) {
   return GeneratedSettleoraAuthRepository.fromConfiguration(
     configuration: configuration,
+  );
+}
+
+SettleoraBillRepository _defaultBillRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  return GeneratedSettleoraBillRepository.fromConfiguration(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
+  );
+}
+
+SettleoraBillSyncController _defaultBillSyncControllerFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  final queueStore = SecureStorageSyncQueueStore();
+  final syncRepository = _defaultSyncRepositoryFactory(
+    configuration,
+    accessTokenProvider,
+  );
+
+  return SettleoraBillSyncController(
+    queueStore: queueStore,
+    queueProcessor: SettleoraSyncQueueProcessor(
+      queueStore: queueStore,
+      repository: syncRepository,
+    ),
+  );
+}
+
+SettleoraSyncRepository _defaultSyncRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  return GeneratedSettleoraSyncRepository.fromConfiguration(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
   );
 }
 

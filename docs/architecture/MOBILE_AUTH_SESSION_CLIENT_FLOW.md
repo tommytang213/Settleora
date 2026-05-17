@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. The current runtime covers first-launch configuration, secure app/session storage boundaries, generated-client-backed sign-in/current-user validation, refresh-aware access-token lookup, a minimal authenticated server-mode shell, current-session logout, account-wide sign-out-all, session/device list, per-session revocation, and session-gated receipt review repository injection.
+This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. The current runtime covers first-launch configuration, secure app/session storage boundaries, generated-client-backed sign-in/current-user validation, refresh-aware access-token lookup, a minimal authenticated server-mode shell, current-session logout, account-wide sign-out-all, session/device list, per-session revocation, session-gated receipt review repository injection, and session-gated personal bill repository plus bill sync queue controller injection.
 
 The mobile app must support both local-only use and server-connected use without moving auth, authorization, money, storage, OCR review apply, or audit authority into the client. This document does not authorize runtime code by itself.
 
@@ -12,8 +12,9 @@ The mobile app must support both local-only use and server-connected use without
 - The mobile app depends on `settleora_api_client` through `apps/mobile/pubspec.yaml`.
 - The mobile app has a generated-client adapter seam in `apps/mobile/lib/api/settleora_api_client.dart` with `SettleoraApiConfiguration`, `SettleoraGeneratedApiClientFactory`, and `SettleoraAccessTokenProvider`.
 - The receipt OCR review mobile foundation exists under `apps/mobile/lib/receipt_ocr_review/`. It can render queue/detail/edit/apply-preview/apply states when a repository is injected, and the generated-backed repository reads an access token per operation through `SettleoraAccessTokenProvider`.
-- The mobile app now has a first-launch local/server mode choice, server base URL validation and normalization, a secure-storage-backed app/session boundary, a generated-client-backed sign-in/current-user repository seam, a refresh-aware secure-session access-token provider, a minimal authenticated server-mode shell, current-session logout, sign-out-all, session/device list, per-session revocation, and bootstrap-time repository injection for the receipt OCR review queue after current-user validation succeeds.
-- The mobile app does not yet implement local-mode expense storage, mobile receipt capture/OCR extraction, broad bill/settlement/payment mobile screens, passkeys, MFA, OIDC/Keycloak mobile flows, password reset/recovery, sync/offline queues, or broader product dashboard UI.
+- The starter mobile bill foundation exists under `apps/mobile/lib/bills/`. It reads personal bills through a generated-client-backed repository seam, derives active versus archived display state from bounded list filters, queues archive/restore operations through the sync queue foundation, and flushes through `SettleoraSyncQueueProcessor` when a session is available.
+- The mobile app now has a first-launch local/server mode choice, server base URL validation and normalization, a secure-storage-backed app/session boundary, a generated-client-backed sign-in/current-user repository seam, a refresh-aware secure-session access-token provider, a minimal authenticated server-mode shell, current-session logout, sign-out-all, session/device list, per-session revocation, bootstrap-time repository injection for the receipt OCR review queue, and bootstrap-time personal bill/sync controller injection after current-user validation succeeds.
+- The mobile app does not yet implement local-mode expense storage, mobile receipt capture/OCR extraction, broad bill creation/editing/settlement/payment mobile screens, passkeys, MFA, OIDC/Keycloak mobile flows, password reset/recovery, full offline cache hydration, broad sync conflict review UI, or broader product dashboard UI.
 - The backend currently exposes reviewed local auth/session endpoints for first-owner bootstrap, local sign-in, refresh, current-user, current-session sign-out, current-account sign-out-all, current-account session list, and per-session revocation.
 - The backend has `SettleoraSession` bearer authentication, current-actor access, authorization policies, and guarded receipt OCR review endpoints that require authenticated session access.
 - The backend remains authoritative for auth/session validation, current actor resolution, authorization, money, storage/file access, OCR-review apply eligibility, status transitions, and audit.
@@ -158,7 +159,7 @@ If a deployment uses an upstream access proxy, Settleora mobile still needs an a
 Good follow-up slices are small and reviewable:
 
 - Keep the implemented mobile auth/session lifecycle shell aligned as future receipt, bill, settlement, and payment-details screens are added.
-- Extend app-level repository injection so future bill/settlement/payment screens receive generated-client-backed repositories only in authenticated server mode.
+- Extend app-level repository injection so future group bill, settlement, and payment screens receive generated-client-backed repositories only in authenticated server mode.
 - Optional managed/server-discovery flow for self-hosted deployments.
 - OIDC/Keycloak or passkey/MFA mobile flows only after separate backend and mobile design gates.
 
