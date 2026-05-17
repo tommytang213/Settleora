@@ -634,17 +634,66 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List personal bills
-      description: Lists non-archived personal bills visible to the authenticated actor where groupId is null. This first foundation endpoint is intentionally unpaginated and supports a basic reconciliation-status filter.
+      description: Lists non-archived personal bills visible to the authenticated actor where groupId is null. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, and result limit.
       operationId: listPersonalBills
       security:
         - SessionBearerAuth: []
       parameters:
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
         - name: reconciliationStatus
           in: query
           required: false
           description: Optional manual reconciliation status filter.
           schema:
             $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
       responses:
         "200":
           description: Personal bills visible to the authenticated actor.
@@ -654,6 +703,195 @@ paths:
                 $ref: "#/components/schemas/PersonalBillListResponse"
         "400":
           description: The submitted bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/export.json:
+    get:
+      summary: Export personal bills as JSON
+      description: Returns a bounded read-only JSON export of non-archived personal bills visible to the authenticated actor using the same filters as the personal bill list endpoint. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+      operationId: exportPersonalBillsJson
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Safe JSON bill export for personal bills visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillExportResponse"
+        "400":
+          description: The submitted bill export filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/export.csv:
+    get:
+      summary: Export personal bills as CSV
+      description: Returns a bounded read-only CSV export of non-archived personal bills visible to the authenticated actor using the same filters as the personal bill list endpoint. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
+      operationId: exportPersonalBillsCsv
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Safe CSV bill export for personal bills visible to the authenticated actor.
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: The submitted bill export filter is invalid.
           content:
             application/problem+json:
               schema:
@@ -2253,7 +2491,7 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
     get:
       summary: List group bills
-      description: Lists non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Personal, archived, unrelated, and other-group bills are excluded. This first foundation response is intentionally unpaginated and supports a basic reconciliation-status filter.
+      description: Lists non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Personal, archived, unrelated, and other-group bills are excluded. Supports bounded read-only filters for bill date, bill status, manual reconciliation status, currency, merchant text, safe bill-field search, and result limit.
       operationId: listGroupBills
       security:
         - SessionBearerAuth: []
@@ -2265,12 +2503,61 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
         - name: reconciliationStatus
           in: query
           required: false
           description: Optional manual reconciliation status filter.
           schema:
             $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
       responses:
         "200":
           description: Group bills visible to the authenticated active group member.
@@ -2280,6 +2567,209 @@ paths:
                 $ref: "#/components/schemas/GroupBillListResponse"
         "400":
           description: The submitted group bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/export.json:
+    get:
+      summary: Export group bills as JSON
+      description: Returns a bounded read-only JSON export of non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. Rows contain safe bill-level fields only and exclude auth/session data, payment details, storage internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+      operationId: exportGroupBillsJson
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose bills should be exported.
+          schema:
+            type: string
+            format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Safe JSON bill export for group bills visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillExportResponse"
+        "400":
+          description: The submitted group bill export filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/export.csv:
+    get:
+      summary: Export group bills as CSV
+      description: Returns a bounded read-only CSV export of non-archived bills in the route group only when the authenticated actor is an active member of that non-deleted group. CSV output uses stable safe bill-level columns, escapes CSV text, and does not create storage-backed export files.
+      operationId: exportGroupBillsCsv
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose bills should be exported.
+          schema:
+            type: string
+            format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Safe CSV bill export for group bills visible to the authenticated actor.
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: The submitted group bill export filter is invalid.
           content:
             application/problem+json:
               schema:
@@ -7349,9 +7839,139 @@ components:
             - type: string
               maxLength: 120
             - type: "null"
+    ExpenseBillExportResponse:
+      type: object
+      description: Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+      required:
+        - generatedAtUtc
+        - appliedFilters
+        - rowCount
+        - rows
+      properties:
+        generatedAtUtc:
+          type: string
+          format: date-time
+        appliedFilters:
+          $ref: "#/components/schemas/ExpenseBillExportFilterResponse"
+        rowCount:
+          type: integer
+          minimum: 0
+          maximum: 200
+        rows:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ExpenseBillExportRowResponse"
+    ExpenseBillExportFilterResponse:
+      type: object
+      description: Bounded filters applied to a bill list/export request.
+      required:
+        - fromDate
+        - toDate
+        - status
+        - reconciliationStatus
+        - currency
+        - merchant
+        - search
+        - limit
+      properties:
+        fromDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        toDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        status:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillStatus"
+            - type: "null"
+        reconciliationStatus:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+            - type: "null"
+        currency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+        merchant:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        search:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+    ExpenseBillExportRowResponse:
+      type: object
+      description: Safe bill-level export row. It intentionally omits item names/notes, adjustment notes, payment labels, auth IDs, storage details, OCR text, proof data, and unrelated user data.
+      required:
+        - billId
+        - groupId
+        - merchantName
+        - billDate
+        - billStatus
+        - reconciliationStatus
+        - totalAmount
+        - currency
+        - itemCount
+        - participantCount
+        - payerCount
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        billId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        billDate:
+          type: string
+          format: date
+        billStatus:
+          $ref: "#/components/schemas/ExpenseBillStatus"
+        reconciliationStatus:
+          $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        totalAmount:
+          type: string
+          description: Decimal-safe total amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        itemCount:
+          type: integer
+          minimum: 0
+        participantCount:
+          type: integer
+          minimum: 0
+        payerCount:
+          type: integer
+          minimum: 0
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
     PersonalBillListResponse:
       type: object
-      description: Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
+      description: Personal bills visible to the authenticated actor after bounded filter and limit application.
       required:
         - bills
       properties:
@@ -9119,7 +9739,7 @@ components:
           description: Optional payment method label snapshot after server-side trimming.
     GroupBillListResponse:
       type: object
-      description: Group bills visible to the authenticated active group member. This first foundation response is intentionally unpaginated.
+      description: Group bills visible to the authenticated active group member after bounded filter and limit application.
       required:
         - bills
       properties:

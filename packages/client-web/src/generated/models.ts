@@ -708,7 +708,53 @@ export interface ExpenseBillReconciliationResponse {
 }
 
 /**
- * Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
+ * Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+ */
+export interface ExpenseBillExportResponse {
+  generatedAtUtc: string;
+  appliedFilters: ExpenseBillExportFilterResponse;
+  rowCount: number;
+  rows: ExpenseBillExportRowResponse[];
+}
+
+/**
+ * Bounded filters applied to a bill list/export request.
+ */
+export interface ExpenseBillExportFilterResponse {
+  fromDate: string | null;
+  toDate: string | null;
+  status: ExpenseBillStatus | null;
+  reconciliationStatus: ExpenseBillReconciliationStatus | null;
+  currency: CurrencyCode | null;
+  merchant: string | null;
+  search: string | null;
+  limit: number;
+}
+
+/**
+ * Safe bill-level export row. It intentionally omits item names/notes, adjustment notes, payment labels, auth IDs, storage details, OCR text, proof data, and unrelated user data.
+ */
+export interface ExpenseBillExportRowResponse {
+  billId: string;
+  groupId: string | null;
+  merchantName: string | null;
+  billDate: string;
+  billStatus: ExpenseBillStatus;
+  reconciliationStatus: ExpenseBillReconciliationStatus;
+  /**
+   * Decimal-safe total amount represented as a string.
+   */
+  totalAmount: string;
+  currency: CurrencyCode;
+  itemCount: number;
+  participantCount: number;
+  payerCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
+ * Personal bills visible to the authenticated actor after bounded filter and limit application.
  */
 export interface PersonalBillListResponse {
   bills: PersonalBillResponse[];
@@ -1665,7 +1711,7 @@ export interface CreateGroupBillPayerRequest {
 }
 
 /**
- * Group bills visible to the authenticated active group member. This first foundation response is intentionally unpaginated.
+ * Group bills visible to the authenticated active group member after bounded filter and limit application.
  */
 export interface GroupBillListResponse {
   bills: GroupBillResponse[];

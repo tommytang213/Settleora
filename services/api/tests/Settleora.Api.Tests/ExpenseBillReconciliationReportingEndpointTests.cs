@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -384,6 +385,319 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task PersonalBillListUsesSharedSearchFiltersWithoutLeakingCrossUserOrArchivedBills()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal Search Actor");
+        var other = await SeedAccountAsync(testFactory, "Personal Search Other", InitialTimestamp.AddMinutes(1));
+        var matchedId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 20m)],
+            [new PayerSeed(actorSession.UserProfileId, 20m)],
+            "Alpha Market",
+            new DateOnly(2026, 5, 12),
+            20m,
+            "HKD",
+            ExpenseBillReconciliationStatuses.Ignored,
+            InitialTimestamp.AddMinutes(2),
+            status: ExpenseBillStatuses.Confirmed,
+            itemName: "Alpha Noodles");
+        await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(other.UserProfileId, 20m)],
+            [new PayerSeed(other.UserProfileId, 20m)],
+            "Alpha Market",
+            new DateOnly(2026, 5, 12),
+            20m,
+            "HKD",
+            ExpenseBillReconciliationStatuses.Ignored,
+            InitialTimestamp.AddMinutes(3),
+            status: ExpenseBillStatuses.Confirmed);
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 22m)],
+            [new PayerSeed(actorSession.UserProfileId, 22m)],
+            "Alpha Archived",
+            new DateOnly(2026, 5, 12),
+            22m,
+            "HKD",
+            ExpenseBillReconciliationStatuses.Ignored,
+            InitialTimestamp.AddMinutes(4),
+            status: ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: InitialTimestamp.AddMinutes(5));
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 23m)],
+            [new PayerSeed(actorSession.UserProfileId, 23m)],
+            "Alpha Wrong Currency",
+            new DateOnly(2026, 5, 12),
+            23m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Ignored,
+            InitialTimestamp.AddMinutes(6),
+            status: ExpenseBillStatuses.Confirmed);
+        var searchMatchId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 15m)],
+            [new PayerSeed(actorSession.UserProfileId, 15m)],
+            "Quiet Cafe",
+            new DateOnly(2026, 5, 13),
+            15m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp.AddMinutes(7),
+            itemName: "Needle Soup");
+        using var client = testFactory.CreateClient();
+
+        var filteredBills = await GetBillsAsync(
+            client,
+            actorSession.RawSessionToken,
+            $"/api/v1/bills?fromDate=2026-05-01&toDate=2026-05-31&status={ExpenseBillStatuses.Confirmed}&reconciliationStatus={ExpenseBillReconciliationStatuses.Ignored}&currency=HKD&merchant=alpha&limit=1");
+        Assert.Equal([matchedId], filteredBills.Select(bill => bill.Id));
+        Assert.All(filteredBills, bill =>
+        {
+            Assert.Equal(ExpenseBillStatuses.Confirmed, bill.Status);
+            Assert.Equal(ExpenseBillReconciliationStatuses.Ignored, bill.ReconciliationStatus);
+            Assert.Equal("HKD", bill.TotalCurrency);
+        });
+
+        var searchBills = await GetBillsAsync(
+            client,
+            actorSession.RawSessionToken,
+            "/api/v1/bills?search=needle&limit=10");
+        Assert.Equal([searchMatchId], searchBills.Select(bill => bill.Id));
+
+        using var invalidFilterRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills?fromDate=2026-99-99&toDate=2026-01-01&currency=usd&limit=999&search=visible-secret",
+            actorSession.RawSessionToken);
+        using var invalidFilterResponse = await client.SendAsync(invalidFilterRequest);
+        var invalidFilterContent = await invalidFilterResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, invalidFilterResponse.StatusCode);
+        Assert.Contains("From date must be a yyyy-MM-dd date string.", invalidFilterContent);
+        Assert.Contains("Currency must be an uppercase three-letter code.", invalidFilterContent);
+        Assert.Contains("Limit must be between 1 and 200.", invalidFilterContent);
+        Assert.DoesNotContain("visible-secret", invalidFilterContent);
+        Assert.DoesNotContain("usd", invalidFilterContent);
+    }
+
+    [Fact]
+    public async Task GroupBillListUsesSharedSearchFiltersWithoutLeakingCrossGroupBills()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Search Actor");
+        var nonMemberSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Search Non Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Group Search",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var wrongGroupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Wrong Search Group",
+            InitialTimestamp.AddMinutes(1),
+            deletedAtUtc: null,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var matchedId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 33m)],
+            [new PayerSeed(actorSession.UserProfileId, 33m)],
+            "Shared Alpha",
+            new DateOnly(2026, 5, 14),
+            33m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(2),
+            status: ExpenseBillStatuses.Confirmed,
+            itemName: "Group Search Needle");
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            wrongGroupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 33m)],
+            [new PayerSeed(actorSession.UserProfileId, 33m)],
+            "Shared Alpha",
+            new DateOnly(2026, 5, 14),
+            33m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(3),
+            status: ExpenseBillStatuses.Confirmed,
+            itemName: "Group Search Needle");
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 34m)],
+            [new PayerSeed(actorSession.UserProfileId, 34m)],
+            "Shared Alpha Archived",
+            new DateOnly(2026, 5, 14),
+            34m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(4),
+            status: ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: InitialTimestamp.AddMinutes(5));
+        using var client = testFactory.CreateClient();
+
+        var groupBills = await GetBillsAsync(
+            client,
+            actorSession.RawSessionToken,
+            $"/api/v1/groups/{groupId:D}/bills?fromDate=2026-05-01&toDate=2026-05-31&status={ExpenseBillStatuses.Confirmed}&reconciliationStatus={ExpenseBillReconciliationStatuses.Reconciled}&currency=USD&merchant=alpha&search=needle&limit=10");
+        Assert.Equal([matchedId], groupBills.Select(bill => bill.Id));
+
+        using var nonMemberExportRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{groupId:D}/bills/export.json?search=needle",
+            nonMemberSession.RawSessionToken);
+        using var nonMemberExportResponse = await client.SendAsync(nonMemberExportRequest);
+        await AssertBillExportUnavailableProblemAsync(nonMemberExportResponse);
+    }
+
+    [Fact]
+    public async Task BillExportsReturnSafeJsonAndCsvRows()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Export Actor");
+        var other = await SeedAccountAsync(testFactory, "Export Other", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Export Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var formulaBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 12m)],
+            [new PayerSeed(actorSession.UserProfileId, 12m)],
+            "=SUM(1,2)",
+            new DateOnly(2026, 5, 15),
+            12m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(2),
+            status: ExpenseBillStatuses.Finalized,
+            itemName: "Hidden Export Item",
+            itemNote: "Private export note",
+            adjustmentReasonNote: "Private adjustment note");
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 8m)],
+            [new PayerSeed(actorSession.UserProfileId, 8m)],
+            "Cafe, \"North\"",
+            new DateOnly(2026, 5, 14),
+            8m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp.AddMinutes(3));
+        await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(other.UserProfileId, 99m)],
+            [new PayerSeed(other.UserProfileId, 99m)],
+            "=SUM(9,9)",
+            new DateOnly(2026, 5, 15),
+            99m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(4));
+        var groupBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 17m)],
+            [new PayerSeed(actorSession.UserProfileId, 17m)],
+            "Group Export",
+            new DateOnly(2026, 5, 13),
+            17m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Ignored,
+            InitialTimestamp.AddMinutes(5));
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using (var jsonRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export.json?fromDate=2026-05-01&toDate=2026-05-31&limit=10",
+            actorSession.RawSessionToken))
+        using (var jsonResponse = await client.SendAsync(jsonRequest))
+        {
+            var content = await jsonResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, jsonResponse.StatusCode);
+            Assert.Equal("application/json", jsonResponse.Content.Headers.ContentType?.MediaType);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+            Assert.DoesNotContain("Hidden Export Item", content);
+            Assert.DoesNotContain("Private export note", content);
+            Assert.DoesNotContain("Private adjustment note", content);
+            using var payload = JsonDocument.Parse(content);
+            var root = payload.RootElement;
+            Assert.Equal(WriteTimestamp, root.GetProperty("generatedAtUtc").GetDateTimeOffset());
+            Assert.Equal(2, root.GetProperty("rowCount").GetInt32());
+            Assert.Equal(10, root.GetProperty("appliedFilters").GetProperty("limit").GetInt32());
+            var rows = root.GetProperty("rows").EnumerateArray().ToArray();
+            Assert.Equal([formulaBillId], rows.Where(row => row.GetProperty("merchantName").GetString() == "=SUM(1,2)").Select(row => row.GetProperty("billId").GetGuid()));
+            Assert.All(rows, row => Assert.True(row.TryGetProperty("itemCount", out _)));
+        }
+
+        using (var csvRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export.csv?fromDate=2026-05-01&toDate=2026-05-31&limit=10",
+            actorSession.RawSessionToken))
+        using (var csvResponse = await client.SendAsync(csvRequest))
+        {
+            var content = await csvResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, csvResponse.StatusCode);
+            Assert.Equal("text/csv", csvResponse.Content.Headers.ContentType?.MediaType);
+            Assert.StartsWith("billId,groupId,merchantName,billDate,billStatus,reconciliationStatus,totalAmount,currency,itemCount,participantCount,payerCount,createdAtUtc,updatedAtUtc", content, StringComparison.Ordinal);
+            Assert.Contains("\"'=SUM(1,2)\"", content);
+            Assert.Contains("\"Cafe, \"\"North\"\"\"", content);
+            Assert.DoesNotContain("=SUM(9,9)", content);
+            Assert.DoesNotContain("Hidden Export Item", content);
+            Assert.DoesNotContain("Private export note", content);
+            Assert.DoesNotContain("Private adjustment note", content);
+        }
+
+        using (var groupJsonRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{groupId:D}/bills/export.json?search=export&limit=10",
+            actorSession.RawSessionToken))
+        using (var groupJsonResponse = await client.SendAsync(groupJsonRequest))
+        {
+            var content = await groupJsonResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, groupJsonResponse.StatusCode);
+            using var payload = JsonDocument.Parse(content);
+            var row = Assert.Single(payload.RootElement.GetProperty("rows").EnumerateArray());
+            Assert.Equal(groupBillId, row.GetProperty("billId").GetGuid());
+            Assert.Equal(groupId, row.GetProperty("groupId").GetGuid());
+            Assert.Equal("Group Export", row.GetProperty("merchantName").GetString());
+        }
+    }
+
+    [Fact]
     public async Task MonthlyPersonalReportIncludesOnlyActorVisibleBillsByMonthAndBucketsCurrencies()
     {
         var testContext = CreateFactory();
@@ -751,7 +1065,12 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         decimal totalAmount,
         string currency,
         string reconciliationStatus,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        string status = ExpenseBillStatuses.Draft,
+        DateTimeOffset? archivedAtUtc = null,
+        string itemName = "Seeded Reconciliation Item",
+        string? itemNote = null,
+        string? adjustmentReasonNote = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -765,7 +1084,7 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             GroupId = groupId,
             MerchantName = merchantName,
             BillDate = billDate,
-            Status = ExpenseBillStatuses.Draft,
+            Status = status,
             ReconciliationStatus = reconciliationStatus,
             ReconciliationUpdatedAtUtc = reconciliationStatus == ExpenseBillReconciliationStatuses.Unreconciled ? null : createdAtUtc,
             ReconciliationUpdatedByUserProfileId = reconciliationStatus == ExpenseBillReconciliationStatuses.Unreconciled ? null : creatorProfileId,
@@ -773,13 +1092,15 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             TotalAmount = totalAmount,
             TotalCurrency = currency,
             CreatedAtUtc = createdAtUtc,
-            UpdatedAtUtc = createdAtUtc
+            UpdatedAtUtc = createdAtUtc,
+            ArchivedAtUtc = archivedAtUtc
         };
         var item = new ExpenseBillItem
         {
             Id = itemId,
             ExpenseBillId = billId,
-            Name = "Seeded Reconciliation Item",
+            Name = itemName,
+            Note = itemNote,
             Amount = totalAmount,
             Currency = currency,
             SortOrder = 0,
@@ -830,6 +1151,24 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         }
 
         bill.Items.Add(item);
+        if (adjustmentReasonNote is not null)
+        {
+            bill.Adjustments.Add(new ExpenseBillAdjustment
+            {
+                Id = Guid.NewGuid(),
+                ExpenseBillId = billId,
+                Type = ExpenseBillAdjustmentTypes.ServiceCharge,
+                Direction = ExpenseBillAdjustmentDirections.Charge,
+                AllocationMethod = ExpenseBillAdjustmentAllocationMethods.Equal,
+                Amount = 0m,
+                Currency = currency,
+                ReasonNote = adjustmentReasonNote,
+                SortOrder = 0,
+                CreatedAtUtc = createdAtUtc,
+                UpdatedAtUtc = createdAtUtc
+            });
+        }
+
         dbContext.Set<ExpenseBill>().Add(bill);
         await dbContext.SaveChangesAsync();
         return billId;
@@ -1021,7 +1360,16 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             .EnumerateArray()
             .Select(bill => new BillListItem(
                 bill.GetProperty("id").GetGuid(),
-                bill.GetProperty("reconciliation").GetProperty("status").GetString()!))
+                bill.GetProperty("reconciliation").GetProperty("status").GetString()!,
+                bill.GetProperty("status").GetString()!,
+                bill.GetProperty("totalCurrency").GetString()!,
+                bill.GetProperty("merchantName").ValueKind is JsonValueKind.Null
+                    ? null
+                    : bill.GetProperty("merchantName").GetString(),
+                DateOnly.ParseExact(
+                    bill.GetProperty("billDate").GetString()!,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture)))
             .ToArray();
     }
 
@@ -1183,6 +1531,20 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             payload.RootElement.GetProperty("detail").GetString());
     }
 
+    private static async Task AssertBillExportUnavailableProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Bill export unavailable", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(404, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The requested bill export is unavailable.",
+            payload.RootElement.GetProperty("detail").GetString());
+    }
+
     private sealed record FactoryTestContext(
         WebApplicationFactory<Program> Factory,
         ReconciliationTestTimeProvider TimeProvider);
@@ -1213,7 +1575,11 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
 
     private sealed record BillListItem(
         Guid Id,
-        string ReconciliationStatus);
+        string ReconciliationStatus,
+        string Status,
+        string TotalCurrency,
+        string? MerchantName,
+        DateOnly BillDate);
 
     private sealed record FinancialSnapshot(
         string BillStatus,
