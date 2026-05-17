@@ -10,12 +10,19 @@ internal static class ExpenseBillSearchQueries
         SettleoraDbContext dbContext,
         Guid userProfileId)
     {
+        return VisiblePersonalBillsIncludingArchived(dbContext, userProfileId)
+            .Where(bill => bill.ArchivedAtUtc == null);
+    }
+
+    public static IQueryable<ExpenseBill> VisiblePersonalBillsIncludingArchived(
+        SettleoraDbContext dbContext,
+        Guid userProfileId)
+    {
         return dbContext.Set<ExpenseBill>()
             .AsNoTracking()
             .Where(bill => (bill.CreatedByUserProfileId == userProfileId
                     || bill.Participants.Any(participant => participant.UserProfileId == userProfileId))
                 && bill.GroupId == null
-                && bill.ArchivedAtUtc == null
                 && bill.CreatedByUserProfile.DeletedAtUtc == null);
     }
 
@@ -23,10 +30,17 @@ internal static class ExpenseBillSearchQueries
         SettleoraDbContext dbContext,
         Guid groupId)
     {
+        return VisibleGroupBillsIncludingArchived(dbContext, groupId)
+            .Where(bill => bill.ArchivedAtUtc == null);
+    }
+
+    public static IQueryable<ExpenseBill> VisibleGroupBillsIncludingArchived(
+        SettleoraDbContext dbContext,
+        Guid groupId)
+    {
         return dbContext.Set<ExpenseBill>()
             .AsNoTracking()
             .Where(bill => bill.GroupId == groupId
-                && bill.ArchivedAtUtc == null
                 && bill.Group != null
                 && bill.Group.DeletedAtUtc == null
                 && bill.CreatedByUserProfile.DeletedAtUtc == null);
@@ -47,6 +61,13 @@ internal static class ExpenseBillSearchQueries
         this IQueryable<ExpenseBill> query,
         ExpenseBillSearchFilter filter)
     {
+        query = filter.ArchiveState switch
+        {
+            ExpenseBillArchiveStates.Archived => query.Where(bill => bill.ArchivedAtUtc != null),
+            ExpenseBillArchiveStates.All => query,
+            _ => query.Where(bill => bill.ArchivedAtUtc == null)
+        };
+
         if (filter.FromDate is not null)
         {
             query = query.Where(bill => bill.BillDate >= filter.FromDate.Value);

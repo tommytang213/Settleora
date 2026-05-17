@@ -213,6 +213,7 @@ internal static class PersonalBillEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -241,6 +242,7 @@ internal static class PersonalBillEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             out var filter,
             out var filterErrors))
@@ -248,7 +250,7 @@ internal static class PersonalBillEndpoints
             return InvalidBillRequest(filterErrors);
         }
 
-        var bills = await ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, actor.UserProfileId)
+        var bills = await ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId)
             .ApplySearchFilter(filter)
             .WithBillDetails()
             .OrderForList()

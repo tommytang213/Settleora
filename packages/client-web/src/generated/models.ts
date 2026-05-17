@@ -728,6 +728,7 @@ export interface ExpenseBillExportFilterResponse {
   currency: CurrencyCode | null;
   merchant: string | null;
   search: string | null;
+  archiveState: ExpenseBillArchiveState;
   limit: number;
 }
 
@@ -814,6 +815,18 @@ export interface BillCsvImportedBillSummaryResponse {
   itemCount: number;
   participantCount: number;
   payerCount: number;
+}
+
+/**
+ * Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
+ */
+export interface ExpenseBillLifecycleResponse {
+  billId: string;
+  groupId: string | null;
+  status: ExpenseBillStatus;
+  archiveState: ExpenseBillArchiveState;
+  archivedAtUtc: string | null;
+  updatedAtUtc: string;
 }
 
 /**
@@ -1886,6 +1899,11 @@ export type InAppNotificationPriority = "normal" | "attention" | "urgent";
  * Stable subject family linked by optional IDs on a notification.
  */
 export type InAppNotificationSubjectType = "expense_bill" | "settlement_request" | "settlement_payment" | "recurring_bill_occurrence";
+
+/**
+ * Bounded archive visibility filter or lifecycle state for expense bills.
+ */
+export type ExpenseBillArchiveState = "active" | "archived" | "all";
 
 /**
  * Expense bill root status.

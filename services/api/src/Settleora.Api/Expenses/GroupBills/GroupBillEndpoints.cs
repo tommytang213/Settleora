@@ -178,6 +178,7 @@ internal static class GroupBillEndpoints
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -206,6 +207,7 @@ internal static class GroupBillEndpoints
             currency,
             merchant,
             search,
+            archiveState,
             limit,
             out var filter,
             out var filterErrors))
@@ -213,7 +215,7 @@ internal static class GroupBillEndpoints
             return InvalidGroupBillRequest(filterErrors);
         }
 
-        var bills = await ExpenseBillSearchQueries.VisibleGroupBills(dbContext, groupId)
+        var bills = await ExpenseBillSearchQueries.VisibleGroupBillsIncludingArchived(dbContext, groupId)
             .ApplySearchFilter(filter)
             .WithBillDetails()
             .OrderForList()

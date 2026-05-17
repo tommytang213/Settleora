@@ -12,6 +12,7 @@ internal sealed record ExpenseBillSearchFilter(
     string? Currency,
     string? Merchant,
     string? Search,
+    string ArchiveState,
     int Limit)
 {
     public const int DefaultLimit = 50;
@@ -26,6 +27,7 @@ internal sealed record ExpenseBillSearchFilter(
         string? currency,
         string? merchant,
         string? search,
+        string? archiveState,
         string? limit,
         out ExpenseBillSearchFilter filter,
         out IDictionary<string, string[]> errors)
@@ -45,6 +47,7 @@ internal sealed record ExpenseBillSearchFilter(
         var parsedCurrency = ReadCurrency(currency, errorBuilder);
         var parsedMerchant = ReadTextFilter(merchant, "merchant", "Merchant filter", errorBuilder);
         var parsedSearch = ReadTextFilter(search, "search", "Search filter", errorBuilder);
+        var parsedArchiveState = ReadArchiveState(archiveState, errorBuilder);
         var parsedLimit = ReadLimit(limit, errorBuilder);
 
         errors = ToErrorDictionary(errorBuilder);
@@ -57,6 +60,7 @@ internal sealed record ExpenseBillSearchFilter(
                 parsedCurrency,
                 parsedMerchant,
                 parsedSearch,
+                parsedArchiveState,
                 parsedLimit)
             : new ExpenseBillSearchFilter(
                 null,
@@ -66,9 +70,29 @@ internal sealed record ExpenseBillSearchFilter(
                 null,
                 null,
                 null,
+                ExpenseBillArchiveStates.Active,
                 DefaultLimit);
 
         return errors.Count == 0;
+    }
+
+    private static string ReadArchiveState(
+        string? submittedArchiveState,
+        Dictionary<string, List<string>> errors)
+    {
+        if (submittedArchiveState is null)
+        {
+            return ExpenseBillArchiveStates.Active;
+        }
+
+        var trimmedArchiveState = submittedArchiveState.Trim();
+        if (ExpenseBillArchiveStates.IsSupported(trimmedArchiveState))
+        {
+            return trimmedArchiveState;
+        }
+
+        AddError(errors, "archiveState", "Archive state is not supported.");
+        return ExpenseBillArchiveStates.Active;
     }
 
     private static DateOnly? ReadDate(
@@ -233,5 +257,17 @@ internal sealed record ExpenseBillSearchFilter(
             pair => pair.Key,
             pair => pair.Value.ToArray(),
             StringComparer.Ordinal);
+    }
+}
+
+internal static class ExpenseBillArchiveStates
+{
+    public const string Active = "active";
+    public const string Archived = "archived";
+    public const string All = "all";
+
+    public static bool IsSupported(string? value)
+    {
+        return value is Active or Archived or All;
     }
 }
