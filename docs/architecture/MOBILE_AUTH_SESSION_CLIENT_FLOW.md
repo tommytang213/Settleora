@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. The current runtime covers first-launch configuration, secure app/session storage boundaries, and session-gated repository injection only; live sign-in UI, refresh scheduling, logout, and session-management screens remain future slices.
+This document is the design gate for Settleora mobile server-mode auth, session, and generated API client wiring. The current runtime covers first-launch configuration, secure app/session storage boundaries, generated-client-backed sign-in/current-user validation, refresh-aware access-token lookup, a minimal authenticated server-mode shell, current-session logout, account-wide sign-out-all, session/device list, per-session revocation, and session-gated receipt review repository injection.
 
 The mobile app must support both local-only use and server-connected use without moving auth, authorization, money, storage, OCR review apply, or audit authority into the client. This document does not authorize runtime code by itself.
 
@@ -12,8 +12,8 @@ The mobile app must support both local-only use and server-connected use without
 - The mobile app depends on `settleora_api_client` through `apps/mobile/pubspec.yaml`.
 - The mobile app has a generated-client adapter seam in `apps/mobile/lib/api/settleora_api_client.dart` with `SettleoraApiConfiguration`, `SettleoraGeneratedApiClientFactory`, and `SettleoraAccessTokenProvider`.
 - The receipt OCR review mobile foundation exists under `apps/mobile/lib/receipt_ocr_review/`. It can render queue/detail/edit/apply-preview/apply states when a repository is injected, and the generated-backed repository reads an access token per operation through `SettleoraAccessTokenProvider`.
-- The mobile app now has a first-launch local/server mode choice, server base URL validation and normalization, a secure-storage-backed app/session boundary, a secure-session access-token provider, and bootstrap-time repository injection for the receipt OCR review queue when server mode has usable saved session material.
-- The mobile app does not yet implement sign-in screens, credential submission, refresh-token rotation, logout/revoke UI, device/session list UI, current-user bootstrap, or local-mode expense storage.
+- The mobile app now has a first-launch local/server mode choice, server base URL validation and normalization, a secure-storage-backed app/session boundary, a generated-client-backed sign-in/current-user repository seam, a refresh-aware secure-session access-token provider, a minimal authenticated server-mode shell, current-session logout, sign-out-all, session/device list, per-session revocation, and bootstrap-time repository injection for the receipt OCR review queue after current-user validation succeeds.
+- The mobile app does not yet implement local-mode expense storage, mobile receipt capture/OCR extraction, broad bill/settlement/payment mobile screens, passkeys, MFA, OIDC/Keycloak mobile flows, password reset/recovery, sync/offline queues, or broader product dashboard UI.
 - The backend currently exposes reviewed local auth/session endpoints for first-owner bootstrap, local sign-in, refresh, current-user, current-session sign-out, current-account sign-out-all, current-account session list, and per-session revocation.
 - The backend has `SettleoraSession` bearer authentication, current-actor access, authorization policies, and guarded receipt OCR review endpoints that require authenticated session access.
 - The backend remains authoritative for auth/session validation, current actor resolution, authorization, money, storage/file access, OCR-review apply eligibility, status transitions, and audit.
@@ -45,14 +45,14 @@ Server discovery can be manual on Day 1. QR code import, managed configuration, 
 
 ### Sign-In
 
-The backend local sign-in endpoint exists, but mobile sign-in UI and secure credential/session storage do not. A future mobile sign-in slice should:
+The backend local sign-in endpoint and generated Dart client are wired through the mobile auth repository. The implemented mobile sign-in flow:
 
-1. Use the validated server base URI to create the generated API client.
-2. Submit only the reviewed sign-in contract fields required by the backend.
-3. Receive opaque access-session and refresh-like credential material only from the backend.
-4. Immediately store token material through an approved secure-storage boundary.
-5. Call current-user with the access token to derive the signed-in actor/profile/session display state.
-6. Route authenticated server-mode repositories through injected token providers, not static globals.
+1. Uses the validated server base URI to create the generated API client.
+2. Submits only the reviewed sign-in contract fields required by the backend.
+3. Receives opaque access-session and refresh-like credential material only from the backend.
+4. Immediately stores token material through the approved secure-storage boundary.
+5. Calls current-user with the access token to derive the signed-in actor/profile/session display state.
+6. Routes authenticated server-mode repositories through injected token providers, not static globals.
 
 Manual bearer-token entry is not a production UX. Developer-only token overrides, if ever added, must be separately gated, non-persistent by default, hidden from normal builds, and explicitly excluded from production flows.
 
@@ -76,18 +76,18 @@ The receipt OCR review generated repository already follows the per-call token-p
 
 ### Logout And Revocation
 
-When backend support exists for the desired operation, mobile logout should prefer server-authoritative revocation:
+Mobile logout prefers server-authoritative revocation:
 
-- Sign out current session for normal logout.
-- Clear local secure session material only after the app has attempted current-session revocation, while still clearing locally if the server is unreachable and the user chooses local sign-out.
-- Use sign-out-all only for explicit account-wide logout from the current device.
-- Use per-session revocation for a device/session list.
+- Normal logout attempts current-session sign-out before clearing local secure session material.
+- If the server is unreachable, local secure session material is cleared only after the user explicitly chooses local device sign-out.
+- Sign-out-all is exposed only through an explicit account-wide confirmation from the session list.
+- Per-session revocation is exposed from the device/session list for non-current sessions.
 
 Logout UX must avoid showing raw access tokens, refresh credentials, password values, provider tokens, session hashes, or credential metadata.
 
 ### Session And Device List
 
-The backend current-account session list and per-session revocation endpoints exist. A future mobile device/session list should display only safe session metadata returned by the API, such as labels and timestamps. It must not derive trust from device names alone, and it must keep revocation server-authoritative.
+The mobile device/session list displays only safe session metadata returned by the API, such as labels, status, timestamps, and the current-session marker. It does not display raw tokens, refresh credentials, token hashes, auth account IDs, or session hashes. It must not derive trust from device names alone, and revocation remains server-authoritative.
 
 ## Security And Privacy Requirements
 
@@ -120,13 +120,13 @@ For receipt OCR review specifically, the mobile repository may submit bounded re
 
 ## Minimum UX States
 
-Future mobile implementation should model these states explicitly:
+Mobile implementation should model these states explicitly:
 
 - **Not configured**: no server base URI exists and no local mode has been selected.
 - **Local mode selected**: local-only data is available; server-only features are hidden or shown as connect-to-server actions.
 - **Server configured, signed out**: server base URI exists, no usable session material exists.
 - **Signing in**: credentials are being submitted; secret fields must not be logged or shown outside the form.
-- **Signed in**: current-user validation has succeeded and server-mode repositories can receive injected configuration and token providers.
+- **Signed in**: current-user validation has succeeded and server-mode repositories receive injected configuration and token providers.
 - **Session expired**: current token or refresh path failed; authenticated routes require sign-in again.
 - **Offline/server unreachable**: network, DNS, timeout, proxy, or server availability failure.
 - **TLS/certificate warning**: production should fail closed for certificate errors; development exceptions must be explicit and not silently persisted into production.
@@ -155,12 +155,8 @@ If a deployment uses an upstream access proxy, Settleora mobile still needs an a
 
 Good follow-up slices are small and reviewable:
 
-- Mobile sign-in form wired to the reviewed backend local sign-in endpoint.
-- Mobile current-user/session bootstrap that validates saved session material before opening server-mode routes.
-- Mobile refresh and session-expired handling wired to the reviewed backend refresh endpoint.
-- Mobile logout wired to current-session revocation.
-- Mobile current-account session/device list and per-session revocation UI.
-- App-level repository injection so receipt OCR review and future bill/settlement screens receive generated-client-backed repositories only in authenticated server mode.
+- Keep the implemented mobile auth/session lifecycle shell aligned as future receipt, bill, settlement, and payment-details screens are added.
+- Extend app-level repository injection so future bill/settlement/payment screens receive generated-client-backed repositories only in authenticated server mode.
 - Optional managed/server-discovery flow for self-hosted deployments.
 - OIDC/Keycloak or passkey/MFA mobile flows only after separate backend and mobile design gates.
 
