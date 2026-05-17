@@ -1122,6 +1122,105 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/sync/operations:
+    post:
+      summary: Submit server-mode sync operation
+      description: Processes one bounded current-actor offline queue operation against the authoritative API. Day 1 supports only bill archive and bill restore for expense bills. The server derives actor, profile, group membership, resource visibility, lifecycle policy, audit, and resulting resource version; the request body is never echoed. Accepted, replayed, rejected, and conflict outcomes are returned as safe sync operation results so clients can preserve local pending work.
+      operationId: submitSyncOperation
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncOperationRequest"
+      responses:
+        "200":
+          description: Sync operation was processed into an accepted, replayed, rejected, or conflict result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncOperationResponse"
+        "400":
+          description: Sync operation envelope is invalid or outside the Day 1 resource boundary.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to submit a sync operation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Sync operation persistence failed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/sync/changes:
+    get:
+      summary: List visible sync changes
+      description: Returns a bounded metadata-only change feed for resources visible to the authenticated actor after the submitted version. The feed is for cache invalidation and never returns full bill payloads, merchant text, item notes, payment details, storage paths, OCR text, auth account IDs, session tokens, or raw sync operation payloads.
+      operationId: listSyncChanges
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: sinceVersion
+          in: query
+          required: false
+          description: Last seen server resource version. Omitted means zero.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of visible change rows to return. Values above the server cap are clamped.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: resourceType
+          in: query
+          required: false
+          description: Optional resource type filter.
+          schema:
+            $ref: "#/components/schemas/SyncResourceType"
+      responses:
+        "200":
+          description: Bounded visible metadata-only change feed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncChangesResponse"
+        "400":
+          description: Change-feed query is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to list sync changes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/reconciliation:
     patch:
       summary: Update personal bill reconciliation status
@@ -11020,6 +11119,169 @@ components:
         - down
         - nearest
         - bankers
+    SyncOperationType:
+      type: string
+      description: Day 1 sync operation types accepted by the server sync foundation.
+      enum:
+        - bill_archive
+        - bill_restore
+    SyncResourceType:
+      type: string
+      description: Day 1 resource types supported by the server sync foundation.
+      enum:
+        - expense_bill
+    SyncOperationStatus:
+      type: string
+      description: Safe sync operation result status.
+      enum:
+        - accepted
+        - replayed
+        - rejected
+        - conflict
+    SyncChangeKind:
+      type: string
+      description: Metadata-only change kind for cache invalidation.
+      enum:
+        - updated
+        - archived
+        - restored
+    SyncOperationRequest:
+      type: object
+      description: Bounded server-mode sync operation envelope. Actor, profile, group, totals, settlement state, storage, file, OCR, auth, and audit authority are derived server-side.
+      additionalProperties: false
+      required:
+        - idempotencyKey
+        - operationType
+        - resourceType
+        - resourceId
+        - baseVersion
+        - payload
+      properties:
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_.:-]+$"
+          description: Actor-scoped idempotency key for this queued operation.
+        operationType:
+          $ref: "#/components/schemas/SyncOperationType"
+        resourceType:
+          $ref: "#/components/schemas/SyncResourceType"
+        resourceId:
+          type: string
+          format: uuid
+          description: Server resource ID for the operation target.
+        baseVersion:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+            - type: "null"
+          description: Last known server resource version, or null when the client has no version.
+        payload:
+          type: object
+          maxProperties: 16
+          description: Bounded operation payload. Bill archive and restore currently accept an empty object only.
+    SyncOperationResponse:
+      type: object
+      description: Safe sync operation result. It excludes raw payloads, merchant text, item notes, payment details, storage paths, OCR text, tokens, auth account IDs, and private notes.
+      required:
+        - operationId
+        - status
+        - resourceType
+        - resourceId
+        - resultingVersion
+        - safeErrorCode
+        - safeMessage
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/SyncOperationStatus"
+        resourceType:
+          $ref: "#/components/schemas/SyncResourceType"
+        resourceId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        resultingVersion:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 1
+            - type: "null"
+        safeErrorCode:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        safeMessage:
+          oneOf:
+            - type: string
+              maxLength: 240
+            - type: "null"
+    SyncChangesResponse:
+      type: object
+      description: Bounded metadata-only sync change feed for resources visible to the current actor.
+      required:
+        - sinceVersion
+        - nextSinceVersion
+        - limit
+        - resourceType
+        - changes
+      properties:
+        sinceVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        nextSinceVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        resourceType:
+          oneOf:
+            - $ref: "#/components/schemas/SyncResourceType"
+            - type: "null"
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncChange"
+    SyncChange:
+      type: object
+      description: Safe metadata for one visible resource version. Clients must call authorized resource endpoints to hydrate details.
+      required:
+        - resourceType
+        - resourceId
+        - version
+        - changedAtUtc
+        - changeKind
+        - groupId
+      properties:
+        resourceType:
+          $ref: "#/components/schemas/SyncResourceType"
+        resourceId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        changedAtUtc:
+          type: string
+          format: date-time
+        changeKind:
+          $ref: "#/components/schemas/SyncChangeKind"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
     SyncState:
       type: string
       description: Placeholder sync state values shared by local and server-mode clients.

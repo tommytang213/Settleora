@@ -1,9 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
-using Settleora.Api.Domain.Expenses;
-using Settleora.Api.Domain.Settlements;
-using Settleora.Api.Expenses.GroupBills;
-using Settleora.Api.Expenses.PersonalBills;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Expenses.BillLifecycle;
@@ -20,20 +16,6 @@ internal static class ExpenseBillLifecycleEndpoints
     private const string BillLifecycleConflictDetail = "The requested bill lifecycle transition is not allowed.";
     private const string BillLifecycleWriteFailedTitle = "Bill lifecycle write failed";
     private const string BillLifecycleWriteFailedDetail = "Unable to complete bill lifecycle write.";
-    private const string BillArchivedAction = "bill.archived";
-    private const string BillRestoredAction = "bill.restored";
-    private const string ActiveArchiveState = "active";
-    private const string ArchivedArchiveState = "archived";
-    private const string PersonalGroupMode = "personal";
-    private const string GroupMode = "group";
-
-    private static readonly string[] ActiveSettlementRequestStatuses =
-    [
-        SettlementRequestStatuses.Requested,
-        SettlementRequestStatuses.PartiallyPaid,
-        SettlementRequestStatuses.MarkedPaid,
-        SettlementRequestStatuses.Confirmed
-    ];
 
     public static WebApplication MapExpenseBillLifecycleEndpoints(this WebApplication app)
     {
@@ -53,10 +35,8 @@ internal static class ExpenseBillLifecycleEndpoints
     private static async Task<IResult> ArchivePersonalBillAsync(
         Guid billId,
         ICurrentActorAccessor currentActorAccessor,
-        IBusinessAuthorizationService businessAuthorizationService,
-        IPersonalBillAuditWriter auditWriter,
+        ExpenseBillLifecycleService lifecycleService,
         SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
@@ -64,41 +44,20 @@ internal static class ExpenseBillLifecycleEndpoints
             return Unauthenticated();
         }
 
-        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
-            actor.UserProfileId,
-            cancellationToken);
-        if (!authorizationResult.Allowed)
-        {
-            return MapPersonalAuthorizationFailure(authorizationResult);
-        }
-
-        var bill = await LoadPersonalLifecycleBillAsync(
-            dbContext,
+        var result = await lifecycleService.ApplyPersonalAsync(
             billId,
-            actor.UserProfileId,
-            cancellationToken);
-        if (bill is null)
-        {
-            return BillUnavailable();
-        }
-
-        return await ApplyPersonalLifecycleAsync(
-            bill,
             archive: true,
             actor,
-            auditWriter,
-            dbContext,
-            timeProvider,
             cancellationToken);
+
+        return await MapPersonalLifecycleResultAsync(result, dbContext, cancellationToken);
     }
 
     private static async Task<IResult> RestorePersonalBillAsync(
         Guid billId,
         ICurrentActorAccessor currentActorAccessor,
-        IBusinessAuthorizationService businessAuthorizationService,
-        IPersonalBillAuditWriter auditWriter,
+        ExpenseBillLifecycleService lifecycleService,
         SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
@@ -106,42 +65,21 @@ internal static class ExpenseBillLifecycleEndpoints
             return Unauthenticated();
         }
 
-        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
-            actor.UserProfileId,
-            cancellationToken);
-        if (!authorizationResult.Allowed)
-        {
-            return MapPersonalAuthorizationFailure(authorizationResult);
-        }
-
-        var bill = await LoadPersonalLifecycleBillAsync(
-            dbContext,
+        var result = await lifecycleService.ApplyPersonalAsync(
             billId,
-            actor.UserProfileId,
-            cancellationToken);
-        if (bill is null)
-        {
-            return BillUnavailable();
-        }
-
-        return await ApplyPersonalLifecycleAsync(
-            bill,
             archive: false,
             actor,
-            auditWriter,
-            dbContext,
-            timeProvider,
             cancellationToken);
+
+        return await MapPersonalLifecycleResultAsync(result, dbContext, cancellationToken);
     }
 
     private static async Task<IResult> ArchiveGroupBillAsync(
         Guid groupId,
         Guid billId,
         ICurrentActorAccessor currentActorAccessor,
-        IBusinessAuthorizationService businessAuthorizationService,
-        IGroupBillAuditWriter auditWriter,
+        ExpenseBillLifecycleService lifecycleService,
         SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
@@ -149,42 +87,22 @@ internal static class ExpenseBillLifecycleEndpoints
             return Unauthenticated();
         }
 
-        var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
-            groupId,
-            cancellationToken);
-        if (!authorizationResult.Allowed)
-        {
-            return MapGroupAuthorizationFailure(authorizationResult);
-        }
-
-        var bill = await LoadGroupLifecycleBillAsync(
-            dbContext,
+        var result = await lifecycleService.ApplyGroupAsync(
             groupId,
             billId,
-            cancellationToken);
-        if (bill is null)
-        {
-            return GroupBillUnavailable();
-        }
-
-        return await ApplyGroupLifecycleAsync(
-            bill,
             archive: true,
             actor,
-            auditWriter,
-            dbContext,
-            timeProvider,
             cancellationToken);
+
+        return await MapGroupLifecycleResultAsync(result, dbContext, cancellationToken);
     }
 
     private static async Task<IResult> RestoreGroupBillAsync(
         Guid groupId,
         Guid billId,
         ICurrentActorAccessor currentActorAccessor,
-        IBusinessAuthorizationService businessAuthorizationService,
-        IGroupBillAuditWriter auditWriter,
+        ExpenseBillLifecycleService lifecycleService,
         SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
@@ -192,72 +110,58 @@ internal static class ExpenseBillLifecycleEndpoints
             return Unauthenticated();
         }
 
-        var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
-            groupId,
-            cancellationToken);
-        if (!authorizationResult.Allowed)
-        {
-            return MapGroupAuthorizationFailure(authorizationResult);
-        }
-
-        var bill = await LoadGroupLifecycleBillAsync(
-            dbContext,
+        var result = await lifecycleService.ApplyGroupAsync(
             groupId,
             billId,
-            cancellationToken);
-        if (bill is null)
-        {
-            return GroupBillUnavailable();
-        }
-
-        return await ApplyGroupLifecycleAsync(
-            bill,
             archive: false,
             actor,
-            auditWriter,
+            cancellationToken);
+
+        return await MapGroupLifecycleResultAsync(result, dbContext, cancellationToken);
+    }
+
+    private static async Task<IResult> MapPersonalLifecycleResultAsync(
+        ExpenseBillLifecycleResult result,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return await MapLifecycleResultAsync(
+            result,
+            unavailableResult: BillUnavailable,
             dbContext,
-            timeProvider,
             cancellationToken);
     }
 
-    private static async Task<IResult> ApplyPersonalLifecycleAsync(
-        ExpenseBill bill,
-        bool archive,
-        AuthenticatedActor actor,
-        IPersonalBillAuditWriter auditWriter,
+    private static async Task<IResult> MapGroupLifecycleResultAsync(
+        ExpenseBillLifecycleResult result,
         SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var stateChanged = await ApplyLifecycleAsync(
-            bill,
-            archive,
+        return await MapLifecycleResultAsync(
+            result,
+            unavailableResult: GroupBillUnavailable,
             dbContext,
-            timeProvider,
             cancellationToken);
-        if (stateChanged is null)
+    }
+
+    private static async Task<IResult> MapLifecycleResultAsync(
+        ExpenseBillLifecycleResult result,
+        Func<IResult> unavailableResult,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (result.Kind is ExpenseBillLifecycleResultKind.Unavailable)
+        {
+            return unavailableResult();
+        }
+
+        if (result.Kind is ExpenseBillLifecycleResultKind.Conflict)
         {
             return BillLifecycleConflict();
         }
 
-        if (stateChanged.Value)
+        if (result.Mutated)
         {
-            await auditWriter.WriteAsync(
-                new PersonalBillAuditEvent(
-                    archive ? BillArchivedAction : BillRestoredAction,
-                    actor.AuthAccountId,
-                    actor.AuthAccountId,
-                    bill.Id,
-                    PersonalGroupMode,
-                    bill.Status,
-                    bill.Items.Count,
-                    bill.Adjustments.Count,
-                    bill.Participants.Count,
-                    bill.TotalCurrency,
-                    bill.TotalAmount,
-                    bill.UpdatedAtUtc),
-                cancellationToken);
-
             var saveResult = await SaveLifecycleAsync(dbContext, cancellationToken);
             if (saveResult is not null)
             {
@@ -265,138 +169,7 @@ internal static class ExpenseBillLifecycleEndpoints
             }
         }
 
-        return Results.Ok(MapResponse(bill));
-    }
-
-    private static async Task<IResult> ApplyGroupLifecycleAsync(
-        ExpenseBill bill,
-        bool archive,
-        AuthenticatedActor actor,
-        IGroupBillAuditWriter auditWriter,
-        SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
-        CancellationToken cancellationToken)
-    {
-        var stateChanged = await ApplyLifecycleAsync(
-            bill,
-            archive,
-            dbContext,
-            timeProvider,
-            cancellationToken);
-        if (stateChanged is null)
-        {
-            return BillLifecycleConflict();
-        }
-
-        if (stateChanged.Value)
-        {
-            await auditWriter.WriteAsync(
-                new GroupBillAuditEvent(
-                    archive ? BillArchivedAction : BillRestoredAction,
-                    actor.AuthAccountId,
-                    actor.AuthAccountId,
-                    bill.Id,
-                    bill.GroupId!.Value,
-                    GroupMode,
-                    bill.Status,
-                    bill.Items.Count,
-                    bill.Adjustments.Count,
-                    bill.Participants.Count,
-                    bill.Payers.Count,
-                    bill.TotalCurrency,
-                    bill.TotalAmount,
-                    bill.UpdatedAtUtc),
-                cancellationToken);
-
-            var saveResult = await SaveLifecycleAsync(dbContext, cancellationToken);
-            if (saveResult is not null)
-            {
-                return saveResult;
-            }
-        }
-
-        return Results.Ok(MapResponse(bill));
-    }
-
-    private static async Task<bool?> ApplyLifecycleAsync(
-        ExpenseBill bill,
-        bool archive,
-        SettleoraDbContext dbContext,
-        TimeProvider timeProvider,
-        CancellationToken cancellationToken)
-    {
-        var isArchived = bill.ArchivedAtUtc is not null;
-        if (archive && isArchived || !archive && !isArchived)
-        {
-            return false;
-        }
-
-        if (archive && await HasActiveSettlementStateAsync(dbContext, bill.Id, cancellationToken))
-        {
-            return null;
-        }
-
-        var now = timeProvider.GetUtcNow();
-        bill.ArchivedAtUtc = archive ? now : null;
-        bill.UpdatedAtUtc = now;
-        return true;
-    }
-
-    private static async Task<ExpenseBill?> LoadPersonalLifecycleBillAsync(
-        SettleoraDbContext dbContext,
-        Guid billId,
-        Guid actorUserProfileId,
-        CancellationToken cancellationToken)
-    {
-        return await LifecycleBillQuery(dbContext)
-            .SingleOrDefaultAsync(
-                bill => bill.Id == billId
-                    && bill.GroupId == null
-                    && bill.CreatedByUserProfile.DeletedAtUtc == null
-                    && (bill.CreatedByUserProfileId == actorUserProfileId
-                        || bill.BillOwnerUserProfileId == actorUserProfileId),
-                cancellationToken);
-    }
-
-    private static async Task<ExpenseBill?> LoadGroupLifecycleBillAsync(
-        SettleoraDbContext dbContext,
-        Guid groupId,
-        Guid billId,
-        CancellationToken cancellationToken)
-    {
-        return await LifecycleBillQuery(dbContext)
-            .SingleOrDefaultAsync(
-                bill => bill.Id == billId
-                    && bill.GroupId == groupId
-                    && bill.Group != null
-                    && bill.Group.DeletedAtUtc == null
-                    && bill.CreatedByUserProfile.DeletedAtUtc == null,
-                cancellationToken);
-    }
-
-    private static IQueryable<ExpenseBill> LifecycleBillQuery(SettleoraDbContext dbContext)
-    {
-        return dbContext.Set<ExpenseBill>()
-            .Include(bill => bill.Group)
-            .Include(bill => bill.CreatedByUserProfile)
-            .Include(bill => bill.Items)
-            .Include(bill => bill.Participants)
-            .Include(bill => bill.Payers)
-            .Include(bill => bill.Adjustments);
-    }
-
-    private static async Task<bool> HasActiveSettlementStateAsync(
-        SettleoraDbContext dbContext,
-        Guid billId,
-        CancellationToken cancellationToken)
-    {
-        return await dbContext.Set<SettlementRequest>()
-            .AsNoTracking()
-            .AnyAsync(
-                settlementRequest => settlementRequest.SourceExpenseBillId == billId
-                    && settlementRequest.ArchivedAtUtc == null
-                    && ActiveSettlementRequestStatuses.Contains(settlementRequest.Status),
-                cancellationToken);
+        return Results.Ok(result.Response);
     }
 
     private static async Task<IResult?> SaveLifecycleAsync(
@@ -414,31 +187,6 @@ internal static class ExpenseBillLifecycleEndpoints
         }
 
         return null;
-    }
-
-    private static ExpenseBillLifecycleResponse MapResponse(ExpenseBill bill)
-    {
-        return new ExpenseBillLifecycleResponse(
-            bill.Id,
-            bill.GroupId,
-            bill.Status,
-            bill.ArchivedAtUtc is null ? ActiveArchiveState : ArchivedArchiveState,
-            bill.ArchivedAtUtc,
-            bill.UpdatedAtUtc);
-    }
-
-    private static IResult MapPersonalAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
-    {
-        return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
-            ? Unauthenticated()
-            : BillUnavailable();
-    }
-
-    private static IResult MapGroupAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
-    {
-        return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
-            ? Unauthenticated()
-            : GroupBillUnavailable();
     }
 
     private static IResult Unauthenticated()
