@@ -210,6 +210,18 @@ class SettleoraApiClient {
     return ExpenseBillExportResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillCsvImportResponse> importPersonalBillsCsv(String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      "/api/v1/bills/import.csv",
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<PersonalBillResponse> getPersonalBill(String billId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -564,6 +576,18 @@ class SettleoraApiClient {
       headers: headers,
     );
     return ExpenseBillExportResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportResponse> importGroupBillsCsv(String groupId, String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/import.csv',
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<GroupBillResponse> getGroupBill(String groupId, String billId, {required String accessToken, Map<String, String>? headers}) async {
@@ -1276,6 +1300,42 @@ class SettleoraApiClient {
       headers: headers,
     );
     return GetHealthReadyResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<Object?> _sendText(
+    String method,
+    String path, {
+    required String body,
+    required String contentType,
+    String? accessToken,
+    Map<String, String>? headers,
+  }) async {
+    final request = await _httpClient.openUrl(method, baseUri.resolve(path.startsWith('/') ? path.substring(1) : path));
+
+    for (final entry in defaultHeaders.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    for (final entry in (headers ?? const <String, String>{}).entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+
+    if (accessToken != null && accessToken.isNotEmpty) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+    }
+
+    request.headers.set(HttpHeaders.contentTypeHeader, '$contentType; charset=utf-8');
+    request.write(body);
+
+    final response = await request.close();
+    final text = await utf8.decodeStream(response);
+    final payload = text.isEmpty ? null : _parseJsonOrText(text);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw SettleoraApiException(response.statusCode, response.reasonPhrase, payload);
+    }
+
+    return payload;
   }
 
   Future<Object?> _sendMultipart(
