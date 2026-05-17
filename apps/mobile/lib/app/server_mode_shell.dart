@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_list_screen.dart';
+import '../bills/bill_repository.dart';
+import '../bills/bill_sync_controller.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import 'auth_session_repository.dart';
@@ -13,6 +16,8 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     super.key,
     required this.currentUser,
     required this.receiptOcrReviewRepository,
+    required this.billRepository,
+    required this.billSyncController,
     required this.authRepository,
     required this.accessTokenProvider,
     required this.onSessionEnded,
@@ -20,6 +25,8 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
 
   final SettleoraCurrentUser currentUser;
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
+  final SettleoraBillRepository billRepository;
+  final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
   final SettleoraSessionEndedCallback onSessionEnded;
@@ -32,6 +39,17 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
 class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
   bool _isSigningOut = false;
+
+  Future<void> _openBills() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillListScreen(
+          repository: widget.billRepository,
+          syncController: widget.billSyncController,
+        ),
+      ),
+    );
+  }
 
   Future<void> _openReceiptReviews() async {
     await Navigator.of(context).push(
@@ -192,6 +210,13 @@ class _SettleoraAuthenticatedServerShellState
                     ? 'Signed in'
                     : 'Signed in - $defaultCurrency',
               ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-bills'),
+              onPressed: _openBills,
+              icon: const Icon(Icons.list_alt_outlined),
+              label: const Text('Bills'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
