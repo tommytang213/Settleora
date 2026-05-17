@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Expenses.BillSearch;
 using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -170,7 +171,14 @@ internal static class GroupBillEndpoints
 
     private static async Task<IResult> ListGroupBillsAsync(
         Guid groupId,
+        string? fromDate,
+        string? toDate,
+        string? status,
         string? reconciliationStatus,
+        string? currency,
+        string? merchant,
+        string? search,
+        string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -190,21 +198,26 @@ internal static class GroupBillEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        if (!TryReadReconciliationStatusFilter(reconciliationStatus, out var statusFilter, out var filterErrors))
+        if (!ExpenseBillSearchFilter.TryRead(
+            fromDate,
+            toDate,
+            status,
+            reconciliationStatus,
+            currency,
+            merchant,
+            search,
+            limit,
+            out var filter,
+            out var filterErrors))
         {
             return InvalidGroupBillRequest(filterErrors);
         }
 
-        var query = GroupBillsQuery(dbContext, groupId);
-        if (statusFilter is not null)
-        {
-            query = query.Where(bill => bill.ReconciliationStatus == statusFilter);
-        }
-
-        var bills = await query
-            .OrderByDescending(bill => bill.BillDate)
-            .ThenByDescending(bill => bill.CreatedAtUtc)
-            .ThenByDescending(bill => bill.Id)
+        var bills = await ExpenseBillSearchQueries.VisibleGroupBills(dbContext, groupId)
+            .ApplySearchFilter(filter)
+            .WithBillDetails()
+            .OrderForList()
+            .Take(filter.Limit)
             .ToListAsync(cancellationToken);
         var responses = new List<GroupBillResponse>(bills.Count);
 
@@ -263,18 +276,8 @@ internal static class GroupBillEndpoints
         SettleoraDbContext dbContext,
         Guid groupId)
     {
-        return dbContext.Set<ExpenseBill>()
-            .AsNoTracking()
-            .Include(bill => bill.Items)
-                .ThenInclude(item => item.Splits)
-            .Include(bill => bill.Participants)
-            .Include(bill => bill.Payers)
-            .Include(bill => bill.Adjustments)
-            .Where(bill => bill.GroupId == groupId
-                && bill.ArchivedAtUtc == null
-                && bill.Group != null
-                && bill.Group.DeletedAtUtc == null
-                && bill.CreatedByUserProfile.DeletedAtUtc == null);
+        return ExpenseBillSearchQueries.VisibleGroupBills(dbContext, groupId)
+            .WithBillDetails();
     }
 
     private static async Task<HashSet<Guid>> LoadActiveGroupMemberIdsAsync(

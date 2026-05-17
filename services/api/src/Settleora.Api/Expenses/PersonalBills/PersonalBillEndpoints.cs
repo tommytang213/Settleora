@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Expenses.BillSearch;
 using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -205,7 +206,14 @@ internal static class PersonalBillEndpoints
     }
 
     private static async Task<IResult> ListPersonalBillsAsync(
+        string? fromDate,
+        string? toDate,
+        string? status,
         string? reconciliationStatus,
+        string? currency,
+        string? merchant,
+        string? search,
+        string? limit,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -225,21 +233,26 @@ internal static class PersonalBillEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        if (!TryReadReconciliationStatusFilter(reconciliationStatus, out var statusFilter, out var filterErrors))
+        if (!ExpenseBillSearchFilter.TryRead(
+            fromDate,
+            toDate,
+            status,
+            reconciliationStatus,
+            currency,
+            merchant,
+            search,
+            limit,
+            out var filter,
+            out var filterErrors))
         {
             return InvalidBillRequest(filterErrors);
         }
 
-        var query = PersonalBillsQuery(dbContext, actor.UserProfileId);
-        if (statusFilter is not null)
-        {
-            query = query.Where(bill => bill.ReconciliationStatus == statusFilter);
-        }
-
-        var bills = await query
-            .OrderByDescending(bill => bill.BillDate)
-            .ThenByDescending(bill => bill.CreatedAtUtc)
-            .ThenByDescending(bill => bill.Id)
+        var bills = await ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, actor.UserProfileId)
+            .ApplySearchFilter(filter)
+            .WithBillDetails()
+            .OrderForList()
+            .Take(filter.Limit)
             .ToListAsync(cancellationToken);
         var responses = new List<PersonalBillResponse>(bills.Count);
 
@@ -297,18 +310,8 @@ internal static class PersonalBillEndpoints
         SettleoraDbContext dbContext,
         Guid userProfileId)
     {
-        return dbContext.Set<ExpenseBill>()
-            .AsNoTracking()
-            .Include(bill => bill.Items)
-                .ThenInclude(item => item.Splits)
-            .Include(bill => bill.Participants)
-            .Include(bill => bill.Payers)
-            .Include(bill => bill.Adjustments)
-            .Where(bill => (bill.CreatedByUserProfileId == userProfileId
-                    || bill.Participants.Any(participant => participant.UserProfileId == userProfileId))
-                && bill.GroupId == null
-                && bill.ArchivedAtUtc == null
-                && bill.CreatedByUserProfile.DeletedAtUtc == null);
+        return ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, userProfileId)
+            .WithBillDetails();
     }
 
     private static async Task<PersonalBillCreateReadResult> ReadCreateRequestAsync(

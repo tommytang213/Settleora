@@ -2231,7 +2231,170 @@ class ExpenseBillReconciliationResponse {
   }
 }
 
-/// Personal bills visible to the authenticated actor. This first foundation response is intentionally unpaginated.
+/// Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.
+class ExpenseBillExportResponse {
+  const ExpenseBillExportResponse({
+    required this.generatedAtUtc,
+    required this.appliedFilters,
+    required this.rowCount,
+    required this.rows,
+  });
+
+  final DateTime generatedAtUtc;
+  final ExpenseBillExportFilterResponse appliedFilters;
+  final int rowCount;
+  final List<ExpenseBillExportRowResponse> rows;
+
+  factory ExpenseBillExportResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportResponse(
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      appliedFilters: ExpenseBillExportFilterResponse.fromJson(JsonObject.from(json["appliedFilters"] as Map)),
+      rowCount: (json["rowCount"] as num).toInt(),
+      rows: (json["rows"] as List<dynamic>).map((item) => ExpenseBillExportRowResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "appliedFilters": appliedFilters.toJson(),
+      "rowCount": rowCount,
+      "rows": rows.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Bounded filters applied to a bill list/export request.
+class ExpenseBillExportFilterResponse {
+  const ExpenseBillExportFilterResponse({
+    required this.fromDate,
+    required this.toDate,
+    required this.status,
+    required this.reconciliationStatus,
+    required this.currency,
+    required this.merchant,
+    required this.search,
+    required this.limit,
+  });
+
+  final String? fromDate;
+  final String? toDate;
+  final ExpenseBillStatus? status;
+  final ExpenseBillReconciliationStatus? reconciliationStatus;
+  final CurrencyCode? currency;
+  final String? merchant;
+  final String? search;
+  final int limit;
+
+  factory ExpenseBillExportFilterResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportFilterResponse(
+      fromDate: json["fromDate"] == null ? null : json["fromDate"] as String,
+      toDate: json["toDate"] == null ? null : json["toDate"] as String,
+      status: json["status"] == null ? null : json["status"] as String,
+      reconciliationStatus: json["reconciliationStatus"] == null ? null : json["reconciliationStatus"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      merchant: json["merchant"] == null ? null : json["merchant"] as String,
+      search: json["search"] == null ? null : json["search"] as String,
+      limit: (json["limit"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    final fromDateJsonValue = fromDate;
+    final toDateJsonValue = toDate;
+    final statusJsonValue = status;
+    final reconciliationStatusJsonValue = reconciliationStatus;
+    final currencyJsonValue = currency;
+    final merchantJsonValue = merchant;
+    final searchJsonValue = search;
+
+    return {
+      "fromDate": fromDateJsonValue,
+      "toDate": toDateJsonValue,
+      "status": statusJsonValue,
+      "reconciliationStatus": reconciliationStatusJsonValue,
+      "currency": currencyJsonValue,
+      "merchant": merchantJsonValue,
+      "search": searchJsonValue,
+      "limit": limit,
+    };
+  }
+}
+
+/// Safe bill-level export row. It intentionally omits item names/notes, adjustment notes, payment labels, auth IDs, storage details, OCR text, proof data, and unrelated user data.
+class ExpenseBillExportRowResponse {
+  const ExpenseBillExportRowResponse({
+    required this.billId,
+    required this.groupId,
+    required this.merchantName,
+    required this.billDate,
+    required this.billStatus,
+    required this.reconciliationStatus,
+    required this.totalAmount,
+    required this.currency,
+    required this.itemCount,
+    required this.participantCount,
+    required this.payerCount,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String billId;
+  final String? groupId;
+  final String? merchantName;
+  final String billDate;
+  final ExpenseBillStatus billStatus;
+  final ExpenseBillReconciliationStatus reconciliationStatus;
+  /// Decimal-safe total amount represented as a string.
+  final String totalAmount;
+  final CurrencyCode currency;
+  final int itemCount;
+  final int participantCount;
+  final int payerCount;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ExpenseBillExportRowResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportRowResponse(
+      billId: json["billId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
+      billDate: json["billDate"] as String,
+      billStatus: json["billStatus"] as String,
+      reconciliationStatus: json["reconciliationStatus"] as String,
+      totalAmount: json["totalAmount"] as String,
+      currency: json["currency"] as String,
+      itemCount: (json["itemCount"] as num).toInt(),
+      participantCount: (json["participantCount"] as num).toInt(),
+      payerCount: (json["payerCount"] as num).toInt(),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantNameJsonValue = merchantName;
+
+    return {
+      "billId": billId,
+      "groupId": groupIdJsonValue,
+      "merchantName": merchantNameJsonValue,
+      "billDate": billDate,
+      "billStatus": billStatus,
+      "reconciliationStatus": reconciliationStatus,
+      "totalAmount": totalAmount,
+      "currency": currency,
+      "itemCount": itemCount,
+      "participantCount": participantCount,
+      "payerCount": payerCount,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Personal bills visible to the authenticated actor after bounded filter and limit application.
 class PersonalBillListResponse {
   const PersonalBillListResponse({
     required this.bills,
@@ -4777,7 +4940,7 @@ class CreateGroupBillPayerRequest {
   }
 }
 
-/// Group bills visible to the authenticated active group member. This first foundation response is intentionally unpaginated.
+/// Group bills visible to the authenticated active group member after bounded filter and limit application.
 class GroupBillListResponse {
   const GroupBillListResponse({
     required this.bills,
