@@ -76,6 +76,7 @@ void main() {
 
       expect(client.currentUserCalls, 1);
       expect(client.lastAccessToken, _accessToken);
+      expect(currentUser.userProfileId, 'user-profile-id-not-displayed');
       expect(currentUser.displayName, 'Taylor');
       expect(currentUser.defaultCurrency, 'USD');
       expect(currentUser.sessionExpiresAtUtc, _accessExpiresAt);

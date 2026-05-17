@@ -18,12 +18,14 @@ class SettleoraSignInSubmission {
 
 class SettleoraCurrentUser {
   const SettleoraCurrentUser({
+    required this.userProfileId,
     required this.displayName,
     required this.defaultCurrency,
     required this.roles,
     required this.sessionExpiresAtUtc,
   });
 
+  final String userProfileId;
   final String displayName;
   final String? defaultCurrency;
   final List<String> roles;
@@ -286,6 +288,7 @@ class GeneratedSettleoraAuthRepository implements SettleoraAuthRepository {
       final response = await client.getCurrentUser(accessToken: trimmed);
 
       return SettleoraCurrentUser(
+        userProfileId: response.userProfile.id,
         displayName: response.userProfile.displayName,
         defaultCurrency: response.userProfile.defaultCurrency,
         roles: response.roles,

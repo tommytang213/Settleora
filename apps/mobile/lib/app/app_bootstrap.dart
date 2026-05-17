@@ -6,6 +6,8 @@ import '../bills/bill_sync_controller.dart';
 import '../bills/generated_bill_repository.dart';
 import '../receipt_ocr_review/generated_receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../settlements/generated_settlement_repository.dart';
+import '../settlements/settlement_repository.dart';
 import '../sync/generated_sync_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
@@ -33,6 +35,12 @@ typedef SettleoraBillRepositoryFactory =
       SettleoraAccessTokenProvider accessTokenProvider,
     );
 
+typedef SettleoraSettlementRepositoryFactory =
+    SettleoraSettlementRepository Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
 typedef SettleoraSyncRepositoryFactory =
     SettleoraSyncRepository Function(
       SettleoraApiConfiguration configuration,
@@ -54,6 +62,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.billRepositoryFactory,
+    this.settlementRepositoryFactory,
     this.billSyncControllerFactory,
     this.now,
   });
@@ -62,6 +71,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraSettlementRepositoryFactory? settlementRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
 
@@ -325,6 +335,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       apiConfiguration,
       tokenProvider,
     );
+    final settlementRepository = _settlementRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
     final billSyncController = _billSyncControllerFactory(
       apiConfiguration,
       tokenProvider,
@@ -334,6 +348,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       currentUser: snapshot.currentUser!,
       receiptOcrReviewRepository: repository,
       billRepository: billRepository,
+      settlementRepository: settlementRepository,
       billSyncController: billSyncController,
       authRepository: authRepository,
       accessTokenProvider: tokenProvider,
@@ -350,6 +365,9 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
 
   SettleoraBillRepositoryFactory get _billRepositoryFactory =>
       widget.billRepositoryFactory ?? _defaultBillRepositoryFactory;
+
+  SettleoraSettlementRepositoryFactory get _settlementRepositoryFactory =>
+      widget.settlementRepositoryFactory ?? _defaultSettlementRepositoryFactory;
 
   SettleoraBillSyncControllerFactory get _billSyncControllerFactory =>
       widget.billSyncControllerFactory ?? _defaultBillSyncControllerFactory;
@@ -442,6 +460,16 @@ SettleoraBillRepository _defaultBillRepositoryFactory(
   SettleoraAccessTokenProvider accessTokenProvider,
 ) {
   return GeneratedSettleoraBillRepository.fromConfiguration(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
+  );
+}
+
+SettleoraSettlementRepository _defaultSettlementRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  return GeneratedSettleoraSettlementRepository.fromConfiguration(
     configuration: configuration,
     accessTokenProvider: accessTokenProvider,
   );

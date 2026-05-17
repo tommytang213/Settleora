@@ -6,6 +6,8 @@ import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
+import '../settlements/settlement_list_screen.dart';
+import '../settlements/settlement_repository.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
@@ -17,6 +19,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.currentUser,
     required this.receiptOcrReviewRepository,
     required this.billRepository,
+    required this.settlementRepository,
     required this.billSyncController,
     required this.authRepository,
     required this.accessTokenProvider,
@@ -26,6 +29,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraCurrentUser currentUser;
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
+  final SettleoraSettlementRepository settlementRepository;
   final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
@@ -56,6 +60,17 @@ class _SettleoraAuthenticatedServerShellState
       MaterialPageRoute<void>(
         builder: (_) => ReceiptOcrReviewQueueScreen(
           repository: widget.receiptOcrReviewRepository,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSettlements() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraSettlementListScreen(
+          repository: widget.settlementRepository,
+          currentUserProfileId: widget.currentUser.userProfileId,
         ),
       ),
     );
@@ -217,6 +232,13 @@ class _SettleoraAuthenticatedServerShellState
               onPressed: _openBills,
               icon: const Icon(Icons.list_alt_outlined),
               label: const Text('Bills'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-settlements'),
+              onPressed: _openSettlements,
+              icon: const Icon(Icons.handshake_outlined),
+              label: const Text('Settlements'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
