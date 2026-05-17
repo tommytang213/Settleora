@@ -29,6 +29,8 @@ Mobile first launch should ask the user to choose one mode:
 
 The mode choice must be explicit. The app must not silently turn a local profile into a server account, and it must not silently start sending local-only receipt, OCR, bill, payment, or profile data to a server.
 
+A future Settleora Cloud managed workspace is still a server-mode authority boundary from the mobile app's perspective. Mobile must treat it like an explicitly selected server/cloud connection, derive auth and current-user state from that boundary, and avoid silently uploading local-only data during setup, sign-in, subscription checks, or workspace switching.
+
 ### Server Configuration
 
 Server-mode setup should collect or discover a deployment base URL before any generated API client is created for authenticated repositories.
