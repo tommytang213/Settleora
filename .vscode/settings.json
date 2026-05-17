@@ -1,0 +1,18 @@
+{
+  "dart.projectSearchDepth": 3,
+  "dart.includeDependenciesInWorkspaceSymbols": false,
+  "dart.analysisExcludedFolders": [
+    "services",
+    "infra",
+    "packages/client-web"
+  ],
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/bin/**": true,
+    "**/obj/**": true,
+    "**/build/**": true,
+    "**/.dart_tool/**": true
+  }
+}

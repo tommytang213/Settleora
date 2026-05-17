@@ -148,6 +148,42 @@ class SettleoraServerSessionMaterial {
     return expiresAt.toUtc().isAfter((now ?? DateTime.now()).toUtc());
   }
 
+  bool shouldRefreshAccessToken({DateTime? now, Duration? refreshSkew}) {
+    if (accessToken.trim().isEmpty) {
+      return true;
+    }
+
+    final expiresAt = accessSessionExpiresAtUtc;
+    if (expiresAt == null) {
+      return false;
+    }
+
+    final currentTime = (now ?? DateTime.now()).toUtc();
+    final skew = refreshSkew ?? Duration.zero;
+    return !expiresAt.toUtc().isAfter(currentTime.add(skew));
+  }
+
+  bool hasUsableRefreshCredential({DateTime? now}) {
+    final credential = refreshCredential?.trim();
+    if (credential == null || credential.isEmpty) {
+      return false;
+    }
+
+    final currentTime = (now ?? DateTime.now()).toUtc();
+    final idleExpiresAt = refreshIdleExpiresAtUtc;
+    if (idleExpiresAt == null || !idleExpiresAt.toUtc().isAfter(currentTime)) {
+      return false;
+    }
+
+    final absoluteExpiresAt = refreshAbsoluteExpiresAtUtc;
+    if (absoluteExpiresAt == null ||
+        !absoluteExpiresAt.toUtc().isAfter(currentTime)) {
+      return false;
+    }
+
+    return true;
+  }
+
   Map<String, Object?> toJson() {
     return {
       'accessToken': accessToken,

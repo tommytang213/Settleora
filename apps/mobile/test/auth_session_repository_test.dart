@@ -82,6 +82,61 @@ void main() {
       expect(currentUser.toString(), isNot(contains(_accessToken)));
     });
 
+    test(
+      'refresh rotates session material through the generated client',
+      () async {
+        final client = FakeAuthGeneratedClient();
+        final repository = GeneratedSettleoraAuthRepository(client: client);
+
+        final session = await repository.refreshSession(
+          refreshCredential: '  $_refreshCredential  ',
+        );
+
+        expect(client.refreshCalls, 1);
+        expect(
+          client.lastRefreshRequest?.refreshCredential,
+          _refreshCredential,
+        );
+        expect(session.accessToken, _accessToken);
+        expect(session.refreshCredential, _refreshCredential);
+        expect(session.toString(), isNot(contains(_accessToken)));
+        expect(session.toString(), isNot(contains(_refreshCredential)));
+      },
+    );
+
+    test('lists and revokes sessions through generated methods', () async {
+      final client = FakeAuthGeneratedClient();
+      final repository = GeneratedSettleoraAuthRepository(client: client);
+
+      final sessions = await repository.listSessions(
+        accessToken: '  $_accessToken  ',
+      );
+
+      expect(client.listSessionCalls, 1);
+      expect(client.lastAccessToken, _accessToken);
+      expect(sessions, hasLength(2));
+      expect(sessions.first.isCurrent, isTrue);
+      expect(sessions.first.displayLabel, 'This device');
+      expect(sessions.last.displayLabel, 'Tablet');
+      expect(sessions.last.toString(), isNot(contains(_otherSessionId)));
+
+      await repository.revokeSession(
+        sessionId: '  $_otherSessionId  ',
+        accessToken: _accessToken,
+      );
+
+      expect(client.revokeSessionCalls, 1);
+      expect(client.lastRevokedSessionId, _otherSessionId);
+
+      await repository.signOutCurrentSession(accessToken: _accessToken);
+      await repository.signOutAllCurrentAccountSessions(
+        accessToken: _accessToken,
+      );
+
+      expect(client.signOutCurrentCalls, 1);
+      expect(client.signOutAllCalls, 1);
+    });
+
     test('maps denied sign-in and network failures to safe failures', () async {
       final denied = GeneratedSettleoraAuthRepository(
         client: FakeAuthGeneratedClient(
@@ -141,6 +196,45 @@ void main() {
       expect(failure.statusCode, 401);
       expect(failure.message, isNot(contains('raw problem body')));
     });
+
+    test('maps refresh and session failures without raw material', () async {
+      final refreshDenied = GeneratedSettleoraAuthRepository(
+        client: FakeAuthGeneratedClient(
+          refreshFailure: api.SettleoraApiException(401, 'Unauthorized', {
+            'detail': 'raw refresh detail $_refreshCredential',
+          }),
+        ),
+      );
+
+      final refreshFailure = await captureAuthFailure(() {
+        return refreshDenied.refreshSession(
+          refreshCredential: _refreshCredential,
+        );
+      });
+
+      expect(refreshFailure.kind, SettleoraAuthFailureKind.sessionExpired);
+      expect(refreshFailure.message, isNot(contains(_refreshCredential)));
+      expect(refreshFailure.toString(), isNot(contains(_refreshCredential)));
+
+      final revokeConflict = GeneratedSettleoraAuthRepository(
+        client: FakeAuthGeneratedClient(
+          sessionOperationFailure: api.SettleoraApiException(409, 'Conflict', {
+            'detail': 'internal session detail $_otherSessionId',
+          }),
+        ),
+      );
+
+      final revokeFailure = await captureAuthFailure(() {
+        return revokeConflict.revokeSession(
+          sessionId: _otherSessionId,
+          accessToken: _accessToken,
+        );
+      });
+
+      expect(revokeFailure.kind, SettleoraAuthFailureKind.conflict);
+      expect(revokeFailure.message, isNot(contains(_otherSessionId)));
+      expect(revokeFailure.toString(), isNot(contains(_otherSessionId)));
+    });
   });
 }
 
@@ -160,19 +254,36 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
   FakeAuthGeneratedClient({
     this.signInFailure,
     this.currentUserFailure,
+    this.refreshFailure,
+    this.sessionOperationFailure,
     api.LocalSignInResponse? signInResponse,
     api.CurrentUserResponse? currentUserResponse,
+    api.RefreshSessionResponse? refreshResponse,
+    api.SessionListResponse? sessionListResponse,
   }) : signInResponse = signInResponse ?? sampleSignInResponse(),
-       currentUserResponse = currentUserResponse ?? sampleCurrentUserResponse();
+       currentUserResponse = currentUserResponse ?? sampleCurrentUserResponse(),
+       refreshResponse = refreshResponse ?? sampleRefreshResponse(),
+       sessionListResponse = sessionListResponse ?? sampleSessionListResponse();
 
   final Object? signInFailure;
   final Object? currentUserFailure;
+  final Object? refreshFailure;
+  final Object? sessionOperationFailure;
   final api.LocalSignInResponse signInResponse;
   final api.CurrentUserResponse currentUserResponse;
+  final api.RefreshSessionResponse refreshResponse;
+  final api.SessionListResponse sessionListResponse;
   int signInCalls = 0;
   int currentUserCalls = 0;
+  int refreshCalls = 0;
+  int signOutCurrentCalls = 0;
+  int signOutAllCalls = 0;
+  int listSessionCalls = 0;
+  int revokeSessionCalls = 0;
   api.LocalSignInRequest? lastSignInRequest;
+  api.RefreshSessionRequest? lastRefreshRequest;
   String? lastAccessToken;
+  String? lastRevokedSessionId;
 
   @override
   Future<api.LocalSignInResponse> signInLocal(
@@ -200,6 +311,64 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
     }
 
     return currentUserResponse;
+  }
+
+  @override
+  Future<api.RefreshSessionResponse> refreshSession(
+    api.RefreshSessionRequest request,
+  ) async {
+    refreshCalls += 1;
+    lastRefreshRequest = request;
+    final failure = refreshFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return refreshResponse;
+  }
+
+  @override
+  Future<void> signOutCurrentSession({required String accessToken}) async {
+    signOutCurrentCalls += 1;
+    lastAccessToken = accessToken;
+    _throwSessionOperationFailure();
+  }
+
+  @override
+  Future<void> signOutAllCurrentAccountSessions({
+    required String accessToken,
+  }) async {
+    signOutAllCalls += 1;
+    lastAccessToken = accessToken;
+    _throwSessionOperationFailure();
+  }
+
+  @override
+  Future<api.SessionListResponse> listCurrentAccountSessions({
+    required String accessToken,
+  }) async {
+    listSessionCalls += 1;
+    lastAccessToken = accessToken;
+    _throwSessionOperationFailure();
+    return sessionListResponse;
+  }
+
+  @override
+  Future<void> revokeCurrentAccountSession(
+    String sessionId, {
+    required String accessToken,
+  }) async {
+    revokeSessionCalls += 1;
+    lastRevokedSessionId = sessionId;
+    lastAccessToken = accessToken;
+    _throwSessionOperationFailure();
+  }
+
+  void _throwSessionOperationFailure() {
+    final failure = sessionOperationFailure;
+    if (failure != null) {
+      throw failure;
+    }
   }
 }
 
@@ -234,8 +403,49 @@ api.CurrentUserResponse sampleCurrentUserResponse() {
   );
 }
 
-const _accessToken = 'raw-access-token';
-const _refreshCredential = 'raw-refresh-token';
+api.RefreshSessionResponse sampleRefreshResponse() {
+  return api.RefreshSessionResponse(
+    session: api.RefreshSessionAccessSession(
+      id: 'session-id-not-stored',
+      token: _accessToken,
+      expiresAtUtc: _accessExpiresAt,
+    ),
+    refreshCredential: api.RefreshSessionCredential(
+      token: _refreshCredential,
+      idleExpiresAtUtc: _refreshIdleExpiresAt,
+      absoluteExpiresAtUtc: _refreshAbsoluteExpiresAt,
+    ),
+  );
+}
+
+api.SessionListResponse sampleSessionListResponse() {
+  return api.SessionListResponse(
+    sessions: [
+      api.SessionSummary(
+        id: 'current-session-id-not-displayed',
+        isCurrent: true,
+        status: 'active',
+        issuedAtUtc: DateTime.utc(2026, 5, 14, 12),
+        expiresAtUtc: _accessExpiresAt,
+        lastSeenAtUtc: DateTime.utc(2026, 5, 14, 12, 30),
+        deviceLabel: null,
+      ),
+      api.SessionSummary(
+        id: _otherSessionId,
+        isCurrent: false,
+        status: 'active',
+        issuedAtUtc: DateTime.utc(2026, 5, 13, 12),
+        expiresAtUtc: _accessExpiresAt,
+        lastSeenAtUtc: DateTime.utc(2026, 5, 14, 10),
+        deviceLabel: 'Tablet',
+      ),
+    ],
+  );
+}
+
+const _accessToken = 'redacted-access-material';
+const _refreshCredential = 'redacted-refresh-material';
+const _otherSessionId = 'other-session-id-not-displayed';
 final _accessExpiresAt = DateTime.utc(2026, 5, 15, 12);
 final _refreshIdleExpiresAt = DateTime.utc(2026, 5, 16, 12);
 final _refreshAbsoluteExpiresAt = DateTime.utc(2026, 6, 14, 12);
