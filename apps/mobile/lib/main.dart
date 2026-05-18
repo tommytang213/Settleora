@@ -14,6 +14,7 @@ class SettleoraMobileApp extends StatelessWidget {
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.billRepositoryFactory,
+    this.settlementRepositoryFactory,
     this.billSyncControllerFactory,
     this.now,
   }) : secureStorage = secureStorage ?? SettleoraSecureStorage();
@@ -22,6 +23,7 @@ class SettleoraMobileApp extends StatelessWidget {
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraSettlementRepositoryFactory? settlementRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
 
@@ -41,6 +43,7 @@ class SettleoraMobileApp extends StatelessWidget {
         receiptOcrReviewRepositoryFactory: receiptOcrReviewRepositoryFactory,
         authRepositoryFactory: authRepositoryFactory,
         billRepositoryFactory: billRepositoryFactory,
+        settlementRepositoryFactory: settlementRepositoryFactory,
         billSyncControllerFactory: billSyncControllerFactory,
         now: now,
       ),

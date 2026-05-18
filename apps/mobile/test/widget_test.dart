@@ -1149,6 +1149,7 @@ SettleoraServerSessionMaterial sampleRefreshedSessionMaterial() {
 
 SettleoraCurrentUser sampleCurrentUser() {
   return SettleoraCurrentUser(
+    userProfileId: 'user-profile-id-not-displayed',
     displayName: 'Taylor',
     defaultCurrency: 'USD',
     roles: const ['user'],

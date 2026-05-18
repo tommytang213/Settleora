@@ -8,6 +8,7 @@ import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
+import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
@@ -142,6 +143,7 @@ void main() {
           currentUser: sampleCurrentUser(),
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: billRepository,
+          settlementRepository: FakeSettlementRepository(),
           billSyncController: controller,
           authRepository: FakeAuthRepository(),
           accessTokenProvider: FakeAccessTokenProvider('redacted'),
@@ -157,6 +159,42 @@ void main() {
     expect(find.text('Bills'), findsWidgets);
     expect(find.text('Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 1);
+  });
+
+  testWidgets('authenticated server shell opens settlements', (tester) async {
+    final store = MemorySyncQueueStore();
+    final controller = SettleoraBillSyncController(
+      queueStore: store,
+      queueProcessor: SettleoraSyncQueueProcessor(
+        queueStore: store,
+        repository: FakeSyncRepository([]),
+      ),
+    );
+    final settlementRepository = FakeSettlementRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraAuthenticatedServerShell(
+          currentUser: sampleCurrentUser(),
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+          billRepository: FakeBillRepository(bills: [sampleBillSummary()]),
+          settlementRepository: settlementRepository,
+          billSyncController: controller,
+          authRepository: FakeAuthRepository(),
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+          onSessionEnded: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('server-shell-settlements')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settlements'), findsOneWidget);
+    expect(find.text('No balances'), findsOneWidget);
+    expect(settlementRepository.listBalancesCalls, 1);
+    expect(settlementRepository.listRequestsCalls, 1);
   });
 }
 
@@ -431,6 +469,7 @@ SettleoraSyncOperationResult sampleOperationResult() {
 
 SettleoraCurrentUser sampleCurrentUser() {
   return SettleoraCurrentUser(
+    userProfileId: _userProfileId,
     displayName: 'Taylor',
     defaultCurrency: 'USD',
     roles: const ['user'],
@@ -438,6 +477,91 @@ SettleoraCurrentUser sampleCurrentUser() {
   );
 }
 
+class FakeSettlementRepository implements SettleoraSettlementRepository {
+  int listBalancesCalls = 0;
+  int listRequestsCalls = 0;
+
+  @override
+  Future<SettleoraSettlementRequest> cancelSettlementRequest(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> cancelSettlementPayment(String paymentId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> confirmSettlementPayment(
+    String paymentId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> confirmSettlementPaymentResidual({
+    required String paymentId,
+    required String residualId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementRequest> disputeSettlementRequest(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> disputeSettlementPayment(
+    String paymentId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementCounterpartyPaymentDetails>
+  getCounterpartyPaymentDetails({
+    required String settlementId,
+    required String userProfileId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementRequest> getSettlementRequest(String settlementId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementBalanceSnapshot> listBalances() {
+    listBalancesCalls += 1;
+    return Future.value(
+      SettleoraSettlementBalanceSnapshot(
+        generatedAtUtc: DateTime.utc(2026, 5, 18),
+        balances: const [],
+      ),
+    );
+  }
+
+  @override
+  Future<List<SettleoraSettlementPayment>> listSettlementPayments(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraSettlementRequest>> listSettlementRequests() {
+    listRequestsCalls += 1;
+    return Future.value(const []);
+  }
+}
+
 const _billId = '22222222-2222-2222-2222-222222222222';
+const _userProfileId = '55555555-5555-5555-5555-555555555555';
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);
 final _attemptedAtUtc = DateTime.utc(2026, 5, 17, 11);
