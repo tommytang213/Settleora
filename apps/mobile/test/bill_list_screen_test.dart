@@ -207,15 +207,42 @@ void main() {
 class FakeBillRepository implements SettleoraBillRepository {
   FakeBillRepository({
     this.bills = const [],
+    this.groupBills = const [],
     SettleoraBillDetail? detail,
     this.failure,
   }) : detail = detail ?? sampleBillDetail();
 
   final List<SettleoraBillSummary> bills;
+  final List<SettleoraBillSummary> groupBills;
   final SettleoraBillDetail detail;
   final SettleoraBillFailure? failure;
   int listCalls = 0;
   int getCalls = 0;
+  int listGroupCalls = 0;
+  int getGroupCalls = 0;
+
+  @override
+  Future<List<SettleoraBillSummary>> listGroupBills(
+    String groupId, {
+    int limit = 50,
+  }) async {
+    listGroupCalls += 1;
+    final failure = this.failure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return groupBills;
+  }
+
+  @override
+  Future<SettleoraBillDetail> getGroupBill(
+    String groupId,
+    String billId,
+  ) async {
+    getGroupCalls += 1;
+    return detail;
+  }
 
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
