@@ -6,6 +6,8 @@ import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
 import '../groups/group_list_screen.dart';
 import '../groups/group_repository.dart';
+import '../notifications/notification_repository.dart';
+import '../notifications/notification_screen.dart';
 import '../profile/profile_repository.dart';
 import '../profile/profile_screen.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -28,6 +30,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.settlementRepository,
     required this.recurringBillRepository,
     required this.groupRepository,
+    required this.notificationRepository,
     required this.profileRepository,
     required this.billSyncController,
     required this.authRepository,
@@ -41,6 +44,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraSettlementRepository settlementRepository;
   final SettleoraRecurringBillRepository recurringBillRepository;
   final SettleoraGroupRepository groupRepository;
+  final SettleoraNotificationRepository notificationRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
@@ -73,6 +77,17 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraProfileScreen(
           repository: widget.profileRepository,
           currentUser: widget.currentUser,
+          onSessionEnded: widget.onSessionEnded,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraNotificationScreen(
+          repository: widget.notificationRepository,
           onSessionEnded: widget.onSessionEnded,
         ),
       ),
@@ -277,6 +292,13 @@ class _SettleoraAuthenticatedServerShellState
               onPressed: _openProfile,
               icon: const Icon(Icons.account_circle_outlined),
               label: const Text('Profile'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-notifications'),
+              onPressed: _openNotifications,
+              icon: const Icon(Icons.notifications_outlined),
+              label: const Text('Notifications'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
