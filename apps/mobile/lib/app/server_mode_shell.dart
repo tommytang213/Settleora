@@ -10,6 +10,8 @@ import '../profile/profile_repository.dart';
 import '../profile/profile_screen.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
+import '../recurring_bills/recurring_bill_repository.dart';
+import '../recurring_bills/recurring_bill_screen.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import 'auth_session_repository.dart';
@@ -24,6 +26,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.receiptOcrReviewRepository,
     required this.billRepository,
     required this.settlementRepository,
+    required this.recurringBillRepository,
     required this.groupRepository,
     required this.profileRepository,
     required this.billSyncController,
@@ -36,6 +39,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
   final SettleoraSettlementRepository settlementRepository;
+  final SettleoraRecurringBillRepository recurringBillRepository;
   final SettleoraGroupRepository groupRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
@@ -91,6 +95,16 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraSettlementListScreen(
           repository: widget.settlementRepository,
           currentUserProfileId: widget.currentUser.userProfileId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRecurringBills() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraRecurringBillScreen(
+          repository: widget.recurringBillRepository,
         ),
       ),
     );
@@ -270,6 +284,13 @@ class _SettleoraAuthenticatedServerShellState
               onPressed: _openBills,
               icon: const Icon(Icons.list_alt_outlined),
               label: const Text('Bills'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-recurring-bills'),
+              onPressed: _openRecurringBills,
+              icon: const Icon(Icons.event_repeat_outlined),
+              label: const Text('Recurring bills'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(

@@ -16,6 +16,13 @@ Define the first backend-owned recurring bill foundation: guarded recurring bill
 
 OpenAPI remains the source of truth for exact request and response schemas.
 
+## Mobile Current State
+
+- `apps/mobile/lib/recurring_bills/` provides a starter authenticated server-mode recurring bill module backed by the generated Dart client.
+- The mobile repository reads templates, forecast occurrences, template detail, and explicit draft-generation results with per-operation access-token lookup and bounded failure mapping.
+- The mobile UI exposes a shell entry, template list/detail, upcoming forecast list, loading/empty/retry/error states, and explicit online-only draft generation for forecasted occurrences.
+- The mobile app does not create/edit recurring templates, run pause/resume/archive lifecycle actions, queue offline recurring-bill work, calculate recurrence or money locally, send reminders, perform background auto-generation, or manage advanced exceptions.
+
 ## Persistence
 
 - `recurring_bill_templates` stores owner/creator profile IDs, optional group ID, bounded merchant/name/description text, date-based schedule fields, status, next occurrence date, forecast amount/currency, payload version, and a bounded canonical template payload JSON value.
@@ -52,7 +59,8 @@ Recurring bill audit events are written for create, update, pause, resume, archi
 
 ## Non-Goals
 
-- UI/mobile/web screens.
+- Mobile recurring bill creation/editing, full lifecycle/offline queueing, reminders, background auto-generation, and advanced recurrence exception UX.
+- Web/admin screens.
 - Dashboard widgets or dashboard preference storage.
 - Background worker auto-generation, cron, or scheduled runtime.
 - Reminder or notification delivery.

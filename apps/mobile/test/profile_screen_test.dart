@@ -10,6 +10,7 @@ import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/profile/profile_screen.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
+import 'package:mobile/recurring_bills/recurring_bill_repository.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
@@ -28,6 +29,7 @@ void main() {
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: FakeBillRepository(),
           settlementRepository: FakeSettlementRepository(),
+          recurringBillRepository: FakeRecurringBillRepository(),
           groupRepository: FakeGroupRepository(),
           profileRepository: profileRepository,
           billSyncController: sampleSyncController(),
@@ -358,6 +360,42 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   Future<ReceiptOcrReviewApplyResult> applyReview(
     ReceiptOcrReviewRoute route, {
     required DateTime expectedReviewUpdatedAtUtc,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
+  @override
+  Future<List<SettleoraRecurringBillTemplateSummary>> listTemplates({
+    SettleoraRecurringBillTemplateStatus? status,
+    String? groupId,
+    String? fromDate,
+    String? toDate,
+    int maxItems = 100,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<List<SettleoraRecurringBillForecastOccurrence>> listForecast({
+    String? fromDate,
+    String? toDate,
+    int limit = 30,
+    String? groupId,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> getTemplate(String templateId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraRecurringBillDraftResult> generateDraft({
+    required String templateId,
+    required String occurrenceDate,
   }) {
     throw UnimplementedError();
   }
