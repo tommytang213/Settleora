@@ -7,6 +7,7 @@ import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
+import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
@@ -144,6 +145,7 @@ void main() {
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: billRepository,
           settlementRepository: FakeSettlementRepository(),
+          profileRepository: FakeProfileRepository(),
           billSyncController: controller,
           authRepository: FakeAuthRepository(),
           accessTokenProvider: FakeAccessTokenProvider('redacted'),
@@ -179,6 +181,7 @@ void main() {
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: FakeBillRepository(bills: [sampleBillSummary()]),
           settlementRepository: settlementRepository,
+          profileRepository: FakeProfileRepository(),
           billSyncController: controller,
           authRepository: FakeAuthRepository(),
           accessTokenProvider: FakeAccessTokenProvider('redacted'),
@@ -318,6 +321,32 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     ReceiptOcrReviewRoute route, {
     required DateTime expectedReviewUpdatedAtUtc,
   }) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeProfileRepository implements SettleoraProfileRepository {
+  @override
+  Future<SettleoraSelfProfile> getSelfProfile() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfProfile> updateSelfProfile(
+    SettleoraSelfProfileUpdate update,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfPaymentDetails> getSelfPaymentDetails() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfPaymentDetails> updateSelfPaymentDetails(
+    SettleoraSelfPaymentDetailsUpdate update,
+  ) {
     throw UnimplementedError();
   }
 }
