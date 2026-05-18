@@ -14,6 +14,7 @@ import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/recurring_bills/recurring_bill_repository.dart';
 import 'package:mobile/recurring_bills/recurring_bill_screen.dart';
+import 'package:mobile/reports/report_repository.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
@@ -167,6 +168,7 @@ void main() {
           recurringBillRepository: recurringRepository,
           groupRepository: FakeGroupRepository(),
           notificationRepository: FakeNotificationRepository(),
+          reportRepository: FakeMonthlyReportRepository(),
           profileRepository: FakeProfileRepository(),
           billSyncController: sampleSyncController(),
           authRepository: FakeAuthRepository(),
@@ -563,6 +565,27 @@ class FakeProfileRepository implements SettleoraProfileRepository {
     SettleoraSelfPaymentDetailsUpdate update,
   ) {
     throw UnimplementedError();
+  }
+}
+
+class FakeMonthlyReportRepository implements SettleoraMonthlyReportRepository {
+  @override
+  Future<SettleoraMonthlyReport> getMonthlyReport({
+    required String month,
+    String? groupId,
+  }) async {
+    return SettleoraMonthlyReport(
+      month: month,
+      groupId: groupId,
+      generatedAtUtc: DateTime.utc(2026, 5, 18, 9),
+      billCount: 0,
+      totalByCurrency: const [],
+      actorShareByCurrency: const [],
+      actorPaidByCurrency: const [],
+      reconciliationCounts: const [],
+      settlementRequestCounts: const [],
+      settlementPaymentCounts: const [],
+    );
   }
 }
 
