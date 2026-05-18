@@ -17,6 +17,7 @@ class SettleoraMobileApp extends StatelessWidget {
     this.settlementRepositoryFactory,
     this.recurringBillRepositoryFactory,
     this.groupRepositoryFactory,
+    this.notificationRepositoryFactory,
     this.profileRepositoryFactory,
     this.billSyncControllerFactory,
     this.now,
@@ -29,6 +30,7 @@ class SettleoraMobileApp extends StatelessWidget {
   final SettleoraSettlementRepositoryFactory? settlementRepositoryFactory;
   final SettleoraRecurringBillRepositoryFactory? recurringBillRepositoryFactory;
   final SettleoraGroupRepositoryFactory? groupRepositoryFactory;
+  final SettleoraNotificationRepositoryFactory? notificationRepositoryFactory;
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
@@ -52,6 +54,7 @@ class SettleoraMobileApp extends StatelessWidget {
         settlementRepositoryFactory: settlementRepositoryFactory,
         recurringBillRepositoryFactory: recurringBillRepositoryFactory,
         groupRepositoryFactory: groupRepositoryFactory,
+        notificationRepositoryFactory: notificationRepositoryFactory,
         profileRepositoryFactory: profileRepositoryFactory,
         billSyncControllerFactory: billSyncControllerFactory,
         now: now,

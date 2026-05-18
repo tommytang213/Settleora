@@ -8,6 +8,7 @@ import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_list_screen.dart';
 import 'package:mobile/groups/group_repository.dart';
+import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/recurring_bills/recurring_bill_repository.dart';
@@ -218,6 +219,7 @@ void main() {
           settlementRepository: FakeSettlementRepository(),
           recurringBillRepository: FakeRecurringBillRepository(),
           groupRepository: groupRepository,
+          notificationRepository: FakeNotificationRepository(),
           profileRepository: FakeProfileRepository(),
           billSyncController: sampleSyncController(),
           authRepository: FakeAuthRepository(),
@@ -502,6 +504,41 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
     return const [];
+  }
+}
+
+class FakeNotificationRepository implements SettleoraNotificationRepository {
+  @override
+  Future<List<SettleoraNotificationRow>> listNotifications({
+    SettleoraNotificationStatus? status,
+    int limit = 50,
+    DateTime? before,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<SettleoraNotificationSummary> getNotificationSummary() async {
+    return const SettleoraNotificationSummary(
+      unreadCount: 0,
+      attentionCount: 0,
+      urgentCount: 0,
+    );
+  }
+
+  @override
+  Future<SettleoraNotificationRow> markNotificationRead(String notificationId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraNotificationSummary> markAllNotificationsRead() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraNotificationRow> archiveNotification(String notificationId) {
+    throw UnimplementedError();
   }
 }
 
