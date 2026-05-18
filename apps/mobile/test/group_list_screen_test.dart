@@ -1,0 +1,637 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/api/settleora_api_client.dart';
+import 'package:mobile/app/auth_session_repository.dart';
+import 'package:mobile/app/secure_storage.dart';
+import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/bills/bill_repository.dart';
+import 'package:mobile/bills/bill_sync_controller.dart';
+import 'package:mobile/groups/group_list_screen.dart';
+import 'package:mobile/groups/group_repository.dart';
+import 'package:mobile/profile/profile_repository.dart';
+import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
+import 'package:mobile/settlements/settlement_repository.dart';
+import 'package:mobile/sync/sync_queue.dart';
+import 'package:mobile/sync/sync_queue_processor.dart';
+import 'package:mobile/sync/sync_repository.dart';
+
+void main() {
+  testWidgets('group list renders empty state and creates a group', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(groups: const []);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No groups'), findsOneWidget);
+    expect(repository.listCalls, 1);
+
+    await tester.tap(find.byKey(const Key('group-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('group-form-name')), 'House');
+    await tester.tap(find.byKey(const Key('group-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastGroupSave?.name, 'House');
+    expect(find.text('House'), findsOneWidget);
+    expect(find.text('Group created.'), findsOneWidget);
+  });
+
+  testWidgets('group list opens detail and loads members', (tester) async {
+    final repository = FakeGroupRepository(
+      groups: [sampleGroup()],
+      members: [sampleMember(displayName: 'Taylor')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Trip Crew'));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 1);
+    expect(repository.listMemberCalls, 1);
+    expect(find.text('Members'), findsOneWidget);
+    expect(find.text('Taylor'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains(_profileId)));
+  });
+
+  testWidgets('group detail edits group and manages members', (tester) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: [sampleMember(displayName: 'Taylor')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-detail-edit')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-form-name')),
+      'Dinner Club',
+    );
+    await tester.tap(find.byKey(const Key('group-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.updateCalls, 1);
+    expect(repository.lastGroupSave?.name, 'Dinner Club');
+    expect(find.text('Dinner Club'), findsWidgets);
+
+    await tester.enterText(
+      find.byKey(const Key('group-member-profile-id')),
+      _otherProfileId,
+    );
+    await tester.tap(find.byKey(const Key('group-member-add')));
+    await tester.pumpAndSettle();
+
+    expect(repository.addMemberCalls, 1);
+    expect(repository.lastMemberAdd?.userProfileId, _otherProfileId);
+    expect(find.text('Morgan'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Make Owner'));
+    await tester.pumpAndSettle();
+
+    expect(repository.updateMemberCalls, 1);
+    expect(repository.lastMemberUpdate?.role, SettleoraGroupRoleValues.owner);
+
+    await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove Member?'), findsOneWidget);
+    expect(repository.removeMemberCalls, 0);
+
+    await tester.tap(find.byKey(const Key('group-member-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.removeMemberCalls, 1);
+    expect(repository.lastRemovedUserProfileId, _otherProfileId);
+    expect(find.text('Morgan'), findsNothing);
+  });
+
+  testWidgets('group screen shows bounded failures', (tester) async {
+    final repository = FakeGroupRepository(
+      listFailure: const SettleoraGroupFailure(
+        kind: SettleoraGroupFailureKind.denied,
+        message: 'Groups are not available to this account.',
+        statusCode: 403,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups unavailable'), findsOneWidget);
+    expect(
+      find.text('Groups are not available to this account.'),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('redacted-token')));
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('authenticated server shell opens groups', (tester) async {
+    final groupRepository = FakeGroupRepository(groups: [sampleGroup()]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraAuthenticatedServerShell(
+          currentUser: sampleCurrentUser(),
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+          billRepository: FakeBillRepository(),
+          settlementRepository: FakeSettlementRepository(),
+          groupRepository: groupRepository,
+          profileRepository: FakeProfileRepository(),
+          billSyncController: sampleSyncController(),
+          authRepository: FakeAuthRepository(),
+          accessTokenProvider: const FakeAccessTokenProvider('redacted-token'),
+          onSessionEnded: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('server-shell-groups')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsWidgets);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(groupRepository.listCalls, 1);
+  });
+}
+
+class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({
+    List<SettleoraGroup>? groups,
+    SettleoraGroup? group,
+    List<SettleoraGroupMember>? members,
+    this.listFailure,
+    this.detailFailure,
+    this.actionFailure,
+  }) : groups = groups ?? const [],
+       group = group ?? sampleGroup(),
+       members = members ?? const [];
+
+  List<SettleoraGroup> groups;
+  SettleoraGroup group;
+  List<SettleoraGroupMember> members;
+  final SettleoraGroupFailure? listFailure;
+  final SettleoraGroupFailure? detailFailure;
+  final SettleoraGroupFailure? actionFailure;
+  int listCalls = 0;
+  int createCalls = 0;
+  int getCalls = 0;
+  int updateCalls = 0;
+  int listMemberCalls = 0;
+  int addMemberCalls = 0;
+  int updateMemberCalls = 0;
+  int removeMemberCalls = 0;
+  String? lastGroupId;
+  String? lastRemovedUserProfileId;
+  SettleoraGroupSaveRequest? lastGroupSave;
+  SettleoraGroupMemberAddRequest? lastMemberAdd;
+  SettleoraGroupMemberRoleUpdate? lastMemberUpdate;
+
+  @override
+  Future<List<SettleoraGroup>> listGroups() async {
+    listCalls += 1;
+    final failure = listFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return groups;
+  }
+
+  @override
+  Future<SettleoraGroup> createGroup(SettleoraGroupSaveRequest request) async {
+    createCalls += 1;
+    lastGroupSave = request;
+    _throwActionIfNeeded();
+    final created = sampleGroup(name: request.name.trim());
+    groups = [created, ...groups];
+    return created;
+  }
+
+  @override
+  Future<SettleoraGroup> getGroup(String groupId) async {
+    getCalls += 1;
+    lastGroupId = groupId;
+    final failure = detailFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return group;
+  }
+
+  @override
+  Future<SettleoraGroup> updateGroup(
+    String groupId,
+    SettleoraGroupSaveRequest request,
+  ) async {
+    updateCalls += 1;
+    lastGroupId = groupId;
+    lastGroupSave = request;
+    _throwActionIfNeeded();
+    group = sampleGroup(name: request.name.trim());
+    return group;
+  }
+
+  @override
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMemberCalls += 1;
+    lastGroupId = groupId;
+    final failure = detailFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return members;
+  }
+
+  @override
+  Future<SettleoraGroupMember> addGroupMember(
+    String groupId,
+    SettleoraGroupMemberAddRequest request,
+  ) async {
+    addMemberCalls += 1;
+    lastGroupId = groupId;
+    lastMemberAdd = request;
+    _throwActionIfNeeded();
+    final member = sampleMember(
+      userProfileId: request.userProfileId.trim(),
+      displayName: 'Morgan',
+      role: request.role,
+    );
+    members = [member, ...members];
+    return member;
+  }
+
+  @override
+  Future<SettleoraGroupMember> updateGroupMember(
+    String groupId,
+    String userProfileId,
+    SettleoraGroupMemberRoleUpdate update,
+  ) async {
+    updateMemberCalls += 1;
+    lastGroupId = groupId;
+    lastMemberUpdate = update;
+    _throwActionIfNeeded();
+    final updated = sampleMember(
+      userProfileId: userProfileId,
+      displayName: 'Morgan',
+      role: update.role,
+    );
+    members = [
+      for (final member in members)
+        if (member.userProfileId == userProfileId) updated else member,
+    ];
+    return updated;
+  }
+
+  @override
+  Future<void> removeGroupMember(String groupId, String userProfileId) async {
+    removeMemberCalls += 1;
+    lastGroupId = groupId;
+    lastRemovedUserProfileId = userProfileId;
+    _throwActionIfNeeded();
+    members = [
+      for (final member in members)
+        if (member.userProfileId != userProfileId) member,
+    ];
+  }
+
+  void _throwActionIfNeeded() {
+    final failure = actionFailure;
+    if (failure != null) {
+      throw failure;
+    }
+  }
+}
+
+class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  @override
+  Future<List<ReceiptOcrReviewSummary>> listReviews({
+    ReceiptOcrReviewStatus? status,
+    ReceiptOcrReviewSource? source,
+    int? limit,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> saveReview(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewSaveRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> deleteReview(ReceiptOcrReviewRoute route) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ReceiptOcrReviewApplyPreview> previewApply(
+    ReceiptOcrReviewRoute route,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ReceiptOcrReviewApplyResult> applyReview(
+    ReceiptOcrReviewRoute route, {
+    required DateTime expectedReviewUpdatedAtUtc,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeBillRepository implements SettleoraBillRepository {
+  @override
+  Future<SettleoraBillDetail> getPersonalBill(String billId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
+    return const [];
+  }
+}
+
+class FakeProfileRepository implements SettleoraProfileRepository {
+  @override
+  Future<SettleoraSelfProfile> getSelfProfile() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfProfile> updateSelfProfile(
+    SettleoraSelfProfileUpdate update,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfPaymentDetails> getSelfPaymentDetails() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSelfPaymentDetails> updateSelfPaymentDetails(
+    SettleoraSelfPaymentDetailsUpdate update,
+  ) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeSettlementRepository implements SettleoraSettlementRepository {
+  @override
+  Future<SettleoraSettlementBalanceSnapshot> listBalances() async {
+    return SettleoraSettlementBalanceSnapshot(
+      generatedAtUtc: _updatedAtUtc,
+      balances: const [],
+    );
+  }
+
+  @override
+  Future<List<SettleoraSettlementRequest>> listSettlementRequests() async {
+    return const [];
+  }
+
+  @override
+  Future<SettleoraSettlementRequest> getSettlementRequest(String settlementId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraSettlementPayment>> listSettlementPayments(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementCounterpartyPaymentDetails>
+  getCounterpartyPaymentDetails({
+    required String settlementId,
+    required String userProfileId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementRequest> cancelSettlementRequest(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementRequest> disputeSettlementRequest(
+    String settlementId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> confirmSettlementPayment(
+    String paymentId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> cancelSettlementPayment(String paymentId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> disputeSettlementPayment(
+    String paymentId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> confirmSettlementPaymentResidual({
+    required String paymentId,
+    required String residualId,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeAuthRepository implements SettleoraAuthRepository {
+  @override
+  Future<SettleoraCurrentUser> currentUser({
+    required String accessToken,
+  }) async {
+    return sampleCurrentUser();
+  }
+
+  @override
+  Future<SettleoraServerSessionMaterial> signIn(
+    SettleoraSignInSubmission submission,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraServerSessionMaterial> refreshSession({
+    required String refreshCredential,
+    String? deviceLabel,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> signOutCurrentSession({required String accessToken}) async {}
+
+  @override
+  Future<void> signOutAllCurrentAccountSessions({
+    required String accessToken,
+  }) async {}
+
+  @override
+  Future<List<SettleoraSessionSummary>> listSessions({
+    required String accessToken,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<void> revokeSession({
+    required String sessionId,
+    required String accessToken,
+  }) async {}
+}
+
+class FakeAccessTokenProvider implements SettleoraAccessTokenProvider {
+  const FakeAccessTokenProvider(this._accessToken);
+
+  final String? _accessToken;
+
+  @override
+  Future<String?> accessToken() async => _accessToken;
+}
+
+class MemorySyncQueueStore extends SettleoraSyncQueueStore {
+  var state = SettleoraSyncQueueState.empty();
+
+  @override
+  final int maxItemCount = 100;
+
+  @override
+  Future<SettleoraSyncQueueState> read() async => state;
+
+  @override
+  Future<void> write(SettleoraSyncQueueState state) async {
+    this.state = state;
+  }
+}
+
+class FakeSyncRepository implements SettleoraSyncRepository {
+  @override
+  Future<SettleoraSyncOperationResult> submitOperation(
+    SettleoraSyncQueueItem item,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSyncChangeFeed> listChanges({
+    int? sinceVersion,
+    int? limit,
+    SettleoraSyncResourceType? resourceType,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
+SettleoraBillSyncController sampleSyncController() {
+  final store = MemorySyncQueueStore();
+  return SettleoraBillSyncController(
+    queueStore: store,
+    queueProcessor: SettleoraSyncQueueProcessor(
+      queueStore: store,
+      repository: FakeSyncRepository(),
+    ),
+  );
+}
+
+SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
+  return SettleoraGroup(
+    id: id,
+    name: name,
+    currentUserRole: SettleoraGroupRoleValues.owner,
+    currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+SettleoraGroupMember sampleMember({
+  String userProfileId = _profileId,
+  String displayName = 'Taylor',
+  String role = SettleoraGroupRoleValues.member,
+}) {
+  return SettleoraGroupMember(
+    userProfileId: userProfileId,
+    displayName: displayName,
+    role: role,
+    status: SettleoraGroupMembershipStatusValues.active,
+    joinedAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+SettleoraCurrentUser sampleCurrentUser() {
+  return SettleoraCurrentUser(
+    userProfileId: _profileId,
+    displayName: 'Taylor',
+    defaultCurrency: 'USD',
+    roles: const ['user'],
+    sessionExpiresAtUtc: DateTime.utc(2026, 5, 19),
+  );
+}
+
+String visibleText(WidgetTester tester) {
+  return tester
+      .widgetList<Text>(find.byType(Text))
+      .map((widget) => widget.data)
+      .whereType<String>()
+      .join('\n');
+}
+
+const _groupId = '11111111-1111-1111-1111-111111111111';
+const _profileId = '22222222-2222-2222-2222-222222222222';
+const _otherProfileId = '33333333-3333-3333-3333-333333333333';
+final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
+final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

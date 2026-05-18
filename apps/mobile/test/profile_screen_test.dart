@@ -6,6 +6,7 @@ import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
+import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/profile/profile_screen.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -27,6 +28,7 @@ void main() {
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: FakeBillRepository(),
           settlementRepository: FakeSettlementRepository(),
+          groupRepository: FakeGroupRepository(),
           profileRepository: profileRepository,
           billSyncController: sampleSyncController(),
           authRepository: FakeAuthRepository(),
@@ -446,6 +448,58 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     required String paymentId,
     required String residualId,
   }) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeGroupRepository implements SettleoraGroupRepository {
+  @override
+  Future<List<SettleoraGroup>> listGroups() async {
+    return const [];
+  }
+
+  @override
+  Future<SettleoraGroup> createGroup(SettleoraGroupSaveRequest request) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroup> getGroup(String groupId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroup> updateGroup(
+    String groupId,
+    SettleoraGroupSaveRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroupMember> addGroupMember(
+    String groupId,
+    SettleoraGroupMemberAddRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroupMember> updateGroupMember(
+    String groupId,
+    String userProfileId,
+    SettleoraGroupMemberRoleUpdate update,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> removeGroupMember(String groupId, String userProfileId) {
     throw UnimplementedError();
   }
 }

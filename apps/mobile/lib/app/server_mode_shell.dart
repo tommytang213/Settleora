@@ -4,6 +4,8 @@ import '../api/settleora_api_client.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
+import '../groups/group_list_screen.dart';
+import '../groups/group_repository.dart';
 import '../profile/profile_repository.dart';
 import '../profile/profile_screen.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -22,6 +24,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.receiptOcrReviewRepository,
     required this.billRepository,
     required this.settlementRepository,
+    required this.groupRepository,
     required this.profileRepository,
     required this.billSyncController,
     required this.authRepository,
@@ -33,6 +36,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
   final SettleoraSettlementRepository settlementRepository;
+  final SettleoraGroupRepository groupRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
@@ -88,6 +92,15 @@ class _SettleoraAuthenticatedServerShellState
           repository: widget.settlementRepository,
           currentUserProfileId: widget.currentUser.userProfileId,
         ),
+      ),
+    );
+  }
+
+  Future<void> _openGroups() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SettleoraGroupListScreen(repository: widget.groupRepository),
       ),
     );
   }
@@ -262,6 +275,13 @@ class _SettleoraAuthenticatedServerShellState
               onPressed: _openSettlements,
               icon: const Icon(Icons.handshake_outlined),
               label: const Text('Settlements'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-groups'),
+              onPressed: _openGroups,
+              icon: const Icon(Icons.groups_outlined),
+              label: const Text('Groups'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
