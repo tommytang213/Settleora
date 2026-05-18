@@ -4,6 +4,8 @@ import '../api/settleora_api_client.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
+import '../profile/profile_repository.dart';
+import '../profile/profile_screen.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../settlements/settlement_list_screen.dart';
@@ -20,6 +22,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.receiptOcrReviewRepository,
     required this.billRepository,
     required this.settlementRepository,
+    required this.profileRepository,
     required this.billSyncController,
     required this.authRepository,
     required this.accessTokenProvider,
@@ -30,6 +33,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
   final SettleoraSettlementRepository settlementRepository;
+  final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
@@ -50,6 +54,18 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraBillListScreen(
           repository: widget.billRepository,
           syncController: widget.billSyncController,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openProfile() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraProfileScreen(
+          repository: widget.profileRepository,
+          currentUser: widget.currentUser,
+          onSessionEnded: widget.onSessionEnded,
         ),
       ),
     );
@@ -225,6 +241,13 @@ class _SettleoraAuthenticatedServerShellState
                     ? 'Signed in'
                     : 'Signed in - $defaultCurrency',
               ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-profile'),
+              onPressed: _openProfile,
+              icon: const Icon(Icons.account_circle_outlined),
+              label: const Text('Profile'),
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
