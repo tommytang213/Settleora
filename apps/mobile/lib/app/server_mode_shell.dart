@@ -99,8 +99,10 @@ class _SettleoraAuthenticatedServerShellState
   Future<void> _openGroups() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            SettleoraGroupListScreen(repository: widget.groupRepository),
+        builder: (_) => SettleoraGroupListScreen(
+          repository: widget.groupRepository,
+          billRepository: widget.billRepository,
+        ),
       ),
     );
   }

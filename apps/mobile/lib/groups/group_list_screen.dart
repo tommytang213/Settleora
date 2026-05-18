@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_list_screen.dart';
+import '../bills/bill_repository.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
-  const SettleoraGroupListScreen({super.key, required this.repository});
+  const SettleoraGroupListScreen({
+    super.key,
+    required this.repository,
+    required this.billRepository,
+  });
 
   final SettleoraGroupRepository repository;
+  final SettleoraBillRepository billRepository;
 
   @override
   State<SettleoraGroupListScreen> createState() =>
@@ -101,6 +108,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupDetailScreen(
           repository: widget.repository,
+          billRepository: widget.billRepository,
           groupId: group.id,
         ),
       ),
@@ -196,10 +204,12 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   const SettleoraGroupDetailScreen({
     super.key,
     required this.repository,
+    required this.billRepository,
     required this.groupId,
   });
 
   final SettleoraGroupRepository repository;
+  final SettleoraBillRepository billRepository;
   final String groupId;
 
   @override
@@ -456,6 +466,18 @@ class _SettleoraGroupDetailScreenState
     }
   }
 
+  Future<void> _openGroupBills(SettleoraGroup group) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraGroupBillListScreen(
+          repository: widget.billRepository,
+          groupId: group.id,
+          groupName: group.displayName,
+        ),
+      ),
+    );
+  }
+
   Future<bool> _confirmMemberRemoval(SettleoraGroupMember member) async {
     final result = await showDialog<bool>(
       context: context,
@@ -546,6 +568,13 @@ class _SettleoraGroupDetailScreenState
                     const SizedBox(height: 14),
                     _InlineFailure(failure: actionFailure),
                   ],
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    key: const Key('group-detail-bills'),
+                    onPressed: () => _openGroupBills(group),
+                    icon: const Icon(Icons.receipt_long_outlined),
+                    label: const Text('Group bills'),
+                  ),
                   const SizedBox(height: 22),
                   _Section(
                     title: 'Add Member',

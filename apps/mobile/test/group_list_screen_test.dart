@@ -22,7 +22,12 @@ void main() {
     final repository = FakeGroupRepository(groups: const []);
 
     await tester.pumpWidget(
-      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -48,7 +53,12 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -62,6 +72,36 @@ void main() {
     expect(visibleText(tester), isNot(contains(_profileId)));
   });
 
+  testWidgets('group detail opens read-only group bills', (tester) async {
+    final groupRepository = FakeGroupRepository(
+      groups: [sampleGroup()],
+      members: [sampleMember(displayName: 'Taylor')],
+    );
+    final billRepository = FakeBillRepository(
+      groupBills: [sampleBillSummary()],
+      detail: sampleBillDetail(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: groupRepository,
+          billRepository: billRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Trip Crew'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-detail-bills')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group bills'), findsWidgets);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(billRepository.listGroupCalls, 1);
+  });
+
   testWidgets('group detail edits group and manages members', (tester) async {
     final repository = FakeGroupRepository(
       group: sampleGroup(),
@@ -72,6 +112,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupDetailScreen(
           repository: repository,
+          billRepository: FakeBillRepository(),
           groupId: _groupId,
         ),
       ),
@@ -102,6 +143,11 @@ void main() {
     expect(repository.lastMemberAdd?.userProfileId, _otherProfileId);
     expect(find.text('Morgan'), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-member-actions-0')),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -96));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Make Owner'));
@@ -110,6 +156,11 @@ void main() {
     expect(repository.updateMemberCalls, 1);
     expect(repository.lastMemberUpdate?.role, SettleoraGroupRoleValues.owner);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-member-actions-0')),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -96));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Remove').last);
@@ -136,7 +187,12 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: SettleoraGroupListScreen(repository: repository)),
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -374,9 +430,35 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
+  FakeBillRepository({this.groupBills = const [], SettleoraBillDetail? detail})
+    : detail = detail ?? sampleBillDetail();
+
+  final List<SettleoraBillSummary> groupBills;
+  final SettleoraBillDetail detail;
+  int listGroupCalls = 0;
+  int getGroupCalls = 0;
+
+  @override
+  Future<SettleoraBillDetail> getGroupBill(
+    String groupId,
+    String billId,
+  ) async {
+    getGroupCalls += 1;
+    return detail;
+  }
+
   @override
   Future<SettleoraBillDetail> getPersonalBill(String billId) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraBillSummary>> listGroupBills(
+    String groupId, {
+    int limit = 50,
+  }) async {
+    listGroupCalls += 1;
+    return groupBills;
   }
 
   @override
@@ -612,6 +694,67 @@ SettleoraGroupMember sampleMember({
   );
 }
 
+SettleoraBillSummary sampleBillSummary() {
+  return SettleoraBillSummary(
+    id: _billId,
+    merchantName: 'Corner Market',
+    billDate: '2026-05-17',
+    status: 'draft',
+    reconciliationStatus: 'unreconciled',
+    totalAmount: '10.80',
+    totalCurrency: 'USD',
+    archiveState: SettleoraBillArchiveStateValues.active,
+    itemCount: 1,
+    participantCount: 1,
+    payerCount: 1,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    displayNameFallback: 'Group bill',
+  );
+}
+
+SettleoraBillDetail sampleBillDetail() {
+  return SettleoraBillDetail(
+    id: _billId,
+    merchantName: 'Corner Market',
+    billDate: '2026-05-17',
+    status: 'draft',
+    reconciliationStatus: 'unreconciled',
+    reconciliationNote: null,
+    totalAmount: '10.80',
+    totalCurrency: 'USD',
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    items: const [
+      SettleoraBillItem(
+        id: 'item-1',
+        name: 'Milk',
+        note: null,
+        amount: '10.00',
+        currency: 'USD',
+        sortOrder: 0,
+      ),
+    ],
+    participants: const [
+      SettleoraBillParticipant(
+        userProfileId: _profileId,
+        status: 'pending_acceptance',
+        resolvedShareAmount: '10.80',
+        resolvedShareCurrency: 'USD',
+      ),
+    ],
+    payers: const [
+      SettleoraBillPayer(
+        userProfileId: _profileId,
+        amount: '10.80',
+        currency: 'USD',
+      ),
+    ],
+    adjustments: const [],
+    displayNameFallback: 'Group bill',
+  );
+}
+
 SettleoraCurrentUser sampleCurrentUser() {
   return SettleoraCurrentUser(
     userProfileId: _profileId,
@@ -633,5 +776,6 @@ String visibleText(WidgetTester tester) {
 const _groupId = '11111111-1111-1111-1111-111111111111';
 const _profileId = '22222222-2222-2222-2222-222222222222';
 const _otherProfileId = '33333333-3333-3333-3333-333333333333';
+const _billId = '44444444-4444-4444-4444-444444444444';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

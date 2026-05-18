@@ -77,6 +77,7 @@ class SettleoraBillSummary {
     required this.payerCount,
     required this.createdAtUtc,
     required this.updatedAtUtc,
+    this.displayNameFallback = 'Personal bill',
   });
 
   final String id;
@@ -92,6 +93,7 @@ class SettleoraBillSummary {
   final int payerCount;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
+  final String displayNameFallback;
 
   bool get isArchived =>
       archiveState == SettleoraBillArchiveStateValues.archived;
@@ -99,7 +101,7 @@ class SettleoraBillSummary {
   String get displayName {
     final trimmed = merchantName?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return 'Personal bill';
+      return displayNameFallback;
     }
 
     return trimmed;
@@ -122,6 +124,7 @@ class SettleoraBillDetail {
     required this.participants,
     required this.payers,
     required this.adjustments,
+    this.displayNameFallback = 'Personal bill',
   });
 
   final String id;
@@ -138,11 +141,12 @@ class SettleoraBillDetail {
   final List<SettleoraBillParticipant> participants;
   final List<SettleoraBillPayer> payers;
   final List<SettleoraBillAdjustment> adjustments;
+  final String displayNameFallback;
 
   String get displayName {
     final trimmed = merchantName?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return 'Personal bill';
+      return displayNameFallback;
     }
 
     return trimmed;
@@ -217,6 +221,13 @@ abstract class SettleoraBillRepository {
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50});
 
   Future<SettleoraBillDetail> getPersonalBill(String billId);
+
+  Future<List<SettleoraBillSummary>> listGroupBills(
+    String groupId, {
+    int limit = 50,
+  });
+
+  Future<SettleoraBillDetail> getGroupBill(String groupId, String billId);
 }
 
 String settleoraBillStatusLabel(SettleoraBillStatus status) {

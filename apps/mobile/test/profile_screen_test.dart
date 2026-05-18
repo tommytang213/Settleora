@@ -365,8 +365,21 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 
 class FakeBillRepository implements SettleoraBillRepository {
   @override
+  Future<SettleoraBillDetail> getGroupBill(String groupId, String billId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraBillDetail> getPersonalBill(String billId) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraBillSummary>> listGroupBills(
+    String groupId, {
+    int limit = 50,
+  }) async {
+    return const [];
   }
 
   @override

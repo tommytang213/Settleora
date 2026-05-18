@@ -270,6 +270,140 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   }
 }
 
+class SettleoraGroupBillListScreen extends StatefulWidget {
+  const SettleoraGroupBillListScreen({
+    super.key,
+    required this.repository,
+    required this.groupId,
+    required this.groupName,
+  });
+
+  final SettleoraBillRepository repository;
+  final String groupId;
+  final String groupName;
+
+  @override
+  State<SettleoraGroupBillListScreen> createState() =>
+      _SettleoraGroupBillListScreenState();
+}
+
+class _SettleoraGroupBillListScreenState
+    extends State<SettleoraGroupBillListScreen> {
+  bool _isLoading = true;
+  List<SettleoraBillSummary> _bills = const [];
+  SettleoraBillFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _failure = null;
+    });
+
+    try {
+      final bills = await widget.repository.listGroupBills(
+        widget.groupId,
+        limit: 50,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bills = bills;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _openBill(SettleoraBillSummary bill) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraGroupBillDetailScreen(
+          repository: widget.repository,
+          groupId: widget.groupId,
+          groupName: widget.groupName,
+          billId: bill.id,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Group bills'),
+        actions: [
+          IconButton(
+            key: const Key('group-bill-list-refresh'),
+            onPressed: _isLoading ? null : _load,
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Builder(
+          builder: (context) {
+            if (_isLoading) {
+              return const _LoadingPanel(label: 'Loading group bills');
+            }
+
+            final failure = _failure;
+            if (failure != null) {
+              return _FailurePanel(failure: failure, onRetry: _load);
+            }
+
+            return RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                children: [
+                  _GroupBillContext(groupName: widget.groupName),
+                  if (_bills.isEmpty) ...[
+                    const SizedBox(height: 56),
+                    _StatePanel(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'No group bills',
+                      message:
+                          'Bills visible in ${_safeGroupName(widget.groupName)} will appear here.',
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 14),
+                    for (var index = 0; index < _bills.length; index += 1)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _ReadOnlyBillSummaryTile(
+                          bill: _bills[index],
+                          onTap: () => _openBill(_bills[index]),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class SettleoraBillDetailScreen extends StatefulWidget {
   const SettleoraBillDetailScreen({
     super.key,
@@ -381,6 +515,128 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   }
 }
 
+class SettleoraGroupBillDetailScreen extends StatefulWidget {
+  const SettleoraGroupBillDetailScreen({
+    super.key,
+    required this.repository,
+    required this.groupId,
+    required this.groupName,
+    required this.billId,
+  });
+
+  final SettleoraBillRepository repository;
+  final String groupId;
+  final String groupName;
+  final String billId;
+
+  @override
+  State<SettleoraGroupBillDetailScreen> createState() =>
+      _SettleoraGroupBillDetailScreenState();
+}
+
+class _SettleoraGroupBillDetailScreenState
+    extends State<SettleoraGroupBillDetailScreen> {
+  bool _isLoading = true;
+  SettleoraBillDetail? _bill;
+  SettleoraBillFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _failure = null;
+    });
+
+    try {
+      final bill = await widget.repository.getGroupBill(
+        widget.groupId,
+        widget.billId,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bill = bill;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Group bill'),
+        actions: [
+          IconButton(
+            key: const Key('group-bill-detail-refresh'),
+            onPressed: _isLoading ? null : _load,
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Builder(
+          builder: (context) {
+            if (_isLoading) {
+              return const _LoadingPanel(label: 'Loading group bill');
+            }
+
+            final failure = _failure;
+            if (failure != null) {
+              return _FailurePanel(failure: failure, onRetry: _load);
+            }
+
+            final bill = _bill;
+            if (bill == null) {
+              return _FailurePanel(
+                failure: const SettleoraBillFailure(
+                  kind: SettleoraBillFailureKind.unavailable,
+                  message: 'The bill is no longer available.',
+                ),
+                onRetry: _load,
+              );
+            }
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              children: [
+                _GroupBillContext(groupName: widget.groupName),
+                const SizedBox(height: 20),
+                _BillDetailHeader(bill: bill),
+                const SizedBox(height: 20),
+                _BillItems(items: bill.items),
+                const SizedBox(height: 20),
+                _BillParticipants(participants: bill.participants),
+                const SizedBox(height: 20),
+                _BillPayers(payers: bill.payers),
+                const SizedBox(height: 20),
+                _BillAdjustments(adjustments: bill.adjustments),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _BillSummaryTile extends StatelessWidget {
   const _BillSummaryTile({
     required this.bill,
@@ -473,6 +729,98 @@ class _BillSummaryTile extends StatelessWidget {
               : Icon(actionIcon),
         ),
       ),
+    );
+  }
+}
+
+class _ReadOnlyBillSummaryTile extends StatelessWidget {
+  const _ReadOnlyBillSummaryTile({required this.bill, required this.onTap});
+
+  final SettleoraBillSummary bill;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        title: Text(
+          bill.displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${bill.billDate} - ${_money(bill.totalAmount, bill.totalCurrency)}',
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _SoftChip(
+                    label: settleoraBillStatusLabel(bill.status),
+                    icon: Icons.assignment_outlined,
+                  ),
+                  _SoftChip(
+                    label: settleoraBillArchiveStateLabel(bill.archiveState),
+                    icon: bill.isArchived
+                        ? Icons.inventory_2_outlined
+                        : Icons.check_circle_outline,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+class _GroupBillContext extends StatelessWidget {
+  const _GroupBillContext({required this.groupName});
+
+  final String groupName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 2),
+          child: Icon(Icons.groups_outlined),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _safeGroupName(groupName),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Group bills',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -918,6 +1266,15 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+String _safeGroupName(String groupName) {
+  final trimmed = groupName.trim();
+  if (trimmed.isEmpty) {
+    return 'Group';
+  }
+
+  return trimmed;
 }
 
 String _titleFromCode(String code) {
