@@ -42,7 +42,7 @@ void main() {
       );
       expect(find.text('Payer confirmation required'), findsWidgets);
       expect(
-        find.byKey(const Key('bill-revision-payer-confirmation-unavailable')),
+        find.byKey(const Key('bill-revision-confirm-payer')),
         findsOneWidget,
       );
       semantics.dispose();
@@ -145,6 +145,72 @@ void main() {
       _hash,
     );
     expect(find.text('Revision approval recorded.'), findsOneWidget);
+  });
+
+  testWidgets('payer confirmation action refreshes and uses repository seam', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRevisionRepository(
+      revision: sampleRevision(),
+      confirmPayerResponse: sampleRevision(
+        payerConfirmationStatus:
+            SettleoraBillRevisionPayerConfirmationStatusValues.confirmed,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-confirm-payer')));
+    await tester.pumpAndSettle();
+
+    expect(repository.confirmPayerCalls, 1);
+    expect(repository.lastConfirmedRevision?.calculationHash, _hash);
+    expect(repository.getCalls, 3);
+    expect(find.text('Payer confirmation recorded.'), findsOneWidget);
+  });
+
+  testWidgets('confirmed payer state keeps fallback action disabled', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: FakeBillRevisionRepository(
+            revision: sampleRevision(
+              payerConfirmationStatus:
+                  SettleoraBillRevisionPayerConfirmationStatusValues.confirmed,
+            ),
+          ),
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-revision-confirm-payer')), findsNothing);
+    expect(
+      find.byKey(const Key('bill-revision-payer-confirmation-unavailable')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('reject action shows consequence text and terminal state', (
@@ -262,17 +328,22 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     required this.revision,
     SettleoraBillRevision? approveResponse,
     SettleoraBillRevision? rejectResponse,
+    SettleoraBillRevision? confirmPayerResponse,
   }) : approveResponse = approveResponse ?? revision,
-       rejectResponse = rejectResponse ?? revision;
+       rejectResponse = rejectResponse ?? revision,
+       confirmPayerResponse = confirmPayerResponse ?? revision;
 
   SettleoraBillRevision revision;
   final SettleoraBillRevision approveResponse;
   final SettleoraBillRevision rejectResponse;
+  final SettleoraBillRevision confirmPayerResponse;
   int listCalls = 0;
   int getCalls = 0;
   int approveCalls = 0;
   int rejectCalls = 0;
+  int confirmPayerCalls = 0;
   SettleoraBillRevision? lastApprovedRevision;
+  SettleoraBillRevision? lastConfirmedRevision;
 
   @override
   Future<List<SettleoraBillRevision>> listBillRevisions(String billId) async {
@@ -307,6 +378,16 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     rejectCalls += 1;
     revision = rejectResponse;
     return rejectResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
+  ) async {
+    confirmPayerCalls += 1;
+    lastConfirmedRevision = revision;
+    this.revision = confirmPayerResponse;
+    return confirmPayerResponse;
   }
 }
 
@@ -346,6 +427,8 @@ SettleoraBillRevision sampleRevision({
   String defaultViewMode =
       SettleoraBillRevisionReviewViewModeValues.changedOnly,
   bool includeViewerApprovalBasis = true,
+  String payerConfirmationStatus =
+      SettleoraBillRevisionPayerConfirmationStatusValues.pendingConfirmation,
 }) {
   final approval = SettleoraBillRevisionApproval(
     participantUserProfileId: _profileId,
@@ -375,21 +458,20 @@ SettleoraBillRevision sampleRevision({
         affectedByRevision: true,
       ),
     ],
-    payers: const [
+    payers: [
       SettleoraBillRevisionPayer(
         userProfileId: _profileId,
         amount: '12.00',
         currency: 'USD',
         requiresPayerConfirmation: true,
-        payerConfirmationStatus:
-            SettleoraBillRevisionPayerConfirmationStatusValues
-                .pendingConfirmation,
+        payerConfirmationStatus: payerConfirmationStatus,
       ),
     ],
     approvals: [approval],
     reviewContext: sampleReviewContext(
       baselineType: baselineType,
       defaultViewMode: defaultViewMode,
+      payerConfirmationStatus: payerConfirmationStatus,
     ),
     viewerApprovalBasis: includeViewerApprovalBasis
         ? const SettleoraBillRevisionApprovalBasis(
@@ -404,6 +486,8 @@ SettleoraBillRevision sampleRevision({
 SettleoraBillRevisionReviewContext sampleReviewContext({
   required String baselineType,
   required String defaultViewMode,
+  String payerConfirmationStatus =
+      SettleoraBillRevisionPayerConfirmationStatusValues.pendingConfirmation,
 }) {
   return SettleoraBillRevisionReviewContext(
     viewerUserProfileId: _profileId,
@@ -426,38 +510,36 @@ SettleoraBillRevisionReviewContext sampleReviewContext({
               .noPriorBaselineFullBillRecommended
         : SettleoraBillRevisionReviewRecommendationReasonValues
               .baselineAvailableFullViewOptional,
-    viewerFinancialImpact: const SettleoraBillRevisionViewerFinancialImpact(
-      previousShare: SettleoraBillRevisionMoneyValue(
+    viewerFinancialImpact: SettleoraBillRevisionViewerFinancialImpact(
+      previousShare: const SettleoraBillRevisionMoneyValue(
         amount: '10.00',
         currency: 'USD',
       ),
-      proposedShare: SettleoraBillRevisionMoneyValue(
+      proposedShare: const SettleoraBillRevisionMoneyValue(
         amount: '12.00',
         currency: 'USD',
       ),
-      deltaShare: SettleoraBillRevisionMoneyValue(
+      deltaShare: const SettleoraBillRevisionMoneyValue(
         amount: '2.00',
         currency: 'USD',
       ),
       affectedByRevision: true,
       isPayer: true,
       payerImpact: SettleoraBillRevisionPayerFinancialImpact(
-        previousContribution: SettleoraBillRevisionMoneyValue(
+        previousContribution: const SettleoraBillRevisionMoneyValue(
           amount: '10.00',
           currency: 'USD',
         ),
-        proposedContribution: SettleoraBillRevisionMoneyValue(
+        proposedContribution: const SettleoraBillRevisionMoneyValue(
           amount: '12.00',
           currency: 'USD',
         ),
-        deltaContribution: SettleoraBillRevisionMoneyValue(
+        deltaContribution: const SettleoraBillRevisionMoneyValue(
           amount: '2.00',
           currency: 'USD',
         ),
         requiresPayerConfirmation: true,
-        payerConfirmationStatus:
-            SettleoraBillRevisionPayerConfirmationStatusValues
-                .pendingConfirmation,
+        payerConfirmationStatus: payerConfirmationStatus,
       ),
     ),
     changeSummary: const [

@@ -230,6 +230,19 @@ class SettleoraBillRevision {
 
   bool get canApprove => isSubmittedForReview && viewerApprovalBasis != null;
 
+  bool get canConfirmPayer {
+    final impact = reviewContext.viewerFinancialImpact;
+    final payerImpact = impact.payerImpact;
+    return isSubmittedForReview &&
+        impact.isPayer &&
+        payerImpact != null &&
+        payerImpact.requiresPayerConfirmation &&
+        payerImpact.payerConfirmationStatus ==
+            SettleoraBillRevisionPayerConfirmationStatusValues
+                .pendingConfirmation &&
+        calculationHash.trim().isNotEmpty;
+  }
+
   bool get canReject => isSubmittedForReview;
 
   bool get requiresViewerPayerConfirmation =>
@@ -456,6 +469,10 @@ abstract class SettleoraBillRevisionRepository {
   Future<SettleoraBillRevision> rejectBillRevision(
     String billId,
     String revisionId,
+  );
+
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
   );
 }
 

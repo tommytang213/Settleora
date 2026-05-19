@@ -36,6 +36,7 @@ internal static class ExpenseBillRevisionEndpoints
     private const string RevisionWithdrawnAction = "bill.revision_withdrawn";
     private const string RevisionApprovedAction = "bill.revision_approved";
     private const string RevisionRejectedAction = "bill.revision_rejected";
+    private const string RevisionPayerConfirmedAction = "bill.revision_payer_confirmed";
     private const string RevisionAppliedAction = "bill.revision_applied";
 
     public static WebApplication MapExpenseBillRevisionEndpoints(this WebApplication app)
@@ -51,6 +52,7 @@ internal static class ExpenseBillRevisionEndpoints
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/withdraw", WithdrawBillRevisionAsync);
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/approve", ApproveBillRevisionAsync);
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/reject", RejectBillRevisionAsync);
+        bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/payer-confirmation", ConfirmBillRevisionPayerAsync);
         bills.MapPost("/{billId:guid}/revisions/{revisionId:guid}/apply", ApplyBillRevisionAsync);
 
         return app;
@@ -526,6 +528,74 @@ internal static class ExpenseBillRevisionEndpoints
                 previousStatus,
                 actor.UserProfileId,
                 now),
+            cancellationToken);
+
+        return await SaveAndRespondAsync(
+            dbContext,
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            cancellationToken);
+    }
+
+    private static async Task<IResult> ConfirmBillRevisionPayerAsync(
+        Guid billId,
+        Guid revisionId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillRevisionProposalService revisionProposalService,
+        IExpenseBillRevisionAuditWriter auditWriter,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var bill = await LoadVisibleBillAsync(dbContext, billId, actor.UserProfileId, cancellationToken);
+        var revision = bill?.Revisions.SingleOrDefault(candidate => candidate.Id == revisionId);
+        if (bill is null || revision is null)
+        {
+            return BillRevisionUnavailable();
+        }
+
+        var readResult = await ReadPayerConfirmationRequestAsync(request, cancellationToken);
+        if (!readResult.Succeeded || readResult.Request is null)
+        {
+            return InvalidBillRevisionRequest(readResult.Errors);
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var previousStatus = revision.Status;
+        var result = revisionProposalService.RecordPayerConfirmation(
+            revision,
+            actor.UserProfileId,
+            readResult.Request.CalculationHash,
+            now);
+        if (!result.Succeeded || result.Revision is null)
+        {
+            return MapOperationFailure(result);
+        }
+
+        await auditWriter.WriteAsync(
+            CreateAuditEvent(
+                RevisionPayerConfirmedAction,
+                actor,
+                bill,
+                revision,
+                previousStatus,
+                participantUserProfileId: null,
+                now,
+                payerUserProfileId: actor.UserProfileId),
             cancellationToken);
 
         return await SaveAndRespondAsync(
@@ -1048,6 +1118,68 @@ internal static class ExpenseBillRevisionEndpoints
         }
     }
 
+    private static async Task<PayerConfirmationReadResult> ReadPayerConfirmationRequestAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (!request.HasJsonContentType())
+        {
+            AddError(errors, "body", "A JSON object body is required.");
+            return PayerConfirmationReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(
+                request.Body,
+                cancellationToken: cancellationToken);
+        }
+        catch (JsonException)
+        {
+            AddError(errors, "body", "A JSON object body is required.");
+            return PayerConfirmationReadResult.Invalid(ToErrorDictionary(errors));
+        }
+        catch (BadHttpRequestException)
+        {
+            AddError(errors, "body", "A JSON object body is required.");
+            return PayerConfirmationReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, "body", "A JSON object body is required.");
+                return PayerConfirmationReadResult.Invalid(ToErrorDictionary(errors));
+            }
+
+            string? calculationHash = null;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                switch (property.Name)
+                {
+                    case "calculationHash":
+                        calculationHash = ReadCalculationHash(property.Value, errors);
+                        break;
+                    default:
+                        AddUnsupportedFieldError(errors);
+                        break;
+                }
+            }
+
+            if (calculationHash is null)
+            {
+                AddError(errors, "calculationHash", "Calculation hash is required.");
+            }
+
+            return errors.Count == 0
+                ? PayerConfirmationReadResult.Valid(new PayerConfirmationRequest(calculationHash!))
+                : PayerConfirmationReadResult.Invalid(ToErrorDictionary(errors));
+        }
+    }
+
     private static List<RevisionParticipantRequest> ReadParticipantRequests(
         JsonElement value,
         string? totalCurrency,
@@ -1470,7 +1602,8 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevision revision,
         string? previousRevisionStatus,
         Guid? participantUserProfileId,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        Guid? payerUserProfileId = null)
     {
         var counts = CountApprovals(revision);
         return new ExpenseBillRevisionAuditEvent(
@@ -1484,6 +1617,7 @@ internal static class ExpenseBillRevisionEndpoints
             previousRevisionStatus,
             revision.Status,
             participantUserProfileId,
+            payerUserProfileId,
             revision.Participants.Count,
             counts.PendingCount,
             counts.ApprovedCount,
@@ -1658,6 +1792,9 @@ internal static class ExpenseBillRevisionEndpoints
         string Currency,
         string CalculationHash);
 
+    private sealed record PayerConfirmationRequest(
+        string CalculationHash);
+
     private sealed record ApprovalCounts(
         int PendingCount,
         int ApprovedCount,
@@ -1718,6 +1855,35 @@ internal static class ExpenseBillRevisionEndpoints
         public static RevisionApprovalReadResult Invalid(IDictionary<string, string[]> errors)
         {
             return new RevisionApprovalReadResult(null, errors);
+        }
+    }
+
+    private sealed class PayerConfirmationReadResult
+    {
+        private PayerConfirmationReadResult(
+            PayerConfirmationRequest? request,
+            IDictionary<string, string[]> errors)
+        {
+            Request = request;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public PayerConfirmationRequest? Request { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static PayerConfirmationReadResult Valid(PayerConfirmationRequest request)
+        {
+            return new PayerConfirmationReadResult(
+                request,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static PayerConfirmationReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new PayerConfirmationReadResult(null, errors);
         }
     }
 }

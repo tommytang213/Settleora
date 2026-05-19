@@ -11,6 +11,7 @@ internal sealed record ExpenseBillRevisionAuditEvent(
     string? PreviousRevisionStatus,
     string NewRevisionStatus,
     Guid? ParticipantUserProfileId,
+    Guid? PayerUserProfileId,
     int ParticipantCount,
     int PendingApprovalCount,
     int ApprovedCount,

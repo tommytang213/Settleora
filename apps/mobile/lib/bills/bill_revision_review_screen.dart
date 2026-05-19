@@ -214,6 +214,64 @@ class _SettleoraBillRevisionReviewScreenState
     }
   }
 
+  Future<void> _confirmPayer() async {
+    if (_isActing) {
+      return;
+    }
+
+    setState(() {
+      _isActing = true;
+      _actionFailure = null;
+      _actionNotice = null;
+    });
+
+    try {
+      final fresh = await widget.repository.getBillRevision(
+        widget.billId,
+        widget.revisionId,
+      );
+      if (!fresh.canConfirmPayer) {
+        setState(() {
+          _revision = fresh;
+        });
+        throw const SettleoraBillRevisionFailure(
+          kind: SettleoraBillRevisionFailureKind.conflict,
+          message:
+              'This revision is no longer open for your payer confirmation. Review the refreshed status.',
+        );
+      }
+
+      final confirmed = await widget.repository.confirmBillRevisionPayer(fresh);
+      final updated = await widget.repository.getBillRevision(
+        confirmed.billId,
+        confirmed.id,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _revision = updated;
+        _viewMode = _viewModeTouched ? _viewMode : _preferredViewMode(updated);
+        _actionNotice = 'Payer confirmation recorded.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = SettleoraBillRevisionFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActing = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final revision = _revision;
@@ -312,6 +370,7 @@ class _SettleoraBillRevisionReviewScreenState
                     actionNotice: _actionNotice,
                     onApprove: _approve,
                     onReject: _confirmReject,
+                    onConfirmPayer: _confirmPayer,
                   ),
                 ],
               ),
@@ -754,6 +813,7 @@ class _RevisionActionArea extends StatelessWidget {
     required this.actionNotice,
     required this.onApprove,
     required this.onReject,
+    required this.onConfirmPayer,
   });
 
   final SettleoraBillRevision revision;
@@ -762,6 +822,7 @@ class _RevisionActionArea extends StatelessWidget {
   final String? actionNotice;
   final VoidCallback onApprove;
   final VoidCallback onReject;
+  final VoidCallback onConfirmPayer;
 
   @override
   Widget build(BuildContext context) {
@@ -784,7 +845,11 @@ class _RevisionActionArea extends StatelessWidget {
           const SizedBox(height: 10),
         ],
         if (requiresPayerConfirmation) ...[
-          _PayerConfirmationPanel(payerImpact: payerImpact),
+          _PayerConfirmationPanel(
+            revision: revision,
+            isActing: isActing,
+            onConfirmPayer: onConfirmPayer,
+          ),
           const SizedBox(height: 10),
         ],
         if (!isSubmitted)
@@ -834,12 +899,20 @@ class _RevisionActionArea extends StatelessWidget {
 }
 
 class _PayerConfirmationPanel extends StatelessWidget {
-  const _PayerConfirmationPanel({required this.payerImpact});
+  const _PayerConfirmationPanel({
+    required this.revision,
+    required this.isActing,
+    required this.onConfirmPayer,
+  });
 
-  final SettleoraBillRevisionPayerFinancialImpact? payerImpact;
+  final SettleoraBillRevision revision;
+  final bool isActing;
+  final VoidCallback onConfirmPayer;
 
   @override
   Widget build(BuildContext context) {
+    final payerImpact =
+        revision.reviewContext.viewerFinancialImpact.payerImpact;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.primary),
@@ -866,12 +939,25 @@ class _PayerConfirmationPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const Key('bill-revision-payer-confirmation-unavailable'),
-              onPressed: null,
-              icon: const Icon(Icons.lock_outline),
-              label: const Text('Payer confirmation unavailable'),
-            ),
+            if (revision.canConfirmPayer)
+              FilledButton.icon(
+                key: const Key('bill-revision-confirm-payer'),
+                onPressed: isActing ? null : onConfirmPayer,
+                icon: isActing
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.verified_outlined),
+                label: const Text('Confirm payer role'),
+              )
+            else
+              OutlinedButton.icon(
+                key: const Key('bill-revision-payer-confirmation-unavailable'),
+                onPressed: null,
+                icon: const Icon(Icons.lock_outline),
+                label: const Text('Payer confirmation unavailable'),
+              ),
           ],
         ),
       ),

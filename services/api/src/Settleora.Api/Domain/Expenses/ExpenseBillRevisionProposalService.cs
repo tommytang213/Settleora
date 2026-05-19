@@ -169,6 +169,42 @@ internal sealed class ExpenseBillRevisionProposalService
         return ExpenseBillRevisionOperationResult.Success(revision);
     }
 
+    public ExpenseBillRevisionOperationResult RecordPayerConfirmation(
+        ExpenseBillRevision revision,
+        Guid payerUserProfileId,
+        string calculationHash,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+
+        if (revision.Status != ExpenseBillRevisionStatuses.SubmittedForReview
+            || !StringComparer.Ordinal.Equals(revision.CalculationHash, calculationHash))
+        {
+            return ExpenseBillRevisionOperationResult.Failed("revision_payer_confirmation_basis_mismatch");
+        }
+
+        var payer = revision.Payers.SingleOrDefault(candidate =>
+            candidate.UserProfileId == payerUserProfileId);
+        if (payer is null)
+        {
+            return ExpenseBillRevisionOperationResult.Failed("revision_payer_confirmation_not_allowed");
+        }
+
+        if (!payer.RequiresPayerConfirmation)
+        {
+            return ExpenseBillRevisionOperationResult.Failed("revision_payer_confirmation_not_required");
+        }
+
+        if (payer.PayerConfirmationStatus != ExpenseBillPayerConfirmationStatuses.PendingConfirmation)
+        {
+            return ExpenseBillRevisionOperationResult.Failed("revision_payer_confirmation_not_allowed");
+        }
+
+        payer.PayerConfirmationStatus = ExpenseBillPayerConfirmationStatuses.Confirmed;
+        payer.UpdatedAtUtc = now;
+        return ExpenseBillRevisionOperationResult.Success(revision);
+    }
+
     public ExpenseBillRevisionOperationResult RejectProposal(
         ExpenseBillRevision revision,
         Guid participantUserProfileId,

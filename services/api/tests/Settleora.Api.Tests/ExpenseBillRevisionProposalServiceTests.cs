@@ -224,6 +224,102 @@ public sealed class ExpenseBillRevisionProposalServiceTests
     }
 
     [Fact]
+    public void RequiredPayerCanConfirmOwnPendingPayerConfirmation()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(ParticipantOne, 100m)]);
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(1));
+        var payer = Assert.Single(revision.Payers);
+
+        var result = service.RecordPayerConfirmation(
+            revision,
+            ParticipantOne,
+            revision.CalculationHash,
+            InitialTimestamp.AddMinutes(2));
+
+        Assert.True(result.Succeeded, result.FailureCode);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        Assert.True(payer.RequiresPayerConfirmation);
+        Assert.Equal(ExpenseBillPayerConfirmationStatuses.Confirmed, payer.PayerConfirmationStatus);
+        Assert.Equal(InitialTimestamp.AddMinutes(2), payer.UpdatedAtUtc);
+        Assert.Null(revision.AppliedAtUtc);
+        Assert.Null(bill.ActiveAcceptedBillRevisionId);
+    }
+
+    [Fact]
+    public void PayerConfirmationRequiresSubmittedMatchingHashRequiredPendingPayer()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(ParticipantOne, 100m)]);
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+
+        Assert.Equal(
+            "revision_payer_confirmation_basis_mismatch",
+            service.RecordPayerConfirmation(
+                revision,
+                ParticipantOne,
+                revision.CalculationHash,
+                InitialTimestamp.AddMinutes(1)).FailureCode);
+
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(2));
+        Assert.Equal(
+            "revision_payer_confirmation_basis_mismatch",
+            service.RecordPayerConfirmation(
+                revision,
+                ParticipantOne,
+                new string('a', 64),
+                InitialTimestamp.AddMinutes(3)).FailureCode);
+        Assert.Equal(
+            "revision_payer_confirmation_not_allowed",
+            service.RecordPayerConfirmation(
+                revision,
+                Creator,
+                revision.CalculationHash,
+                InitialTimestamp.AddMinutes(4)).FailureCode);
+
+        var selfPaidCandidate = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var selfPaidBill = CreateBill(Creator, ParticipantOne);
+        var selfPaidRevision = service.CreateDraftProposal(
+            selfPaidBill,
+            Creator,
+            active,
+            selfPaidCandidate,
+            InitialTimestamp.AddMinutes(5)).Revision!;
+        service.SubmitProposal(selfPaidRevision, Creator, InitialTimestamp.AddMinutes(6));
+
+        Assert.Equal(
+            "revision_payer_confirmation_not_required",
+            service.RecordPayerConfirmation(
+                selfPaidRevision,
+                Creator,
+                selfPaidRevision.CalculationHash,
+                InitialTimestamp.AddMinutes(7)).FailureCode);
+    }
+
+    [Fact]
     public void RejectedProposalApprovalDoesNotCarryToActiveAcceptedRevision()
     {
         var activeRevisionId = StableGuid(99);
