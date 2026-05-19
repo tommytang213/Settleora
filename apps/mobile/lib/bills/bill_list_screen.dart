@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
+import 'bill_revision_repository.dart';
+import 'bill_revision_review_screen.dart';
 import 'bill_repository.dart';
 import 'bill_sync_controller.dart';
 
@@ -10,10 +12,12 @@ class SettleoraBillListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.syncController,
+    this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillSyncController syncController;
+  final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
   State<SettleoraBillListScreen> createState() =>
@@ -170,6 +174,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SettleoraBillDetailScreen(
           repository: widget.repository,
+          revisionRepository: widget.revisionRepository,
           billId: bill.id,
         ),
       ),
@@ -276,11 +281,13 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.repository,
     required this.groupId,
     required this.groupName,
+    this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final String groupId;
   final String groupName;
+  final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
   State<SettleoraGroupBillListScreen> createState() =>
@@ -335,6 +342,7 @@ class _SettleoraGroupBillListScreenState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupBillDetailScreen(
           repository: widget.repository,
+          revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
           billId: bill.id,
@@ -409,10 +417,12 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billId,
+    this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final String billId;
+  final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
   State<SettleoraBillDetailScreen> createState() =>
@@ -423,6 +433,8 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   bool _isLoading = true;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
+  SettleoraBillRevision? _pendingRevision;
+  SettleoraBillRevisionFailure? _revisionFailure;
 
   @override
   void initState() {
@@ -434,16 +446,23 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     setState(() {
       _isLoading = true;
       _failure = null;
+      _revisionFailure = null;
     });
 
     try {
       final bill = await widget.repository.getPersonalBill(widget.billId);
+      final revisionSnapshot = await _loadPendingRevision(
+        widget.revisionRepository,
+        widget.billId,
+      );
       if (!mounted) {
         return;
       }
 
       setState(() {
         _bill = bill;
+        _pendingRevision = revisionSnapshot.revision;
+        _revisionFailure = revisionSnapshot.failure;
         _isLoading = false;
       });
     } catch (error) {
@@ -455,6 +474,31 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         _failure = SettleoraBillFailure.from(error);
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _openRevision(
+    SettleoraBillDetail bill,
+    SettleoraBillRevision revision,
+  ) async {
+    final revisionRepository = widget.revisionRepository;
+    if (revisionRepository == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillRevisionReviewScreen(
+          repository: revisionRepository,
+          billId: bill.id,
+          revisionId: revision.id,
+          billLabel: bill.displayName,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
     }
   }
 
@@ -498,6 +542,16 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _BillDetailHeader(bill: bill),
+                if (_pendingRevision != null) ...[
+                  const SizedBox(height: 14),
+                  _PendingRevisionBanner(
+                    revision: _pendingRevision!,
+                    onOpen: () => _openRevision(bill, _pendingRevision!),
+                  ),
+                ] else if (_revisionFailure != null) ...[
+                  const SizedBox(height: 14),
+                  _RevisionUnavailableBanner(failure: _revisionFailure!),
+                ],
                 const SizedBox(height: 20),
                 _BillItems(items: bill.items),
                 const SizedBox(height: 20),
@@ -522,9 +576,11 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     required this.billId,
+    this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
+  final SettleoraBillRevisionRepository? revisionRepository;
   final String groupId;
   final String groupName;
   final String billId;
@@ -539,6 +595,8 @@ class _SettleoraGroupBillDetailScreenState
   bool _isLoading = true;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
+  SettleoraBillRevision? _pendingRevision;
+  SettleoraBillRevisionFailure? _revisionFailure;
 
   @override
   void initState() {
@@ -550,11 +608,16 @@ class _SettleoraGroupBillDetailScreenState
     setState(() {
       _isLoading = true;
       _failure = null;
+      _revisionFailure = null;
     });
 
     try {
       final bill = await widget.repository.getGroupBill(
         widget.groupId,
+        widget.billId,
+      );
+      final revisionSnapshot = await _loadPendingRevision(
+        widget.revisionRepository,
         widget.billId,
       );
       if (!mounted) {
@@ -563,6 +626,8 @@ class _SettleoraGroupBillDetailScreenState
 
       setState(() {
         _bill = bill;
+        _pendingRevision = revisionSnapshot.revision;
+        _revisionFailure = revisionSnapshot.failure;
         _isLoading = false;
       });
     } catch (error) {
@@ -574,6 +639,31 @@ class _SettleoraGroupBillDetailScreenState
         _failure = SettleoraBillFailure.from(error);
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _openRevision(
+    SettleoraBillDetail bill,
+    SettleoraBillRevision revision,
+  ) async {
+    final revisionRepository = widget.revisionRepository;
+    if (revisionRepository == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillRevisionReviewScreen(
+          repository: revisionRepository,
+          billId: bill.id,
+          revisionId: revision.id,
+          billLabel: bill.displayName,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
     }
   }
 
@@ -620,6 +710,16 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillContext(groupName: widget.groupName),
                 const SizedBox(height: 20),
                 _BillDetailHeader(bill: bill),
+                if (_pendingRevision != null) ...[
+                  const SizedBox(height: 14),
+                  _PendingRevisionBanner(
+                    revision: _pendingRevision!,
+                    onOpen: () => _openRevision(bill, _pendingRevision!),
+                  ),
+                ] else if (_revisionFailure != null) ...[
+                  const SizedBox(height: 14),
+                  _RevisionUnavailableBanner(failure: _revisionFailure!),
+                ],
                 const SizedBox(height: 20),
                 _BillItems(items: bill.items),
                 const SizedBox(height: 20),
@@ -782,6 +882,112 @@ class _ReadOnlyBillSummaryTile extends StatelessWidget {
           ),
         ),
         trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+class _PendingRevisionBanner extends StatelessWidget {
+  const _PendingRevisionBanner({required this.revision, required this.onOpen});
+
+  final SettleoraBillRevision revision;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final impact = revision.reviewContext.viewerFinancialImpact;
+    final payerImpact = impact.payerImpact;
+    final requiresPayerConfirmation =
+        payerImpact?.requiresPayerConfirmation ?? false;
+
+    return DecoratedBox(
+      key: const Key('bill-detail-pending-revision-banner'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.primary),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.rate_review_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pending revision review',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${settleoraBillRevisionStatusLabel(revision.status)} - ${impact.affectedByRevision ? 'Your share changed' : 'No direct impact'}',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _SoftChip(
+                  label: _money(revision.totalAmount, revision.totalCurrency),
+                  icon: Icons.payments_outlined,
+                ),
+                if (requiresPayerConfirmation)
+                  const _SoftChip(
+                    label: 'Payer confirmation required',
+                    icon: Icons.verified_user_outlined,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                key: const Key('bill-detail-open-revision-review'),
+                onPressed: onOpen,
+                icon: const Icon(Icons.chevron_right),
+                label: const Text('Review revision'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RevisionUnavailableBanner extends StatelessWidget {
+  const _RevisionUnavailableBanner({required this.failure});
+
+  final SettleoraBillRevisionFailure failure;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline),
+            const SizedBox(width: 10),
+            Expanded(child: Text('${failure.title}: ${failure.message}')),
+          ],
+        ),
       ),
     );
   }
@@ -1266,6 +1472,44 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+Future<_PendingRevisionSnapshot> _loadPendingRevision(
+  SettleoraBillRevisionRepository? repository,
+  String billId,
+) async {
+  if (repository == null) {
+    return const _PendingRevisionSnapshot();
+  }
+
+  try {
+    final revisions = await repository.listBillRevisions(billId);
+    final submitted =
+        revisions
+            .where(
+              (revision) =>
+                  revision.status ==
+                  SettleoraBillRevisionStatusValues.submittedForReview,
+            )
+            .toList(growable: false)
+          ..sort(
+            (left, right) => right.updatedAtUtc.compareTo(left.updatedAtUtc),
+          );
+    return _PendingRevisionSnapshot(
+      revision: submitted.isEmpty ? null : submitted.first,
+    );
+  } catch (error) {
+    return _PendingRevisionSnapshot(
+      failure: SettleoraBillRevisionFailure.from(error),
+    );
+  }
+}
+
+class _PendingRevisionSnapshot {
+  const _PendingRevisionSnapshot({this.revision, this.failure});
+
+  final SettleoraBillRevision? revision;
+  final SettleoraBillRevisionFailure? failure;
 }
 
 String _safeGroupName(String groupName) {
