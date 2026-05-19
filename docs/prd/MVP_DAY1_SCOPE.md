@@ -63,6 +63,8 @@ Payment details must not be globally visible by default.
 - Revision-specific approval based on accepted amount, currency, and calculation hash.
 - Only affected users re-approve money-impacting changes.
 - The paid-by person re-confirms if payer role, paid amount, payer contribution, or their financial share changes.
+- Pending revision review uses server-generated baseline, changed-only markers, accessible marker labels, category summary, and viewer-specific financial-impact context. Clients render that context and must not decide affected-user state, authorization, payer confirmation truth, money impact, or financial truth.
+- Full item, split, adjustment, attachment/receipt/OCR review, note, and metadata highlighting remains limited until revision snapshots preserve those details.
 
 Payment method on a bill is optional. It is a hint for statement reconciliation, not a mandatory input.
 
@@ -161,6 +163,7 @@ Day 1 should support lightweight trust workflows:
 - Revision-specific approvals; rejected or superseded proposal approvals do not silently carry to another revision.
 - Affected-participant-only re-approval for money-impacting changes.
 - Paid-by confirmation when payer/payment facts are created or changed on behalf of another user.
+- Server-authoritative revision review context so no-baseline users default to full-bill review and users with safe active/prior revision baselines may use changed-only review.
 - Statuses such as `needs_review`, `disputed`, and `resolved`.
 
 ### Notifications

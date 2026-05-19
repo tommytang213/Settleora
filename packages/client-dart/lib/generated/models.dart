@@ -1925,7 +1925,7 @@ class BillRevisionListResponse {
   }
 }
 
-/// Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+/// Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, approval review fields, and server-authoritative review context/diff data while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
 class BillRevisionResponse {
   const BillRevisionResponse({
     required this.id,
@@ -1949,6 +1949,7 @@ class BillRevisionResponse {
     required this.participants,
     required this.payers,
     required this.approvals,
+    required this.reviewContext,
   });
 
   final String id;
@@ -1974,6 +1975,7 @@ class BillRevisionResponse {
   final List<BillRevisionParticipantResponse> participants;
   final List<BillRevisionPayerResponse> payers;
   final List<BillRevisionApprovalResponse> approvals;
+  final BillRevisionReviewContextResponse reviewContext;
 
   factory BillRevisionResponse.fromJson(JsonObject json) {
     return BillRevisionResponse(
@@ -1998,6 +2000,7 @@ class BillRevisionResponse {
       participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionParticipantResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       payers: (json["payers"] as List<dynamic>).map((item) => BillRevisionPayerResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       approvals: (json["approvals"] as List<dynamic>).map((item) => BillRevisionApprovalResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      reviewContext: BillRevisionReviewContextResponse.fromJson(JsonObject.from(json["reviewContext"] as Map)),
     );
   }
 
@@ -2034,6 +2037,7 @@ class BillRevisionResponse {
       "participants": participants.map((item) => item.toJson()).toList(growable: false),
       "payers": payers.map((item) => item.toJson()).toList(growable: false),
       "approvals": approvals.map((item) => item.toJson()).toList(growable: false),
+      "reviewContext": reviewContext.toJson(),
     };
   }
 }
@@ -2152,6 +2156,434 @@ class BillRevisionApprovalResponse {
       "invalidatedAtUtc": invalidatedAtUtcJsonValue == null ? null : invalidatedAtUtcJsonValue.toUtc().toIso8601String(),
     };
   }
+}
+
+/// Server-authoritative review context for the authenticated viewer. The API/domain derives baseline, default view mode, aggregate diff, accessible markers, and financial impact so clients render highlights without deciding authorization, affected-user state, money impact, or financial truth.
+class BillRevisionReviewContextResponse {
+  const BillRevisionReviewContextResponse({
+    required this.viewerUserProfileId,
+    required this.baseline,
+    required this.defaultViewMode,
+    required this.fullViewRecommendedReason,
+    required this.viewerFinancialImpact,
+    required this.changeSummary,
+    required this.changes,
+    required this.limitations,
+  });
+
+  /// Current actor profile ID derived from the authenticated session.
+  final String viewerUserProfileId;
+  final BillRevisionReviewBaselineResponse baseline;
+  final BillRevisionReviewViewMode defaultViewMode;
+  final BillRevisionReviewRecommendationReason fullViewRecommendedReason;
+  final BillRevisionViewerFinancialImpactResponse viewerFinancialImpact;
+  /// Bounded server-generated category counts. Unsupported categories are explicit and safe.
+  final List<BillRevisionChangeCategorySummaryResponse> changeSummary;
+  /// Server-generated aggregate changes for changed-only rendering and inline accessible markers. Current revision snapshots support bill total, participant-share, payer-contribution, and payer-role changes only.
+  final List<BillRevisionChangeResponse> changes;
+  /// Explicit current limitations. Passive view-only review timestamps and full item/split/attachment/note snapshots are not persisted in this foundation.
+  final List<String> limitations;
+
+  factory BillRevisionReviewContextResponse.fromJson(JsonObject json) {
+    return BillRevisionReviewContextResponse(
+      viewerUserProfileId: json["viewerUserProfileId"] as String,
+      baseline: BillRevisionReviewBaselineResponse.fromJson(JsonObject.from(json["baseline"] as Map)),
+      defaultViewMode: json["defaultViewMode"] as String,
+      fullViewRecommendedReason: json["fullViewRecommendedReason"] as String,
+      viewerFinancialImpact: BillRevisionViewerFinancialImpactResponse.fromJson(JsonObject.from(json["viewerFinancialImpact"] as Map)),
+      changeSummary: (json["changeSummary"] as List<dynamic>).map((item) => BillRevisionChangeCategorySummaryResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      changes: (json["changes"] as List<dynamic>).map((item) => BillRevisionChangeResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      limitations: (json["limitations"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "viewerUserProfileId": viewerUserProfileId,
+      "baseline": baseline.toJson(),
+      "defaultViewMode": defaultViewMode,
+      "fullViewRecommendedReason": fullViewRecommendedReason,
+      "viewerFinancialImpact": viewerFinancialImpact.toJson(),
+      "changeSummary": changeSummary.map((item) => item.toJson()).toList(growable: false),
+      "changes": changes.map((item) => item.toJson()).toList(growable: false),
+      "limitations": limitations,
+    };
+  }
+}
+
+/// Viewer-specific baseline selected by the server. If no safe prior acceptance, approval, or rejection is derivable, clients should default to full bill review.
+class BillRevisionReviewBaselineResponse {
+  const BillRevisionReviewBaselineResponse({
+    required this.baselineType,
+    required this.baselineBillRevisionId,
+    required this.baselineRevisionStatus,
+    required this.baselineReviewedAtUtc,
+    required this.derivationReason,
+  });
+
+  final BillRevisionReviewBaselineType baselineType;
+  final String? baselineBillRevisionId;
+  final ExpenseBillRevisionStatus? baselineRevisionStatus;
+  final DateTime? baselineReviewedAtUtc;
+  final String derivationReason;
+
+  factory BillRevisionReviewBaselineResponse.fromJson(JsonObject json) {
+    return BillRevisionReviewBaselineResponse(
+      baselineType: json["baselineType"] as String,
+      baselineBillRevisionId: json["baselineBillRevisionId"] == null ? null : json["baselineBillRevisionId"] as String,
+      baselineRevisionStatus: json["baselineRevisionStatus"] == null ? null : json["baselineRevisionStatus"] as String,
+      baselineReviewedAtUtc: json["baselineReviewedAtUtc"] == null ? null : DateTime.parse(json["baselineReviewedAtUtc"] as String),
+      derivationReason: json["derivationReason"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final baselineBillRevisionIdJsonValue = baselineBillRevisionId;
+    final baselineRevisionStatusJsonValue = baselineRevisionStatus;
+    final baselineReviewedAtUtcJsonValue = baselineReviewedAtUtc;
+
+    return {
+      "baselineType": baselineType,
+      "baselineBillRevisionId": baselineBillRevisionIdJsonValue,
+      "baselineRevisionStatus": baselineRevisionStatusJsonValue,
+      "baselineReviewedAtUtc": baselineReviewedAtUtcJsonValue == null ? null : baselineReviewedAtUtcJsonValue.toUtc().toIso8601String(),
+      "derivationReason": derivationReason,
+    };
+  }
+}
+
+/// Viewer-specific authoritative money impact. Money values are decimal-safe strings with currency; nullable fields mean no safe viewer baseline or no applicable payer/participant role.
+class BillRevisionViewerFinancialImpactResponse {
+  const BillRevisionViewerFinancialImpactResponse({
+    required this.previousShare,
+    required this.proposedShare,
+    required this.deltaShare,
+    required this.affectedByRevision,
+    required this.isPayer,
+    required this.payerImpact,
+  });
+
+  final BillRevisionMoneyValueResponse? previousShare;
+  final BillRevisionMoneyValueResponse? proposedShare;
+  final BillRevisionMoneyValueResponse? deltaShare;
+  final bool affectedByRevision;
+  final bool isPayer;
+  final BillRevisionPayerFinancialImpactResponse? payerImpact;
+
+  factory BillRevisionViewerFinancialImpactResponse.fromJson(JsonObject json) {
+    return BillRevisionViewerFinancialImpactResponse(
+      previousShare: json["previousShare"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["previousShare"] as Map)),
+      proposedShare: json["proposedShare"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["proposedShare"] as Map)),
+      deltaShare: json["deltaShare"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["deltaShare"] as Map)),
+      affectedByRevision: json["affectedByRevision"] as bool,
+      isPayer: json["isPayer"] as bool,
+      payerImpact: json["payerImpact"] == null ? null : BillRevisionPayerFinancialImpactResponse.fromJson(JsonObject.from(json["payerImpact"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final previousShareJsonValue = previousShare;
+    final proposedShareJsonValue = proposedShare;
+    final deltaShareJsonValue = deltaShare;
+    final payerImpactJsonValue = payerImpact;
+
+    return {
+      "previousShare": previousShareJsonValue == null ? null : previousShareJsonValue.toJson(),
+      "proposedShare": proposedShareJsonValue == null ? null : proposedShareJsonValue.toJson(),
+      "deltaShare": deltaShareJsonValue == null ? null : deltaShareJsonValue.toJson(),
+      "affectedByRevision": affectedByRevision,
+      "isPayer": isPayer,
+      "payerImpact": payerImpactJsonValue == null ? null : payerImpactJsonValue.toJson(),
+    };
+  }
+}
+
+/// Viewer-specific payer impact and payer confirmation state when the viewer is a proposed payer.
+class BillRevisionPayerFinancialImpactResponse {
+  const BillRevisionPayerFinancialImpactResponse({
+    required this.previousContribution,
+    required this.proposedContribution,
+    required this.deltaContribution,
+    required this.requiresPayerConfirmation,
+    required this.payerConfirmationStatus,
+  });
+
+  final BillRevisionMoneyValueResponse? previousContribution;
+  final BillRevisionMoneyValueResponse? proposedContribution;
+  final BillRevisionMoneyValueResponse? deltaContribution;
+  final bool requiresPayerConfirmation;
+  final ExpenseBillPayerConfirmationStatus? payerConfirmationStatus;
+
+  factory BillRevisionPayerFinancialImpactResponse.fromJson(JsonObject json) {
+    return BillRevisionPayerFinancialImpactResponse(
+      previousContribution: json["previousContribution"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["previousContribution"] as Map)),
+      proposedContribution: json["proposedContribution"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["proposedContribution"] as Map)),
+      deltaContribution: json["deltaContribution"] == null ? null : BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["deltaContribution"] as Map)),
+      requiresPayerConfirmation: json["requiresPayerConfirmation"] as bool,
+      payerConfirmationStatus: json["payerConfirmationStatus"] == null ? null : json["payerConfirmationStatus"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final previousContributionJsonValue = previousContribution;
+    final proposedContributionJsonValue = proposedContribution;
+    final deltaContributionJsonValue = deltaContribution;
+    final payerConfirmationStatusJsonValue = payerConfirmationStatus;
+
+    return {
+      "previousContribution": previousContributionJsonValue == null ? null : previousContributionJsonValue.toJson(),
+      "proposedContribution": proposedContributionJsonValue == null ? null : proposedContributionJsonValue.toJson(),
+      "deltaContribution": deltaContributionJsonValue == null ? null : deltaContributionJsonValue.toJson(),
+      "requiresPayerConfirmation": requiresPayerConfirmation,
+      "payerConfirmationStatus": payerConfirmationStatusJsonValue,
+    };
+  }
+}
+
+/// Decimal-safe money value with currency.
+class BillRevisionMoneyValueResponse {
+  const BillRevisionMoneyValueResponse({
+    required this.amount,
+    required this.currency,
+  });
+
+  /// Decimal-safe amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+
+  factory BillRevisionMoneyValueResponse.fromJson(JsonObject json) {
+    return BillRevisionMoneyValueResponse(
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
+/// Server-generated review-diff category count and support status.
+class BillRevisionChangeCategorySummaryResponse {
+  const BillRevisionChangeCategorySummaryResponse({
+    required this.category,
+    required this.supportStatus,
+    required this.changeCount,
+    required this.viewerImpact,
+  });
+
+  final BillRevisionReviewChangeCategory category;
+  final BillRevisionReviewSupportStatus supportStatus;
+  final int changeCount;
+  final BillRevisionReviewSummaryViewerImpact viewerImpact;
+
+  factory BillRevisionChangeCategorySummaryResponse.fromJson(JsonObject json) {
+    return BillRevisionChangeCategorySummaryResponse(
+      category: json["category"] as String,
+      supportStatus: json["supportStatus"] as String,
+      changeCount: (json["changeCount"] as num).toInt(),
+      viewerImpact: json["viewerImpact"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "category": category,
+      "supportStatus": supportStatus,
+      "changeCount": changeCount,
+      "viewerImpact": viewerImpact,
+    };
+  }
+}
+
+/// One server-generated change marker for changed-only rendering and accessible inline highlights. It never includes raw notes, storage paths, object keys, OCR text, auth/session data, or unrelated user display data.
+class BillRevisionChangeResponse {
+  const BillRevisionChangeResponse({
+    required this.changeId,
+    required this.changeType,
+    required this.changeScope,
+    required this.fieldPath,
+    required this.relatedUserProfileId,
+    required this.before,
+    required this.after,
+    required this.viewerImpact,
+    required this.accessibleLabel,
+    required this.reason,
+  });
+
+  /// Stable server-generated change ID within this revision response.
+  final String changeId;
+  final BillRevisionReviewChangeType changeType;
+  final BillRevisionReviewChangeScope changeScope;
+  /// Bounded safe location for client-side row filtering/highlighting.
+  final String fieldPath;
+  final String? relatedUserProfileId;
+  final BillRevisionDisplayValueResponse? before;
+  final BillRevisionDisplayValueResponse? after;
+  final BillRevisionReviewChangeViewerImpact viewerImpact;
+  /// Non-color-only marker text that screen readers and visual clients can render.
+  final String accessibleLabel;
+  final String reason;
+
+  factory BillRevisionChangeResponse.fromJson(JsonObject json) {
+    return BillRevisionChangeResponse(
+      changeId: json["changeId"] as String,
+      changeType: json["changeType"] as String,
+      changeScope: json["changeScope"] as String,
+      fieldPath: json["fieldPath"] as String,
+      relatedUserProfileId: json["relatedUserProfileId"] == null ? null : json["relatedUserProfileId"] as String,
+      before: json["before"] == null ? null : BillRevisionDisplayValueResponse.fromJson(JsonObject.from(json["before"] as Map)),
+      after: json["after"] == null ? null : BillRevisionDisplayValueResponse.fromJson(JsonObject.from(json["after"] as Map)),
+      viewerImpact: json["viewerImpact"] as String,
+      accessibleLabel: json["accessibleLabel"] as String,
+      reason: json["reason"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final relatedUserProfileIdJsonValue = relatedUserProfileId;
+    final beforeJsonValue = before;
+    final afterJsonValue = after;
+
+    return {
+      "changeId": changeId,
+      "changeType": changeType,
+      "changeScope": changeScope,
+      "fieldPath": fieldPath,
+      "relatedUserProfileId": relatedUserProfileIdJsonValue,
+      "before": beforeJsonValue == null ? null : beforeJsonValue.toJson(),
+      "after": afterJsonValue == null ? null : afterJsonValue.toJson(),
+      "viewerImpact": viewerImpact,
+      "accessibleLabel": accessibleLabel,
+      "reason": reason,
+    };
+  }
+}
+
+/// Safe display value for a before/after marker.
+class BillRevisionDisplayValueResponse {
+  const BillRevisionDisplayValueResponse({
+    required this.displayValue,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String displayValue;
+  final String? amount;
+  final CurrencyCode? currency;
+
+  factory BillRevisionDisplayValueResponse.fromJson(JsonObject json) {
+    return BillRevisionDisplayValueResponse(
+      displayValue: json["displayValue"] as String,
+      amount: json["amount"] == null ? null : json["amount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final amountJsonValue = amount;
+    final currencyJsonValue = currency;
+
+    return {
+      "displayValue": displayValue,
+      "amount": amountJsonValue,
+      "currency": currencyJsonValue,
+    };
+  }
+}
+
+typedef BillRevisionReviewBaselineType = String;
+class BillRevisionReviewBaselineTypeValues {
+  const BillRevisionReviewBaselineTypeValues._();
+  static const BillRevisionReviewBaselineType noPriorBaseline = "no_prior_baseline";
+  static const BillRevisionReviewBaselineType activeAcceptedBill = "active_accepted_bill";
+  static const BillRevisionReviewBaselineType previousRevisionApproval = "previous_revision_approval";
+  static const BillRevisionReviewBaselineType previousRevisionRejection = "previous_revision_rejection";
+  static const Set<BillRevisionReviewBaselineType> values = {noPriorBaseline, activeAcceptedBill, previousRevisionApproval, previousRevisionRejection};
+}
+
+typedef BillRevisionReviewViewMode = String;
+class BillRevisionReviewViewModeValues {
+  const BillRevisionReviewViewModeValues._();
+  static const BillRevisionReviewViewMode fullBill = "full_bill";
+  static const BillRevisionReviewViewMode changedOnly = "changed_only";
+  static const Set<BillRevisionReviewViewMode> values = {fullBill, changedOnly};
+}
+
+typedef BillRevisionReviewRecommendationReason = String;
+class BillRevisionReviewRecommendationReasonValues {
+  const BillRevisionReviewRecommendationReasonValues._();
+  static const BillRevisionReviewRecommendationReason noPriorBaselineFullBillRecommended = "no_prior_baseline_full_bill_recommended";
+  static const BillRevisionReviewRecommendationReason baselineAvailableFullViewOptional = "baseline_available_full_view_optional";
+  static const Set<BillRevisionReviewRecommendationReason> values = {noPriorBaselineFullBillRecommended, baselineAvailableFullViewOptional};
+}
+
+typedef BillRevisionReviewChangeCategory = String;
+class BillRevisionReviewChangeCategoryValues {
+  const BillRevisionReviewChangeCategoryValues._();
+  static const BillRevisionReviewChangeCategory billTotal = "bill_total";
+  static const BillRevisionReviewChangeCategory participantShare = "participant_share";
+  static const BillRevisionReviewChangeCategory payerContribution = "payer_contribution";
+  static const BillRevisionReviewChangeCategory payerRole = "payer_role";
+  static const BillRevisionReviewChangeCategory item = "item";
+  static const BillRevisionReviewChangeCategory itemSplit = "item_split";
+  static const BillRevisionReviewChangeCategory adjustment = "adjustment";
+  static const BillRevisionReviewChangeCategory attachmentReceiptOcrReview = "attachment_receipt_ocr_review";
+  static const BillRevisionReviewChangeCategory noteMetadata = "note_metadata";
+  static const Set<BillRevisionReviewChangeCategory> values = {billTotal, participantShare, payerContribution, payerRole, item, itemSplit, adjustment, attachmentReceiptOcrReview, noteMetadata};
+}
+
+typedef BillRevisionReviewSupportStatus = String;
+class BillRevisionReviewSupportStatusValues {
+  const BillRevisionReviewSupportStatusValues._();
+  static const BillRevisionReviewSupportStatus supported = "supported";
+  static const BillRevisionReviewSupportStatus unsupportedInCurrentRevisionSnapshot = "unsupported_in_current_revision_snapshot";
+  static const Set<BillRevisionReviewSupportStatus> values = {supported, unsupportedInCurrentRevisionSnapshot};
+}
+
+typedef BillRevisionReviewSummaryViewerImpact = String;
+class BillRevisionReviewSummaryViewerImpactValues {
+  const BillRevisionReviewSummaryViewerImpactValues._();
+  static const BillRevisionReviewSummaryViewerImpact viewerAffected = "viewer_affected";
+  static const BillRevisionReviewSummaryViewerImpact viewerUnaffected = "viewer_unaffected";
+  static const BillRevisionReviewSummaryViewerImpact notAvailable = "not_available";
+  static const Set<BillRevisionReviewSummaryViewerImpact> values = {viewerAffected, viewerUnaffected, notAvailable};
+}
+
+typedef BillRevisionReviewChangeType = String;
+class BillRevisionReviewChangeTypeValues {
+  const BillRevisionReviewChangeTypeValues._();
+  static const BillRevisionReviewChangeType billTotalChanged = "bill_total_changed";
+  static const BillRevisionReviewChangeType participantShareAdded = "participant_share_added";
+  static const BillRevisionReviewChangeType participantShareRemoved = "participant_share_removed";
+  static const BillRevisionReviewChangeType participantShareChanged = "participant_share_changed";
+  static const BillRevisionReviewChangeType payerRoleAdded = "payer_role_added";
+  static const BillRevisionReviewChangeType payerRoleRemoved = "payer_role_removed";
+  static const BillRevisionReviewChangeType payerContributionChanged = "payer_contribution_changed";
+  static const Set<BillRevisionReviewChangeType> values = {billTotalChanged, participantShareAdded, participantShareRemoved, participantShareChanged, payerRoleAdded, payerRoleRemoved, payerContributionChanged};
+}
+
+typedef BillRevisionReviewChangeScope = String;
+class BillRevisionReviewChangeScopeValues {
+  const BillRevisionReviewChangeScopeValues._();
+  static const BillRevisionReviewChangeScope billTotal = "bill_total";
+  static const BillRevisionReviewChangeScope participantShare = "participant_share";
+  static const BillRevisionReviewChangeScope payerContribution = "payer_contribution";
+  static const BillRevisionReviewChangeScope payerRole = "payer_role";
+  static const Set<BillRevisionReviewChangeScope> values = {billTotal, participantShare, payerContribution, payerRole};
+}
+
+typedef BillRevisionReviewChangeViewerImpact = String;
+class BillRevisionReviewChangeViewerImpactValues {
+  const BillRevisionReviewChangeViewerImpactValues._();
+  static const BillRevisionReviewChangeViewerImpact directViewerMoneyImpact = "direct_viewer_money_impact";
+  static const BillRevisionReviewChangeViewerImpact directViewerPayerImpact = "direct_viewer_payer_impact";
+  static const BillRevisionReviewChangeViewerImpact billContext = "bill_context";
+  static const BillRevisionReviewChangeViewerImpact noDirectViewerImpact = "no_direct_viewer_impact";
+  static const Set<BillRevisionReviewChangeViewerImpact> values = {directViewerMoneyImpact, directViewerPayerImpact, billContext, noDirectViewerImpact};
 }
 
 /// Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.

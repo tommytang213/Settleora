@@ -60,6 +60,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - Rounding is centralized through policy.
 - Incoming and outgoing rounding may differ by currency.
 - Frontends may display previews, but API/domain services produce authoritative financial results.
+- Bill revision review context, including baseline selection, changed-only markers, accessible change labels, affected-user state, payer-confirmation impact, and viewer-specific financial-impact summaries, is API/domain-authoritative. Mobile and web clients render the server response; they must not compute financial truth or affected-user state from raw revision rows.
 
 ## Job And Event Rules
 
@@ -88,6 +89,7 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - Mobile and web clients own presentation, form state, local cache, and offline queues.
 - Clients may perform convenience validation, but server-side validation remains authoritative.
 - Clients must not duplicate financial settlement logic as the source of truth.
+- Clients must not invent bill-revision review diff truth, authorization, affected-user state, or money impact; they should render server-provided revision highlights and summaries.
 - Clients must not infer authorization from hidden UI controls or cached data.
 - Generated API clients must stay isolated from hand-written app logic.
 

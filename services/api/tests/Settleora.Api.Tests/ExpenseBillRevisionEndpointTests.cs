@@ -142,7 +142,9 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             using (request)
             using (var response = await client.SendAsync(request))
             {
+                var deniedContent = await response.Content.ReadAsStringAsync();
                 Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+                Assert.DoesNotContain("reviewContext", deniedContent, StringComparison.Ordinal);
             }
         }
 
@@ -427,6 +429,305 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task AffectedParticipantReviewContextIncludesFinancialImpactSummaryAndSafeAggregateChanges()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Creator");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [(creatorSession.UserProfileId, 40m), (participantSession.UserProfileId, 60m)],
+                [(creatorSession.UserProfileId, 100m)]));
+        using var client = testFactory.CreateClient();
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), participantSession.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        var content = await getResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        AssertSafeReviewContextText(content);
+        using var payload = JsonDocument.Parse(content);
+        var reviewContext = payload.RootElement.GetProperty("reviewContext");
+        Assert.Equal(participantSession.UserProfileId, reviewContext.GetProperty("viewerUserProfileId").GetGuid());
+        Assert.Equal("changed_only", reviewContext.GetProperty("defaultViewMode").GetString());
+        Assert.Equal("baseline_available_full_view_optional", reviewContext.GetProperty("fullViewRecommendedReason").GetString());
+        Assert.Equal("active_accepted_bill", reviewContext.GetProperty("baseline").GetProperty("baselineType").GetString());
+
+        var impact = reviewContext.GetProperty("viewerFinancialImpact");
+        AssertMoneyValue(impact.GetProperty("previousShare"), "50", "USD");
+        AssertMoneyValue(impact.GetProperty("proposedShare"), "60", "USD");
+        AssertMoneyValue(impact.GetProperty("deltaShare"), "10", "USD");
+        Assert.True(impact.GetProperty("affectedByRevision").GetBoolean());
+        Assert.False(impact.GetProperty("isPayer").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, impact.GetProperty("payerImpact").ValueKind);
+
+        AssertSummary(reviewContext, "participant_share", "supported", 2, "viewer_affected");
+        AssertSummary(reviewContext, "item", "unsupported_in_current_revision_snapshot", 0, "not_available");
+        AssertSummary(reviewContext, "item_split", "unsupported_in_current_revision_snapshot", 0, "not_available");
+        AssertSummary(reviewContext, "attachment_receipt_ocr_review", "unsupported_in_current_revision_snapshot", 0, "not_available");
+        Assert.Contains(
+            reviewContext.GetProperty("limitations").EnumerateArray(),
+            limitation => limitation.GetString() == "item_split_attachment_note_diff_unsupported_in_current_revision_snapshot");
+
+        var viewerChange = reviewContext.GetProperty("changes")
+            .EnumerateArray()
+            .Single(change =>
+                change.GetProperty("changeScope").GetString() == "participant_share"
+                && change.GetProperty("relatedUserProfileId").GetGuid() == participantSession.UserProfileId);
+        Assert.Equal("participant_share_changed", viewerChange.GetProperty("changeType").GetString());
+        Assert.Equal("direct_viewer_money_impact", viewerChange.GetProperty("viewerImpact").GetString());
+        Assert.Contains("Your share changed", viewerChange.GetProperty("accessibleLabel").GetString(), StringComparison.Ordinal);
+        AssertMoneyDisplayValue(viewerChange.GetProperty("before"), "50", "USD");
+        AssertMoneyDisplayValue(viewerChange.GetProperty("after"), "60", "USD");
+    }
+
+    [Fact]
+    public async Task UnaffectedParticipantReviewContextPreservesChangedOnlyDefaultWithoutDirectImpact()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Unaffected Creator");
+        var affectedParticipant = await SeedAccountAsync(testFactory, "Revision Context Affected", InitialTimestamp.AddMinutes(1));
+        var unaffectedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Unaffected");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 30m),
+                new ParticipantSeed(affectedParticipant.UserProfileId, 30m),
+                new ParticipantSeed(unaffectedSession.UserProfileId, 40m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (creatorSession.UserProfileId, 20m),
+                    (affectedParticipant.UserProfileId, 40m),
+                    (unaffectedSession.UserProfileId, 40m)
+                ],
+                [(creatorSession.UserProfileId, 100m)]));
+        using var client = testFactory.CreateClient();
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), unaffectedSession.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        var content = await getResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        var reviewContext = payload.RootElement.GetProperty("reviewContext");
+        Assert.Equal("changed_only", reviewContext.GetProperty("defaultViewMode").GetString());
+        Assert.Equal("active_accepted_bill", reviewContext.GetProperty("baseline").GetProperty("baselineType").GetString());
+        var impact = reviewContext.GetProperty("viewerFinancialImpact");
+        AssertMoneyValue(impact.GetProperty("previousShare"), "40", "USD");
+        AssertMoneyValue(impact.GetProperty("proposedShare"), "40", "USD");
+        AssertMoneyValue(impact.GetProperty("deltaShare"), "0", "USD");
+        Assert.False(impact.GetProperty("affectedByRevision").GetBoolean());
+        AssertSummary(reviewContext, "participant_share", "supported", 2, "viewer_unaffected");
+        Assert.DoesNotContain(
+            reviewContext.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("relatedUserProfileId").ValueKind == JsonValueKind.String
+                && change.GetProperty("relatedUserProfileId").GetGuid() == unaffectedSession.UserProfileId);
+    }
+
+    [Fact]
+    public async Task ViewerWithoutAcceptedBaselineGetsFullBillDefaultAndNoPreviousMoney()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context First Creator");
+        var pendingParticipantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context First Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(
+                    pendingParticipantSession.UserProfileId,
+                    50m,
+                    ExpenseBillParticipantStatuses.PendingAcceptance)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [(creatorSession.UserProfileId, 40m), (pendingParticipantSession.UserProfileId, 60m)],
+                [(creatorSession.UserProfileId, 100m)]));
+        using var client = testFactory.CreateClient();
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), pendingParticipantSession.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        var content = await getResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        var reviewContext = payload.RootElement.GetProperty("reviewContext");
+        Assert.Equal("full_bill", reviewContext.GetProperty("defaultViewMode").GetString());
+        Assert.Equal("no_prior_baseline_full_bill_recommended", reviewContext.GetProperty("fullViewRecommendedReason").GetString());
+        Assert.Equal("no_prior_baseline", reviewContext.GetProperty("baseline").GetProperty("baselineType").GetString());
+
+        var impact = reviewContext.GetProperty("viewerFinancialImpact");
+        Assert.Equal(JsonValueKind.Null, impact.GetProperty("previousShare").ValueKind);
+        AssertMoneyValue(impact.GetProperty("proposedShare"), "60", "USD");
+        Assert.Equal(JsonValueKind.Null, impact.GetProperty("deltaShare").ValueKind);
+        Assert.True(impact.GetProperty("affectedByRevision").GetBoolean());
+
+        var viewerChange = reviewContext.GetProperty("changes")
+            .EnumerateArray()
+            .Single(change =>
+                change.GetProperty("changeScope").GetString() == "participant_share"
+                && change.GetProperty("relatedUserProfileId").GetGuid() == pendingParticipantSession.UserProfileId);
+        Assert.Equal("direct_viewer_money_impact", viewerChange.GetProperty("viewerImpact").GetString());
+    }
+
+    [Fact]
+    public async Task PreviousRevisionApprovalCanBeReviewBaselineForReplacementRevision()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Previous Creator");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Previous Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var firstRevisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [(creatorSession.UserProfileId, 40m), (participantSession.UserProfileId, 60m)],
+                [(creatorSession.UserProfileId, 100m)]));
+        await ApproveRevisionApprovalAsync(
+            testFactory,
+            billId,
+            firstRevisionId,
+            participantSession.UserProfileId,
+            participantSession.RawSessionToken);
+        using var client = testFactory.CreateClient();
+
+        using var reviseRequest = CreateJsonRequest(
+            HttpMethod.Patch,
+            RevisionPath(billId, firstRevisionId),
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [(creatorSession.UserProfileId, 30m), (participantSession.UserProfileId, 70m)],
+                [(creatorSession.UserProfileId, 100m)]));
+        using var reviseResponse = await client.SendAsync(reviseRequest);
+        var reviseContent = await reviseResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, reviseResponse.StatusCode);
+        using var revisePayload = JsonDocument.Parse(reviseContent);
+        var replacementRevisionId = revisePayload.RootElement.GetProperty("id").GetGuid();
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, replacementRevisionId), participantSession.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        var content = await getResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        var reviewContext = payload.RootElement.GetProperty("reviewContext");
+        var baseline = reviewContext.GetProperty("baseline");
+        Assert.Equal("previous_revision_approval", baseline.GetProperty("baselineType").GetString());
+        Assert.Equal(firstRevisionId, baseline.GetProperty("baselineBillRevisionId").GetGuid());
+        Assert.Equal("superseded_by_resubmission", baseline.GetProperty("baselineRevisionStatus").GetString());
+        Assert.Equal("changed_only", reviewContext.GetProperty("defaultViewMode").GetString());
+
+        var impact = reviewContext.GetProperty("viewerFinancialImpact");
+        AssertMoneyValue(impact.GetProperty("previousShare"), "60", "USD");
+        AssertMoneyValue(impact.GetProperty("proposedShare"), "70", "USD");
+        AssertMoneyValue(impact.GetProperty("deltaShare"), "10", "USD");
+    }
+
+    [Fact]
+    public async Task PayerRoleChangeReviewContextShowsConfirmationRequirementForViewer()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Payer Creator");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Context Payer Participant");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [(creatorSession.UserProfileId, 50m), (participantSession.UserProfileId, 50m)],
+                [(participantSession.UserProfileId, 100m)]));
+        using var client = testFactory.CreateClient();
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), participantSession.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        var content = await getResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        var reviewContext = payload.RootElement.GetProperty("reviewContext");
+        var impact = reviewContext.GetProperty("viewerFinancialImpact");
+        Assert.True(impact.GetProperty("affectedByRevision").GetBoolean());
+        Assert.True(impact.GetProperty("isPayer").GetBoolean());
+        var payerImpact = impact.GetProperty("payerImpact");
+        Assert.Equal(JsonValueKind.Null, payerImpact.GetProperty("previousContribution").ValueKind);
+        AssertMoneyValue(payerImpact.GetProperty("proposedContribution"), "100", "USD");
+        Assert.Equal(JsonValueKind.Null, payerImpact.GetProperty("deltaContribution").ValueKind);
+        Assert.True(payerImpact.GetProperty("requiresPayerConfirmation").GetBoolean());
+        Assert.Equal(ExpenseBillPayerConfirmationStatuses.PendingConfirmation, payerImpact.GetProperty("payerConfirmationStatus").GetString());
+        AssertSummary(reviewContext, "payer_role", "supported", 2, "viewer_affected");
+    }
+
+    [Fact]
     public async Task RejectionIsBoundedAndRejectedProposalCannotLaterApprove()
     {
         var testContext = CreateFactory();
@@ -464,7 +765,8 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         var rejectContent = await rejectResponse.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
-        Assert.DoesNotContain("reason", rejectContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rejectionReason", rejectContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("reasonCode", rejectContent, StringComparison.OrdinalIgnoreCase);
         using (var rejectPayload = JsonDocument.Parse(rejectContent))
         {
             Assert.Equal(ExpenseBillRevisionStatuses.Rejected, rejectPayload.RootElement.GetProperty("status").GetString());
@@ -935,6 +1237,35 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
     }
 
+    [Fact]
+    public void OpenApiAndGeneratedClientsExposeBillRevisionReviewContext()
+    {
+        var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
+        var responseSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionResponse:");
+        var reviewContextSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewContextResponse:");
+        var baselineTypeSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewBaselineType:");
+        var financialImpactSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionViewerFinancialImpactResponse:");
+        var changeSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionChangeResponse:");
+
+        Assert.Contains("reviewContext", responseSchema, StringComparison.Ordinal);
+        Assert.Contains("server-authoritative", reviewContextSchema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("defaultViewMode", reviewContextSchema, StringComparison.Ordinal);
+        Assert.Contains("fullViewRecommendedReason", reviewContextSchema, StringComparison.Ordinal);
+        Assert.Contains("no_prior_baseline", baselineTypeSchema, StringComparison.Ordinal);
+        Assert.Contains("previous_revision_approval", baselineTypeSchema, StringComparison.Ordinal);
+        Assert.Contains("previousShare", financialImpactSchema, StringComparison.Ordinal);
+        Assert.Contains("payerImpact", financialImpactSchema, StringComparison.Ordinal);
+        Assert.Contains("accessibleLabel", changeSchema, StringComparison.Ordinal);
+        Assert.Contains("unsupported_in_current_revision_snapshot", openApi, StringComparison.Ordinal);
+
+        var webModels = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/models.ts"));
+        var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/models.dart"));
+        Assert.Contains("reviewContext: BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
+        Assert.Contains("export interface BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
+        Assert.Contains("final BillRevisionReviewContextResponse reviewContext", dartModels, StringComparison.Ordinal);
+        Assert.Contains("class BillRevisionReviewContextResponse", dartModels, StringComparison.Ordinal);
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -1125,7 +1456,8 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
                 Status = participant.Status,
                 ResolvedShareAmount = participant.ResolvedShareAmount,
                 ResolvedShareCurrency = "USD",
-                AcceptedAtUtc = participant.AcceptedAtUtc ?? createdAtUtc,
+                AcceptedAtUtc = participant.AcceptedAtUtc
+                    ?? (participant.Status == ExpenseBillParticipantStatuses.Accepted ? createdAtUtc : null),
                 CreatedAtUtc = createdAtUtc,
                 UpdatedAtUtc = createdAtUtc
             });
@@ -1599,6 +1931,82 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         using var payload = JsonDocument.Parse(content);
         var candidate = Assert.Single(payload.RootElement.GetProperty("candidates").EnumerateArray());
         Assert.Equal(expectedAmount, candidate.GetProperty("amount").GetString());
+    }
+
+    private static void AssertMoneyValue(JsonElement value, string expectedAmount, string expectedCurrency)
+    {
+        Assert.Equal(expectedAmount, value.GetProperty("amount").GetString());
+        Assert.Equal(expectedCurrency, value.GetProperty("currency").GetString());
+    }
+
+    private static void AssertMoneyDisplayValue(JsonElement value, string expectedAmount, string expectedCurrency)
+    {
+        Assert.Equal($"{expectedCurrency} {expectedAmount}", value.GetProperty("displayValue").GetString());
+        Assert.Equal(expectedAmount, value.GetProperty("amount").GetString());
+        Assert.Equal(expectedCurrency, value.GetProperty("currency").GetString());
+    }
+
+    private static void AssertSummary(
+        JsonElement reviewContext,
+        string category,
+        string expectedSupportStatus,
+        int expectedChangeCount,
+        string expectedViewerImpact)
+    {
+        var summary = reviewContext.GetProperty("changeSummary")
+            .EnumerateArray()
+            .Single(candidate => candidate.GetProperty("category").GetString() == category);
+
+        Assert.Equal(expectedSupportStatus, summary.GetProperty("supportStatus").GetString());
+        Assert.Equal(expectedChangeCount, summary.GetProperty("changeCount").GetInt32());
+        Assert.Equal(expectedViewerImpact, summary.GetProperty("viewerImpact").GetString());
+    }
+
+    private static void AssertSafeReviewContextText(string responseContent)
+    {
+        Assert.DoesNotContain("StorageObjectKey", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectkey", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("settlement-proof", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("session", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", responseContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Hidden Revision Merchant", responseContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden Revision Item", responseContent, StringComparison.Ordinal);
+    }
+
+    private static string FindRepoFile(string relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find {relativePath} from {AppContext.BaseDirectory}.");
+    }
+
+    private static string ExtractOpenApiSchemaBlock(string openApi, string schemaHeader)
+    {
+        var start = openApi.IndexOf($"    {schemaHeader}", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Could not find OpenAPI schema block {schemaHeader}.");
+
+        var nextSchema = openApi.IndexOf("\n    ", start + schemaHeader.Length + 4, StringComparison.Ordinal);
+        while (nextSchema >= 0
+            && openApi.Length > nextSchema + 5
+            && openApi[nextSchema + 5] is ' ')
+        {
+            nextSchema = openApi.IndexOf("\n    ", nextSchema + 1, StringComparison.Ordinal);
+        }
+
+        return nextSchema < 0
+            ? openApi[start..]
+            : openApi[start..nextSchema];
     }
 
     private static HttpRequestMessage CreateBearerRequest(
