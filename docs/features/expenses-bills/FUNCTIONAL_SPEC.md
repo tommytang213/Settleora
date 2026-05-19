@@ -95,6 +95,7 @@ Revision review UX must be API/domain-authoritative:
 - Users with no safely derivable prior acceptance/review/rejection baseline should default to full-bill review with changes highlighted.
 - Users with a safely derivable active accepted bill or previous revision approval/rejection baseline may default to changed-only review, with full bill still available.
 - Current revision snapshots preserve aggregate total, participant-share, payer-contribution, and payer-role data. Full item, item-split, adjustment, attachment, receipt/OCR, note, and metadata highlighting remains limited until revision snapshots preserve those details.
+- The detailed mobile-first review, highlighting, changed-only, accessibility, and action-safety gate is defined in [Bill revision review UX gate](BILL_REVISION_REVIEW_UX.md).
 
 ### Proposal withdraw, edit, and resubmit
 

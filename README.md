@@ -28,6 +28,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Money and rounding architecture](docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md)
 - [Expense, bill, split, and settlement architecture](docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md)
+- [Bill revision review UX gate](docs/features/expenses-bills/BILL_REVISION_REVIEW_UX.md)
 - [Settlement runtime architecture](docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
