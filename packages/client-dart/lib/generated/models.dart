@@ -1904,6 +1904,28 @@ class ApproveBillRevisionRequest {
   }
 }
 
+/// Revision-specific payer-confirmation basis. The route revision ID and calculation hash must match the server-stored pending required payer confirmation exactly.
+class ConfirmBillRevisionPayerRequest {
+  const ConfirmBillRevisionPayerRequest({
+    required this.calculationHash,
+  });
+
+  /// Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+  final String calculationHash;
+
+  factory ConfirmBillRevisionPayerRequest.fromJson(JsonObject json) {
+    return ConfirmBillRevisionPayerRequest(
+      calculationHash: json["calculationHash"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "calculationHash": calculationHash,
+    };
+  }
+}
+
 /// Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
 class BillRevisionListResponse {
   const BillRevisionListResponse({

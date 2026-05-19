@@ -30,6 +30,13 @@ abstract interface class SettleoraBillRevisionGeneratedClient {
     String revisionId, {
     required String accessToken,
   });
+
+  Future<api.BillRevisionResponse> confirmBillRevisionPayer(
+    String billId,
+    String revisionId,
+    api.ConfirmBillRevisionPayerRequest body, {
+    required String accessToken,
+  });
 }
 
 class SettleoraBillRevisionApiGeneratedClient
@@ -83,6 +90,21 @@ class SettleoraBillRevisionApiGeneratedClient
     return _client.rejectBillRevision(
       billId,
       revisionId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.BillRevisionResponse> confirmBillRevisionPayer(
+    String billId,
+    String revisionId,
+    api.ConfirmBillRevisionPayerRequest body, {
+    required String accessToken,
+  }) {
+    return _client.confirmBillRevisionPayer(
+      billId,
+      revisionId,
+      body,
       accessToken: accessToken,
     );
   }
@@ -218,6 +240,37 @@ class GeneratedSettleoraBillRevisionRepository
         final response = await _client.rejectBillRevision(
           trimmedBillId,
           trimmedRevisionId,
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
+  ) {
+    if (!revision.canConfirmPayer) {
+      throw const SettleoraBillRevisionFailure(
+        kind: SettleoraBillRevisionFailureKind.validation,
+        message:
+            'The server did not return a pending payer confirmation basis for this viewer. Refresh before trying again.',
+      );
+    }
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.confirmBillRevisionPayer(
+          revision.billId,
+          revision.id,
+          api.ConfirmBillRevisionPayerRequest(
+            calculationHash: revision.calculationHash,
+          ),
           accessToken: accessToken,
         );
         return _mapRevision(response);

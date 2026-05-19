@@ -65,6 +65,44 @@ void main() {
       expect(client.lastApprovalBody?.calculationHash, _hash);
     });
 
+    test('confirms payer with server-provided calculation hash only', () async {
+      final client = FakeBillRevisionGeneratedClient();
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+      final revision = await repository.getBillRevision(_billId, _revisionId);
+
+      await repository.confirmBillRevisionPayer(revision);
+
+      expect(client.confirmPayerCalls, 1);
+      expect(client.lastPayerConfirmationBody?.calculationHash, _hash);
+    });
+
+    test(
+      'does not fabricate payer confirmation without pending viewer basis',
+      () async {
+        final client = FakeBillRevisionGeneratedClient(
+          detail: sampleApiRevision(
+            payerConfirmationStatus:
+                api.ExpenseBillPayerConfirmationStatusValues.confirmed,
+          ),
+        );
+        final repository = GeneratedSettleoraBillRevisionRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+        final revision = await repository.getBillRevision(_billId, _revisionId);
+
+        final failure = await captureRevisionFailure(() {
+          return repository.confirmBillRevisionPayer(revision);
+        });
+
+        expect(failure.kind, SettleoraBillRevisionFailureKind.validation);
+        expect(client.confirmPayerCalls, 0);
+      },
+    );
+
     test(
       'does not fabricate an approval body without a pending viewer basis',
       () async {
@@ -177,6 +215,7 @@ class FakeBillRevisionGeneratedClient
     api.BillRevisionResponse? detail,
     api.BillRevisionResponse? approveResponse,
     api.BillRevisionResponse? rejectResponse,
+    api.BillRevisionResponse? confirmPayerResponse,
   }) : revisions = revisions ?? [sampleApiRevision()],
        detail = detail ?? sampleApiRevision(),
        approveResponse =
@@ -199,6 +238,12 @@ class FakeBillRevisionGeneratedClient
            sampleApiRevision(
              status: api.ExpenseBillRevisionStatusValues.rejected,
              rejectedAtUtc: _updatedAtUtc,
+           ),
+       confirmPayerResponse =
+           confirmPayerResponse ??
+           sampleApiRevision(
+             payerConfirmationStatus:
+                 api.ExpenseBillPayerConfirmationStatusValues.confirmed,
            );
 
   final Object? failure;
@@ -206,14 +251,17 @@ class FakeBillRevisionGeneratedClient
   final api.BillRevisionResponse detail;
   final api.BillRevisionResponse approveResponse;
   final api.BillRevisionResponse rejectResponse;
+  final api.BillRevisionResponse confirmPayerResponse;
   final accessTokens = <String>[];
   int listCalls = 0;
   int getCalls = 0;
   int approveCalls = 0;
   int rejectCalls = 0;
+  int confirmPayerCalls = 0;
   String? lastBillId;
   String? lastRevisionId;
   api.ApproveBillRevisionRequest? lastApprovalBody;
+  api.ConfirmBillRevisionPayerRequest? lastPayerConfirmationBody;
 
   @override
   Future<api.BillRevisionListResponse> listBillRevisions(
@@ -271,6 +319,22 @@ class FakeBillRevisionGeneratedClient
     return rejectResponse;
   }
 
+  @override
+  Future<api.BillRevisionResponse> confirmBillRevisionPayer(
+    String billId,
+    String revisionId,
+    api.ConfirmBillRevisionPayerRequest body, {
+    required String accessToken,
+  }) async {
+    confirmPayerCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    lastPayerConfirmationBody = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return confirmPayerResponse;
+  }
+
   void _throwIfNeeded() {
     final error = failure;
     if (error != null) {
@@ -283,6 +347,8 @@ api.BillRevisionResponse sampleApiRevision({
   String status = api.ExpenseBillRevisionStatusValues.submittedForReview,
   DateTime? rejectedAtUtc,
   List<api.BillRevisionApprovalResponse>? approvals,
+  String payerConfirmationStatus =
+      api.ExpenseBillPayerConfirmationStatusValues.pendingConfirmation,
 }) {
   return api.BillRevisionResponse(
     id: _revisionId,
@@ -311,14 +377,13 @@ api.BillRevisionResponse sampleApiRevision({
         affectedByRevision: true,
       ),
     ],
-    payers: const [
+    payers: [
       api.BillRevisionPayerResponse(
         userProfileId: _profileId,
         amount: '12.00',
         currency: 'USD',
         requiresPayerConfirmation: true,
-        payerConfirmationStatus:
-            api.ExpenseBillPayerConfirmationStatusValues.pendingConfirmation,
+        payerConfirmationStatus: payerConfirmationStatus,
       ),
     ],
     approvals:
@@ -334,12 +399,17 @@ api.BillRevisionResponse sampleApiRevision({
             invalidatedAtUtc: null,
           ),
         ],
-    reviewContext: sampleReviewContext(),
+    reviewContext: sampleReviewContext(
+      payerConfirmationStatus: payerConfirmationStatus,
+    ),
   );
 }
 
-api.BillRevisionReviewContextResponse sampleReviewContext() {
-  return const api.BillRevisionReviewContextResponse(
+api.BillRevisionReviewContextResponse sampleReviewContext({
+  String payerConfirmationStatus =
+      api.ExpenseBillPayerConfirmationStatusValues.pendingConfirmation,
+}) {
+  return api.BillRevisionReviewContextResponse(
     viewerUserProfileId: _profileId,
     baseline: api.BillRevisionReviewBaselineResponse(
       baselineType: api.BillRevisionReviewBaselineTypeValues.activeAcceptedBill,
@@ -382,8 +452,7 @@ api.BillRevisionReviewContextResponse sampleReviewContext() {
           currency: 'USD',
         ),
         requiresPayerConfirmation: true,
-        payerConfirmationStatus:
-            api.ExpenseBillPayerConfirmationStatusValues.pendingConfirmation,
+        payerConfirmationStatus: payerConfirmationStatus,
       ),
     ),
     changeSummary: [

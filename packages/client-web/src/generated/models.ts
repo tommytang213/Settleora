@@ -621,6 +621,16 @@ export interface ApproveBillRevisionRequest {
 }
 
 /**
+ * Revision-specific payer-confirmation basis. The route revision ID and calculation hash must match the server-stored pending required payer confirmation exactly.
+ */
+export interface ConfirmBillRevisionPayerRequest {
+  /**
+   * Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+   */
+  calculationHash: string;
+}
+
+/**
  * Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
  */
 export interface BillRevisionListResponse {

@@ -449,6 +449,17 @@ class SettleoraApiClient {
     return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillRevisionResponse> confirmBillRevisionPayer(String billId, String revisionId, ConfirmBillRevisionPayerRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/payer-confirmation',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<BillRevisionResponse> rejectBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

@@ -2359,6 +2359,77 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/payer-confirmation:
+    post:
+      summary: Confirm bill revision payer role
+      description: Records the authenticated actor's own required payer confirmation for one submitted bill revision proposal. The route revision ID and submitted calculation hash must match the server-stored revision exactly. The server derives the payer actor from SettleoraSession, requires that actor to be the pending required payer, and does not accept client-submitted actor, participant, payer, bill, group, settlement, status, audit, file, proof, auth, or session identity. This action never applies the revision or mutates active bill financial truth.
+      operationId: confirmBillRevisionPayer
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Submitted bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmBillRevisionPayerRequest"
+      responses:
+        "200":
+          description: Required payer confirmation recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionResponse"
+        "400":
+          description: Request body is malformed, stale-guard fields are missing, or unsupported fields were submitted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revision state, actor payer policy, required-confirmation state, or calculation hash does not match the current payer-confirmation basis.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill revision write could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/revisions/{revisionId}/apply:
     post:
       summary: Apply bill revision
@@ -8049,6 +8120,19 @@ components:
             - "50.00"
         currency:
           $ref: "#/components/schemas/CurrencyCode"
+        calculationHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          description: Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+    ConfirmBillRevisionPayerRequest:
+      type: object
+      description: Revision-specific payer-confirmation basis. The route revision ID and calculation hash must match the server-stored pending required payer confirmation exactly.
+      additionalProperties: false
+      required:
+        - calculationHash
+      properties:
         calculationHash:
           type: string
           minLength: 64
