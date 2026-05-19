@@ -156,6 +156,8 @@ Clients must not infer authorization, affected users, payer confirmation truth, 
 
 Current revision snapshots support aggregate diff categories only: bill total, participant share, payer contribution, and payer role. Item, item-split, adjustment, attachment/receipt/OCR review, note, and metadata categories must be returned as `unsupported_in_current_revision_snapshot` until revision snapshots persist those details. The current schema also does not persist passive "viewed but not approved/rejected" review timestamps, so the API must expose that limitation rather than fabricating a baseline.
 
+The implementation-facing UX gate for rendering, filters, action copy, accessibility, and unsupported-state disclosure is [Bill revision review UX gate](BILL_REVISION_REVIEW_UX.md).
+
 ## API direction
 
 Future endpoints may include:
