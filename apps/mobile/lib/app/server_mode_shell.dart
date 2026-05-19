@@ -14,6 +14,8 @@ import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../recurring_bills/recurring_bill_repository.dart';
 import '../recurring_bills/recurring_bill_screen.dart';
+import '../reports/monthly_report_screen.dart';
+import '../reports/report_repository.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import 'auth_session_repository.dart';
@@ -31,6 +33,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.recurringBillRepository,
     required this.groupRepository,
     required this.notificationRepository,
+    required this.reportRepository,
     required this.profileRepository,
     required this.billSyncController,
     required this.authRepository,
@@ -45,6 +48,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraRecurringBillRepository recurringBillRepository;
   final SettleoraGroupRepository groupRepository;
   final SettleoraNotificationRepository notificationRepository;
+  final SettleoraMonthlyReportRepository reportRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
   final SettleoraAuthRepository authRepository;
@@ -88,6 +92,17 @@ class _SettleoraAuthenticatedServerShellState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraNotificationScreen(
           repository: widget.notificationRepository,
+          onSessionEnded: widget.onSessionEnded,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMonthlyReport() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraMonthlyReportScreen(
+          repository: widget.reportRepository,
           onSessionEnded: widget.onSessionEnded,
         ),
       ),
@@ -341,6 +356,13 @@ class _SettleoraAuthenticatedServerShellState
               onPressed: _openSessions,
               icon: const Icon(Icons.devices_outlined),
               label: const Text('Sessions'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('server-shell-reports'),
+              onPressed: _openMonthlyReport,
+              icon: const Icon(Icons.summarize_outlined),
+              label: const Text('Monthly report'),
             ),
           ],
         ),
