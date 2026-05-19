@@ -628,7 +628,7 @@ export interface BillRevisionListResponse {
 }
 
 /**
- * Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+ * Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, approval review fields, and server-authoritative review context/diff data while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
  */
 export interface BillRevisionResponse {
   id: string;
@@ -658,6 +658,7 @@ export interface BillRevisionResponse {
   participants: BillRevisionParticipantResponse[];
   payers: BillRevisionPayerResponse[];
   approvals: BillRevisionApprovalResponse[];
+  reviewContext: BillRevisionReviewContextResponse;
 }
 
 export interface BillRevisionParticipantResponse {
@@ -684,6 +685,139 @@ export interface BillRevisionApprovalResponse {
   rejectedAtUtc: string | null;
   invalidatedAtUtc: string | null;
 }
+
+/**
+ * Server-authoritative review context for the authenticated viewer. The API/domain derives baseline, default view mode, aggregate diff, accessible markers, and financial impact so clients render highlights without deciding authorization, affected-user state, money impact, or financial truth.
+ */
+export interface BillRevisionReviewContextResponse {
+  /**
+   * Current actor profile ID derived from the authenticated session.
+   */
+  viewerUserProfileId: string;
+  baseline: BillRevisionReviewBaselineResponse;
+  defaultViewMode: BillRevisionReviewViewMode;
+  fullViewRecommendedReason: BillRevisionReviewRecommendationReason;
+  viewerFinancialImpact: BillRevisionViewerFinancialImpactResponse;
+  /**
+   * Bounded server-generated category counts. Unsupported categories are explicit and safe.
+   */
+  changeSummary: BillRevisionChangeCategorySummaryResponse[];
+  /**
+   * Server-generated aggregate changes for changed-only rendering and inline accessible markers. Current revision snapshots support bill total, participant-share, payer-contribution, and payer-role changes only.
+   */
+  changes: BillRevisionChangeResponse[];
+  /**
+   * Explicit current limitations. Passive view-only review timestamps and full item/split/attachment/note snapshots are not persisted in this foundation.
+   */
+  limitations: ("last_view_without_approval_or_rejection_not_persisted" | "item_split_attachment_note_diff_unsupported_in_current_revision_snapshot")[];
+}
+
+/**
+ * Viewer-specific baseline selected by the server. If no safe prior acceptance, approval, or rejection is derivable, clients should default to full bill review.
+ */
+export interface BillRevisionReviewBaselineResponse {
+  baselineType: BillRevisionReviewBaselineType;
+  baselineBillRevisionId: string | null;
+  baselineRevisionStatus: ExpenseBillRevisionStatus | null;
+  baselineReviewedAtUtc: string | null;
+  derivationReason: "derived_from_previous_revision_approval_state" | "derived_from_current_active_bill_acceptance_or_payer_confirmation" | "no_safe_prior_acceptance_review_or_rejection_found";
+}
+
+/**
+ * Viewer-specific authoritative money impact. Money values are decimal-safe strings with currency; nullable fields mean no safe viewer baseline or no applicable payer/participant role.
+ */
+export interface BillRevisionViewerFinancialImpactResponse {
+  previousShare: BillRevisionMoneyValueResponse | null;
+  proposedShare: BillRevisionMoneyValueResponse | null;
+  deltaShare: BillRevisionMoneyValueResponse | null;
+  affectedByRevision: boolean;
+  isPayer: boolean;
+  payerImpact: BillRevisionPayerFinancialImpactResponse | null;
+}
+
+/**
+ * Viewer-specific payer impact and payer confirmation state when the viewer is a proposed payer.
+ */
+export interface BillRevisionPayerFinancialImpactResponse {
+  previousContribution: BillRevisionMoneyValueResponse | null;
+  proposedContribution: BillRevisionMoneyValueResponse | null;
+  deltaContribution: BillRevisionMoneyValueResponse | null;
+  requiresPayerConfirmation: boolean;
+  payerConfirmationStatus: ExpenseBillPayerConfirmationStatus | null;
+}
+
+/**
+ * Decimal-safe money value with currency.
+ */
+export interface BillRevisionMoneyValueResponse {
+  /**
+   * Decimal-safe amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+}
+
+/**
+ * Server-generated review-diff category count and support status.
+ */
+export interface BillRevisionChangeCategorySummaryResponse {
+  category: BillRevisionReviewChangeCategory;
+  supportStatus: BillRevisionReviewSupportStatus;
+  changeCount: number;
+  viewerImpact: BillRevisionReviewSummaryViewerImpact;
+}
+
+/**
+ * One server-generated change marker for changed-only rendering and accessible inline highlights. It never includes raw notes, storage paths, object keys, OCR text, auth/session data, or unrelated user display data.
+ */
+export interface BillRevisionChangeResponse {
+  /**
+   * Stable server-generated change ID within this revision response.
+   */
+  changeId: string;
+  changeType: BillRevisionReviewChangeType;
+  changeScope: BillRevisionReviewChangeScope;
+  /**
+   * Bounded safe location for client-side row filtering/highlighting.
+   */
+  fieldPath: string;
+  relatedUserProfileId: string | null;
+  before: BillRevisionDisplayValueResponse | null;
+  after: BillRevisionDisplayValueResponse | null;
+  viewerImpact: BillRevisionReviewChangeViewerImpact;
+  /**
+   * Non-color-only marker text that screen readers and visual clients can render.
+   */
+  accessibleLabel: string;
+  reason: "total_amount_or_currency_changed" | "participant_share_amount_or_currency_changed" | "payer_contribution_amount_or_currency_changed" | "payer_role_added_or_removed";
+}
+
+/**
+ * Safe display value for a before/after marker.
+ */
+export interface BillRevisionDisplayValueResponse {
+  displayValue: string;
+  amount: string | null;
+  currency: CurrencyCode | null;
+}
+
+export type BillRevisionReviewBaselineType = "no_prior_baseline" | "active_accepted_bill" | "previous_revision_approval" | "previous_revision_rejection";
+
+export type BillRevisionReviewViewMode = "full_bill" | "changed_only";
+
+export type BillRevisionReviewRecommendationReason = "no_prior_baseline_full_bill_recommended" | "baseline_available_full_view_optional";
+
+export type BillRevisionReviewChangeCategory = "bill_total" | "participant_share" | "payer_contribution" | "payer_role" | "item" | "item_split" | "adjustment" | "attachment_receipt_ocr_review" | "note_metadata";
+
+export type BillRevisionReviewSupportStatus = "supported" | "unsupported_in_current_revision_snapshot";
+
+export type BillRevisionReviewSummaryViewerImpact = "viewer_affected" | "viewer_unaffected" | "not_available";
+
+export type BillRevisionReviewChangeType = "bill_total_changed" | "participant_share_added" | "participant_share_removed" | "participant_share_changed" | "payer_role_added" | "payer_role_removed" | "payer_contribution_changed";
+
+export type BillRevisionReviewChangeScope = "bill_total" | "participant_share" | "payer_contribution" | "payer_role";
+
+export type BillRevisionReviewChangeViewerImpact = "direct_viewer_money_impact" | "direct_viewer_payer_impact" | "bill_context" | "no_direct_viewer_impact";
 
 /**
  * Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.

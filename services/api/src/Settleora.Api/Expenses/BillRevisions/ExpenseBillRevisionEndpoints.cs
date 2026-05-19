@@ -85,7 +85,7 @@ internal static class ExpenseBillRevisionEndpoints
         var revisions = bill.Revisions
             .OrderBy(revision => revision.CreatedAtUtc)
             .ThenBy(revision => revision.Id)
-            .Select(revision => MapRevision(bill, revision))
+            .Select(revision => MapRevision(bill, revision, actor.UserProfileId))
             .ToArray();
 
         return Results.Ok(new ExpenseBillRevisionListResponse(revisions));
@@ -119,7 +119,7 @@ internal static class ExpenseBillRevisionEndpoints
             return BillRevisionUnavailable();
         }
 
-        return Results.Ok(MapRevision(bill, revision));
+        return Results.Ok(MapRevision(bill, revision, actor.UserProfileId));
     }
 
     private static async Task<IResult> CreateBillRevisionAsync(
@@ -189,7 +189,9 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Created($"/api/v1/bills/{bill.Id:D}/revisions/{result.Revision.Id:D}", MapRevision(bill, result.Revision)),
+            Results.Created(
+                $"/api/v1/bills/{bill.Id:D}/revisions/{result.Revision.Id:D}",
+                MapRevision(bill, result.Revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -264,7 +266,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, result.Revision)),
+            Results.Ok(MapRevision(bill, result.Revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -329,7 +331,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision)),
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -394,7 +396,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision)),
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -463,7 +465,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision)),
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -528,7 +530,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision)),
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -601,7 +603,7 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision)),
+            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
             cancellationToken);
     }
 
@@ -1408,7 +1410,8 @@ internal static class ExpenseBillRevisionEndpoints
 
     private static ExpenseBillRevisionResponse MapRevision(
         ExpenseBill bill,
-        ExpenseBillRevision revision)
+        ExpenseBillRevision revision,
+        Guid viewerUserProfileId)
     {
         return new ExpenseBillRevisionResponse(
             revision.Id,
@@ -1456,7 +1459,8 @@ internal static class ExpenseBillRevisionEndpoints
                     approval.ApprovedAtUtc,
                     approval.RejectedAtUtc,
                     approval.InvalidatedAtUtc))
-                .ToArray());
+                .ToArray(),
+            ExpenseBillRevisionReviewContextBuilder.Build(bill, revision, viewerUserProfileId));
     }
 
     private static ExpenseBillRevisionAuditEvent CreateAuditEvent(

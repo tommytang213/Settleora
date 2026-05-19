@@ -138,6 +138,24 @@ After each proposed or applied financial edit, the API/domain service must:
 5. Require paid-by confirmation if payer role, paid amount, payer contribution, or paid-by user's financial share changes.
 6. Preserve unaffected accepted participants as accepted.
 
+## Revision review diff context
+
+The API/domain layer owns the authoritative review context for pending bill revisions. Revision responses include a server-generated review context derived from the authenticated actor; generated clients and UI code only transport and render that context.
+
+The review context must include:
+
+- viewer-specific baseline type: no prior baseline, active accepted bill, or safely derivable previous revision approval/rejection
+- default view mode, such as `full_bill` for first-review/no-baseline users or `changed_only` when a safe baseline exists
+- bounded reason for the view recommendation
+- viewer financial impact with decimal-safe amount strings and currency on previous, proposed, and delta money values where applicable
+- payer confirmation requirement/status when the viewer is the proposed payer
+- bounded change category counts for bill total, participant share, payer contribution, payer role, item, item split, adjustment, attachment/receipt/OCR review, note, and metadata
+- stable change IDs, change type/scope, safe field path, before/after display values where available, viewer impact, and accessible marker labels
+
+Clients must not infer authorization, affected users, payer confirmation truth, money impact, or financial truth from raw rows. They render the API-provided full-bill/changing-row highlights and summaries.
+
+Current revision snapshots support aggregate diff categories only: bill total, participant share, payer contribution, and payer role. Item, item-split, adjustment, attachment/receipt/OCR review, note, and metadata categories must be returned as `unsupported_in_current_revision_snapshot` until revision snapshots persist those details. The current schema also does not persist passive "viewed but not approved/rejected" review timestamps, so the API must expose that limitation rather than fabricating a baseline.
+
 ## API direction
 
 Future endpoints may include:

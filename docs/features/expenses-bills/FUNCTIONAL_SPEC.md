@@ -81,12 +81,20 @@ Behavior:
 1. A participant rejects, disputes, or chooses to propose a correction.
 2. The app creates a pending bill revision rather than directly changing the official accepted bill.
 3. While one pending revision exists, other users can comment or suggest changes on that revision, but cannot create another competing official pending revision.
-4. The pending revision shows the changed fields, changed calculated shares, and affected users.
+4. The pending revision shows the changed fields, changed calculated shares, financial impact summary, and affected users from server-generated review context.
 5. Only affected users need to approve/reject the pending revision.
 6. The `paid_by` person must re-confirm if payer role, paid amount, payer contribution, or their financial share changes.
 7. Unaffected accepted users remain accepted.
 8. When the pending revision is accepted/applied, it becomes the active accepted revision.
 9. When the pending revision is rejected/cancelled/withdrawn, the bill falls back to the previous active revision.
+
+Revision review UX must be API/domain-authoritative:
+
+- The API generates the review baseline, default view mode, changed-only markers, accessible marker labels, change summary, affected-user state, and viewer-specific financial impact.
+- Mobile and web clients render server-provided highlights and summaries. They must not decide authorization, affected users, payer confirmation truth, money impact, or financial truth from raw rows.
+- Users with no safely derivable prior acceptance/review/rejection baseline should default to full-bill review with changes highlighted.
+- Users with a safely derivable active accepted bill or previous revision approval/rejection baseline may default to changed-only review, with full bill still available.
+- Current revision snapshots preserve aggregate total, participant-share, payer-contribution, and payer-role data. Full item, item-split, adjustment, attachment, receipt/OCR, note, and metadata highlighting remains limited until revision snapshots preserve those details.
 
 ### Proposal withdraw, edit, and resubmit
 

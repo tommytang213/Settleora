@@ -8067,7 +8067,7 @@ components:
             $ref: "#/components/schemas/BillRevisionResponse"
     BillRevisionResponse:
       type: object
-      description: Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, and approval review fields while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
+      description: Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, approval review fields, and server-authoritative review context/diff data while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
       required:
         - id
         - billId
@@ -8090,6 +8090,7 @@ components:
         - participants
         - payers
         - approvals
+        - reviewContext
       properties:
         id:
           type: string
@@ -8176,6 +8177,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BillRevisionApprovalResponse"
+        reviewContext:
+          $ref: "#/components/schemas/BillRevisionReviewContextResponse"
     BillRevisionParticipantResponse:
       type: object
       required:
@@ -8248,6 +8251,302 @@ components:
             - type: string
               format: date-time
             - type: "null"
+    BillRevisionReviewContextResponse:
+      type: object
+      description: Server-authoritative review context for the authenticated viewer. The API/domain derives baseline, default view mode, aggregate diff, accessible markers, and financial impact so clients render highlights without deciding authorization, affected-user state, money impact, or financial truth.
+      required:
+        - viewerUserProfileId
+        - baseline
+        - defaultViewMode
+        - fullViewRecommendedReason
+        - viewerFinancialImpact
+        - changeSummary
+        - changes
+        - limitations
+      properties:
+        viewerUserProfileId:
+          type: string
+          format: uuid
+          description: Current actor profile ID derived from the authenticated session.
+        baseline:
+          $ref: "#/components/schemas/BillRevisionReviewBaselineResponse"
+        defaultViewMode:
+          $ref: "#/components/schemas/BillRevisionReviewViewMode"
+        fullViewRecommendedReason:
+          $ref: "#/components/schemas/BillRevisionReviewRecommendationReason"
+        viewerFinancialImpact:
+          $ref: "#/components/schemas/BillRevisionViewerFinancialImpactResponse"
+        changeSummary:
+          type: array
+          description: Bounded server-generated category counts. Unsupported categories are explicit and safe.
+          items:
+            $ref: "#/components/schemas/BillRevisionChangeCategorySummaryResponse"
+        changes:
+          type: array
+          description: Server-generated aggregate changes for changed-only rendering and inline accessible markers. Current revision snapshots support bill total, participant-share, payer-contribution, and payer-role changes only.
+          items:
+            $ref: "#/components/schemas/BillRevisionChangeResponse"
+        limitations:
+          type: array
+          description: Explicit current limitations. Passive view-only review timestamps and full item/split/attachment/note snapshots are not persisted in this foundation.
+          items:
+            type: string
+            enum:
+              - last_view_without_approval_or_rejection_not_persisted
+              - item_split_attachment_note_diff_unsupported_in_current_revision_snapshot
+    BillRevisionReviewBaselineResponse:
+      type: object
+      description: Viewer-specific baseline selected by the server. If no safe prior acceptance, approval, or rejection is derivable, clients should default to full bill review.
+      required:
+        - baselineType
+        - baselineBillRevisionId
+        - baselineRevisionStatus
+        - baselineReviewedAtUtc
+        - derivationReason
+      properties:
+        baselineType:
+          $ref: "#/components/schemas/BillRevisionReviewBaselineType"
+        baselineBillRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        baselineRevisionStatus:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillRevisionStatus"
+            - type: "null"
+        baselineReviewedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        derivationReason:
+          type: string
+          enum:
+            - derived_from_previous_revision_approval_state
+            - derived_from_current_active_bill_acceptance_or_payer_confirmation
+            - no_safe_prior_acceptance_review_or_rejection_found
+    BillRevisionViewerFinancialImpactResponse:
+      type: object
+      description: Viewer-specific authoritative money impact. Money values are decimal-safe strings with currency; nullable fields mean no safe viewer baseline or no applicable payer/participant role.
+      required:
+        - previousShare
+        - proposedShare
+        - deltaShare
+        - affectedByRevision
+        - isPayer
+        - payerImpact
+      properties:
+        previousShare:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        proposedShare:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        deltaShare:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        affectedByRevision:
+          type: boolean
+        isPayer:
+          type: boolean
+        payerImpact:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionPayerFinancialImpactResponse"
+            - type: "null"
+    BillRevisionPayerFinancialImpactResponse:
+      type: object
+      description: Viewer-specific payer impact and payer confirmation state when the viewer is a proposed payer.
+      required:
+        - previousContribution
+        - proposedContribution
+        - deltaContribution
+        - requiresPayerConfirmation
+        - payerConfirmationStatus
+      properties:
+        previousContribution:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        proposedContribution:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        deltaContribution:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+            - type: "null"
+        requiresPayerConfirmation:
+          type: boolean
+        payerConfirmationStatus:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillPayerConfirmationStatus"
+            - type: "null"
+    BillRevisionMoneyValueResponse:
+      type: object
+      description: Decimal-safe money value with currency.
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: string
+          description: Decimal-safe amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    BillRevisionChangeCategorySummaryResponse:
+      type: object
+      description: Server-generated review-diff category count and support status.
+      required:
+        - category
+        - supportStatus
+        - changeCount
+        - viewerImpact
+      properties:
+        category:
+          $ref: "#/components/schemas/BillRevisionReviewChangeCategory"
+        supportStatus:
+          $ref: "#/components/schemas/BillRevisionReviewSupportStatus"
+        changeCount:
+          type: integer
+          minimum: 0
+        viewerImpact:
+          $ref: "#/components/schemas/BillRevisionReviewSummaryViewerImpact"
+    BillRevisionChangeResponse:
+      type: object
+      description: One server-generated change marker for changed-only rendering and accessible inline highlights. It never includes raw notes, storage paths, object keys, OCR text, auth/session data, or unrelated user display data.
+      required:
+        - changeId
+        - changeType
+        - changeScope
+        - fieldPath
+        - relatedUserProfileId
+        - before
+        - after
+        - viewerImpact
+        - accessibleLabel
+        - reason
+      properties:
+        changeId:
+          type: string
+          description: Stable server-generated change ID within this revision response.
+        changeType:
+          $ref: "#/components/schemas/BillRevisionReviewChangeType"
+        changeScope:
+          $ref: "#/components/schemas/BillRevisionReviewChangeScope"
+        fieldPath:
+          type: string
+          description: Bounded safe location for client-side row filtering/highlighting.
+        relatedUserProfileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        before:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionDisplayValueResponse"
+            - type: "null"
+        after:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionDisplayValueResponse"
+            - type: "null"
+        viewerImpact:
+          $ref: "#/components/schemas/BillRevisionReviewChangeViewerImpact"
+        accessibleLabel:
+          type: string
+          description: Non-color-only marker text that screen readers and visual clients can render.
+        reason:
+          type: string
+          enum:
+            - total_amount_or_currency_changed
+            - participant_share_amount_or_currency_changed
+            - payer_contribution_amount_or_currency_changed
+            - payer_role_added_or_removed
+    BillRevisionDisplayValueResponse:
+      type: object
+      description: Safe display value for a before/after marker.
+      required:
+        - displayValue
+        - amount
+        - currency
+      properties:
+        displayValue:
+          type: string
+        amount:
+          oneOf:
+            - type: string
+            - type: "null"
+        currency:
+          oneOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+            - type: "null"
+    BillRevisionReviewBaselineType:
+      type: string
+      enum:
+        - no_prior_baseline
+        - active_accepted_bill
+        - previous_revision_approval
+        - previous_revision_rejection
+    BillRevisionReviewViewMode:
+      type: string
+      enum:
+        - full_bill
+        - changed_only
+    BillRevisionReviewRecommendationReason:
+      type: string
+      enum:
+        - no_prior_baseline_full_bill_recommended
+        - baseline_available_full_view_optional
+    BillRevisionReviewChangeCategory:
+      type: string
+      enum:
+        - bill_total
+        - participant_share
+        - payer_contribution
+        - payer_role
+        - item
+        - item_split
+        - adjustment
+        - attachment_receipt_ocr_review
+        - note_metadata
+    BillRevisionReviewSupportStatus:
+      type: string
+      enum:
+        - supported
+        - unsupported_in_current_revision_snapshot
+    BillRevisionReviewSummaryViewerImpact:
+      type: string
+      enum:
+        - viewer_affected
+        - viewer_unaffected
+        - not_available
+    BillRevisionReviewChangeType:
+      type: string
+      enum:
+        - bill_total_changed
+        - participant_share_added
+        - participant_share_removed
+        - participant_share_changed
+        - payer_role_added
+        - payer_role_removed
+        - payer_contribution_changed
+    BillRevisionReviewChangeScope:
+      type: string
+      enum:
+        - bill_total
+        - participant_share
+        - payer_contribution
+        - payer_role
+    BillRevisionReviewChangeViewerImpact:
+      type: string
+      enum:
+        - direct_viewer_money_impact
+        - direct_viewer_payer_impact
+        - bill_context
+        - no_direct_viewer_impact
     ExpenseBillReconciliationUpdateRequest:
       type: object
       description: Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
