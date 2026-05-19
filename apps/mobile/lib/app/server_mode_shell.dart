@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
@@ -29,6 +30,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.currentUser,
     required this.receiptOcrReviewRepository,
     required this.billRepository,
+    this.billRevisionRepository,
     required this.settlementRepository,
     required this.recurringBillRepository,
     required this.groupRepository,
@@ -44,6 +46,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraCurrentUser currentUser;
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
+  final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSettlementRepository settlementRepository;
   final SettleoraRecurringBillRepository recurringBillRepository;
   final SettleoraGroupRepository groupRepository;
@@ -70,6 +73,7 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraBillListScreen(
           repository: widget.billRepository,
           syncController: widget.billSyncController,
+          revisionRepository: widget.billRevisionRepository,
         ),
       ),
     );
@@ -146,6 +150,7 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraGroupListScreen(
           repository: widget.groupRepository,
           billRepository: widget.billRepository,
+          billRevisionRepository: widget.billRevisionRepository,
         ),
       ),
     );

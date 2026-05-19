@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import 'group_repository.dart';
@@ -9,10 +10,12 @@ class SettleoraGroupListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billRepository,
+    this.billRevisionRepository,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final SettleoraBillRevisionRepository? billRevisionRepository;
 
   @override
   State<SettleoraGroupListScreen> createState() =>
@@ -109,6 +112,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
         builder: (_) => SettleoraGroupDetailScreen(
           repository: widget.repository,
           billRepository: widget.billRepository,
+          billRevisionRepository: widget.billRevisionRepository,
           groupId: group.id,
         ),
       ),
@@ -206,10 +210,12 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     required this.groupId,
+    this.billRevisionRepository,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final SettleoraBillRevisionRepository? billRevisionRepository;
   final String groupId;
 
   @override
@@ -471,6 +477,7 @@ class _SettleoraGroupDetailScreenState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupBillListScreen(
           repository: widget.billRepository,
+          revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
         ),

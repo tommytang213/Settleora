@@ -14,6 +14,7 @@ class SettleoraMobileApp extends StatelessWidget {
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.billRepositoryFactory,
+    this.billRevisionRepositoryFactory,
     this.settlementRepositoryFactory,
     this.recurringBillRepositoryFactory,
     this.groupRepositoryFactory,
@@ -28,6 +29,7 @@ class SettleoraMobileApp extends StatelessWidget {
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraBillRevisionRepositoryFactory? billRevisionRepositoryFactory;
   final SettleoraSettlementRepositoryFactory? settlementRepositoryFactory;
   final SettleoraRecurringBillRepositoryFactory? recurringBillRepositoryFactory;
   final SettleoraGroupRepositoryFactory? groupRepositoryFactory;
@@ -53,6 +55,7 @@ class SettleoraMobileApp extends StatelessWidget {
         receiptOcrReviewRepositoryFactory: receiptOcrReviewRepositoryFactory,
         authRepositoryFactory: authRepositoryFactory,
         billRepositoryFactory: billRepositoryFactory,
+        billRevisionRepositoryFactory: billRevisionRepositoryFactory,
         settlementRepositoryFactory: settlementRepositoryFactory,
         recurringBillRepositoryFactory: recurringBillRepositoryFactory,
         groupRepositoryFactory: groupRepositoryFactory,
