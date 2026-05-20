@@ -40,6 +40,9 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - Run npm validation for repo tooling, documentation, or contract changes.
 - Run `npm run generate:clients` and `npm run validate:clients` when OpenAPI or generated client output changes.
 - Run Docker validation for Docker, compose, or API runtime changes.
+- When exact `npm ci` is required, run it once. If it fails with the known local npm certificate, cache, or `Exit handler never called!` pattern, record the exact failure, run one recovery command (`npm ci --no-audit --prefer-offline`), and do not loop repeated npm installs.
+- Do not claim exact `npm ci` passed when only the recovery install passed.
+- Do not commit `.npmrc` changes that disable SSL verification, including `strict-ssl=false`; use [local tooling troubleshooting](LOCAL_TOOLING_TROUBLESHOOTING.md) for safe machine-level fixes.
 - For changes limited to documentation-only paths such as `docs/**/*.md`, `README.md`, and static docs assets, skip slow npm/dotnet/Docker validation unless the diff touches package files, validation scripts, OpenAPI/contracts, generated clients, code, tests, migrations, Docker/compose, CI, or runtime config.
 - For docs-only changes run at minimum `git status --short`, `git diff --name-only`, and `git diff --check`.
 - Do not weaken validation for code, API, security, runtime, migration, generated-client, or infrastructure changes.
