@@ -6,6 +6,14 @@ public static class InAppNotificationEventTypes
     public const string BillParticipantAccepted = "bill.participant_accepted";
     public const string BillParticipantRejected = "bill.participant_rejected";
     public const string BillConfirmed = "bill.confirmed";
+    public const string BillRevisionProposed = "bill.revision_proposed";
+    public const string BillRevisionResubmitted = "bill.revision_resubmitted";
+    public const string BillRevisionSubmitted = "bill.revision_submitted";
+    public const string BillRevisionWithdrawn = "bill.revision_withdrawn";
+    public const string BillRevisionApproved = "bill.revision_approved";
+    public const string BillRevisionRejected = "bill.revision_rejected";
+    public const string BillRevisionPayerConfirmed = "bill.revision_payer_confirmed";
+    public const string BillRevisionApplied = "bill.revision_applied";
     public const string SettlementRequestCreated = "settlement.request_created";
     public const string SettlementPaymentMarkedPaid = "settlement.payment_marked_paid";
     public const string SettlementPaymentPartiallyPaid = "settlement.payment_partially_paid";
@@ -23,6 +31,14 @@ public static class InAppNotificationEventTypes
         BillParticipantAccepted,
         BillParticipantRejected,
         BillConfirmed,
+        BillRevisionProposed,
+        BillRevisionResubmitted,
+        BillRevisionSubmitted,
+        BillRevisionWithdrawn,
+        BillRevisionApproved,
+        BillRevisionRejected,
+        BillRevisionPayerConfirmed,
+        BillRevisionApplied,
         SettlementRequestCreated,
         SettlementPaymentMarkedPaid,
         SettlementPaymentPartiallyPaid,

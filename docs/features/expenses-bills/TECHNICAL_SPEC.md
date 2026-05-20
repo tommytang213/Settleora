@@ -164,6 +164,10 @@ Current revision snapshots support aggregate diff categories only: bill total, p
 
 The implementation-facing UX gate for rendering, filters, action copy, accessibility, and unsupported-state disclosure is [Bill revision review UX gate](BILL_REVISION_REVIEW_UX.md).
 
+## Bill revision notifications
+
+Bill revision lifecycle mutations emit bounded in-app notifications after successful propose, resubmit, submit, withdraw, approve, reject, payer-confirmation, and apply operations. Recipients are derived server-side from pending revision approvals, pending required payer confirmations, proposal creator, bill owner, affected participants, and payers as appropriate for the lifecycle event. Notification payloads use stable bill/revision/group IDs, template keys, and safe generic summaries only; they must not include receipt/OCR content, private notes, payment details, proof bytes, storage internals, raw request bodies, tokens, or unrelated user data. Email, push delivery, preferences, and deep-link behavior remain separate slices.
+
 ## API direction
 
 Future endpoints may include:

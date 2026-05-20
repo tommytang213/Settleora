@@ -11003,6 +11003,14 @@ components:
         - bill.participant_accepted
         - bill.participant_rejected
         - bill.confirmed
+        - bill.revision_proposed
+        - bill.revision_resubmitted
+        - bill.revision_submitted
+        - bill.revision_withdrawn
+        - bill.revision_approved
+        - bill.revision_rejected
+        - bill.revision_payer_confirmed
+        - bill.revision_applied
         - settlement.request_created
         - settlement.payment_marked_paid
         - settlement.payment_partially_paid

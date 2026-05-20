@@ -11,6 +11,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Expenses.BillRevisions;
@@ -326,6 +327,519 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             canReject: false,
             canConfirmPayer: false,
             canApply: false);
+    }
+
+    [Fact]
+    public async Task ProposalCreationWritesNotificationsToPendingReviewersAndPayerConfirmationRecipients()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Proposed Owner");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Proposed Reviewer");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Proposed Payer");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 30m),
+                new ParticipantSeed(payerSession.UserProfileId, 20m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (reviewerSession.UserProfileId, 35m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createPayload = JsonDocument.Parse(createContent);
+        var revisionId = createPayload.RootElement.GetProperty("id").GetGuid();
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionProposed);
+        AssertNotificationRecipients(
+            notifications,
+            reviewerSession.UserProfileId,
+            payerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
+        Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
+            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+            Assert.Equal(billId, notification.ExpenseBillId);
+            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionProposed}.title", notification.TitleKey);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionProposed}.message", notification.MessageKey);
+            Assert.Equal("Bill revision was proposed.", notification.SafeSummary);
+            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+        });
+    }
+
+    [Fact]
+    public async Task RevisionResubmissionWritesNotificationsToPendingReviewersAndPayerConfirmationRecipients()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Resubmit Owner");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Resubmit Reviewer");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Resubmit Payer");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 30m),
+                new ParticipantSeed(payerSession.UserProfileId, 20m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var previousRevisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (reviewerSession.UserProfileId, 35m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        using var client = testFactory.CreateClient();
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(5));
+        using var reviseRequest = CreateJsonRequest(
+            HttpMethod.Patch,
+            RevisionPath(billId, previousRevisionId),
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 41m),
+                    (reviewerSession.UserProfileId, 34m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        using var reviseResponse = await client.SendAsync(reviseRequest);
+        var reviseContent = await reviseResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, reviseResponse.StatusCode);
+        using var revisePayload = JsonDocument.Parse(reviseContent);
+        var revisionId = revisePayload.RootElement.GetProperty("id").GetGuid();
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionResubmitted);
+        AssertNotificationRecipients(
+            notifications,
+            reviewerSession.UserProfileId,
+            payerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
+        Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
+            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+            Assert.Equal(billId, notification.ExpenseBillId);
+            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionResubmitted}.title", notification.TitleKey);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionResubmitted}.message", notification.MessageKey);
+            Assert.Equal("Bill revision was resubmitted for review.", notification.SafeSummary);
+            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+        });
+    }
+
+    [Fact]
+    public async Task SubmitRevisionWritesNotificationsToPendingReviewersAndPayerConfirmationRecipients()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Submit Owner");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Submit Reviewer");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Submit Payer");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 30m),
+                new ParticipantSeed(payerSession.UserProfileId, 20m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (reviewerSession.UserProfileId, 35m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createPayload = JsonDocument.Parse(createContent);
+        var revisionId = createPayload.RootElement.GetProperty("id").GetGuid();
+
+        using var submitRequest = CreateBearerRequest(HttpMethod.Post, SubmitPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var submitResponse = await client.SendAsync(submitRequest);
+
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionSubmitted);
+        AssertNotificationRecipients(
+            notifications,
+            reviewerSession.UserProfileId,
+            payerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
+        Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
+            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+            Assert.Equal(billId, notification.ExpenseBillId);
+            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionSubmitted}.title", notification.TitleKey);
+            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionSubmitted}.message", notification.MessageKey);
+            Assert.Equal("Bill revision is ready for review.", notification.SafeSummary);
+            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+        });
+    }
+
+    [Fact]
+    public async Task WithdrawRevisionWritesNotificationsToPendingRecipientsOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Withdraw Owner");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Withdraw Reviewer");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Withdraw Payer");
+        var unrelatedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Withdraw Unrelated");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 30m),
+                new ParticipantSeed(payerSession.UserProfileId, 20m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (reviewerSession.UserProfileId, 35m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+
+        using var withdrawRequest = CreateBearerRequest(HttpMethod.Post, WithdrawPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var withdrawResponse = await client.SendAsync(withdrawRequest);
+
+        Assert.Equal(HttpStatusCode.OK, withdrawResponse.StatusCode);
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionWithdrawn);
+        AssertNotificationRecipients(
+            notifications,
+            reviewerSession.UserProfileId,
+            payerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == unrelatedSession.UserProfileId);
+    }
+
+    [Fact]
+    public async Task ApproveAndRejectRevisionNotifyProposalCreatorAndBillOwner()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Review Owner");
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Review Creator");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Review Reviewer");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(creatorSession.UserProfileId, 25m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 25m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (creatorSession.UserProfileId, 30m),
+                    (reviewerSession.UserProfileId, 30m)
+                ],
+                [(ownerSession.UserProfileId, 100m)]));
+        var approval = await ReadApprovalAsync(testFactory, revisionId, reviewerSession.UserProfileId);
+
+        using (var approveRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            ApprovePath(billId, revisionId),
+            reviewerSession.RawSessionToken,
+            ApprovalJson(FormatAmount(approval.AcceptedAmount), approval.Currency, approval.CalculationHash)))
+        using (var approveResponse = await client.SendAsync(approveRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+        }
+
+        var approvedNotifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionApproved);
+        AssertNotificationRecipients(
+            approvedNotifications,
+            creatorSession.UserProfileId,
+            ownerSession.UserProfileId);
+        Assert.DoesNotContain(approvedNotifications, notification => notification.RecipientUserProfileId == reviewerSession.UserProfileId);
+
+        using var rejectRequest = CreateBearerRequest(HttpMethod.Post, RejectPath(billId, revisionId), reviewerSession.RawSessionToken);
+        using var rejectResponse = await client.SendAsync(rejectRequest);
+
+        Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
+        var rejectedNotifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionRejected);
+        AssertNotificationRecipients(
+            rejectedNotifications,
+            creatorSession.UserProfileId,
+            ownerSession.UserProfileId);
+        Assert.DoesNotContain(rejectedNotifications, notification => notification.RecipientUserProfileId == reviewerSession.UserProfileId);
+    }
+
+    [Fact]
+    public async Task PayerConfirmationRevisionNotifiesProposalCreatorAndBillOwner()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Payer Owner");
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Payer Creator");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Payer Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(creatorSession.UserProfileId, 25m),
+                new ParticipantSeed(payerSession.UserProfileId, 25m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 50m),
+                    (creatorSession.UserProfileId, 25m),
+                    (payerSession.UserProfileId, 25m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        var revision = await ReadRevisionAsync(testFactory, revisionId);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(20));
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            PayerConfirmationPath(billId, revisionId),
+            payerSession.RawSessionToken,
+            PayerConfirmationJson(revision.CalculationHash));
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionPayerConfirmed);
+        AssertNotificationRecipients(
+            notifications,
+            creatorSession.UserProfileId,
+            ownerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+    }
+
+    [Fact]
+    public async Task ApplyRevisionNotifiesAffectedStakeholdersWithSafeMetadataOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Apply Owner");
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Apply Creator");
+        var payerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Apply Payer");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(creatorSession.UserProfileId, 25m),
+                new ParticipantSeed(payerSession.UserProfileId, 25m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            SnapshotJson(
+                [
+                    (ownerSession.UserProfileId, 40m),
+                    (creatorSession.UserProfileId, 30m),
+                    (payerSession.UserProfileId, 30m)
+                ],
+                [(payerSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [creatorSession.UserProfileId] = creatorSession.RawSessionToken,
+                [payerSession.UserProfileId] = payerSession.RawSessionToken
+            });
+        var revision = await ReadRevisionAsync(testFactory, revisionId);
+        using (var payerConfirmationRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            PayerConfirmationPath(billId, revisionId),
+            payerSession.RawSessionToken,
+            PayerConfirmationJson(revision.CalculationHash)))
+        using (var payerConfirmationResponse = await client.SendAsync(payerConfirmationRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, payerConfirmationResponse.StatusCode);
+        }
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(25));
+        using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var applyResponse = await client.SendAsync(applyRequest);
+
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+        var notifications = await ReadNotificationsAsync(testFactory, InAppNotificationEventTypes.BillRevisionApplied);
+        AssertNotificationRecipients(
+            notifications,
+            creatorSession.UserProfileId,
+            payerSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
+        Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        AssertSafeNotificationMetadata(notifications);
+    }
+
+    [Fact]
+    public async Task FailedRevisionMutationsDoNotWriteNotifications()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Failed Creator");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Failed Participant");
+        var unrelatedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Failed Unrelated");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateDraftRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            creatorSession.UserProfileId,
+            participantSession.UserProfileId);
+        var notificationCountBeforeFailures = (await ReadNotificationsAsync(testFactory)).Count;
+        using var client = testFactory.CreateClient();
+
+        using (var deniedRequest = CreateBearerRequest(HttpMethod.Post, SubmitPath(billId, revisionId), unrelatedSession.RawSessionToken))
+        using (var deniedResponse = await client.SendAsync(deniedRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, deniedResponse.StatusCode);
+        }
+
+        using (var unavailableRequest = CreateBearerRequest(HttpMethod.Post, SubmitPath(billId, Guid.NewGuid()), creatorSession.RawSessionToken))
+        using (var unavailableResponse = await client.SendAsync(unavailableRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, unavailableResponse.StatusCode);
+        }
+
+        using (var invalidRequest = CreateJsonRequest(HttpMethod.Post, SubmitPath(billId, revisionId), creatorSession.RawSessionToken, "{}"))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+        }
+
+        using (var conflictRequest = CreateBearerRequest(HttpMethod.Post, WithdrawPath(billId, revisionId), participantSession.RawSessionToken))
+        using (var conflictResponse = await client.SendAsync(conflictRequest))
+        {
+            await AssertBillRevisionConflictProblemAsync(conflictResponse);
+        }
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(notificationCountBeforeFailures, notifications.Count);
+        Assert.DoesNotContain(notifications, notification =>
+            notification.EventType is InAppNotificationEventTypes.BillRevisionSubmitted
+                or InAppNotificationEventTypes.BillRevisionWithdrawn);
+    }
+
+    [Fact]
+    public void BillRevisionNotificationEventTypesAreSupportedByDomainConstants()
+    {
+        Assert.All(
+            new[]
+            {
+                InAppNotificationEventTypes.BillRevisionProposed,
+                InAppNotificationEventTypes.BillRevisionResubmitted,
+                InAppNotificationEventTypes.BillRevisionSubmitted,
+                InAppNotificationEventTypes.BillRevisionWithdrawn,
+                InAppNotificationEventTypes.BillRevisionApproved,
+                InAppNotificationEventTypes.BillRevisionRejected,
+                InAppNotificationEventTypes.BillRevisionPayerConfirmed,
+                InAppNotificationEventTypes.BillRevisionApplied
+            },
+            eventType => Assert.True(InAppNotificationEventTypes.IsSupported(eventType), eventType));
     }
 
     [Fact]
@@ -2301,6 +2815,25 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             .SingleAsync(bill => bill.Id == billId);
     }
 
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory,
+        string? eventType = null)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var query = dbContext.Set<InAppNotification>()
+            .AsNoTracking();
+        if (eventType is not null)
+        {
+            query = query.Where(notification => notification.EventType == eventType);
+        }
+
+        return await query
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
+            .ToArrayAsync();
+    }
+
     private static async Task<IReadOnlyList<AuthAuditEvent>> ReadRevisionAuditEventsAsync(
         WebApplicationFactory<Program> testFactory)
     {
@@ -2365,6 +2898,49 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.DoesNotContain("proof", lowerAuditText);
         Assert.DoesNotContain("objectkey", lowerAuditText);
         Assert.DoesNotContain("ocr", lowerAuditText);
+    }
+
+    private static void AssertNotificationRecipients(
+        IReadOnlyList<InAppNotification> notifications,
+        params Guid[] expectedRecipientIds)
+    {
+        Assert.Equal(
+            expectedRecipientIds.Order().ToArray(),
+            notifications
+                .Select(notification => notification.RecipientUserProfileId)
+                .Order()
+                .ToArray());
+    }
+
+    private static void AssertSafeNotificationMetadata(IReadOnlyList<InAppNotification> notifications)
+    {
+        var notificationText = string.Join(
+            "\n",
+            notifications.Select(notification => string.Join(
+                "\n",
+                notification.EventType,
+                notification.SubjectType,
+                notification.TitleKey,
+                notification.MessageKey,
+                notification.SafeSummary,
+                notification.ActionUrl,
+                notification.GroupId?.ToString("D"),
+                notification.ExpenseBillId?.ToString("D"),
+                notification.ExpenseBillRevisionId?.ToString("D"))));
+        var lowerNotificationText = notificationText.ToLowerInvariant();
+
+        Assert.DoesNotContain("Hidden Revision Merchant", notificationText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden Revision Item", notificationText, StringComparison.Ordinal);
+        Assert.DoesNotContain("private", lowerNotificationText);
+        Assert.DoesNotContain("token", lowerNotificationText);
+        Assert.DoesNotContain("session", lowerNotificationText);
+        Assert.DoesNotContain("credential", lowerNotificationText);
+        Assert.DoesNotContain("password", lowerNotificationText);
+        Assert.DoesNotContain("proof", lowerNotificationText);
+        Assert.DoesNotContain("objectkey", lowerNotificationText);
+        Assert.DoesNotContain("storage", lowerNotificationText);
+        Assert.DoesNotContain("ocr", lowerNotificationText);
+        Assert.DoesNotContain("receipt", lowerNotificationText);
     }
 
     private static async Task<SettlementMutationCounts> ReadSettlementMutationCountsAsync(
