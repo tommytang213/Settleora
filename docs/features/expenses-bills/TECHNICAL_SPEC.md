@@ -115,6 +115,12 @@ Rules:
 - Rejected proposal approvals do not carry to the active revision unless the user had already accepted that active revision.
 - Official bill state changes only when a pending revision is accepted/applied by policy.
 
+### Bill revision settlement apply policy
+
+The apply endpoint must use a named API/domain settlement-impact policy before mutating the active bill. The current conservative policy allows apply only when the bill/revision has no settlement state. It classifies pending/requested-only settlement requests separately from progressed settlement history, but both remain blocked until a reviewed bill-revision-owned invalidation, adjustment, or reopen workflow exists.
+
+Progressed settlement state includes any payment claim, payment allocation, proof attachment, residual row, confirmed/partially paid settlement status, non-open request line, participant settled timestamp, or other supported settlement history beyond an unpaid requested request. The apply flow must not silently delete settlement rows, mark payments/proofs/residuals changed, or recalculate settlement history as a side effect of a bill revision.
+
 Suggested revision statuses:
 
 ```text

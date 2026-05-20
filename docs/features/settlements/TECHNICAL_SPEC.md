@@ -187,6 +187,7 @@ Rules:
 - When a bill revision is accepted/applied after a settlement request/payment claim exists, the API/domain policy must explicitly decide whether affected settlements are flagged for review, reopened, adjusted, or left unchanged.
 - Any settlement-impacting bill revision must be auditable and must preserve prior settlement history.
 - If a bill revision changes participant shares after receiver confirmation, settlement reopening/adjustment must be explicit and policy-controlled.
+- The current apply policy permits approved bill revision application only when no settlement state exists. Pending/requested-only settlement requests are classified but still block apply because the current cancellation path is requester-owned and endpoint-local, not a reusable bill-revision-owned invalidation workflow.
 
 ## Balance projection
 
