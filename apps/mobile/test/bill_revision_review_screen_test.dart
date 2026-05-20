@@ -182,6 +182,192 @@ void main() {
     expect(find.text('Payer confirmation recorded.'), findsOneWidget);
   });
 
+  testWidgets('lifecycle actions render only from server viewer actions', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRevisionRepository(
+      revision: sampleRevision(
+        canSubmit: true,
+        canWithdraw: true,
+        canApply: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-revision-submit')), findsOneWidget);
+    expect(find.byKey(const Key('bill-revision-withdraw')), findsOneWidget);
+    expect(find.byKey(const Key('bill-revision-apply')), findsOneWidget);
+  });
+
+  testWidgets('lifecycle actions stay hidden when server viewer actions deny', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRevisionRepository(
+      revision: sampleRevision(
+        canSubmit: false,
+        canWithdraw: false,
+        canApply: false,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-revision-submit')), findsNothing);
+    expect(find.byKey(const Key('bill-revision-withdraw')), findsNothing);
+    expect(find.byKey(const Key('bill-revision-apply')), findsNothing);
+  });
+
+  testWidgets('submit refreshes before acting and uses refreshed capability', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final initial = sampleRevision(canSubmit: true);
+    final refreshed = sampleRevision(
+      status: SettleoraBillRevisionStatusValues.draftRevision,
+      canSubmit: true,
+    );
+    final repository = FakeBillRevisionRepository(
+      revision: initial,
+      getResponses: [initial, refreshed],
+      submitResponse: sampleRevision(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-submit')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 2);
+    expect(repository.submitCalls, 1);
+    expect(repository.lastSubmittedBillId, _billId);
+    expect(repository.lastSubmittedRevisionId, _revisionId);
+    expect(find.text('Revision submitted for review.'), findsOneWidget);
+  });
+
+  testWidgets('submit stops when refreshed server capability denies', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final initial = sampleRevision(canSubmit: true);
+    final refreshed = sampleRevision(canSubmit: false);
+    final repository = FakeBillRevisionRepository(
+      revision: initial,
+      getResponses: [initial, refreshed],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-submit')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 2);
+    expect(repository.submitCalls, 0);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text(
+        'This revision is no longer open for submission. Review the refreshed status.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('failed lifecycle mutation displays existing failure path', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final initial = sampleRevision(canApply: true);
+    final refreshed = sampleRevision(canApply: true);
+    final repository = FakeBillRevisionRepository(
+      revision: initial,
+      getResponses: [initial, refreshed],
+      applyFailure: const SettleoraBillRevisionFailure(
+        kind: SettleoraBillRevisionFailureKind.conflict,
+        message:
+            'The revision changed before this action completed. Refresh before trying again.',
+        statusCode: 409,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-apply')));
+    await tester.pumpAndSettle();
+
+    expect(repository.applyCalls, 1);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text(
+        'The revision changed before this action completed. Refresh before trying again.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('confirmed payer state keeps fallback action disabled', (
     tester,
   ) async {
@@ -366,22 +552,49 @@ Future<void> useLargeSurface(WidgetTester tester) async {
 class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   FakeBillRevisionRepository({
     required this.revision,
+    List<SettleoraBillRevision>? getResponses,
+    SettleoraBillRevision? submitResponse,
+    SettleoraBillRevision? withdrawResponse,
     SettleoraBillRevision? approveResponse,
     SettleoraBillRevision? rejectResponse,
     SettleoraBillRevision? confirmPayerResponse,
+    SettleoraBillRevision? applyResponse,
+    this.submitFailure,
+    this.withdrawFailure,
+    this.applyFailure,
   }) : approveResponse = approveResponse ?? revision,
+       getResponses = getResponses ?? [revision],
+       submitResponse = submitResponse ?? revision,
+       withdrawResponse = withdrawResponse ?? revision,
        rejectResponse = rejectResponse ?? revision,
-       confirmPayerResponse = confirmPayerResponse ?? revision;
+       confirmPayerResponse = confirmPayerResponse ?? revision,
+       applyResponse = applyResponse ?? revision;
 
   SettleoraBillRevision revision;
+  final List<SettleoraBillRevision> getResponses;
+  final SettleoraBillRevision submitResponse;
+  final SettleoraBillRevision withdrawResponse;
   final SettleoraBillRevision approveResponse;
   final SettleoraBillRevision rejectResponse;
   final SettleoraBillRevision confirmPayerResponse;
+  final SettleoraBillRevision applyResponse;
+  final SettleoraBillRevisionFailure? submitFailure;
+  final SettleoraBillRevisionFailure? withdrawFailure;
+  final SettleoraBillRevisionFailure? applyFailure;
   int listCalls = 0;
   int getCalls = 0;
+  int submitCalls = 0;
+  int withdrawCalls = 0;
   int approveCalls = 0;
   int rejectCalls = 0;
   int confirmPayerCalls = 0;
+  int applyCalls = 0;
+  String? lastSubmittedBillId;
+  String? lastSubmittedRevisionId;
+  String? lastWithdrawnBillId;
+  String? lastWithdrawnRevisionId;
+  String? lastAppliedBillId;
+  String? lastAppliedRevisionId;
   SettleoraBillRevision? lastApprovedRevision;
   SettleoraBillRevision? lastConfirmedRevision;
 
@@ -396,8 +609,44 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     String billId,
     String revisionId,
   ) async {
+    final index = getCalls < getResponses.length
+        ? getCalls
+        : getResponses.length - 1;
     getCalls += 1;
+    revision = getResponses[index];
     return revision;
+  }
+
+  @override
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    submitCalls += 1;
+    lastSubmittedBillId = billId;
+    lastSubmittedRevisionId = revisionId;
+    final failure = submitFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    revision = submitResponse;
+    return submitResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    withdrawCalls += 1;
+    lastWithdrawnBillId = billId;
+    lastWithdrawnRevisionId = revisionId;
+    final failure = withdrawFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    revision = withdrawResponse;
+    return withdrawResponse;
   }
 
   @override
@@ -428,6 +677,22 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     lastConfirmedRevision = revision;
     this.revision = confirmPayerResponse;
     return confirmPayerResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    applyCalls += 1;
+    lastAppliedBillId = billId;
+    lastAppliedRevisionId = revisionId;
+    final failure = applyFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    revision = applyResponse;
+    return applyResponse;
   }
 }
 
@@ -469,9 +734,13 @@ SettleoraBillRevision sampleRevision({
   bool includeViewerApprovalBasis = true,
   String payerConfirmationStatus =
       SettleoraBillRevisionPayerConfirmationStatusValues.pendingConfirmation,
+  bool canSubmit = false,
+  bool canWithdraw = false,
+  bool canRevise = false,
   bool canApprove = true,
   bool canReject = true,
   bool canConfirmPayer = true,
+  bool canApply = false,
 }) {
   final approval = SettleoraBillRevisionApproval(
     participantUserProfileId: _profileId,
@@ -512,10 +781,13 @@ SettleoraBillRevision sampleRevision({
     ],
     approvals: [approval],
     viewerActions: SettleoraBillRevisionViewerActions(
-      canSubmit: false,
+      canSubmit: canSubmit,
       canWithdraw:
+          canWithdraw &&
           status == SettleoraBillRevisionStatusValues.submittedForReview,
-      canRevise: status == SettleoraBillRevisionStatusValues.submittedForReview,
+      canRevise:
+          canRevise &&
+          status == SettleoraBillRevisionStatusValues.submittedForReview,
       canApprove:
           canApprove &&
           status == SettleoraBillRevisionStatusValues.submittedForReview,
@@ -528,7 +800,7 @@ SettleoraBillRevision sampleRevision({
           payerConfirmationStatus ==
               SettleoraBillRevisionPayerConfirmationStatusValues
                   .pendingConfirmation,
-      canApply: false,
+      canApply: canApply,
     ),
     reviewContext: sampleReviewContext(
       baselineType: baselineType,

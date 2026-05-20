@@ -496,6 +496,16 @@ abstract class SettleoraBillRevisionRepository {
     String revisionId,
   );
 
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  );
+
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  );
+
   Future<SettleoraBillRevision> approveBillRevision(
     SettleoraBillRevision revision,
   );
@@ -507,6 +517,11 @@ abstract class SettleoraBillRevisionRepository {
 
   Future<SettleoraBillRevision> confirmBillRevisionPayer(
     SettleoraBillRevision revision,
+  );
+
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
   );
 }
 

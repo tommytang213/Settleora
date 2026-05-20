@@ -18,6 +18,18 @@ abstract interface class SettleoraBillRevisionGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.BillRevisionResponse> submitBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  });
+
+  Future<api.BillRevisionResponse> withdrawBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  });
+
   Future<api.BillRevisionResponse> approveBillRevision(
     String billId,
     String revisionId,
@@ -35,6 +47,12 @@ abstract interface class SettleoraBillRevisionGeneratedClient {
     String billId,
     String revisionId,
     api.ConfirmBillRevisionPayerRequest body, {
+    required String accessToken,
+  });
+
+  Future<api.BillRevisionResponse> applyBillRevision(
+    String billId,
+    String revisionId, {
     required String accessToken,
   });
 }
@@ -60,6 +78,32 @@ class SettleoraBillRevisionApiGeneratedClient
     required String accessToken,
   }) {
     return _client.getBillRevision(
+      billId,
+      revisionId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.BillRevisionResponse> submitBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) {
+    return _client.submitBillRevision(
+      billId,
+      revisionId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.BillRevisionResponse> withdrawBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) {
+    return _client.withdrawBillRevision(
       billId,
       revisionId,
       accessToken: accessToken,
@@ -105,6 +149,19 @@ class SettleoraBillRevisionApiGeneratedClient
       billId,
       revisionId,
       body,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.BillRevisionResponse> applyBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) {
+    return _client.applyBillRevision(
+      billId,
+      revisionId,
       accessToken: accessToken,
     );
   }
@@ -174,6 +231,66 @@ class GeneratedSettleoraBillRevisionRepository
     return _withAccessToken((accessToken) async {
       try {
         final response = await _client.getBillRevision(
+          trimmedBillId,
+          trimmedRevisionId,
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before submitting a revision.',
+    );
+    final trimmedRevisionId = _requiredId(
+      revisionId,
+      blankMessage: 'Choose a revision before submitting it.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.submitBillRevision(
+          trimmedBillId,
+          trimmedRevisionId,
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before withdrawing a revision.',
+    );
+    final trimmedRevisionId = _requiredId(
+      revisionId,
+      blankMessage: 'Choose a revision before withdrawing it.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.withdrawBillRevision(
           trimmedBillId,
           trimmedRevisionId,
           accessToken: accessToken,
@@ -271,6 +388,36 @@ class GeneratedSettleoraBillRevisionRepository
           api.ConfirmBillRevisionPayerRequest(
             calculationHash: revision.calculationHash,
           ),
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before applying a revision.',
+    );
+    final trimmedRevisionId = _requiredId(
+      revisionId,
+      blankMessage: 'Choose a revision before applying it.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.applyBillRevision(
+          trimmedBillId,
+          trimmedRevisionId,
           accessToken: accessToken,
         );
         return _mapRevision(response);
