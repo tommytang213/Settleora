@@ -8174,6 +8174,7 @@ components:
         - participants
         - payers
         - approvals
+        - viewerActions
         - reviewContext
       properties:
         id:
@@ -8261,8 +8262,36 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BillRevisionApprovalResponse"
+        viewerActions:
+          $ref: "#/components/schemas/BillRevisionViewerActionsResponse"
         reviewContext:
           $ref: "#/components/schemas/BillRevisionReviewContextResponse"
+    BillRevisionViewerActionsResponse:
+      type: object
+      description: Server-authoritative viewer action capability hint for the authenticated actor. These booleans are derived from the same bill/revision/payer-confirmation/approval/apply-policy state used by mutation endpoints, but they are only UI hints and are not an authorization boundary.
+      required:
+        - canSubmit
+        - canWithdraw
+        - canRevise
+        - canApprove
+        - canReject
+        - canConfirmPayer
+        - canApply
+      properties:
+        canSubmit:
+          type: boolean
+        canWithdraw:
+          type: boolean
+        canRevise:
+          type: boolean
+        canApprove:
+          type: boolean
+        canReject:
+          type: boolean
+        canConfirmPayer:
+          type: boolean
+        canApply:
+          type: boolean
     BillRevisionParticipantResponse:
       type: object
       required:

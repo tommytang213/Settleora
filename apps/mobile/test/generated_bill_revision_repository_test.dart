@@ -41,6 +41,9 @@ void main() {
       expect(revisions.single.id, _revisionId);
       expect(revision.reviewContext.defaultViewMode, 'changed_only');
       expect(revision.reviewContext.changes.single.accessibleLabel, 'Changed');
+      expect(revision.viewerActions.canApprove, isTrue);
+      expect(revision.viewerActions.canReject, isTrue);
+      expect(revision.viewerActions.canConfirmPayer, isTrue);
       expect(revision.viewerApprovalBasis?.acceptedAmount, '12.00');
       expect(revision.viewerApprovalBasis?.currency, 'USD');
       expect(revision.viewerApprovalBasis?.calculationHash, _hash);
@@ -104,6 +107,29 @@ void main() {
     );
 
     test(
+      'does not fabricate payer confirmation when server capability is false',
+      () async {
+        final client = FakeBillRevisionGeneratedClient(
+          detail: sampleApiRevision(
+            viewerActions: sampleApiViewerActions(canConfirmPayer: false),
+          ),
+        );
+        final repository = GeneratedSettleoraBillRevisionRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+        final revision = await repository.getBillRevision(_billId, _revisionId);
+
+        final failure = await captureRevisionFailure(() {
+          return repository.confirmBillRevisionPayer(revision);
+        });
+
+        expect(failure.kind, SettleoraBillRevisionFailureKind.validation);
+        expect(client.confirmPayerCalls, 0);
+      },
+    );
+
+    test(
       'does not fabricate an approval body without a pending viewer basis',
       () async {
         final repository = GeneratedSettleoraBillRevisionRepository(
@@ -124,6 +150,7 @@ void main() {
           participants: revision.participants,
           payers: revision.payers,
           approvals: const [],
+          viewerActions: revision.viewerActions,
           reviewContext: revision.reviewContext,
           viewerApprovalBasis: null,
         );
@@ -135,6 +162,26 @@ void main() {
         expect(failure.kind, SettleoraBillRevisionFailureKind.validation);
       },
     );
+
+    test('does not approve when server capability is false', () async {
+      final client = FakeBillRevisionGeneratedClient(
+        detail: sampleApiRevision(
+          viewerActions: sampleApiViewerActions(canApprove: false),
+        ),
+      );
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+      final revision = await repository.getBillRevision(_billId, _revisionId);
+
+      final failure = await captureRevisionFailure(() {
+        return repository.approveBillRevision(revision);
+      });
+
+      expect(failure.kind, SettleoraBillRevisionFailureKind.validation);
+      expect(client.approveCalls, 0);
+    });
 
     test('maps generated failures to bounded revision failures', () async {
       final cases = <int, SettleoraBillRevisionFailureKind>{
@@ -349,6 +396,7 @@ api.BillRevisionResponse sampleApiRevision({
   List<api.BillRevisionApprovalResponse>? approvals,
   String payerConfirmationStatus =
       api.ExpenseBillPayerConfirmationStatusValues.pendingConfirmation,
+  api.BillRevisionViewerActionsResponse? viewerActions,
 }) {
   return api.BillRevisionResponse(
     id: _revisionId,
@@ -402,6 +450,45 @@ api.BillRevisionResponse sampleApiRevision({
     reviewContext: sampleReviewContext(
       payerConfirmationStatus: payerConfirmationStatus,
     ),
+    viewerActions:
+        viewerActions ??
+        sampleApiViewerActions(
+          canWithdraw:
+              status == api.ExpenseBillRevisionStatusValues.submittedForReview,
+          canRevise:
+              status == api.ExpenseBillRevisionStatusValues.submittedForReview,
+          canApprove:
+              status == api.ExpenseBillRevisionStatusValues.submittedForReview,
+          canReject:
+              status == api.ExpenseBillRevisionStatusValues.submittedForReview,
+          canConfirmPayer:
+              status ==
+                  api.ExpenseBillRevisionStatusValues.submittedForReview &&
+              payerConfirmationStatus ==
+                  api
+                      .ExpenseBillPayerConfirmationStatusValues
+                      .pendingConfirmation,
+        ),
+  );
+}
+
+api.BillRevisionViewerActionsResponse sampleApiViewerActions({
+  bool canSubmit = false,
+  bool canWithdraw = true,
+  bool canRevise = true,
+  bool canApprove = true,
+  bool canReject = true,
+  bool canConfirmPayer = true,
+  bool canApply = false,
+}) {
+  return api.BillRevisionViewerActionsResponse(
+    canSubmit: canSubmit,
+    canWithdraw: canWithdraw,
+    canRevise: canRevise,
+    canApprove: canApprove,
+    canReject: canReject,
+    canConfirmPayer: canConfirmPayer,
+    canApply: canApply,
   );
 }
 

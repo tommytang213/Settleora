@@ -1971,6 +1971,7 @@ class BillRevisionResponse {
     required this.participants,
     required this.payers,
     required this.approvals,
+    required this.viewerActions,
     required this.reviewContext,
   });
 
@@ -1997,6 +1998,7 @@ class BillRevisionResponse {
   final List<BillRevisionParticipantResponse> participants;
   final List<BillRevisionPayerResponse> payers;
   final List<BillRevisionApprovalResponse> approvals;
+  final BillRevisionViewerActionsResponse viewerActions;
   final BillRevisionReviewContextResponse reviewContext;
 
   factory BillRevisionResponse.fromJson(JsonObject json) {
@@ -2022,6 +2024,7 @@ class BillRevisionResponse {
       participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionParticipantResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       payers: (json["payers"] as List<dynamic>).map((item) => BillRevisionPayerResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       approvals: (json["approvals"] as List<dynamic>).map((item) => BillRevisionApprovalResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      viewerActions: BillRevisionViewerActionsResponse.fromJson(JsonObject.from(json["viewerActions"] as Map)),
       reviewContext: BillRevisionReviewContextResponse.fromJson(JsonObject.from(json["reviewContext"] as Map)),
     );
   }
@@ -2059,7 +2062,53 @@ class BillRevisionResponse {
       "participants": participants.map((item) => item.toJson()).toList(growable: false),
       "payers": payers.map((item) => item.toJson()).toList(growable: false),
       "approvals": approvals.map((item) => item.toJson()).toList(growable: false),
+      "viewerActions": viewerActions.toJson(),
       "reviewContext": reviewContext.toJson(),
+    };
+  }
+}
+
+/// Server-authoritative viewer action capability hint for the authenticated actor. These booleans are derived from the same bill/revision/payer-confirmation/approval/apply-policy state used by mutation endpoints, but they are only UI hints and are not an authorization boundary.
+class BillRevisionViewerActionsResponse {
+  const BillRevisionViewerActionsResponse({
+    required this.canSubmit,
+    required this.canWithdraw,
+    required this.canRevise,
+    required this.canApprove,
+    required this.canReject,
+    required this.canConfirmPayer,
+    required this.canApply,
+  });
+
+  final bool canSubmit;
+  final bool canWithdraw;
+  final bool canRevise;
+  final bool canApprove;
+  final bool canReject;
+  final bool canConfirmPayer;
+  final bool canApply;
+
+  factory BillRevisionViewerActionsResponse.fromJson(JsonObject json) {
+    return BillRevisionViewerActionsResponse(
+      canSubmit: json["canSubmit"] as bool,
+      canWithdraw: json["canWithdraw"] as bool,
+      canRevise: json["canRevise"] as bool,
+      canApprove: json["canApprove"] as bool,
+      canReject: json["canReject"] as bool,
+      canConfirmPayer: json["canConfirmPayer"] as bool,
+      canApply: json["canApply"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "canSubmit": canSubmit,
+      "canWithdraw": canWithdraw,
+      "canRevise": canRevise,
+      "canApprove": canApprove,
+      "canReject": canReject,
+      "canConfirmPayer": canConfirmPayer,
+      "canApply": canApply,
     };
   }
 }

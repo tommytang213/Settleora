@@ -25,7 +25,17 @@ internal sealed record ExpenseBillRevisionResponse(
     IReadOnlyList<ExpenseBillRevisionParticipantResponse> Participants,
     IReadOnlyList<ExpenseBillRevisionPayerResponse> Payers,
     IReadOnlyList<ExpenseBillRevisionApprovalResponse> Approvals,
+    ExpenseBillRevisionViewerActionsResponse ViewerActions,
     ExpenseBillRevisionReviewContextResponse ReviewContext);
+
+internal sealed record ExpenseBillRevisionViewerActionsResponse(
+    bool CanSubmit,
+    bool CanWithdraw,
+    bool CanRevise,
+    bool CanApprove,
+    bool CanReject,
+    bool CanConfirmPayer,
+    bool CanApply);
 
 internal sealed record ExpenseBillRevisionParticipantResponse(
     Guid UserProfileId,

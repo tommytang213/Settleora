@@ -192,7 +192,7 @@ class GeneratedSettleoraBillRevisionRepository
     SettleoraBillRevision revision,
   ) {
     final approvalBasis = revision.viewerApprovalBasis;
-    if (approvalBasis == null) {
+    if (!revision.canApprove || approvalBasis == null) {
       throw const SettleoraBillRevisionFailure(
         kind: SettleoraBillRevisionFailureKind.validation,
         message:
@@ -348,8 +348,23 @@ SettleoraBillRevision _mapRevision(api.BillRevisionResponse response) {
         .toList(growable: false),
     payers: response.payers.map(_mapPayer).toList(growable: false),
     approvals: approvals,
+    viewerActions: _mapViewerActions(response.viewerActions),
     reviewContext: reviewContext,
     viewerApprovalBasis: viewerApprovalBasis,
+  );
+}
+
+SettleoraBillRevisionViewerActions _mapViewerActions(
+  api.BillRevisionViewerActionsResponse response,
+) {
+  return SettleoraBillRevisionViewerActions(
+    canSubmit: response.canSubmit,
+    canWithdraw: response.canWithdraw,
+    canRevise: response.canRevise,
+    canApprove: response.canApprove,
+    canReject: response.canReject,
+    canConfirmPayer: response.canConfirmPayer,
+    canApply: response.canApply,
   );
 }
 

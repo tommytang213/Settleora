@@ -60,6 +60,7 @@ internal static class ExpenseBillRevisionEndpoints
         Guid billId,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -82,11 +83,21 @@ internal static class ExpenseBillRevisionEndpoints
             return BillUnavailable();
         }
 
-        var revisions = bill.Revisions
+        var sortedRevisions = bill.Revisions
             .OrderBy(revision => revision.CreatedAtUtc)
             .ThenBy(revision => revision.Id)
-            .Select(revision => MapRevision(bill, revision, actor.UserProfileId))
             .ToArray();
+        var revisions = new List<ExpenseBillRevisionResponse>(sortedRevisions.Length);
+        foreach (var revision in sortedRevisions)
+        {
+            revisions.Add(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken));
+        }
 
         return Results.Ok(new ExpenseBillRevisionListResponse(revisions));
     }
@@ -96,6 +107,7 @@ internal static class ExpenseBillRevisionEndpoints
         Guid revisionId,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -119,7 +131,13 @@ internal static class ExpenseBillRevisionEndpoints
             return BillRevisionUnavailable();
         }
 
-        return Results.Ok(MapRevision(bill, revision, actor.UserProfileId));
+        return Results.Ok(await MapRevisionAsync(
+            dbContext,
+            settlementApplyPolicy,
+            bill,
+            revision,
+            actor.UserProfileId,
+            cancellationToken));
     }
 
     private static async Task<IResult> CreateBillRevisionAsync(
@@ -128,6 +146,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -191,7 +210,13 @@ internal static class ExpenseBillRevisionEndpoints
             dbContext,
             Results.Created(
                 $"/api/v1/bills/{bill.Id:D}/revisions/{result.Revision.Id:D}",
-                MapRevision(bill, result.Revision, actor.UserProfileId)),
+                await MapRevisionAsync(
+                    dbContext,
+                    settlementApplyPolicy,
+                    bill,
+                    result.Revision,
+                    actor.UserProfileId,
+                    cancellationToken)),
             cancellationToken);
     }
 
@@ -202,6 +227,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -266,7 +292,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, result.Revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                result.Revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -277,6 +309,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -331,7 +364,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -342,6 +381,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -396,7 +436,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -407,6 +453,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -465,7 +512,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -476,6 +529,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -530,7 +584,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -541,6 +601,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -598,7 +659,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -677,7 +744,13 @@ internal static class ExpenseBillRevisionEndpoints
 
         return await SaveAndRespondAsync(
             dbContext,
-            Results.Ok(MapRevision(bill, revision, actor.UserProfileId)),
+            Results.Ok(await MapRevisionAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                actor.UserProfileId,
+                cancellationToken)),
             cancellationToken);
     }
 
@@ -1467,10 +1540,13 @@ internal static class ExpenseBillRevisionEndpoints
         return bill.Status is ExpenseBillStatuses.Confirmed or ExpenseBillStatuses.Rejected;
     }
 
-    private static ExpenseBillRevisionResponse MapRevision(
+    private static async Task<ExpenseBillRevisionResponse> MapRevisionAsync(
+        SettleoraDbContext dbContext,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         ExpenseBill bill,
         ExpenseBillRevision revision,
-        Guid viewerUserProfileId)
+        Guid viewerUserProfileId,
+        CancellationToken cancellationToken)
     {
         return new ExpenseBillRevisionResponse(
             revision.Id,
@@ -1519,6 +1595,13 @@ internal static class ExpenseBillRevisionEndpoints
                     approval.RejectedAtUtc,
                     approval.InvalidatedAtUtc))
                 .ToArray(),
+            await ExpenseBillRevisionActionCapabilityPolicy.BuildAsync(
+                dbContext,
+                settlementApplyPolicy,
+                bill,
+                revision,
+                viewerUserProfileId,
+                cancellationToken),
             ExpenseBillRevisionReviewContextBuilder.Build(bill, revision, viewerUserProfileId));
     }
 

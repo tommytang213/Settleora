@@ -74,6 +74,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(64, createPayload.RootElement.GetProperty("calculationHash").GetString()!.Length);
         Assert.Equal(2, createPayload.RootElement.GetProperty("participants").GetArrayLength());
         Assert.Equal(2, createPayload.RootElement.GetProperty("approvals").GetArrayLength());
+        AssertViewerActions(
+            createPayload.RootElement,
+            canSubmit: true,
+            canWithdraw: true,
+            canRevise: true,
+            canApprove: false,
+            canReject: false,
+            canConfirmPayer: false,
+            canApply: false);
 
         using var listRequest = CreateBearerRequest(HttpMethod.Get, RevisionsPath(billId), creatorSession.RawSessionToken);
         using var listResponse = await client.SendAsync(listRequest);
@@ -91,6 +100,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         using var getPayload = JsonDocument.Parse(getContent);
         Assert.Equal(revisionId, getPayload.RootElement.GetProperty("id").GetGuid());
+        AssertViewerActions(
+            getPayload.RootElement,
+            canSubmit: true,
+            canWithdraw: true,
+            canRevise: true,
+            canApprove: false,
+            canReject: false,
+            canConfirmPayer: false,
+            canApply: false);
     }
 
     [Fact]
@@ -277,6 +295,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         using (var submitPayload = JsonDocument.Parse(submitContent))
         {
             Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, submitPayload.RootElement.GetProperty("status").GetString());
+            AssertViewerActions(
+                submitPayload.RootElement,
+                canSubmit: false,
+                canWithdraw: true,
+                canRevise: true,
+                canApprove: true,
+                canReject: true,
+                canConfirmPayer: false,
+                canApply: false);
         }
 
         using var deniedWithdrawRequest = CreateBearerRequest(HttpMethod.Post, WithdrawPath(billId, revisionId), participantSession.RawSessionToken);
@@ -290,6 +317,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(HttpStatusCode.OK, withdrawResponse.StatusCode);
         using var withdrawPayload = JsonDocument.Parse(withdrawContent);
         Assert.Equal(ExpenseBillRevisionStatuses.WithdrawnByProposer, withdrawPayload.RootElement.GetProperty("status").GetString());
+        AssertViewerActions(
+            withdrawPayload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: false,
+            canReject: false,
+            canConfirmPayer: false,
+            canApply: false);
     }
 
     [Fact]
@@ -466,6 +502,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         AssertSafeReviewContextText(content);
         using var payload = JsonDocument.Parse(content);
+        AssertViewerActions(
+            payload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: true,
+            canReject: true,
+            canConfirmPayer: false,
+            canApply: false);
         var reviewContext = payload.RootElement.GetProperty("reviewContext");
         Assert.Equal(participantSession.UserProfileId, reviewContext.GetProperty("viewerUserProfileId").GetGuid());
         Assert.Equal("changed_only", reviewContext.GetProperty("defaultViewMode").GetString());
@@ -541,6 +586,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         using var payload = JsonDocument.Parse(content);
+        AssertViewerActions(
+            payload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: false,
+            canReject: true,
+            canConfirmPayer: false,
+            canApply: false);
         var reviewContext = payload.RootElement.GetProperty("reviewContext");
         Assert.Equal("changed_only", reviewContext.GetProperty("defaultViewMode").GetString());
         Assert.Equal("active_accepted_bill", reviewContext.GetProperty("baseline").GetProperty("baselineType").GetString());
@@ -594,6 +648,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         using var payload = JsonDocument.Parse(content);
+        AssertViewerActions(
+            payload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: true,
+            canReject: true,
+            canConfirmPayer: false,
+            canApply: false);
         var reviewContext = payload.RootElement.GetProperty("reviewContext");
         Assert.Equal("full_bill", reviewContext.GetProperty("defaultViewMode").GetString());
         Assert.Equal("no_prior_baseline_full_bill_recommended", reviewContext.GetProperty("fullViewRecommendedReason").GetString());
@@ -668,6 +731,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         using var payload = JsonDocument.Parse(content);
+        AssertViewerActions(
+            payload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: true,
+            canReject: true,
+            canConfirmPayer: false,
+            canApply: false);
         var reviewContext = payload.RootElement.GetProperty("reviewContext");
         var baseline = reviewContext.GetProperty("baseline");
         Assert.Equal("previous_revision_approval", baseline.GetProperty("baselineType").GetString());
@@ -716,6 +788,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         using var payload = JsonDocument.Parse(content);
+        AssertViewerActions(
+            payload.RootElement,
+            canSubmit: false,
+            canWithdraw: false,
+            canRevise: false,
+            canApprove: true,
+            canReject: true,
+            canConfirmPayer: true,
+            canApply: false);
         var reviewContext = payload.RootElement.GetProperty("reviewContext");
         var impact = reviewContext.GetProperty("viewerFinancialImpact");
         Assert.True(impact.GetProperty("affectedByRevision").GetBoolean());
@@ -781,6 +862,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         using (var payload = JsonDocument.Parse(content))
         {
             Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, payload.RootElement.GetProperty("status").GetString());
+            AssertViewerActions(
+                payload.RootElement,
+                canSubmit: false,
+                canWithdraw: false,
+                canRevise: false,
+                canApprove: false,
+                canReject: true,
+                canConfirmPayer: false,
+                canApply: false);
             var payer = Assert.Single(payload.RootElement.GetProperty("payers").EnumerateArray());
             Assert.Equal(payerSession.UserProfileId, payer.GetProperty("userProfileId").GetGuid());
             Assert.True(payer.GetProperty("requiresPayerConfirmation").GetBoolean());
@@ -1103,6 +1193,22 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
                 [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
                 [debtorSession.UserProfileId] = debtorSession.RawSessionToken
             });
+        using (var getReadyRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), ownerSession.RawSessionToken))
+        using (var getReadyResponse = await client.SendAsync(getReadyRequest))
+        {
+            var getReadyContent = await getReadyResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, getReadyResponse.StatusCode);
+            using var getReadyPayload = JsonDocument.Parse(getReadyContent);
+            AssertViewerActions(
+                getReadyPayload.RootElement,
+                canSubmit: false,
+                canWithdraw: true,
+                canRevise: true,
+                canApprove: false,
+                canReject: true,
+                canConfirmPayer: false,
+                canApply: true);
+        }
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(10));
         using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
@@ -1114,6 +1220,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         {
             Assert.Equal(ExpenseBillRevisionStatuses.AcceptedApplied, applyPayload.RootElement.GetProperty("status").GetString());
             Assert.Equal(WriteTimestamp.AddMinutes(10), applyPayload.RootElement.GetProperty("appliedAtUtc").GetDateTimeOffset());
+            AssertViewerActions(
+                applyPayload.RootElement,
+                canSubmit: false,
+                canWithdraw: false,
+                canRevise: false,
+                canApprove: false,
+                canReject: false,
+                canConfirmPayer: false,
+                canApply: false);
         }
 
         var bill = await ReadBillAsync(testFactory, billId);
@@ -1406,6 +1521,23 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         using var client = testFactory.CreateClient();
         await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
 
+        using (var getBlockedRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), ownerSession.RawSessionToken))
+        using (var getBlockedResponse = await client.SendAsync(getBlockedRequest))
+        {
+            var getBlockedContent = await getBlockedResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, getBlockedResponse.StatusCode);
+            using var getBlockedPayload = JsonDocument.Parse(getBlockedContent);
+            AssertViewerActions(
+                getBlockedPayload.RootElement,
+                canSubmit: false,
+                canWithdraw: true,
+                canRevise: true,
+                canApprove: false,
+                canReject: true,
+                canConfirmPayer: false,
+                canApply: false);
+        }
+
         using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
         using var applyResponse = await client.SendAsync(applyRequest);
         var applyContent = await applyResponse.Content.ReadAsStringAsync();
@@ -1504,6 +1636,7 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionResponse:");
+        var viewerActionsSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionViewerActionsResponse:");
         var reviewContextSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewContextResponse:");
         var baselineTypeSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewBaselineType:");
         var financialImpactSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionViewerFinancialImpactResponse:");
@@ -1511,6 +1644,9 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         var payerConfirmationRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ConfirmBillRevisionPayerRequest:");
 
         Assert.Contains("reviewContext", responseSchema, StringComparison.Ordinal);
+        Assert.Contains("viewerActions", responseSchema, StringComparison.Ordinal);
+        Assert.Contains("canConfirmPayer", viewerActionsSchema, StringComparison.Ordinal);
+        Assert.Contains("not an authorization boundary", viewerActionsSchema, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("server-authoritative", reviewContextSchema, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("defaultViewMode", reviewContextSchema, StringComparison.Ordinal);
         Assert.Contains("fullViewRecommendedReason", reviewContextSchema, StringComparison.Ordinal);
@@ -1529,10 +1665,14 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/models.dart"));
         var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/client.dart"));
         Assert.Contains("reviewContext: BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
+        Assert.Contains("viewerActions: BillRevisionViewerActionsResponse", webModels, StringComparison.Ordinal);
+        Assert.Contains("export interface BillRevisionViewerActionsResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("export interface BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("ConfirmBillRevisionPayerRequest", webModels, StringComparison.Ordinal);
         Assert.Contains("confirmBillRevisionPayer", webClient, StringComparison.Ordinal);
         Assert.Contains("final BillRevisionReviewContextResponse reviewContext", dartModels, StringComparison.Ordinal);
+        Assert.Contains("final BillRevisionViewerActionsResponse viewerActions", dartModels, StringComparison.Ordinal);
+        Assert.Contains("class BillRevisionViewerActionsResponse", dartModels, StringComparison.Ordinal);
         Assert.Contains("class BillRevisionReviewContextResponse", dartModels, StringComparison.Ordinal);
         Assert.Contains("class ConfirmBillRevisionPayerRequest", dartModels, StringComparison.Ordinal);
         Assert.Contains("confirmBillRevisionPayer", dartClient, StringComparison.Ordinal);
@@ -2285,6 +2425,26 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(expectedSupportStatus, summary.GetProperty("supportStatus").GetString());
         Assert.Equal(expectedChangeCount, summary.GetProperty("changeCount").GetInt32());
         Assert.Equal(expectedViewerImpact, summary.GetProperty("viewerImpact").GetString());
+    }
+
+    private static void AssertViewerActions(
+        JsonElement revision,
+        bool canSubmit,
+        bool canWithdraw,
+        bool canRevise,
+        bool canApprove,
+        bool canReject,
+        bool canConfirmPayer,
+        bool canApply)
+    {
+        var viewerActions = revision.GetProperty("viewerActions");
+        Assert.Equal(canSubmit, viewerActions.GetProperty("canSubmit").GetBoolean());
+        Assert.Equal(canWithdraw, viewerActions.GetProperty("canWithdraw").GetBoolean());
+        Assert.Equal(canRevise, viewerActions.GetProperty("canRevise").GetBoolean());
+        Assert.Equal(canApprove, viewerActions.GetProperty("canApprove").GetBoolean());
+        Assert.Equal(canReject, viewerActions.GetProperty("canReject").GetBoolean());
+        Assert.Equal(canConfirmPayer, viewerActions.GetProperty("canConfirmPayer").GetBoolean());
+        Assert.Equal(canApply, viewerActions.GetProperty("canApply").GetBoolean());
     }
 
     private static void AssertSafeReviewContextText(string responseContent)
