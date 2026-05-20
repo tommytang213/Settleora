@@ -130,6 +130,105 @@ class _SettleoraBillRevisionReviewScreenState
     }
   }
 
+  Future<void> _submit() {
+    return _runLifecycleAction(
+      isAllowed: (revision) => revision.canSubmit,
+      mutate: (revision) =>
+          widget.repository.submitBillRevision(revision.billId, revision.id),
+      conflictMessage:
+          'This revision is no longer open for submission. Review the refreshed status.',
+      successNotice: 'Revision submitted for review.',
+    );
+  }
+
+  Future<void> _withdraw() {
+    return _runLifecycleAction(
+      isAllowed: (revision) => revision.canWithdraw,
+      mutate: (revision) =>
+          widget.repository.withdrawBillRevision(revision.billId, revision.id),
+      conflictMessage:
+          'This revision is no longer open for withdrawal. Review the refreshed status.',
+      successNotice: 'Revision withdrawn. The active bill was not changed.',
+    );
+  }
+
+  Future<void> _apply() {
+    return _runLifecycleAction(
+      isAllowed: (revision) => revision.canApply,
+      mutate: (revision) =>
+          widget.repository.applyBillRevision(revision.billId, revision.id),
+      conflictMessage:
+          'This revision is no longer open for apply. Review the refreshed status.',
+      successNotice: 'Revision applied to the active bill.',
+    );
+  }
+
+  Future<void> _runLifecycleAction({
+    required bool Function(SettleoraBillRevision revision) isAllowed,
+    required Future<SettleoraBillRevision> Function(
+      SettleoraBillRevision revision,
+    )
+    mutate,
+    required String conflictMessage,
+    required String successNotice,
+  }) async {
+    if (_isActing) {
+      return;
+    }
+
+    setState(() {
+      _isActing = true;
+      _actionFailure = null;
+      _actionNotice = null;
+    });
+
+    try {
+      final fresh = await widget.repository.getBillRevision(
+        widget.billId,
+        widget.revisionId,
+      );
+      if (!isAllowed(fresh)) {
+        if (mounted) {
+          setState(() {
+            _revision = fresh;
+            _viewMode = _viewModeTouched
+                ? _viewMode
+                : _preferredViewMode(fresh);
+          });
+        }
+        throw SettleoraBillRevisionFailure(
+          kind: SettleoraBillRevisionFailureKind.conflict,
+          message: conflictMessage,
+        );
+      }
+
+      final updated = await mutate(fresh);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _revision = updated;
+        _viewMode = _viewModeTouched ? _viewMode : _preferredViewMode(updated);
+        _actionNotice = successNotice;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = SettleoraBillRevisionFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActing = false;
+        });
+      }
+    }
+  }
+
   Future<void> _confirmReject() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -368,9 +467,12 @@ class _SettleoraBillRevisionReviewScreenState
                     isActing: _isActing,
                     actionFailure: _actionFailure,
                     actionNotice: _actionNotice,
+                    onSubmit: _submit,
+                    onWithdraw: _withdraw,
                     onApprove: _approve,
                     onReject: _confirmReject,
                     onConfirmPayer: _confirmPayer,
+                    onApply: _apply,
                   ),
                 ],
               ),
@@ -811,18 +913,24 @@ class _RevisionActionArea extends StatelessWidget {
     required this.isActing,
     required this.actionFailure,
     required this.actionNotice,
+    required this.onSubmit,
+    required this.onWithdraw,
     required this.onApprove,
     required this.onReject,
     required this.onConfirmPayer,
+    required this.onApply,
   });
 
   final SettleoraBillRevision revision;
   final bool isActing;
   final SettleoraBillRevisionFailure? actionFailure;
   final String? actionNotice;
+  final VoidCallback onSubmit;
+  final VoidCallback onWithdraw;
   final VoidCallback onApprove;
   final VoidCallback onReject;
   final VoidCallback onConfirmPayer;
+  final VoidCallback onApply;
 
   @override
   Widget build(BuildContext context) {
@@ -831,6 +939,8 @@ class _RevisionActionArea extends StatelessWidget {
     final requiresPayerConfirmation =
         payerImpact?.requiresPayerConfirmation ?? false;
     final isSubmitted = revision.isSubmittedForReview;
+    final hasLifecycleActions =
+        revision.canSubmit || revision.canWithdraw || revision.canApply;
 
     return _Section(
       title: 'Actions',
@@ -842,6 +952,16 @@ class _RevisionActionArea extends StatelessWidget {
         ],
         if (actionNotice != null) ...[
           _InlineNotice(message: actionNotice!),
+          const SizedBox(height: 10),
+        ],
+        if (hasLifecycleActions) ...[
+          _LifecycleActionPanel(
+            revision: revision,
+            isActing: isActing,
+            onSubmit: onSubmit,
+            onWithdraw: onWithdraw,
+            onApply: onApply,
+          ),
           const SizedBox(height: 10),
         ],
         if (requiresPayerConfirmation) ...[
@@ -894,6 +1014,82 @@ class _RevisionActionArea extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _LifecycleActionPanel extends StatelessWidget {
+  const _LifecycleActionPanel({
+    required this.revision,
+    required this.isActing,
+    required this.onSubmit,
+    required this.onWithdraw,
+    required this.onApply,
+  });
+
+  final SettleoraBillRevision revision;
+  final bool isActing;
+  final VoidCallback onSubmit;
+  final VoidCallback onWithdraw;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Revision lifecycle',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (revision.canSubmit)
+                  FilledButton.icon(
+                    key: const Key('bill-revision-submit'),
+                    onPressed: isActing ? null : onSubmit,
+                    icon: isActing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.upload_outlined),
+                    label: const Text('Submit for review'),
+                  ),
+                if (revision.canWithdraw)
+                  OutlinedButton.icon(
+                    key: const Key('bill-revision-withdraw'),
+                    onPressed: isActing ? null : onWithdraw,
+                    icon: const Icon(Icons.undo_outlined),
+                    label: const Text('Withdraw revision'),
+                  ),
+                if (revision.canApply)
+                  FilledButton.icon(
+                    key: const Key('bill-revision-apply'),
+                    onPressed: isActing ? null : onApply,
+                    icon: isActing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.task_alt_outlined),
+                    label: const Text('Apply revision'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

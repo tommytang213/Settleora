@@ -82,6 +82,45 @@ void main() {
       expect(client.lastPayerConfirmationBody?.calculationHash, _hash);
     });
 
+    test('calls generated no-body lifecycle mutation methods', () async {
+      final client = FakeBillRevisionGeneratedClient();
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final submitted = await repository.submitBillRevision(
+        '  $_billId  ',
+        '  $_revisionId  ',
+      );
+      final withdrawn = await repository.withdrawBillRevision(
+        '  $_billId  ',
+        '  $_revisionId  ',
+      );
+      final applied = await repository.applyBillRevision(
+        '  $_billId  ',
+        '  $_revisionId  ',
+      );
+
+      expect(client.submitCalls, 1);
+      expect(client.withdrawCalls, 1);
+      expect(client.applyCalls, 1);
+      expect(client.lastBillId, _billId);
+      expect(client.lastRevisionId, _revisionId);
+      expect(
+        submitted.status,
+        api.ExpenseBillRevisionStatusValues.submittedForReview,
+      );
+      expect(
+        withdrawn.status,
+        api.ExpenseBillRevisionStatusValues.withdrawnByProposer,
+      );
+      expect(
+        applied.status,
+        api.ExpenseBillRevisionStatusValues.acceptedApplied,
+      );
+    });
+
     test(
       'does not fabricate payer confirmation without pending viewer basis',
       () async {
@@ -263,8 +302,17 @@ class FakeBillRevisionGeneratedClient
     api.BillRevisionResponse? approveResponse,
     api.BillRevisionResponse? rejectResponse,
     api.BillRevisionResponse? confirmPayerResponse,
+    api.BillRevisionResponse? submitResponse,
+    api.BillRevisionResponse? withdrawResponse,
+    api.BillRevisionResponse? applyResponse,
   }) : revisions = revisions ?? [sampleApiRevision()],
        detail = detail ?? sampleApiRevision(),
+       submitResponse = submitResponse ?? sampleApiRevision(),
+       withdrawResponse =
+           withdrawResponse ??
+           sampleApiRevision(
+             status: api.ExpenseBillRevisionStatusValues.withdrawnByProposer,
+           ),
        approveResponse =
            approveResponse ??
            sampleApiRevision(
@@ -291,20 +339,31 @@ class FakeBillRevisionGeneratedClient
            sampleApiRevision(
              payerConfirmationStatus:
                  api.ExpenseBillPayerConfirmationStatusValues.confirmed,
+           ),
+       applyResponse =
+           applyResponse ??
+           sampleApiRevision(
+             status: api.ExpenseBillRevisionStatusValues.acceptedApplied,
            );
 
   final Object? failure;
   final List<api.BillRevisionResponse> revisions;
   final api.BillRevisionResponse detail;
+  final api.BillRevisionResponse submitResponse;
+  final api.BillRevisionResponse withdrawResponse;
   final api.BillRevisionResponse approveResponse;
   final api.BillRevisionResponse rejectResponse;
   final api.BillRevisionResponse confirmPayerResponse;
+  final api.BillRevisionResponse applyResponse;
   final accessTokens = <String>[];
   int listCalls = 0;
   int getCalls = 0;
+  int submitCalls = 0;
+  int withdrawCalls = 0;
   int approveCalls = 0;
   int rejectCalls = 0;
   int confirmPayerCalls = 0;
+  int applyCalls = 0;
   String? lastBillId;
   String? lastRevisionId;
   api.ApproveBillRevisionRequest? lastApprovalBody;
@@ -334,6 +393,34 @@ class FakeBillRevisionGeneratedClient
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return detail;
+  }
+
+  @override
+  Future<api.BillRevisionResponse> submitBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) async {
+    submitCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return submitResponse;
+  }
+
+  @override
+  Future<api.BillRevisionResponse> withdrawBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) async {
+    withdrawCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return withdrawResponse;
   }
 
   @override
@@ -380,6 +467,20 @@ class FakeBillRevisionGeneratedClient
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return confirmPayerResponse;
+  }
+
+  @override
+  Future<api.BillRevisionResponse> applyBillRevision(
+    String billId,
+    String revisionId, {
+    required String accessToken,
+  }) async {
+    applyCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return applyResponse;
   }
 
   void _throwIfNeeded() {
