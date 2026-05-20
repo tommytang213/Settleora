@@ -261,7 +261,7 @@ internal sealed class ExpenseBillRevisionProposalService
         return ExpenseBillRevisionOperationResult.Success(revision);
     }
 
-    private static bool CanApplyProposal(
+    public static bool CanApplyProposal(
         ExpenseBill bill,
         ExpenseBillRevision revision,
         Guid actorUserProfileId)
@@ -464,7 +464,7 @@ internal sealed class ExpenseBillRevisionProposalService
         return ExpenseBillRevisionOperationResult.Success(revision);
     }
 
-    private static bool IsBillParticipant(
+    public static bool IsBillParticipant(
         ExpenseBill bill,
         Guid userProfileId)
     {

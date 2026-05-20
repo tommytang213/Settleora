@@ -668,7 +668,21 @@ export interface BillRevisionResponse {
   participants: BillRevisionParticipantResponse[];
   payers: BillRevisionPayerResponse[];
   approvals: BillRevisionApprovalResponse[];
+  viewerActions: BillRevisionViewerActionsResponse;
   reviewContext: BillRevisionReviewContextResponse;
+}
+
+/**
+ * Server-authoritative viewer action capability hint for the authenticated actor. These booleans are derived from the same bill/revision/payer-confirmation/approval/apply-policy state used by mutation endpoints, but they are only UI hints and are not an authorization boundary.
+ */
+export interface BillRevisionViewerActionsResponse {
+  canSubmit: boolean;
+  canWithdraw: boolean;
+  canRevise: boolean;
+  canApprove: boolean;
+  canReject: boolean;
+  canConfirmPayer: boolean;
+  canApply: boolean;
 }
 
 export interface BillRevisionParticipantResponse {

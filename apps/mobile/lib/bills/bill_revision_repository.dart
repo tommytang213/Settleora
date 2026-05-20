@@ -198,6 +198,7 @@ class SettleoraBillRevision {
     required this.participants,
     required this.payers,
     required this.approvals,
+    required this.viewerActions,
     required this.reviewContext,
     required this.viewerApprovalBasis,
   });
@@ -214,6 +215,7 @@ class SettleoraBillRevision {
   final List<SettleoraBillRevisionParticipant> participants;
   final List<SettleoraBillRevisionPayer> payers;
   final List<SettleoraBillRevisionApproval> approvals;
+  final SettleoraBillRevisionViewerActions viewerActions;
   final SettleoraBillRevisionReviewContext reviewContext;
   final SettleoraBillRevisionApprovalBasis? viewerApprovalBasis;
 
@@ -228,12 +230,22 @@ class SettleoraBillRevision {
         status == SettleoraBillRevisionStatusValues.cancelledByAuthorizedEditor;
   }
 
-  bool get canApprove => isSubmittedForReview && viewerApprovalBasis != null;
+  bool get canSubmit => viewerActions.canSubmit;
+
+  bool get canWithdraw => viewerActions.canWithdraw;
+
+  bool get canRevise => viewerActions.canRevise;
+
+  bool get canApprove =>
+      viewerActions.canApprove &&
+      viewerApprovalBasis != null &&
+      calculationHash.trim().isNotEmpty;
 
   bool get canConfirmPayer {
     final impact = reviewContext.viewerFinancialImpact;
     final payerImpact = impact.payerImpact;
-    return isSubmittedForReview &&
+    return viewerActions.canConfirmPayer &&
+        isSubmittedForReview &&
         impact.isPayer &&
         payerImpact != null &&
         payerImpact.requiresPayerConfirmation &&
@@ -243,7 +255,9 @@ class SettleoraBillRevision {
         calculationHash.trim().isNotEmpty;
   }
 
-  bool get canReject => isSubmittedForReview;
+  bool get canReject => viewerActions.canReject;
+
+  bool get canApply => viewerActions.canApply;
 
   bool get requiresViewerPayerConfirmation =>
       reviewContext
@@ -251,6 +265,26 @@ class SettleoraBillRevision {
           .payerImpact
           ?.requiresPayerConfirmation ??
       false;
+}
+
+class SettleoraBillRevisionViewerActions {
+  const SettleoraBillRevisionViewerActions({
+    required this.canSubmit,
+    required this.canWithdraw,
+    required this.canRevise,
+    required this.canApprove,
+    required this.canReject,
+    required this.canConfirmPayer,
+    required this.canApply,
+  });
+
+  final bool canSubmit;
+  final bool canWithdraw;
+  final bool canRevise;
+  final bool canApprove;
+  final bool canReject;
+  final bool canConfirmPayer;
+  final bool canApply;
 }
 
 class SettleoraBillRevisionApprovalBasis {

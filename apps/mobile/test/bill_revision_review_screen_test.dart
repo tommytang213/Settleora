@@ -284,6 +284,46 @@ void main() {
     expect(approveButton.enabled, isFalse);
   });
 
+  testWidgets('server action capabilities disable review actions', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: FakeBillRevisionRepository(
+            revision: sampleRevision(
+              canApprove: false,
+              canReject: false,
+              canConfirmPayer: false,
+            ),
+          ),
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+
+    final approveButton = tester.widget<FilledButton>(
+      find.byKey(const Key('bill-revision-approve')),
+    );
+    final rejectButton = tester.widget<OutlinedButton>(
+      find.byKey(const Key('bill-revision-reject')),
+    );
+    expect(approveButton.enabled, isFalse);
+    expect(rejectButton.enabled, isFalse);
+    expect(find.byKey(const Key('bill-revision-confirm-payer')), findsNothing);
+    expect(
+      find.byKey(const Key('bill-revision-payer-confirmation-unavailable')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('bill detail shows pending revision banner and opens review', (
     tester,
   ) async {
@@ -429,6 +469,9 @@ SettleoraBillRevision sampleRevision({
   bool includeViewerApprovalBasis = true,
   String payerConfirmationStatus =
       SettleoraBillRevisionPayerConfirmationStatusValues.pendingConfirmation,
+  bool canApprove = true,
+  bool canReject = true,
+  bool canConfirmPayer = true,
 }) {
   final approval = SettleoraBillRevisionApproval(
     participantUserProfileId: _profileId,
@@ -468,6 +511,25 @@ SettleoraBillRevision sampleRevision({
       ),
     ],
     approvals: [approval],
+    viewerActions: SettleoraBillRevisionViewerActions(
+      canSubmit: false,
+      canWithdraw:
+          status == SettleoraBillRevisionStatusValues.submittedForReview,
+      canRevise: status == SettleoraBillRevisionStatusValues.submittedForReview,
+      canApprove:
+          canApprove &&
+          status == SettleoraBillRevisionStatusValues.submittedForReview,
+      canReject:
+          canReject &&
+          status == SettleoraBillRevisionStatusValues.submittedForReview,
+      canConfirmPayer:
+          canConfirmPayer &&
+          status == SettleoraBillRevisionStatusValues.submittedForReview &&
+          payerConfirmationStatus ==
+              SettleoraBillRevisionPayerConfirmationStatusValues
+                  .pendingConfirmation,
+      canApply: false,
+    ),
     reviewContext: sampleReviewContext(
       baselineType: baselineType,
       defaultViewMode: defaultViewMode,
