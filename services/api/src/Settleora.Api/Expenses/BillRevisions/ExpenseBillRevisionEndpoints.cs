@@ -3,7 +3,6 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
-using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -25,7 +24,6 @@ internal static class ExpenseBillRevisionEndpoints
     private const string BillRevisionConflictTitle = "Bill revision conflict";
     private const string BillRevisionConflictDetail = "The requested bill revision transition is not allowed.";
     private const string BillRevisionSettlementConflictTitle = "Bill revision settlement conflict";
-    private const string BillRevisionSettlementConflictDetail = "The bill revision cannot be applied because settlement adjustment or reopen policy is not implemented for existing settlement state.";
     private const string BillRevisionWriteFailedTitle = "Bill revision write failed";
     private const string BillRevisionWriteFailedDetail = "Unable to complete bill revision write.";
     private const string PersonalGroupMode = "personal";
@@ -611,6 +609,7 @@ internal static class ExpenseBillRevisionEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionProposalService revisionProposalService,
+        ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -641,9 +640,14 @@ internal static class ExpenseBillRevisionEndpoints
             return BillRevisionUnavailable();
         }
 
-        if (await HasSettlementStateAsync(dbContext, bill, revision, cancellationToken))
+        var settlementApplyDecision = await settlementApplyPolicy.ClassifySettlementStateAsync(
+            dbContext,
+            bill,
+            revision,
+            cancellationToken);
+        if (!settlementApplyDecision.CanApply)
         {
-            return BillRevisionSettlementConflict();
+            return BillRevisionSettlementConflict(settlementApplyDecision.ConflictDetail);
         }
 
         var now = timeProvider.GetUtcNow();
@@ -730,83 +734,6 @@ internal static class ExpenseBillRevisionEndpoints
                             payer.UserProfile.GroupMemberships.Any(membership =>
                                 membership.GroupId == bill.GroupId.Value
                                 && membership.Status == GroupMembershipStatuses.Active))),
-                cancellationToken);
-    }
-
-    private static async Task<bool> HasSettlementStateAsync(
-        SettleoraDbContext dbContext,
-        ExpenseBill bill,
-        ExpenseBillRevision revision,
-        CancellationToken cancellationToken)
-    {
-        if (bill.Participants.Any(participant => participant.SettledAtUtc is not null))
-        {
-            return true;
-        }
-
-        var billId = bill.Id;
-        var revisionId = revision.Id;
-        if (await dbContext.Set<SettlementRequest>()
-            .AsNoTracking()
-            .AnyAsync(
-                settlementRequest => settlementRequest.SourceExpenseBillId == billId,
-                cancellationToken))
-        {
-            return true;
-        }
-
-        if (await dbContext.Set<SettlementRequestLine>()
-            .AsNoTracking()
-            .AnyAsync(
-                line => line.SourceExpenseBillId == billId
-                    || line.SourceBillRevisionId == revisionId,
-                cancellationToken))
-        {
-            return true;
-        }
-
-        if (await dbContext.Set<SettlementPayment>()
-            .AsNoTracking()
-            .AnyAsync(
-                payment => payment.SettlementRequest.SourceExpenseBillId == billId
-                    || payment.SettlementRequest.Lines.Any(line =>
-                        line.SourceExpenseBillId == billId
-                        || line.SourceBillRevisionId == revisionId),
-                cancellationToken))
-        {
-            return true;
-        }
-
-        if (await dbContext.Set<SettlementPaymentAllocation>()
-            .AsNoTracking()
-            .AnyAsync(
-                allocation => allocation.SettlementRequestLine.SourceExpenseBillId == billId
-                    || allocation.SettlementRequestLine.SourceBillRevisionId == revisionId
-                    || allocation.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId,
-                cancellationToken))
-        {
-            return true;
-        }
-
-        if (await dbContext.Set<SettlementResidual>()
-            .AsNoTracking()
-            .AnyAsync(
-                residual => residual.SettlementRequest != null
-                    && residual.SettlementRequest.SourceExpenseBillId == billId
-                    || residual.SettlementPayment != null
-                    && residual.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId,
-                cancellationToken))
-        {
-            return true;
-        }
-
-        return await dbContext.Set<SettlementProofAttachment>()
-            .AsNoTracking()
-            .AnyAsync(
-                attachment => attachment.SettlementPayment.SettlementRequest.SourceExpenseBillId == billId
-                    || attachment.SettlementPayment.SettlementRequest.Lines.Any(line =>
-                        line.SourceExpenseBillId == billId
-                        || line.SourceBillRevisionId == revisionId),
                 cancellationToken);
     }
 
@@ -1725,11 +1652,11 @@ internal static class ExpenseBillRevisionEndpoints
             statusCode: StatusCodes.Status409Conflict);
     }
 
-    private static IResult BillRevisionSettlementConflict()
+    private static IResult BillRevisionSettlementConflict(string? detail)
     {
         return Results.Problem(
             title: BillRevisionSettlementConflictTitle,
-            detail: BillRevisionSettlementConflictDetail,
+            detail: detail ?? ExpenseBillRevisionSettlementApplyPolicy.UnsupportedSettlementConflictDetail,
             statusCode: StatusCodes.Status409Conflict);
     }
 

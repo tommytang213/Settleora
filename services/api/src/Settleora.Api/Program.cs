@@ -59,6 +59,7 @@ builder.Services.AddSyncOfflineFoundation();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.AddSingleton<RecurringBillScheduleService>();
 builder.Services.AddSingleton<ExpenseBillRevisionProposalService>();
+builder.Services.AddSingleton<ExpenseBillRevisionSettlementApplyPolicy>();
 builder.Services.AddSingleton<SettlementCandidateDerivationService>();
 builder.Services.AddSingleton<SettlementResidualPolicyService>();
 builder.Services.Configure<RabbitMqOptions>(

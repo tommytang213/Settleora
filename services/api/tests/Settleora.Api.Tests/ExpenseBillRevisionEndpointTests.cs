@@ -13,6 +13,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Expenses.BillRevisions;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Tests;
@@ -1416,7 +1417,76 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             Assert.Equal("Bill revision settlement conflict", payload.RootElement.GetProperty("title").GetString());
             Assert.Equal(409, payload.RootElement.GetProperty("status").GetInt32());
             Assert.Equal(
-                "The bill revision cannot be applied because settlement adjustment or reopen policy is not implemented for existing settlement state.",
+                ExpenseBillRevisionSettlementApplyPolicy.ProgressedSettlementConflictDetail,
+                payload.RootElement.GetProperty("detail").GetString());
+        }
+
+        var afterCounts = await ReadSettlementMutationCountsAsync(testFactory);
+        Assert.Equal(beforeCounts, afterCounts);
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Null(bill.ActiveAcceptedBillRevisionId);
+        Assert.Equal(50m, bill.Participants.Single(participant => participant.UserProfileId == debtorSession.UserProfileId).ResolvedShareAmount);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, (await ReadRevisionAsync(testFactory, revisionId)).Status);
+        await AssertSettlementCandidateAmountAsync(client, billId, ownerSession.RawSessionToken, "50");
+    }
+
+    [Fact]
+    public async Task PendingRequestedOnlySettlementStateBlocksApplyWithoutMutatingSettlementTruth()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Pending Settlement Owner");
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Apply Pending Settlement Debtor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(debtorSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateSubmittedRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 40m), (debtorSession.UserProfileId, 60m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        await ApproveAllRevisionApprovalsAsync(
+            testFactory,
+            billId,
+            revisionId,
+            new Dictionary<Guid, string>
+            {
+                [ownerSession.UserProfileId] = ownerSession.RawSessionToken,
+                [debtorSession.UserProfileId] = debtorSession.RawSessionToken
+            });
+        await SeedPendingSettlementRequestOnlyStateAsync(
+            testFactory,
+            billId,
+            revisionId,
+            debtorSession.UserProfileId,
+            ownerSession.UserProfileId);
+        var beforeCounts = await ReadSettlementMutationCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using var applyRequest = CreateBearerRequest(HttpMethod.Post, ApplyPath(billId, revisionId), ownerSession.RawSessionToken);
+        using var applyResponse = await client.SendAsync(applyRequest);
+        var applyContent = await applyResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, applyResponse.StatusCode);
+        Assert.Equal("application/problem+json", applyResponse.Content.Headers.ContentType?.MediaType);
+        using (var payload = JsonDocument.Parse(applyContent))
+        {
+            Assert.Equal("Bill revision settlement conflict", payload.RootElement.GetProperty("title").GetString());
+            Assert.Equal(409, payload.RootElement.GetProperty("status").GetInt32());
+            Assert.Equal(
+                ExpenseBillRevisionSettlementApplyPolicy.PendingRequestedOnlyConflictDetail,
                 payload.RootElement.GetProperty("detail").GetString());
         }
 
@@ -2008,6 +2078,48 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             FileObjectId = fileObjectId,
             CreatedByUserProfileId = debtorUserProfileId,
             CreatedAtUtc = InitialTimestamp
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task SeedPendingSettlementRequestOnlyStateAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid revisionId,
+        Guid debtorUserProfileId,
+        Guid creditorUserProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var requestId = Guid.NewGuid();
+        dbContext.Set<SettlementRequest>().Add(new SettlementRequest
+        {
+            Id = requestId,
+            SourceExpenseBillId = billId,
+            DebtorUserProfileId = debtorUserProfileId,
+            CreditorUserProfileId = creditorUserProfileId,
+            Amount = 50m,
+            Currency = "USD",
+            Status = SettlementRequestStatuses.Requested,
+            RequestedByUserProfileId = debtorUserProfileId,
+            RequestedAtUtc = InitialTimestamp,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SettlementRequestLine>().Add(new SettlementRequestLine
+        {
+            Id = Guid.NewGuid(),
+            SettlementRequestId = requestId,
+            SourceExpenseBillId = billId,
+            SourceBillRevisionId = revisionId,
+            SourceCandidateKey = "seeded-pending-requested-line",
+            ExactAmount = 50m,
+            Currency = "USD",
+            AllocationOrder = 0,
+            Status = SettlementRequestLineStatuses.Open,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
         });
 
         await dbContext.SaveChangesAsync();
