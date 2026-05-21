@@ -6,6 +6,7 @@ import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
@@ -115,6 +116,97 @@ void main() {
     expect(find.text('No notifications'), findsOneWidget);
   });
 
+  testWidgets('bill revision notifications show open action and navigate', (
+    tester,
+  ) async {
+    final revisionRepository = FakeBillRevisionRepository();
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+          expenseBillId: _billId,
+          expenseBillRevisionId: _revisionId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRevisionRepository: revisionRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Revision review'), findsOneWidget);
+    expect(revisionRepository.getCalls, 1);
+    expect(revisionRepository.lastBillId, _billId);
+    expect(revisionRepository.lastRevisionId, _revisionId);
+  });
+
+  testWidgets('bill revision open action requires typed IDs', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+          expenseBillId: _billId,
+          expenseBillRevisionId: ' ',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRevisionRepository: FakeBillRevisionRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('bill revision open action requires repository seam', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+          expenseBillId: _billId,
+          expenseBillRevisionId: _revisionId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsNothing,
+    );
+  });
+
   testWidgets('single notification read failure stays bounded', (tester) async {
     const hiddenValue = 'internal-notification-id';
     final repository = FakeNotificationRepository(
@@ -182,7 +274,16 @@ void main() {
   });
 
   testWidgets('authenticated server shell opens notifications', (tester) async {
-    final notificationRepository = FakeNotificationRepository();
+    final notificationRepository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+          expenseBillId: _billId,
+          expenseBillRevisionId: _revisionId,
+        ),
+      ],
+    );
+    final revisionRepository = FakeBillRevisionRepository();
 
     await tester.pumpWidget(
       MaterialApp(
@@ -190,6 +291,7 @@ void main() {
           currentUser: sampleCurrentUser(),
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: FakeBillRepository(),
+          billRevisionRepository: revisionRepository,
           settlementRepository: FakeSettlementRepository(),
           recurringBillRepository: FakeRecurringBillRepository(),
           groupRepository: FakeGroupRepository(),
@@ -209,7 +311,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Notifications'), findsWidgets);
-    expect(find.text('Bill submitted'), findsOneWidget);
+    expect(find.text('Bill revision submitted'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsOneWidget,
+    );
     expect(notificationRepository.summaryCalls, 1);
     expect(notificationRepository.listCalls, 1);
   });
@@ -350,6 +456,77 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
         if (row.id != notificationId) row,
     ];
     return archived;
+  }
+}
+
+class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
+  int getCalls = 0;
+  String? lastBillId;
+  String? lastRevisionId;
+
+  @override
+  Future<List<SettleoraBillRevision>> listBillRevisions(String billId) async {
+    return const [];
+  }
+
+  @override
+  Future<SettleoraBillRevision> getBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    getCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    throw const SettleoraBillRevisionFailure(
+      kind: SettleoraBillRevisionFailureKind.unavailable,
+      message: 'The revision is no longer available.',
+    );
+  }
+
+  @override
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> approveBillRevision(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> rejectBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
   }
 }
 
@@ -751,17 +928,26 @@ SettleoraNotificationSummary sampleSummary() {
 }
 
 SettleoraNotificationRow sampleNotification({
+  String eventType = 'bill.submitted',
   String status = SettleoraNotificationStatusValues.unread,
+  String? actionUrl,
+  String? groupId,
+  String? expenseBillId,
+  String? expenseBillRevisionId,
   DateTime? readAtUtc,
   DateTime? archivedAtUtc,
 }) {
   return SettleoraNotificationRow(
     id: _notificationId,
-    eventType: 'bill.submitted',
+    eventType: eventType,
     status: status,
     priority: SettleoraNotificationPriorityValues.attention,
     subjectType: SettleoraNotificationSubjectTypeValues.expenseBill,
     safeSummary: 'Dinner bill is ready.',
+    actionUrl: actionUrl,
+    groupId: groupId,
+    expenseBillId: expenseBillId,
+    expenseBillRevisionId: expenseBillRevisionId,
     createdAtUtc: _createdAtUtc,
     readAtUtc: readAtUtc,
     archivedAtUtc: archivedAtUtc,
@@ -781,6 +967,10 @@ SettleoraNotificationRow _copyNotification(
     priority: row.priority,
     subjectType: row.subjectType,
     safeSummary: row.safeSummary,
+    actionUrl: row.actionUrl,
+    groupId: row.groupId,
+    expenseBillId: row.expenseBillId,
+    expenseBillRevisionId: row.expenseBillRevisionId,
     createdAtUtc: row.createdAtUtc,
     readAtUtc: readAtUtc ?? row.readAtUtc,
     archivedAtUtc: archivedAtUtc ?? row.archivedAtUtc,
@@ -818,6 +1008,7 @@ String visibleText(WidgetTester tester) {
 
 const _notificationId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
+const _revisionId = '44444444-4444-4444-4444-444444444444';
 const _profileId = '33333333-3333-3333-3333-333333333333';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

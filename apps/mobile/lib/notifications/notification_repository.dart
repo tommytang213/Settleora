@@ -30,6 +30,30 @@ class SettleoraNotificationSubjectTypeValues {
   static const recurringBillOccurrence = 'recurring_bill_occurrence';
 }
 
+class SettleoraNotificationEventTypeValues {
+  const SettleoraNotificationEventTypeValues._();
+
+  static const billRevisionProposed = 'bill.revision_proposed';
+  static const billRevisionResubmitted = 'bill.revision_resubmitted';
+  static const billRevisionSubmitted = 'bill.revision_submitted';
+  static const billRevisionWithdrawn = 'bill.revision_withdrawn';
+  static const billRevisionApproved = 'bill.revision_approved';
+  static const billRevisionRejected = 'bill.revision_rejected';
+  static const billRevisionPayerConfirmed = 'bill.revision_payer_confirmed';
+  static const billRevisionApplied = 'bill.revision_applied';
+
+  static const billRevisionEvents = <SettleoraNotificationEventType>{
+    billRevisionProposed,
+    billRevisionResubmitted,
+    billRevisionSubmitted,
+    billRevisionWithdrawn,
+    billRevisionApproved,
+    billRevisionRejected,
+    billRevisionPayerConfirmed,
+    billRevisionApplied,
+  };
+}
+
 enum SettleoraNotificationFailureKind {
   sessionRequired,
   sessionExpired,
@@ -104,6 +128,10 @@ class SettleoraNotificationRow {
     required this.priority,
     required this.subjectType,
     required this.safeSummary,
+    required this.actionUrl,
+    required this.groupId,
+    required this.expenseBillId,
+    required this.expenseBillRevisionId,
     required this.createdAtUtc,
     required this.readAtUtc,
     required this.archivedAtUtc,
@@ -115,11 +143,24 @@ class SettleoraNotificationRow {
   final SettleoraNotificationPriority priority;
   final SettleoraNotificationSubjectType subjectType;
   final String? safeSummary;
+  final String? actionUrl;
+  final String? groupId;
+  final String? expenseBillId;
+  final String? expenseBillRevisionId;
   final DateTime createdAtUtc;
   final DateTime? readAtUtc;
   final DateTime? archivedAtUtc;
 
   bool get isUnread => status == SettleoraNotificationStatusValues.unread;
+
+  bool get hasBillRevisionReviewTarget {
+    return SettleoraNotificationEventTypeValues.billRevisionEvents.contains(
+          eventType,
+        ) &&
+        subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
+        _nonEmptyId(expenseBillId) != null &&
+        _nonEmptyId(expenseBillRevisionId) != null;
+  }
 
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 
@@ -190,6 +231,22 @@ String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
     'bill.participant_accepted' => 'Bill accepted',
     'bill.participant_rejected' => 'Bill rejected',
     'bill.confirmed' => 'Bill confirmed',
+    SettleoraNotificationEventTypeValues.billRevisionProposed =>
+      'Bill revision proposed',
+    SettleoraNotificationEventTypeValues.billRevisionResubmitted =>
+      'Bill revision resubmitted',
+    SettleoraNotificationEventTypeValues.billRevisionSubmitted =>
+      'Bill revision submitted',
+    SettleoraNotificationEventTypeValues.billRevisionWithdrawn =>
+      'Bill revision withdrawn',
+    SettleoraNotificationEventTypeValues.billRevisionApproved =>
+      'Bill revision approved',
+    SettleoraNotificationEventTypeValues.billRevisionRejected =>
+      'Bill revision rejected',
+    SettleoraNotificationEventTypeValues.billRevisionPayerConfirmed =>
+      'Bill revision payer confirmed',
+    SettleoraNotificationEventTypeValues.billRevisionApplied =>
+      'Bill revision applied',
     'settlement.request_created' => 'Settlement requested',
     'settlement.payment_marked_paid' => 'Payment marked paid',
     'settlement.payment_partially_paid' => 'Partial payment marked paid',
@@ -204,6 +261,8 @@ String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
   };
 }
 
+String? settleoraNotificationMetadataId(String? value) => _nonEmptyId(value);
+
 String? _boundedText(String? value, {required int maxLength}) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
@@ -215,6 +274,15 @@ String? _boundedText(String? value, {required int maxLength}) {
   }
 
   return '${trimmed.substring(0, maxLength - 3)}...';
+}
+
+String? _nonEmptyId(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 String _titleFromCode(String code) {

@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_revision_repository.dart';
+import '../bills/bill_revision_review_screen.dart';
 import 'notification_repository.dart';
 
 class SettleoraNotificationScreen extends StatefulWidget {
   const SettleoraNotificationScreen({
     super.key,
     required this.repository,
+    this.billRevisionRepository,
     this.onSessionEnded,
   });
 
   final SettleoraNotificationRepository repository;
+  final SettleoraBillRevisionRepository? billRevisionRepository;
   final Future<void> Function(String? noticeMessage)? onSessionEnded;
 
   @override
@@ -185,6 +189,32 @@ class _SettleoraNotificationScreenState
     }
   }
 
+  Future<void> _openBillRevision(SettleoraNotificationRow notification) async {
+    final billRevisionRepository = widget.billRevisionRepository;
+    final billId = settleoraNotificationMetadataId(notification.expenseBillId);
+    final revisionId = settleoraNotificationMetadataId(
+      notification.expenseBillRevisionId,
+    );
+
+    if (billRevisionRepository == null ||
+        !notification.hasBillRevisionReviewTarget ||
+        billId == null ||
+        revisionId == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillRevisionReviewScreen(
+          repository: billRevisionRepository,
+          billId: billId,
+          revisionId: revisionId,
+          billLabel: notification.displayTitle,
+        ),
+      ),
+    );
+  }
+
   Future<void> _endSession(SettleoraNotificationFailure failure) async {
     final onSessionEnded = widget.onSessionEnded;
     if (onSessionEnded == null) {
@@ -272,14 +302,22 @@ class _SettleoraNotificationScreenState
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _NotificationTile(
                           notification: _notifications[index],
+                          canOpenBillRevision:
+                              widget.billRevisionRepository != null &&
+                              _notifications[index].hasBillRevisionReviewTarget,
                           isActing:
                               _actingNotificationId == _notifications[index].id,
+                          openButtonKey: ValueKey(
+                            'notification-open-revision-$index',
+                          ),
                           markReadButtonKey: ValueKey(
                             'notification-mark-read-$index',
                           ),
                           archiveButtonKey: ValueKey(
                             'notification-archive-$index',
                           ),
+                          onOpenBillRevision: () =>
+                              _openBillRevision(_notifications[index]),
                           onMarkRead: () =>
                               _markNotificationRead(_notifications[index]),
                           onArchive: () =>
@@ -377,17 +415,23 @@ class _SummaryPanel extends StatelessWidget {
 class _NotificationTile extends StatelessWidget {
   const _NotificationTile({
     required this.notification,
+    required this.canOpenBillRevision,
     required this.isActing,
+    required this.openButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
+    required this.onOpenBillRevision,
     required this.onMarkRead,
     required this.onArchive,
   });
 
   final SettleoraNotificationRow notification;
+  final bool canOpenBillRevision;
   final bool isActing;
+  final Key openButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
+  final VoidCallback onOpenBillRevision;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
 
@@ -440,6 +484,15 @@ class _NotificationTile extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text('Received ${_formatTimestamp(notification.createdAtUtc)}'),
+              if (canOpenBillRevision) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: openButtonKey,
+                  onPressed: onOpenBillRevision,
+                  icon: const Icon(Icons.open_in_new_outlined),
+                  label: const Text('Open'),
+                ),
+              ],
             ],
           ),
         ),
