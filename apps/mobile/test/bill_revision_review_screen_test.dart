@@ -582,7 +582,9 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   final SettleoraBillRevisionFailure? withdrawFailure;
   final SettleoraBillRevisionFailure? applyFailure;
   int listCalls = 0;
+  int createCalls = 0;
   int getCalls = 0;
+  int reviseCalls = 0;
   int submitCalls = 0;
   int withdrawCalls = 0;
   int approveCalls = 0;
@@ -605,6 +607,15 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   }
 
   @override
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    createCalls += 1;
+    return revision;
+  }
+
+  @override
   Future<SettleoraBillRevision> getBillRevision(
     String billId,
     String revisionId,
@@ -614,6 +625,16 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
         : getResponses.length - 1;
     getCalls += 1;
     revision = getResponses[index];
+    return revision;
+  }
+
+  @override
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    reviseCalls += 1;
     return revision;
   }
 

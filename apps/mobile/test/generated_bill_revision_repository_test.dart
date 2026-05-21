@@ -52,6 +52,120 @@ void main() {
       expect(client.lastRevisionId, _revisionId);
     });
 
+    test(
+      'creates and revises proposal snapshots with supported fields only',
+      () async {
+        final client = FakeBillRevisionGeneratedClient(
+          createResponse: sampleApiRevision(
+            status: api.ExpenseBillRevisionStatusValues.draftRevision,
+          ),
+          reviseResponse: sampleApiRevision(id: _replacementRevisionId),
+        );
+        final repository = GeneratedSettleoraBillRevisionRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider('  redacted  '),
+        );
+
+        final created = await repository.createBillRevision(
+          '  $_billId  ',
+          sampleProposalSnapshot(),
+        );
+        final createBody = client.lastCreateProposalBody!;
+        final revised = await repository.reviseBillRevision(
+          '  $_billId  ',
+          '  $_revisionId  ',
+          sampleProposalSnapshot(),
+        );
+        final reviseBody = client.lastReviseProposalBody!;
+
+        expect(client.createCalls, 1);
+        expect(client.reviseCalls, 1);
+        expect(client.lastBillId, _billId);
+        expect(client.lastRevisionId, _revisionId);
+        expect(client.accessTokens, ['redacted', 'redacted']);
+        expect(
+          created.status,
+          api.ExpenseBillRevisionStatusValues.draftRevision,
+        );
+        expect(revised.id, _replacementRevisionId);
+
+        for (final body in [createBody, reviseBody]) {
+          expect(body.toJson(), {
+            'totalAmount': '24.50',
+            'totalCurrency': 'USD',
+            'participants': [
+              {
+                'userProfileId': _profileId,
+                'resolvedShareAmount': '12.25',
+                'resolvedShareCurrency': 'USD',
+              },
+              {
+                'userProfileId': _otherProfileId,
+                'resolvedShareAmount': '12.25',
+                'resolvedShareCurrency': 'USD',
+              },
+            ],
+            'payers': [
+              {
+                'userProfileId': _profileId,
+                'amount': '24.50',
+                'currency': 'USD',
+              },
+            ],
+          });
+        }
+      },
+    );
+
+    test('validates create proposal before reading access token', () async {
+      final client = FakeBillRevisionGeneratedClient();
+      final accessTokenProvider = FakeAccessTokenProvider('redacted');
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      final failure = await captureRevisionFailure(() {
+        return repository.createBillRevision(
+          _billId,
+          const SettleoraBillRevisionProposalSnapshot(
+            totalAmount: '',
+            totalCurrency: 'usd',
+            participants: [],
+            payers: [],
+          ),
+        );
+      });
+
+      expect(failure.kind, SettleoraBillRevisionFailureKind.validation);
+      expect(client.createCalls, 0);
+      expect(accessTokenProvider.calls, 0);
+    });
+
+    test('requires bill and revision ids before proposal mutations', () async {
+      final client = FakeBillRevisionGeneratedClient();
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final createFailure = await captureRevisionFailure(() {
+        return repository.createBillRevision('', sampleProposalSnapshot());
+      });
+      final reviseFailure = await captureRevisionFailure(() {
+        return repository.reviseBillRevision(
+          _billId,
+          ' ',
+          sampleProposalSnapshot(),
+        );
+      });
+
+      expect(createFailure.kind, SettleoraBillRevisionFailureKind.validation);
+      expect(reviseFailure.kind, SettleoraBillRevisionFailureKind.validation);
+      expect(client.createCalls, 0);
+      expect(client.reviseCalls, 0);
+    });
+
     test('approves with server-provided exact approval basis only', () async {
       final client = FakeBillRevisionGeneratedClient();
       final repository = GeneratedSettleoraBillRevisionRepository(
@@ -254,6 +368,31 @@ void main() {
       }
     });
 
+    test('maps create and revise generated failures consistently', () async {
+      final repository = GeneratedSettleoraBillRevisionRepository(
+        client: FakeBillRevisionGeneratedClient(
+          failure: api.SettleoraApiException(409, 'Failure', _hiddenBody),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final createFailure = await captureRevisionFailure(() {
+        return repository.createBillRevision(_billId, sampleProposalSnapshot());
+      });
+      final reviseFailure = await captureRevisionFailure(() {
+        return repository.reviseBillRevision(
+          _billId,
+          _revisionId,
+          sampleProposalSnapshot(),
+        );
+      });
+
+      expect(createFailure.kind, SettleoraBillRevisionFailureKind.conflict);
+      expect(reviseFailure.kind, SettleoraBillRevisionFailureKind.conflict);
+      expect(createFailure.message, isNot(contains('internal-detail')));
+      expect(reviseFailure.message, isNot(contains('internal-detail')));
+    });
+
     test('maps network failures to safe retry text', () async {
       final repository = GeneratedSettleoraBillRevisionRepository(
         client: FakeBillRevisionGeneratedClient(
@@ -288,9 +427,13 @@ class FakeAccessTokenProvider implements SettleoraAccessTokenProvider {
   FakeAccessTokenProvider(this._accessToken);
 
   final String? _accessToken;
+  int calls = 0;
 
   @override
-  Future<String?> accessToken() async => _accessToken;
+  Future<String?> accessToken() async {
+    calls += 1;
+    return _accessToken;
+  }
 }
 
 class FakeBillRevisionGeneratedClient
@@ -299,6 +442,8 @@ class FakeBillRevisionGeneratedClient
     this.failure,
     List<api.BillRevisionResponse>? revisions,
     api.BillRevisionResponse? detail,
+    api.BillRevisionResponse? createResponse,
+    api.BillRevisionResponse? reviseResponse,
     api.BillRevisionResponse? approveResponse,
     api.BillRevisionResponse? rejectResponse,
     api.BillRevisionResponse? confirmPayerResponse,
@@ -307,6 +452,12 @@ class FakeBillRevisionGeneratedClient
     api.BillRevisionResponse? applyResponse,
   }) : revisions = revisions ?? [sampleApiRevision()],
        detail = detail ?? sampleApiRevision(),
+       createResponse =
+           createResponse ??
+           sampleApiRevision(
+             status: api.ExpenseBillRevisionStatusValues.draftRevision,
+           ),
+       reviseResponse = reviseResponse ?? sampleApiRevision(),
        submitResponse = submitResponse ?? sampleApiRevision(),
        withdrawResponse =
            withdrawResponse ??
@@ -349,6 +500,8 @@ class FakeBillRevisionGeneratedClient
   final Object? failure;
   final List<api.BillRevisionResponse> revisions;
   final api.BillRevisionResponse detail;
+  final api.BillRevisionResponse createResponse;
+  final api.BillRevisionResponse reviseResponse;
   final api.BillRevisionResponse submitResponse;
   final api.BillRevisionResponse withdrawResponse;
   final api.BillRevisionResponse approveResponse;
@@ -357,7 +510,9 @@ class FakeBillRevisionGeneratedClient
   final api.BillRevisionResponse applyResponse;
   final accessTokens = <String>[];
   int listCalls = 0;
+  int createCalls = 0;
   int getCalls = 0;
+  int reviseCalls = 0;
   int submitCalls = 0;
   int withdrawCalls = 0;
   int approveCalls = 0;
@@ -366,6 +521,8 @@ class FakeBillRevisionGeneratedClient
   int applyCalls = 0;
   String? lastBillId;
   String? lastRevisionId;
+  api.CreateBillRevisionProposalRequest? lastCreateProposalBody;
+  api.CreateBillRevisionProposalRequest? lastReviseProposalBody;
   api.ApproveBillRevisionRequest? lastApprovalBody;
   api.ConfirmBillRevisionPayerRequest? lastPayerConfirmationBody;
 
@@ -382,6 +539,20 @@ class FakeBillRevisionGeneratedClient
   }
 
   @override
+  Future<api.BillRevisionResponse> createBillRevision(
+    String billId,
+    api.CreateBillRevisionProposalRequest body, {
+    required String accessToken,
+  }) async {
+    createCalls += 1;
+    lastBillId = billId;
+    lastCreateProposalBody = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return createResponse;
+  }
+
+  @override
   Future<api.BillRevisionResponse> getBillRevision(
     String billId,
     String revisionId, {
@@ -393,6 +564,22 @@ class FakeBillRevisionGeneratedClient
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return detail;
+  }
+
+  @override
+  Future<api.BillRevisionResponse> reviseBillRevision(
+    String billId,
+    String revisionId,
+    api.CreateBillRevisionProposalRequest body, {
+    required String accessToken,
+  }) async {
+    reviseCalls += 1;
+    lastBillId = billId;
+    lastRevisionId = revisionId;
+    lastReviseProposalBody = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return reviseResponse;
   }
 
   @override
@@ -492,6 +679,7 @@ class FakeBillRevisionGeneratedClient
 }
 
 api.BillRevisionResponse sampleApiRevision({
+  String id = _revisionId,
   String status = api.ExpenseBillRevisionStatusValues.submittedForReview,
   DateTime? rejectedAtUtc,
   List<api.BillRevisionApprovalResponse>? approvals,
@@ -500,7 +688,7 @@ api.BillRevisionResponse sampleApiRevision({
   api.BillRevisionViewerActionsResponse? viewerActions,
 }) {
   return api.BillRevisionResponse(
-    id: _revisionId,
+    id: id,
     billId: _billId,
     groupId: null,
     proposalCreatorUserProfileId: _profileId,
@@ -570,6 +758,32 @@ api.BillRevisionResponse sampleApiRevision({
                       .ExpenseBillPayerConfirmationStatusValues
                       .pendingConfirmation,
         ),
+  );
+}
+
+SettleoraBillRevisionProposalSnapshot sampleProposalSnapshot() {
+  return const SettleoraBillRevisionProposalSnapshot(
+    totalAmount: ' 24.50 ',
+    totalCurrency: 'usd',
+    participants: [
+      SettleoraBillRevisionProposalParticipantRow(
+        userProfileId: ' 44444444-4444-4444-4444-444444444444 ',
+        resolvedShareAmount: '12.25',
+        resolvedShareCurrency: 'usd',
+      ),
+      SettleoraBillRevisionProposalParticipantRow(
+        userProfileId: _otherProfileId,
+        resolvedShareAmount: ' 12.25 ',
+        resolvedShareCurrency: 'USD',
+      ),
+    ],
+    payers: [
+      SettleoraBillRevisionProposalPayerRow(
+        userProfileId: _profileId,
+        amount: ' 24.50 ',
+        currency: 'usd',
+      ),
+    ],
   );
 }
 
@@ -682,7 +896,9 @@ api.BillRevisionReviewContextResponse sampleReviewContext({
 
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
+const _replacementRevisionId = '55555555-5555-5555-5555-555555555555';
 const _profileId = '44444444-4444-4444-4444-444444444444';
+const _otherProfileId = '66666666-6666-6666-6666-666666666666';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _hiddenBody = {'detail': 'internal-detail'};

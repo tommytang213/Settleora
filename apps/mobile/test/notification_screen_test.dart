@@ -470,6 +470,14 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   }
 
   @override
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraBillRevision> getBillRevision(
     String billId,
     String revisionId,
@@ -481,6 +489,15 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
       kind: SettleoraBillRevisionFailureKind.unavailable,
       message: 'The revision is no longer available.',
     );
+  }
+
+  @override
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    throw UnimplementedError();
   }
 
   @override
