@@ -5998,6 +5998,14 @@ class InAppNotificationEventTypeValues {
   static const InAppNotificationEventType billParticipantAccepted = "bill.participant_accepted";
   static const InAppNotificationEventType billParticipantRejected = "bill.participant_rejected";
   static const InAppNotificationEventType billConfirmed = "bill.confirmed";
+  static const InAppNotificationEventType billRevisionProposed = "bill.revision_proposed";
+  static const InAppNotificationEventType billRevisionResubmitted = "bill.revision_resubmitted";
+  static const InAppNotificationEventType billRevisionSubmitted = "bill.revision_submitted";
+  static const InAppNotificationEventType billRevisionWithdrawn = "bill.revision_withdrawn";
+  static const InAppNotificationEventType billRevisionApproved = "bill.revision_approved";
+  static const InAppNotificationEventType billRevisionRejected = "bill.revision_rejected";
+  static const InAppNotificationEventType billRevisionPayerConfirmed = "bill.revision_payer_confirmed";
+  static const InAppNotificationEventType billRevisionApplied = "bill.revision_applied";
   static const InAppNotificationEventType settlementRequestCreated = "settlement.request_created";
   static const InAppNotificationEventType settlementPaymentMarkedPaid = "settlement.payment_marked_paid";
   static const InAppNotificationEventType settlementPaymentPartiallyPaid = "settlement.payment_partially_paid";
@@ -6008,7 +6016,7 @@ class InAppNotificationEventTypeValues {
   static const InAppNotificationEventType settlementPaymentCancelled = "settlement.payment_cancelled";
   static const InAppNotificationEventType settlementProofAttached = "settlement.proof_attached";
   static const InAppNotificationEventType recurringBillDraftGenerated = "recurring_bill.draft_generated";
-  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDraftGenerated};
+  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, billRevisionProposed, billRevisionResubmitted, billRevisionSubmitted, billRevisionWithdrawn, billRevisionApproved, billRevisionRejected, billRevisionPayerConfirmed, billRevisionApplied, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDraftGenerated};
 }
 
 /// Current lifecycle state for an in-app notification.

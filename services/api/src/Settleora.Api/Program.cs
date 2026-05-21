@@ -55,6 +55,7 @@ builder.Services.AddSettlementRequestAudit();
 builder.Services.AddSettlementPaymentAudit();
 builder.Services.AddExpenseBillReconciliationAudit();
 builder.Services.AddInAppNotifications();
+builder.Services.AddExpenseBillRevisionNotifications();
 builder.Services.AddSyncOfflineFoundation();
 builder.Services.AddSingleton<ExpenseBillCalculationService>();
 builder.Services.AddSingleton<RecurringBillScheduleService>();

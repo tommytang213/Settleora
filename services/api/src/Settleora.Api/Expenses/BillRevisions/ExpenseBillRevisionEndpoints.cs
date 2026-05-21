@@ -148,6 +148,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -205,7 +206,12 @@ internal static class ExpenseBillRevisionEndpoints
                 participantUserProfileId: null,
                 now),
             cancellationToken);
-
+        await notificationWriter.WriteProposedAsync(
+            bill,
+            result.Revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
         return await SaveAndRespondAsync(
             dbContext,
             Results.Created(
@@ -229,6 +235,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -289,7 +296,12 @@ internal static class ExpenseBillRevisionEndpoints
                 participantUserProfileId: null,
                 now),
             cancellationToken);
-
+        await notificationWriter.WriteResubmittedAsync(
+            bill,
+            result.Revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
         return await SaveAndRespondAsync(
             dbContext,
             Results.Ok(await MapRevisionAsync(
@@ -311,6 +323,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -361,6 +374,12 @@ internal static class ExpenseBillRevisionEndpoints
                 participantUserProfileId: null,
                 now),
             cancellationToken);
+        await notificationWriter.WriteSubmittedAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
 
         return await SaveAndRespondAsync(
             dbContext,
@@ -383,6 +402,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -433,6 +453,13 @@ internal static class ExpenseBillRevisionEndpoints
                 participantUserProfileId: null,
                 now),
             cancellationToken);
+        await notificationWriter.WriteWithdrawnAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            previousStatus,
+            now,
+            cancellationToken);
 
         return await SaveAndRespondAsync(
             dbContext,
@@ -455,6 +482,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -509,6 +537,12 @@ internal static class ExpenseBillRevisionEndpoints
                 actor.UserProfileId,
                 now),
             cancellationToken);
+        await notificationWriter.WriteApprovedAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
 
         return await SaveAndRespondAsync(
             dbContext,
@@ -531,6 +565,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -581,6 +616,12 @@ internal static class ExpenseBillRevisionEndpoints
                 actor.UserProfileId,
                 now),
             cancellationToken);
+        await notificationWriter.WriteRejectedAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
 
         return await SaveAndRespondAsync(
             dbContext,
@@ -603,6 +644,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -656,6 +698,12 @@ internal static class ExpenseBillRevisionEndpoints
                 now,
                 payerUserProfileId: actor.UserProfileId),
             cancellationToken);
+        await notificationWriter.WritePayerConfirmedAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
 
         return await SaveAndRespondAsync(
             dbContext,
@@ -678,6 +726,7 @@ internal static class ExpenseBillRevisionEndpoints
         ExpenseBillRevisionProposalService revisionProposalService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         IExpenseBillRevisionAuditWriter auditWriter,
+        ExpenseBillRevisionNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -740,6 +789,12 @@ internal static class ExpenseBillRevisionEndpoints
                 previousStatus,
                 participantUserProfileId: null,
                 now),
+            cancellationToken);
+        await notificationWriter.WriteAppliedAsync(
+            bill,
+            revision,
+            actor.UserProfileId,
+            now,
             cancellationToken);
 
         return await SaveAndRespondAsync(
