@@ -436,6 +436,44 @@ class SettleoraBillRevisionMoneyValue {
   final String currency;
 }
 
+class SettleoraBillRevisionProposalSnapshot {
+  const SettleoraBillRevisionProposalSnapshot({
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.participants,
+    required this.payers,
+  });
+
+  final String totalAmount;
+  final String totalCurrency;
+  final List<SettleoraBillRevisionProposalParticipantRow> participants;
+  final List<SettleoraBillRevisionProposalPayerRow> payers;
+}
+
+class SettleoraBillRevisionProposalParticipantRow {
+  const SettleoraBillRevisionProposalParticipantRow({
+    required this.userProfileId,
+    required this.resolvedShareAmount,
+    required this.resolvedShareCurrency,
+  });
+
+  final String userProfileId;
+  final String resolvedShareAmount;
+  final String resolvedShareCurrency;
+}
+
+class SettleoraBillRevisionProposalPayerRow {
+  const SettleoraBillRevisionProposalPayerRow({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String userProfileId;
+  final String amount;
+  final String currency;
+}
+
 class SettleoraBillRevisionChangeCategorySummary {
   const SettleoraBillRevisionChangeCategorySummary({
     required this.category,
@@ -491,9 +529,20 @@ class SettleoraBillRevisionDisplayValue {
 abstract class SettleoraBillRevisionRepository {
   Future<List<SettleoraBillRevision>> listBillRevisions(String billId);
 
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  );
+
   Future<SettleoraBillRevision> getBillRevision(
     String billId,
     String revisionId,
+  );
+
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
   );
 
   Future<SettleoraBillRevision> submitBillRevision(

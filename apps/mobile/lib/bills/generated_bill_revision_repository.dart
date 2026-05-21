@@ -12,9 +12,22 @@ abstract interface class SettleoraBillRevisionGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.BillRevisionResponse> createBillRevision(
+    String billId,
+    api.CreateBillRevisionProposalRequest body, {
+    required String accessToken,
+  });
+
   Future<api.BillRevisionResponse> getBillRevision(
     String billId,
     String revisionId, {
+    required String accessToken,
+  });
+
+  Future<api.BillRevisionResponse> reviseBillRevision(
+    String billId,
+    String revisionId,
+    api.CreateBillRevisionProposalRequest body, {
     required String accessToken,
   });
 
@@ -72,6 +85,15 @@ class SettleoraBillRevisionApiGeneratedClient
   }
 
   @override
+  Future<api.BillRevisionResponse> createBillRevision(
+    String billId,
+    api.CreateBillRevisionProposalRequest body, {
+    required String accessToken,
+  }) {
+    return _client.createBillRevision(billId, body, accessToken: accessToken);
+  }
+
+  @override
   Future<api.BillRevisionResponse> getBillRevision(
     String billId,
     String revisionId, {
@@ -80,6 +102,21 @@ class SettleoraBillRevisionApiGeneratedClient
     return _client.getBillRevision(
       billId,
       revisionId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.BillRevisionResponse> reviseBillRevision(
+    String billId,
+    String revisionId,
+    api.CreateBillRevisionProposalRequest body, {
+    required String accessToken,
+  }) {
+    return _client.reviseBillRevision(
+      billId,
+      revisionId,
+      body,
       accessToken: accessToken,
     );
   }
@@ -215,6 +252,33 @@ class GeneratedSettleoraBillRevisionRepository
   }
 
   @override
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before creating a revision proposal.',
+    );
+    final body = _mapProposalRequest(proposal);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.createBillRevision(
+          trimmedBillId,
+          body,
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
   Future<SettleoraBillRevision> getBillRevision(
     String billId,
     String revisionId,
@@ -233,6 +297,39 @@ class GeneratedSettleoraBillRevisionRepository
         final response = await _client.getBillRevision(
           trimmedBillId,
           trimmedRevisionId,
+          accessToken: accessToken,
+        );
+        return _mapRevision(response);
+      } on SettleoraBillRevisionFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before revising a proposal.',
+    );
+    final trimmedRevisionId = _requiredId(
+      revisionId,
+      blankMessage: 'Choose a revision before revising it.',
+    );
+    final body = _mapProposalRequest(proposal);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.reviseBillRevision(
+          trimmedBillId,
+          trimmedRevisionId,
+          body,
           accessToken: accessToken,
         );
         return _mapRevision(response);
@@ -456,6 +553,80 @@ class GeneratedSettleoraBillRevisionRepository
       return null;
     }
   }
+}
+
+api.CreateBillRevisionProposalRequest _mapProposalRequest(
+  SettleoraBillRevisionProposalSnapshot proposal,
+) {
+  if (proposal.participants.isEmpty) {
+    throw const SettleoraBillRevisionFailure(
+      kind: SettleoraBillRevisionFailureKind.validation,
+      message: 'Add at least one participant share before saving a proposal.',
+    );
+  }
+  if (proposal.payers.isEmpty) {
+    throw const SettleoraBillRevisionFailure(
+      kind: SettleoraBillRevisionFailureKind.validation,
+      message: 'Add at least one payer contribution before saving a proposal.',
+    );
+  }
+
+  return api.CreateBillRevisionProposalRequest(
+    totalAmount: _requiredText(
+      proposal.totalAmount,
+      blankMessage: 'Enter a proposal total amount before saving.',
+    ),
+    totalCurrency: _requiredCurrency(
+      proposal.totalCurrency,
+      blankMessage: 'Choose a proposal total currency before saving.',
+    ),
+    participants: proposal.participants
+        .map(_mapProposalParticipantRequest)
+        .toList(growable: false),
+    payers: proposal.payers
+        .map(_mapProposalPayerRequest)
+        .toList(growable: false),
+  );
+}
+
+api.BillRevisionProposalParticipantRequest _mapProposalParticipantRequest(
+  SettleoraBillRevisionProposalParticipantRow row,
+) {
+  return api.BillRevisionProposalParticipantRequest(
+    userProfileId: _requiredId(
+      row.userProfileId,
+      blankMessage: 'Choose a participant before saving a proposal.',
+    ),
+    resolvedShareAmount: _requiredText(
+      row.resolvedShareAmount,
+      blankMessage: 'Enter each participant share before saving a proposal.',
+    ),
+    resolvedShareCurrency: _requiredCurrency(
+      row.resolvedShareCurrency,
+      blankMessage:
+          'Choose each participant share currency before saving a proposal.',
+    ),
+  );
+}
+
+api.BillRevisionProposalPayerRequest _mapProposalPayerRequest(
+  SettleoraBillRevisionProposalPayerRow row,
+) {
+  return api.BillRevisionProposalPayerRequest(
+    userProfileId: _requiredId(
+      row.userProfileId,
+      blankMessage: 'Choose a payer before saving a proposal.',
+    ),
+    amount: _requiredText(
+      row.amount,
+      blankMessage: 'Enter each payer contribution before saving a proposal.',
+    ),
+    currency: _requiredCurrency(
+      row.currency,
+      blankMessage:
+          'Choose each payer contribution currency before saving a proposal.',
+    ),
+  );
 }
 
 SettleoraBillRevision _mapRevision(api.BillRevisionResponse response) {
@@ -737,4 +908,20 @@ String _requiredId(String value, {required String blankMessage}) {
   }
 
   return trimmed;
+}
+
+String _requiredText(String value, {required String blankMessage}) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    throw SettleoraBillRevisionFailure(
+      kind: SettleoraBillRevisionFailureKind.validation,
+      message: blankMessage,
+    );
+  }
+
+  return trimmed;
+}
+
+String _requiredCurrency(String value, {required String blankMessage}) {
+  return _requiredText(value, blankMessage: blankMessage).toUpperCase();
 }
