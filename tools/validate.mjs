@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 
 const steps = [
   {
+    script: "doctor:docker",
+    command: "node",
+    args: ["tools/doctor-validation.mjs", "--docker"]
+  },
+  {
     script: "validate:scaffold",
     command: "node",
     args: ["tools/validate-scaffold.mjs"]

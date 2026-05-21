@@ -32,7 +32,22 @@ npm config set strict-ssl true --location=user
 
 ## Diagnostic commands
 
-Run these before changing machine configuration:
+Run the scoped validation doctor before changing machine configuration:
+
+```powershell
+npm run doctor:validation
+```
+
+Use Docker and mobile preflight only when that validation is relevant:
+
+```powershell
+npm run doctor:docker
+npm run doctor:mobile
+```
+
+The base doctor checks Node, npm, npm cache/log writability, and dotnet. Docker checks require both Docker client and server. Mobile checks probe Flutter responsiveness and call out possible stale Flutter lock/process symptoms without killing processes automatically.
+
+For deeper npm-specific diagnostics, run:
 
 ```powershell
 node --version
@@ -62,3 +77,18 @@ For Settleora validation work:
 
 4. Continue validation only if the recovery install succeeds.
 5. Do not loop repeated npm installs. Stop and report if the recovery command also fails.
+
+## Long-command retry rule
+
+Retry long validation commands only after a concrete change that could affect the failure, such as a code fix, dependency install, cache/permission repair, Docker startup repair, or Flutter SDK/cache repair. Do not blindly rerun `npm ci`, Docker builds, `flutter pub get`, `flutter analyze`, or `flutter test`.
+
+Mobile validation for the Flutter app must use Flutter:
+
+```powershell
+cd apps/mobile
+flutter pub get
+flutter analyze
+flutter test
+```
+
+Do not use `dart test` for the Flutter app.

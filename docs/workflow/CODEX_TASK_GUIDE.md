@@ -36,15 +36,24 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 
 ## Validation Rules
 
+- Choose validation from the changed-file scope before running slow commands.
+- Start repo tooling, API, Docker, and mobile validation with the relevant doctor command:
+  - `npm run doctor:validation` for Node/npm/dotnet preflight.
+  - `npm run doctor:docker` only for Docker, compose, API Docker image, API runtime, or migration validation.
+  - `npm run doctor:mobile` only for mobile app or generated Dart client validation.
 - Run dotnet validation for API changes.
 - Run npm validation for repo tooling, documentation, or contract changes.
 - Run `npm run generate:clients` and `npm run validate:clients` when OpenAPI or generated client output changes.
-- Run Docker validation for Docker, compose, or API runtime changes.
+- Run Docker validation only for Docker, compose, API runtime, migration, or explicitly Docker-relevant API validation changes.
+- Run mobile validation only when mobile app files, mobile docs, generated Dart client output, or mobile validation tooling changes.
+- For mobile validation, use Flutter commands from `apps/mobile`: `flutter pub get`, `flutter analyze`, and `flutter test`. Do not use `dart test` for the Flutter app.
 - When exact `npm ci` is required, run it once. If it fails with the known local npm certificate, cache, or `Exit handler never called!` pattern, record the exact failure, run one recovery command (`npm ci --no-audit --prefer-offline`), and do not loop repeated npm installs.
+- Retry long validation commands only after a concrete code, environment, dependency, or tooling change that could address the failure. Do not blindly loop `npm ci`, Docker builds, `flutter pub get`, `flutter analyze`, or `flutter test`.
 - Do not claim exact `npm ci` passed when only the recovery install passed.
 - Do not commit `.npmrc` changes that disable SSL verification, including `strict-ssl=false`; use [local tooling troubleshooting](LOCAL_TOOLING_TROUBLESHOOTING.md) for safe machine-level fixes.
 - For changes limited to documentation-only paths such as `docs/**/*.md`, `README.md`, and static docs assets, skip slow npm/dotnet/Docker validation unless the diff touches package files, validation scripts, OpenAPI/contracts, generated clients, code, tests, migrations, Docker/compose, CI, or runtime config.
 - For docs-only changes run at minimum `git status --short`, `git diff --name-only`, and `git diff --check`.
+- For tooling/docs changes, prefer scoped validation such as `npm run validate:docs`, `npm run validate:scaffold`, and `npm run validate:openapi` before escalating to API, Docker, or mobile suites.
 - Do not weaken validation for code, API, security, runtime, migration, generated-client, or infrastructure changes.
 - Do not fake validation success; report the exact failing command and error summary.
 

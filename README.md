@@ -75,7 +75,26 @@ npm ci
 npm run validate
 ```
 
-`npm run validate` runs the same checks listed below in order and stops on the first failure with the failed subcommand and exit code.
+`npm run validate` runs the same checks listed below in order and stops on the first failure with the failed subcommand and exit code. It includes Docker Compose and API Docker image validation, so Docker must be available.
+
+For scoped local/Codex validation, start with the relevant doctor and run only the checks that match the changed files:
+
+```powershell
+npm run doctor:validation
+npm run validate:docs
+npm run validate:scaffold
+npm run validate:openapi
+npm run validate:api-local
+```
+
+Use Docker and mobile scopes only when the task touches those areas:
+
+```powershell
+npm run validate:api-docker-local
+npm run validate:mobile
+```
+
+`validate:mobile` runs `flutter pub get`, `flutter analyze`, and `flutter test` from `apps/mobile`; do not use `dart test` for the Flutter app.
 
 Generate OpenAPI clients after contract changes:
 
@@ -87,13 +106,20 @@ npm run validate:clients
 Individual checks:
 
 ```powershell
+npm run doctor:validation
+npm run doctor:docker
+npm run doctor:mobile
+npm run validate:docs
 npm run validate:scaffold
 npm run validate:openapi
 npm run generate:clients
 npm run validate:clients
 npm run validate:api
+npm run validate:api-local
 npm run validate:compose
 npm run validate:api-docker
+npm run validate:api-docker-local
+npm run validate:mobile
 npm run validate:api-runtime
 npm run validate:api-migrations
 ```
