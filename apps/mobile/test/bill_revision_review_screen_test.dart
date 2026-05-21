@@ -190,6 +190,7 @@ void main() {
       revision: sampleRevision(
         canSubmit: true,
         canWithdraw: true,
+        canRevise: true,
         canApply: true,
       ),
     );
@@ -211,6 +212,7 @@ void main() {
 
     expect(find.byKey(const Key('bill-revision-submit')), findsOneWidget);
     expect(find.byKey(const Key('bill-revision-withdraw')), findsOneWidget);
+    expect(find.byKey(const Key('bill-revision-revise')), findsOneWidget);
     expect(find.byKey(const Key('bill-revision-apply')), findsOneWidget);
   });
 
@@ -222,6 +224,7 @@ void main() {
       revision: sampleRevision(
         canSubmit: false,
         canWithdraw: false,
+        canRevise: false,
         canApply: false,
       ),
     );
@@ -243,7 +246,108 @@ void main() {
 
     expect(find.byKey(const Key('bill-revision-submit')), findsNothing);
     expect(find.byKey(const Key('bill-revision-withdraw')), findsNothing);
+    expect(find.byKey(const Key('bill-revision-revise')), findsNothing);
     expect(find.byKey(const Key('bill-revision-apply')), findsNothing);
+  });
+
+  testWidgets('revise action refreshes before editor and displays response', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final initial = sampleRevision(canRevise: true);
+    final refreshed = sampleRevision(canRevise: true);
+    final replacement = sampleRevision(
+      id: _replacementRevisionId,
+      totalAmount: '14.50',
+    );
+    final repository = FakeBillRevisionRepository(
+      revision: initial,
+      getResponses: [initial, refreshed, refreshed],
+      reviseResponse: replacement,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-revise')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 2);
+    expect(find.text('Revise proposal'), findsWidgets);
+
+    await tester.enterText(
+      find.byKey(const Key('proposal-total-amount')),
+      '14.50',
+    );
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 3);
+    expect(repository.reviseCalls, 1);
+    expect(repository.lastRevisedBillId, _billId);
+    expect(repository.lastRevisedRevisionId, _revisionId);
+    expect(repository.lastProposal?.totalAmount, '14.50');
+    expect(
+      find.text('Replacement proposal submitted for review.'),
+      findsOneWidget,
+    );
+
+    await tester.drag(find.byType(ListView), const Offset(0, 900));
+    await tester.pumpAndSettle();
+
+    expect(find.text('14.50 USD'), findsWidgets);
+    expect(find.text(_replacementRevisionId.substring(0, 8)), findsOneWidget);
+  });
+
+  testWidgets('revise action stops when refreshed capability denies', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final initial = sampleRevision(canRevise: true);
+    final refreshed = sampleRevision(canRevise: false);
+    final repository = FakeBillRevisionRepository(
+      revision: initial,
+      getResponses: [initial, refreshed],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionReviewScreen(
+          repository: repository,
+          billId: _billId,
+          revisionId: _revisionId,
+          billLabel: 'Corner Market',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-revise')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 2);
+    expect(repository.reviseCalls, 0);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text(
+        'This proposal can no longer be revised. Review the refreshed status.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Proposal editor'), findsNothing);
   });
 
   testWidgets('submit refreshes before acting and uses refreshed capability', (
@@ -558,9 +662,11 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     SettleoraBillRevision? approveResponse,
     SettleoraBillRevision? rejectResponse,
     SettleoraBillRevision? confirmPayerResponse,
+    SettleoraBillRevision? reviseResponse,
     SettleoraBillRevision? applyResponse,
     this.submitFailure,
     this.withdrawFailure,
+    this.reviseFailure,
     this.applyFailure,
   }) : approveResponse = approveResponse ?? revision,
        getResponses = getResponses ?? [revision],
@@ -568,6 +674,7 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
        withdrawResponse = withdrawResponse ?? revision,
        rejectResponse = rejectResponse ?? revision,
        confirmPayerResponse = confirmPayerResponse ?? revision,
+       reviseResponse = reviseResponse ?? revision,
        applyResponse = applyResponse ?? revision;
 
   SettleoraBillRevision revision;
@@ -577,9 +684,11 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   final SettleoraBillRevision approveResponse;
   final SettleoraBillRevision rejectResponse;
   final SettleoraBillRevision confirmPayerResponse;
+  final SettleoraBillRevision reviseResponse;
   final SettleoraBillRevision applyResponse;
   final SettleoraBillRevisionFailure? submitFailure;
   final SettleoraBillRevisionFailure? withdrawFailure;
+  final SettleoraBillRevisionFailure? reviseFailure;
   final SettleoraBillRevisionFailure? applyFailure;
   int listCalls = 0;
   int createCalls = 0;
@@ -595,8 +704,11 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   String? lastSubmittedRevisionId;
   String? lastWithdrawnBillId;
   String? lastWithdrawnRevisionId;
+  String? lastRevisedBillId;
+  String? lastRevisedRevisionId;
   String? lastAppliedBillId;
   String? lastAppliedRevisionId;
+  SettleoraBillRevisionProposalSnapshot? lastProposal;
   SettleoraBillRevision? lastApprovedRevision;
   SettleoraBillRevision? lastConfirmedRevision;
 
@@ -635,7 +747,15 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     SettleoraBillRevisionProposalSnapshot proposal,
   ) async {
     reviseCalls += 1;
-    return revision;
+    lastRevisedBillId = billId;
+    lastRevisedRevisionId = revisionId;
+    lastProposal = proposal;
+    final failure = reviseFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    revision = reviseResponse;
+    return reviseResponse;
   }
 
   @override
@@ -745,7 +865,9 @@ class FakeBillRepository implements SettleoraBillRepository {
 }
 
 SettleoraBillRevision sampleRevision({
+  String id = _revisionId,
   String status = SettleoraBillRevisionStatusValues.submittedForReview,
+  String totalAmount = '12.00',
   String approvalStatus =
       SettleoraBillRevisionApprovalStatusValues.pendingReview,
   String baselineType =
@@ -774,11 +896,11 @@ SettleoraBillRevision sampleRevision({
   );
 
   return SettleoraBillRevision(
-    id: _revisionId,
+    id: id,
     billId: _billId,
     groupId: null,
     status: status,
-    totalAmount: '12.00',
+    totalAmount: totalAmount,
     totalCurrency: 'USD',
     calculationHash: _hash,
     submittedAtUtc: _createdAtUtc,
@@ -955,6 +1077,7 @@ SettleoraBillDetail sampleBillDetail() {
 
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
+const _replacementRevisionId = '55555555-5555-5555-5555-555555555555';
 const _profileId = '44444444-4444-4444-4444-444444444444';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

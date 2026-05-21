@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 
 class SettleoraBillRevisionReviewScreen extends StatefulWidget {
@@ -161,6 +162,80 @@ class _SettleoraBillRevisionReviewScreenState
           'This revision is no longer open for apply. Review the refreshed status.',
       successNotice: 'Revision applied to the active bill.',
     );
+  }
+
+  Future<void> _openReviseEditor() async {
+    if (_isActing) {
+      return;
+    }
+
+    setState(() {
+      _isActing = true;
+      _actionFailure = null;
+      _actionNotice = null;
+    });
+
+    late final SettleoraBillRevision fresh;
+    try {
+      final refreshed = await widget.repository.getBillRevision(
+        widget.billId,
+        widget.revisionId,
+      );
+      fresh = refreshed;
+      if (!refreshed.canRevise) {
+        if (mounted) {
+          setState(() {
+            _revision = refreshed;
+            _viewMode = _viewModeTouched
+                ? _viewMode
+                : _preferredViewMode(refreshed);
+          });
+        }
+        throw const SettleoraBillRevisionFailure(
+          kind: SettleoraBillRevisionFailureKind.conflict,
+          message:
+              'This proposal can no longer be revised. Review the refreshed status.',
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = SettleoraBillRevisionFailure.from(error);
+        _isActing = false;
+      });
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isActing = false;
+    });
+
+    final updated = await Navigator.of(context).push<SettleoraBillRevision>(
+      MaterialPageRoute(
+        builder: (_) => SettleoraBillRevisionProposalEditorScreen.revise(
+          repository: widget.repository,
+          revision: fresh,
+          billLabel: widget.billLabel,
+        ),
+      ),
+    );
+
+    if (!mounted || updated == null) {
+      return;
+    }
+
+    setState(() {
+      _revision = updated;
+      _viewMode = _viewModeTouched ? _viewMode : _preferredViewMode(updated);
+      _actionNotice = 'Replacement proposal submitted for review.';
+    });
   }
 
   Future<void> _runLifecycleAction({
@@ -473,6 +548,7 @@ class _SettleoraBillRevisionReviewScreenState
                     onReject: _confirmReject,
                     onConfirmPayer: _confirmPayer,
                     onApply: _apply,
+                    onRevise: _openReviseEditor,
                   ),
                 ],
               ),
@@ -919,6 +995,7 @@ class _RevisionActionArea extends StatelessWidget {
     required this.onReject,
     required this.onConfirmPayer,
     required this.onApply,
+    required this.onRevise,
   });
 
   final SettleoraBillRevision revision;
@@ -931,6 +1008,7 @@ class _RevisionActionArea extends StatelessWidget {
   final VoidCallback onReject;
   final VoidCallback onConfirmPayer;
   final VoidCallback onApply;
+  final VoidCallback onRevise;
 
   @override
   Widget build(BuildContext context) {
@@ -940,7 +1018,10 @@ class _RevisionActionArea extends StatelessWidget {
         payerImpact?.requiresPayerConfirmation ?? false;
     final isSubmitted = revision.isSubmittedForReview;
     final hasLifecycleActions =
-        revision.canSubmit || revision.canWithdraw || revision.canApply;
+        revision.canSubmit ||
+        revision.canWithdraw ||
+        revision.canRevise ||
+        revision.canApply;
 
     return _Section(
       title: 'Actions',
@@ -960,6 +1041,7 @@ class _RevisionActionArea extends StatelessWidget {
             isActing: isActing,
             onSubmit: onSubmit,
             onWithdraw: onWithdraw,
+            onRevise: onRevise,
             onApply: onApply,
           ),
           const SizedBox(height: 10),
@@ -1024,6 +1106,7 @@ class _LifecycleActionPanel extends StatelessWidget {
     required this.isActing,
     required this.onSubmit,
     required this.onWithdraw,
+    required this.onRevise,
     required this.onApply,
   });
 
@@ -1031,6 +1114,7 @@ class _LifecycleActionPanel extends StatelessWidget {
   final bool isActing;
   final VoidCallback onSubmit;
   final VoidCallback onWithdraw;
+  final VoidCallback onRevise;
   final VoidCallback onApply;
 
   @override
@@ -1049,6 +1133,12 @@ class _LifecycleActionPanel extends StatelessWidget {
               'Revision lifecycle',
               style: Theme.of(context).textTheme.titleSmall,
             ),
+            if (revision.canRevise) ...[
+              const SizedBox(height: 6),
+              const _BodyText(
+                'Your replacement will be submitted for review, and previous approvals on this proposal will not carry over.',
+              ),
+            ],
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -1072,6 +1162,13 @@ class _LifecycleActionPanel extends StatelessWidget {
                     onPressed: isActing ? null : onWithdraw,
                     icon: const Icon(Icons.undo_outlined),
                     label: const Text('Withdraw revision'),
+                  ),
+                if (revision.canRevise)
+                  OutlinedButton.icon(
+                    key: const Key('bill-revision-revise'),
+                    onPressed: isActing ? null : onRevise,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Revise proposal'),
                   ),
                 if (revision.canApply)
                   FilledButton.icon(
