@@ -157,6 +157,37 @@ void main() {
       expect(repository.lastProposal?.totalAmount, '12.00');
     },
   );
+
+  testWidgets('create mode can use guarded create callback', (tester) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRevisionRepository(
+      revision: sampleRevision(canRevise: true),
+    );
+    var guardCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionProposalEditorScreen.create(
+          repository: repository,
+          billId: _billId,
+          billLabel: 'Corner Market',
+          initialProposal: sampleProposalSnapshot(),
+          onCreate: (proposal) async {
+            guardCalls += 1;
+            expect(proposal.totalAmount, '12.00');
+            return sampleRevision(id: _replacementRevisionId);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(guardCalls, 1);
+    expect(repository.createCalls, 0);
+  });
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {

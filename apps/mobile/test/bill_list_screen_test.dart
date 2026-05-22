@@ -5,6 +5,7 @@ import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
+import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
@@ -129,6 +130,195 @@ void main() {
     expect(find.text('Items'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Participants'), findsOneWidget);
+    expect(find.byKey(const Key('bill-detail-propose-change')), findsNothing);
+  });
+
+  testWidgets('bill detail creates revision after fresh capability checks', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final detail = sampleBillDetail(canCreateRevision: true);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      details: [detail, detail, detail],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      listResponses: const [],
+      createResponse: sampleRevision(id: _createdRevisionId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create proposal'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('proposal-total-amount')))
+          .controller
+          ?.text,
+      '10.80',
+    );
+
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 3);
+    expect(revisionRepository.createCalls, 1);
+    expect(revisionRepository.lastCreatedBillId, _billId);
+    expect(revisionRepository.lastProposal?.totalAmount, '10.80');
+    expect(
+      revisionRepository.lastProposal?.participants.single.userProfileId,
+      _userProfileId,
+    );
+    expect(revisionRepository.getCalls, 1);
+    expect(find.text('Revision review'), findsOneWidget);
+  });
+
+  testWidgets(
+    'bill detail stops create entry when refreshed capability denies',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        bills: [sampleBillSummary()],
+        details: [
+          sampleBillDetail(canCreateRevision: true),
+          sampleBillDetail(canCreateRevision: false),
+        ],
+      );
+      final revisionRepository = FakeBillRevisionRepository(
+        listResponses: const [],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            revisionRepository: revisionRepository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-propose-change')));
+      await tester.pumpAndSettle();
+
+      expect(repository.getCalls, 2);
+      expect(revisionRepository.createCalls, 0);
+      expect(find.byKey(const Key('bill-detail-propose-change')), findsNothing);
+      expect(
+        find.byKey(const Key('bill-detail-propose-change-failure')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Refresh needed'), findsOneWidget);
+    },
+  );
+
+  testWidgets('bill detail create save refreshes capability before mutation', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      details: [
+        sampleBillDetail(canCreateRevision: true),
+        sampleBillDetail(canCreateRevision: true),
+        sampleBillDetail(canCreateRevision: false),
+      ],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      listResponses: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getCalls, 3);
+    expect(revisionRepository.createCalls, 0);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text(
+        'This bill can no longer accept a revision proposal. Review the refreshed bill before trying again.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('bill detail create failure stays bounded in editor', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final detail = sampleBillDetail(canCreateRevision: true);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      details: [detail, detail, detail],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      listResponses: const [],
+      createFailure: const SettleoraBillRevisionFailure(
+        kind: SettleoraBillRevisionFailureKind.validation,
+        message:
+            'This proposal includes unsupported fields or amounts. Review the highlighted fields.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(revisionRepository.createCalls, 1);
+    expect(find.text('Unsupported request'), findsOneWidget);
+    expect(
+      find.text(
+        'This proposal includes unsupported fields or amounts. Review the highlighted fields.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Revision review'), findsNothing);
   });
 
   testWidgets('authenticated server shell opens bills', (tester) async {
@@ -213,22 +403,44 @@ void main() {
   });
 }
 
+Future<void> useLargeSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(900, 1600));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+SettleoraBillSyncController sampleBillSyncController() {
+  final store = MemorySyncQueueStore();
+  return SettleoraBillSyncController(
+    queueStore: store,
+    queueProcessor: SettleoraSyncQueueProcessor(
+      queueStore: store,
+      repository: FakeSyncRepository([]),
+    ),
+  );
+}
+
 class FakeBillRepository implements SettleoraBillRepository {
   FakeBillRepository({
     this.bills = const [],
     this.groupBills = const [],
     SettleoraBillDetail? detail,
+    List<SettleoraBillDetail>? details,
     this.failure,
-  }) : detail = detail ?? sampleBillDetail();
+  }) : details = details ?? [detail ?? sampleBillDetail()];
 
   final List<SettleoraBillSummary> bills;
   final List<SettleoraBillSummary> groupBills;
-  final SettleoraBillDetail detail;
+  final List<SettleoraBillDetail> details;
   final SettleoraBillFailure? failure;
   int listCalls = 0;
   int getCalls = 0;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+
+  SettleoraBillDetail _detailForCall(int callIndex) {
+    final index = callIndex < details.length ? callIndex : details.length - 1;
+    return details[index];
+  }
 
   @override
   Future<List<SettleoraBillSummary>> listGroupBills(
@@ -250,7 +462,7 @@ class FakeBillRepository implements SettleoraBillRepository {
     String billId,
   ) async {
     getGroupCalls += 1;
-    return detail;
+    return _detailForCall(getGroupCalls - 1);
   }
 
   @override
@@ -267,7 +479,113 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<SettleoraBillDetail> getPersonalBill(String billId) async {
     getCalls += 1;
-    return detail;
+    return _detailForCall(getCalls - 1);
+  }
+}
+
+class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
+  FakeBillRevisionRepository({
+    this.listResponses = const [],
+    SettleoraBillRevision? detailResponse,
+    SettleoraBillRevision? createResponse,
+    this.createFailure,
+  }) : detailResponse = detailResponse ?? createResponse ?? sampleRevision(),
+       createResponse = createResponse ?? detailResponse ?? sampleRevision();
+
+  final List<SettleoraBillRevision> listResponses;
+  SettleoraBillRevision detailResponse;
+  SettleoraBillRevision createResponse;
+  final SettleoraBillRevisionFailure? createFailure;
+  int listCalls = 0;
+  int getCalls = 0;
+  int createCalls = 0;
+  String? lastCreatedBillId;
+  SettleoraBillRevisionProposalSnapshot? lastProposal;
+
+  @override
+  Future<List<SettleoraBillRevision>> listBillRevisions(String billId) async {
+    listCalls += 1;
+    return listResponses;
+  }
+
+  @override
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    createCalls += 1;
+    lastCreatedBillId = billId;
+    lastProposal = proposal;
+    final failure = createFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    detailResponse = createResponse;
+    return createResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> getBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    getCalls += 1;
+    return detailResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> approveBillRevision(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> rejectBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
   }
 }
 
@@ -608,7 +926,7 @@ SettleoraBillSummary sampleBillSummary({
   );
 }
 
-SettleoraBillDetail sampleBillDetail() {
+SettleoraBillDetail sampleBillDetail({bool canCreateRevision = false}) {
   return SettleoraBillDetail(
     id: _billId,
     merchantName: 'Corner Market',
@@ -616,8 +934,8 @@ SettleoraBillDetail sampleBillDetail() {
     status: 'draft',
     reconciliationStatus: 'unreconciled',
     reconciliationNote: null,
-    revisionCreationActions: const SettleoraBillRevisionCreationActions(
-      canCreateRevision: false,
+    revisionCreationActions: SettleoraBillRevisionCreationActions(
+      canCreateRevision: canCreateRevision,
     ),
     totalAmount: '10.80',
     totalCurrency: 'USD',
@@ -635,7 +953,7 @@ SettleoraBillDetail sampleBillDetail() {
     ],
     participants: const [
       SettleoraBillParticipant(
-        userProfileId: 'profile-1',
+        userProfileId: _userProfileId,
         status: 'pending_acceptance',
         resolvedShareAmount: '10.80',
         resolvedShareCurrency: 'USD',
@@ -643,7 +961,7 @@ SettleoraBillDetail sampleBillDetail() {
     ],
     payers: const [
       SettleoraBillPayer(
-        userProfileId: 'profile-1',
+        userProfileId: _userProfileId,
         amount: '10.80',
         currency: 'USD',
       ),
@@ -689,6 +1007,88 @@ SettleoraCurrentUser sampleCurrentUser() {
     defaultCurrency: 'USD',
     roles: const ['user'],
     sessionExpiresAtUtc: DateTime.utc(2026, 5, 18),
+  );
+}
+
+SettleoraBillRevision sampleRevision({String id = _revisionId}) {
+  return SettleoraBillRevision(
+    id: id,
+    billId: _billId,
+    groupId: null,
+    status: SettleoraBillRevisionStatusValues.draftRevision,
+    totalAmount: '10.80',
+    totalCurrency: 'USD',
+    calculationHash: _hash,
+    submittedAtUtc: null,
+    updatedAtUtc: _attemptedAtUtc,
+    participants: const [
+      SettleoraBillRevisionParticipant(
+        userProfileId: _userProfileId,
+        resolvedShareAmount: '10.80',
+        resolvedShareCurrency: 'USD',
+        affectedByRevision: true,
+      ),
+    ],
+    payers: const [
+      SettleoraBillRevisionPayer(
+        userProfileId: _userProfileId,
+        amount: '10.80',
+        currency: 'USD',
+        requiresPayerConfirmation: false,
+        payerConfirmationStatus:
+            SettleoraBillRevisionPayerConfirmationStatusValues.confirmed,
+      ),
+    ],
+    approvals: const [],
+    viewerActions: const SettleoraBillRevisionViewerActions(
+      canSubmit: true,
+      canWithdraw: false,
+      canRevise: false,
+      canApprove: false,
+      canReject: false,
+      canConfirmPayer: false,
+      canApply: false,
+    ),
+    reviewContext: sampleReviewContext(),
+    viewerApprovalBasis: null,
+  );
+}
+
+SettleoraBillRevisionReviewContext sampleReviewContext() {
+  return SettleoraBillRevisionReviewContext(
+    viewerUserProfileId: _userProfileId,
+    baseline: SettleoraBillRevisionReviewBaseline(
+      baselineType:
+          SettleoraBillRevisionReviewBaselineTypeValues.activeAcceptedBill,
+      baselineBillRevisionId: '11111111-1111-1111-1111-111111111111',
+      baselineRevisionStatus: SettleoraBillRevisionStatusValues.acceptedApplied,
+      baselineReviewedAtUtc: null,
+      derivationReason: 'Server selected the active accepted bill baseline.',
+    ),
+    defaultViewMode: SettleoraBillRevisionReviewViewModeValues.fullBill,
+    fullViewRecommendedReason:
+        SettleoraBillRevisionReviewRecommendationReasonValues
+            .baselineAvailableFullViewOptional,
+    viewerFinancialImpact: const SettleoraBillRevisionViewerFinancialImpact(
+      previousShare: SettleoraBillRevisionMoneyValue(
+        amount: '10.80',
+        currency: 'USD',
+      ),
+      proposedShare: SettleoraBillRevisionMoneyValue(
+        amount: '10.80',
+        currency: 'USD',
+      ),
+      deltaShare: SettleoraBillRevisionMoneyValue(
+        amount: '0.00',
+        currency: 'USD',
+      ),
+      affectedByRevision: true,
+      isPayer: false,
+      payerImpact: null,
+    ),
+    changeSummary: const [],
+    changes: const [],
+    limitations: const [],
   );
 }
 
@@ -777,6 +1177,10 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 }
 
 const _billId = '22222222-2222-2222-2222-222222222222';
+const _revisionId = '33333333-3333-3333-3333-333333333333';
+const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
 const _userProfileId = '55555555-5555-5555-5555-555555555555';
+const _hash =
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);
 final _attemptedAtUtc = DateTime.utc(2026, 5, 17, 11);

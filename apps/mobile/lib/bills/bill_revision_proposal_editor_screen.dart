@@ -14,7 +14,8 @@ class SettleoraBillRevisionProposalEditorScreen extends StatefulWidget {
        billId = revision.billId,
        revisionId = revision.id,
        initialProposal = null,
-       initialRevision = revision;
+       initialRevision = revision,
+       onCreate = null;
 
   const SettleoraBillRevisionProposalEditorScreen.create({
     super.key,
@@ -22,6 +23,7 @@ class SettleoraBillRevisionProposalEditorScreen extends StatefulWidget {
     required this.billId,
     required this.billLabel,
     required this.initialProposal,
+    this.onCreate,
   }) : mode = SettleoraBillRevisionProposalEditorMode.create,
        revisionId = null,
        initialRevision = null;
@@ -33,6 +35,10 @@ class SettleoraBillRevisionProposalEditorScreen extends StatefulWidget {
   final String billLabel;
   final SettleoraBillRevision? initialRevision;
   final SettleoraBillRevisionProposalSnapshot? initialProposal;
+  final Future<SettleoraBillRevision> Function(
+    SettleoraBillRevisionProposalSnapshot proposal,
+  )?
+  onCreate;
 
   @override
   State<SettleoraBillRevisionProposalEditorScreen> createState() =>
@@ -153,7 +159,7 @@ class _SettleoraBillRevisionProposalEditorScreenState
     try {
       final saved = switch (widget.mode) {
         SettleoraBillRevisionProposalEditorMode.create =>
-          await widget.repository.createBillRevision(widget.billId, proposal),
+          await _createWithFreshCapability(proposal),
         SettleoraBillRevisionProposalEditorMode.revise =>
           await _reviseWithFreshCapability(proposal),
       };
@@ -178,6 +184,17 @@ class _SettleoraBillRevisionProposalEditorScreenState
         });
       }
     }
+  }
+
+  Future<SettleoraBillRevision> _createWithFreshCapability(
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    final onCreate = widget.onCreate;
+    if (onCreate != null) {
+      return onCreate(proposal);
+    }
+
+    return widget.repository.createBillRevision(widget.billId, proposal);
   }
 
   Future<SettleoraBillRevision> _reviseWithFreshCapability(

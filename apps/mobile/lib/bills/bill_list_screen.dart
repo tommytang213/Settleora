@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
+import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 import 'bill_revision_review_screen.dart';
 import 'bill_repository.dart';
@@ -435,6 +436,8 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
   SettleoraBillRevisionFailure? _revisionFailure;
+  SettleoraBillRevisionFailure? _createFailure;
+  bool _isOpeningCreate = false;
 
   @override
   void initState() {
@@ -447,6 +450,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       _isLoading = true;
       _failure = null;
       _revisionFailure = null;
+      _createFailure = null;
     });
 
     try {
@@ -502,6 +506,97 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     }
   }
 
+  Future<void> _openCreateRevision() async {
+    final revisionRepository = widget.revisionRepository;
+    if (revisionRepository == null || _isOpeningCreate) {
+      return;
+    }
+
+    setState(() {
+      _isOpeningCreate = true;
+      _createFailure = null;
+    });
+
+    late final SettleoraBillDetail freshBill;
+    try {
+      freshBill = await widget.repository.getPersonalBill(widget.billId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _bill = freshBill;
+      });
+      _assertCanCreateRevision(freshBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _createFailure = _createRevisionFailureFrom(error);
+        _isOpeningCreate = false;
+      });
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isOpeningCreate = false;
+    });
+
+    final created = await Navigator.of(context).push<SettleoraBillRevision>(
+      MaterialPageRoute(
+        builder: (_) => SettleoraBillRevisionProposalEditorScreen.create(
+          repository: revisionRepository,
+          billId: freshBill.id,
+          billLabel: freshBill.displayName,
+          initialProposal: _proposalFromBillDetail(freshBill),
+          onCreate: (proposal) =>
+              _createWithFreshPersonalCapability(revisionRepository, proposal),
+        ),
+      ),
+    );
+
+    if (!mounted || created == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillRevisionReviewScreen(
+          repository: revisionRepository,
+          billId: created.billId,
+          revisionId: created.id,
+          billLabel: freshBill.displayName,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
+    }
+  }
+
+  Future<SettleoraBillRevision> _createWithFreshPersonalCapability(
+    SettleoraBillRevisionRepository revisionRepository,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    try {
+      final freshBill = await widget.repository.getPersonalBill(widget.billId);
+      if (mounted) {
+        setState(() {
+          _bill = freshBill;
+        });
+      }
+      _assertCanCreateRevision(freshBill);
+      return revisionRepository.createBillRevision(freshBill.id, proposal);
+    } catch (error) {
+      throw _createRevisionFailureFrom(error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -552,6 +647,22 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                   const SizedBox(height: 14),
                   _RevisionUnavailableBanner(failure: _revisionFailure!),
                 ],
+                if (_canShowCreateRevisionAction(
+                  bill,
+                  widget.revisionRepository,
+                )) ...[
+                  const SizedBox(height: 14),
+                  _CreateRevisionAction(
+                    key: const Key('bill-detail-propose-change-card'),
+                    buttonKey: const Key('bill-detail-propose-change'),
+                    isLoading: _isOpeningCreate,
+                    onPressed: _openCreateRevision,
+                  ),
+                ],
+                if (_createFailure != null) ...[
+                  const SizedBox(height: 14),
+                  _CreateRevisionFailureBanner(failure: _createFailure!),
+                ],
                 const SizedBox(height: 20),
                 _BillItems(items: bill.items),
                 const SizedBox(height: 20),
@@ -597,6 +708,8 @@ class _SettleoraGroupBillDetailScreenState
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
   SettleoraBillRevisionFailure? _revisionFailure;
+  SettleoraBillRevisionFailure? _createFailure;
+  bool _isOpeningCreate = false;
 
   @override
   void initState() {
@@ -609,6 +722,7 @@ class _SettleoraGroupBillDetailScreenState
       _isLoading = true;
       _failure = null;
       _revisionFailure = null;
+      _createFailure = null;
     });
 
     try {
@@ -667,6 +781,103 @@ class _SettleoraGroupBillDetailScreenState
     }
   }
 
+  Future<void> _openCreateRevision() async {
+    final revisionRepository = widget.revisionRepository;
+    if (revisionRepository == null || _isOpeningCreate) {
+      return;
+    }
+
+    setState(() {
+      _isOpeningCreate = true;
+      _createFailure = null;
+    });
+
+    late final SettleoraBillDetail freshBill;
+    try {
+      freshBill = await widget.repository.getGroupBill(
+        widget.groupId,
+        widget.billId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _bill = freshBill;
+      });
+      _assertCanCreateRevision(freshBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _createFailure = _createRevisionFailureFrom(error);
+        _isOpeningCreate = false;
+      });
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isOpeningCreate = false;
+    });
+
+    final created = await Navigator.of(context).push<SettleoraBillRevision>(
+      MaterialPageRoute(
+        builder: (_) => SettleoraBillRevisionProposalEditorScreen.create(
+          repository: revisionRepository,
+          billId: freshBill.id,
+          billLabel: freshBill.displayName,
+          initialProposal: _proposalFromBillDetail(freshBill),
+          onCreate: (proposal) =>
+              _createWithFreshGroupCapability(revisionRepository, proposal),
+        ),
+      ),
+    );
+
+    if (!mounted || created == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillRevisionReviewScreen(
+          repository: revisionRepository,
+          billId: created.billId,
+          revisionId: created.id,
+          billLabel: freshBill.displayName,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
+    }
+  }
+
+  Future<SettleoraBillRevision> _createWithFreshGroupCapability(
+    SettleoraBillRevisionRepository revisionRepository,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    try {
+      final freshBill = await widget.repository.getGroupBill(
+        widget.groupId,
+        widget.billId,
+      );
+      if (mounted) {
+        setState(() {
+          _bill = freshBill;
+        });
+      }
+      _assertCanCreateRevision(freshBill);
+      return revisionRepository.createBillRevision(freshBill.id, proposal);
+    } catch (error) {
+      throw _createRevisionFailureFrom(error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -719,6 +930,22 @@ class _SettleoraGroupBillDetailScreenState
                 ] else if (_revisionFailure != null) ...[
                   const SizedBox(height: 14),
                   _RevisionUnavailableBanner(failure: _revisionFailure!),
+                ],
+                if (_canShowCreateRevisionAction(
+                  bill,
+                  widget.revisionRepository,
+                )) ...[
+                  const SizedBox(height: 14),
+                  _CreateRevisionAction(
+                    key: const Key('group-bill-detail-propose-change-card'),
+                    buttonKey: const Key('group-bill-detail-propose-change'),
+                    isLoading: _isOpeningCreate,
+                    onPressed: _openCreateRevision,
+                  ),
+                ],
+                if (_createFailure != null) ...[
+                  const SizedBox(height: 14),
+                  _CreateRevisionFailureBanner(failure: _createFailure!),
                 ],
                 const SizedBox(height: 20),
                 _BillItems(items: bill.items),
@@ -959,6 +1186,83 @@ class _PendingRevisionBanner extends StatelessWidget {
                 label: const Text('Review revision'),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateRevisionAction extends StatelessWidget {
+  const _CreateRevisionAction({
+    super.key,
+    required this.buttonKey,
+    required this.isLoading,
+    required this.onPressed,
+  });
+
+  final Key buttonKey;
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.edit_note_outlined),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Revision proposal',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            FilledButton.icon(
+              key: buttonKey,
+              onPressed: isLoading ? null : onPressed,
+              icon: isLoading
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add),
+              label: const Text('Propose change'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateRevisionFailureBanner extends StatelessWidget {
+  const _CreateRevisionFailureBanner({required this.failure});
+
+  final SettleoraBillRevisionFailure failure;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const Key('bill-detail-propose-change-failure'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline),
+            const SizedBox(width: 10),
+            Expanded(child: Text('${failure.title}: ${failure.message}')),
           ],
         ),
       ),
@@ -1472,6 +1776,88 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+bool _canShowCreateRevisionAction(
+  SettleoraBillDetail bill,
+  SettleoraBillRevisionRepository? repository,
+) {
+  return repository != null && bill.revisionCreationActions.canCreateRevision;
+}
+
+void _assertCanCreateRevision(SettleoraBillDetail bill) {
+  if (bill.revisionCreationActions.canCreateRevision) {
+    return;
+  }
+
+  throw const SettleoraBillRevisionFailure(
+    kind: SettleoraBillRevisionFailureKind.conflict,
+    message:
+        'This bill can no longer accept a revision proposal. Review the refreshed bill before trying again.',
+  );
+}
+
+SettleoraBillRevisionProposalSnapshot _proposalFromBillDetail(
+  SettleoraBillDetail bill,
+) {
+  return SettleoraBillRevisionProposalSnapshot(
+    totalAmount: bill.totalAmount,
+    totalCurrency: bill.totalCurrency,
+    participants: bill.participants
+        .map(
+          (participant) => SettleoraBillRevisionProposalParticipantRow(
+            userProfileId: participant.userProfileId,
+            resolvedShareAmount: participant.resolvedShareAmount,
+            resolvedShareCurrency: participant.resolvedShareCurrency,
+          ),
+        )
+        .toList(growable: false),
+    payers: bill.payers
+        .map(
+          (payer) => SettleoraBillRevisionProposalPayerRow(
+            userProfileId: payer.userProfileId,
+            amount: payer.amount,
+            currency: payer.currency,
+          ),
+        )
+        .toList(growable: false),
+  );
+}
+
+SettleoraBillRevisionFailure _createRevisionFailureFrom(Object error) {
+  if (error is SettleoraBillRevisionFailure) {
+    return error;
+  }
+  if (error is SettleoraBillFailure) {
+    return SettleoraBillRevisionFailure(
+      kind: _revisionFailureKindFromBillFailure(error.kind),
+      message: error.message,
+      statusCode: error.statusCode,
+    );
+  }
+
+  return SettleoraBillRevisionFailure.from(error);
+}
+
+SettleoraBillRevisionFailureKind _revisionFailureKindFromBillFailure(
+  SettleoraBillFailureKind kind,
+) {
+  return switch (kind) {
+    SettleoraBillFailureKind.sessionRequired =>
+      SettleoraBillRevisionFailureKind.sessionRequired,
+    SettleoraBillFailureKind.sessionExpired =>
+      SettleoraBillRevisionFailureKind.sessionExpired,
+    SettleoraBillFailureKind.denied => SettleoraBillRevisionFailureKind.denied,
+    SettleoraBillFailureKind.unavailable =>
+      SettleoraBillRevisionFailureKind.unavailable,
+    SettleoraBillFailureKind.conflict =>
+      SettleoraBillRevisionFailureKind.conflict,
+    SettleoraBillFailureKind.validation =>
+      SettleoraBillRevisionFailureKind.validation,
+    SettleoraBillFailureKind.network =>
+      SettleoraBillRevisionFailureKind.network,
+    SettleoraBillFailureKind.server => SettleoraBillRevisionFailureKind.server,
+  };
 }
 
 Future<_PendingRevisionSnapshot> _loadPendingRevision(
