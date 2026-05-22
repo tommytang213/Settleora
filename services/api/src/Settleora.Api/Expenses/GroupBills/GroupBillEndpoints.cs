@@ -5,6 +5,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Expenses.BillSearch;
+using Settleora.Api.Expenses.BillRevisions;
 using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -166,7 +167,7 @@ internal static class GroupBillEndpoints
 
         return Results.Created(
             $"/api/v1/groups/{groupId:D}/bills/{bill.Id:D}",
-            MapResponse(bill, finalCalculation));
+            MapResponse(bill, finalCalculation, actor.UserProfileId));
     }
 
     private static async Task<IResult> ListGroupBillsAsync(
@@ -186,7 +187,7 @@ internal static class GroupBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
@@ -218,6 +219,7 @@ internal static class GroupBillEndpoints
         var bills = await ExpenseBillSearchQueries.VisibleGroupBillsIncludingArchived(dbContext, groupId)
             .ApplySearchFilter(filter)
             .WithBillDetails()
+            .Include(bill => bill.Revisions)
             .OrderForList()
             .Take(filter.Limit)
             .ToListAsync(cancellationToken);
@@ -231,7 +233,7 @@ internal static class GroupBillEndpoints
                 return GroupBillReadFailed();
             }
 
-            responses.Add(MapResponse(bill, calculation));
+            responses.Add(MapResponse(bill, calculation, actor.UserProfileId));
         }
 
         return Results.Ok(new GroupBillListResponse(responses));
@@ -246,7 +248,7 @@ internal static class GroupBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
         }
@@ -270,7 +272,7 @@ internal static class GroupBillEndpoints
 
         var calculation = calculationService.Calculate(bill);
         return calculation.Succeeded
-            ? Results.Ok(MapResponse(bill, calculation))
+            ? Results.Ok(MapResponse(bill, calculation, actor.UserProfileId))
             : GroupBillReadFailed();
     }
 
@@ -279,7 +281,8 @@ internal static class GroupBillEndpoints
         Guid groupId)
     {
         return ExpenseBillSearchQueries.VisibleGroupBills(dbContext, groupId)
-            .WithBillDetails();
+            .WithBillDetails()
+            .Include(bill => bill.Revisions);
     }
 
     private static async Task<HashSet<Guid>> LoadActiveGroupMemberIdsAsync(
@@ -1355,7 +1358,8 @@ internal static class GroupBillEndpoints
 
     private static GroupBillResponse MapResponse(
         ExpenseBill bill,
-        ExpenseBillCalculationResult calculation)
+        ExpenseBillCalculationResult calculation,
+        Guid actorUserProfileId)
     {
         return new GroupBillResponse(
             bill.Id,
@@ -1364,6 +1368,7 @@ internal static class GroupBillEndpoints
             bill.BillDate,
             bill.Status,
             ExpenseBillReconciliationEndpoints.MapReconciliationResponse(bill),
+            ExpenseBillRevisionCreationCapabilityPolicy.Build(bill, actorUserProfileId),
             FormatAmount(bill.TotalAmount),
             bill.TotalCurrency,
             bill.CreatedAtUtc,

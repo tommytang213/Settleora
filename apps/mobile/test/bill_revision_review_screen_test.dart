@@ -1064,6 +1064,9 @@ SettleoraBillDetail sampleBillDetail() {
     status: 'confirmed',
     reconciliationStatus: 'unreconciled',
     reconciliationNote: null,
+    revisionCreationActions: const SettleoraBillRevisionCreationActions(
+      canCreateRevision: false,
+    ),
     totalAmount: '10.00',
     totalCurrency: 'USD',
     createdAtUtc: _createdAtUtc,

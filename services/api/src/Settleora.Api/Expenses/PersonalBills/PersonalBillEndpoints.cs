@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Expenses.BillSearch;
+using Settleora.Api.Expenses.BillRevisions;
 using Settleora.Api.Expenses.Reconciliation;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -202,7 +203,7 @@ internal static class PersonalBillEndpoints
 
         return Results.Created(
             $"/api/v1/bills/{bill.Id:D}",
-            MapResponse(bill, finalCalculation));
+            MapResponse(bill, finalCalculation, actor.UserProfileId));
     }
 
     private static async Task<IResult> ListPersonalBillsAsync(
@@ -253,6 +254,7 @@ internal static class PersonalBillEndpoints
         var bills = await ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId)
             .ApplySearchFilter(filter)
             .WithBillDetails()
+            .Include(bill => bill.Revisions)
             .OrderForList()
             .Take(filter.Limit)
             .ToListAsync(cancellationToken);
@@ -266,7 +268,7 @@ internal static class PersonalBillEndpoints
                 return BillReadFailed();
             }
 
-            responses.Add(MapResponse(bill, calculation));
+            responses.Add(MapResponse(bill, calculation, actor.UserProfileId));
         }
 
         return Results.Ok(new PersonalBillListResponse(responses));
@@ -304,7 +306,7 @@ internal static class PersonalBillEndpoints
 
         var calculation = calculationService.Calculate(bill);
         return calculation.Succeeded
-            ? Results.Ok(MapResponse(bill, calculation))
+            ? Results.Ok(MapResponse(bill, calculation, actor.UserProfileId))
             : BillReadFailed();
     }
 
@@ -313,7 +315,8 @@ internal static class PersonalBillEndpoints
         Guid userProfileId)
     {
         return ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, userProfileId)
-            .WithBillDetails();
+            .WithBillDetails()
+            .Include(bill => bill.Revisions);
     }
 
     private static async Task<PersonalBillCreateReadResult> ReadCreateRequestAsync(
@@ -901,7 +904,8 @@ internal static class PersonalBillEndpoints
 
     private static PersonalBillResponse MapResponse(
         ExpenseBill bill,
-        ExpenseBillCalculationResult calculation)
+        ExpenseBillCalculationResult calculation,
+        Guid actorUserProfileId)
     {
         return new PersonalBillResponse(
             bill.Id,
@@ -909,6 +913,7 @@ internal static class PersonalBillEndpoints
             bill.BillDate,
             bill.Status,
             ExpenseBillReconciliationEndpoints.MapReconciliationResponse(bill),
+            ExpenseBillRevisionCreationCapabilityPolicy.Build(bill, actorUserProfileId),
             FormatAmount(bill.TotalAmount),
             bill.TotalCurrency,
             bill.CreatedAtUtc,

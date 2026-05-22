@@ -178,7 +178,7 @@ internal static class ExpenseBillRevisionEndpoints
             return InvalidBillRevisionRequest(readResult.Errors);
         }
 
-        if (!CanCreateRevisionForBillState(bill))
+        if (!ExpenseBillRevisionCreationCapabilityPolicy.CanCreateRevision(bill, actor.UserProfileId))
         {
             return BillRevisionConflict();
         }
@@ -266,7 +266,7 @@ internal static class ExpenseBillRevisionEndpoints
             return InvalidBillRevisionRequest(readResult.Errors);
         }
 
-        if (!CanCreateRevisionForBillState(bill))
+        if (!ExpenseBillRevisionCreationCapabilityPolicy.CanCreateRevisionForBillState(bill))
         {
             return BillRevisionConflict();
         }
@@ -1588,11 +1588,6 @@ internal static class ExpenseBillRevisionEndpoints
         }
 
         return calculationHash;
-    }
-
-    private static bool CanCreateRevisionForBillState(ExpenseBill bill)
-    {
-        return bill.Status is ExpenseBillStatuses.Confirmed or ExpenseBillStatuses.Rejected;
     }
 
     private static async Task<ExpenseBillRevisionResponse> MapRevisionAsync(

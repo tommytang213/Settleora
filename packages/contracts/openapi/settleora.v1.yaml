@@ -8292,6 +8292,14 @@ components:
           type: boolean
         canApply:
           type: boolean
+    BillRevisionCreationActionsResponse:
+      type: object
+      description: Server-authoritative bill-detail action capability hint for creating a bill revision proposal. It mirrors the same current bill state, bill participant, and active pending revision constraints enforced by the create-revision runtime path; clients must not infer this from roles, route IDs, status strings, cached profile IDs, or hidden UI.
+      required:
+        - canCreateRevision
+      properties:
+        canCreateRevision:
+          type: boolean
     BillRevisionParticipantResponse:
       type: object
       required:
@@ -8996,6 +9004,7 @@ components:
         - billDate
         - status
         - reconciliation
+        - revisionCreationActions
         - totalAmount
         - totalCurrency
         - createdAtUtc
@@ -9021,6 +9030,8 @@ components:
           $ref: "#/components/schemas/ExpenseBillStatus"
         reconciliation:
           $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
+        revisionCreationActions:
+          $ref: "#/components/schemas/BillRevisionCreationActionsResponse"
         totalAmount:
           type: string
           description: Decimal-safe total amount represented as a string.
@@ -10765,6 +10776,7 @@ components:
         - billDate
         - status
         - reconciliation
+        - revisionCreationActions
         - totalAmount
         - totalCurrency
         - createdAtUtc
@@ -10793,6 +10805,8 @@ components:
           $ref: "#/components/schemas/ExpenseBillStatus"
         reconciliation:
           $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
+        revisionCreationActions:
+          $ref: "#/components/schemas/BillRevisionCreationActionsResponse"
         totalAmount:
           type: string
           description: Decimal-safe total amount represented as a string.

@@ -64,6 +64,7 @@ void main() {
       expect(detail.id, _billId);
       expect(detail.displayName, 'Corner Market');
       expect(detail.totalAmount, '10.80');
+      expect(detail.revisionCreationActions.canCreateRevision, isTrue);
       expect(detail.items.single.name, 'Milk');
       expect(detail.participants.single.resolvedShareAmount, '10.80');
       expect(detail.payers.single.amount, '10.80');
@@ -116,6 +117,7 @@ void main() {
       expect(bills.last.displayName, 'Group bill');
       expect(bills.last.archiveState, SettleoraBillArchiveStateValues.archived);
       expect(detail.displayName, 'Corner Market');
+      expect(detail.revisionCreationActions.canCreateRevision, isFalse);
       expect(detail.items.single.name, 'Milk');
       expect(detail.participants.single.resolvedShareAmount, '10.80');
       expect(client.listGroupCalls, 2);
@@ -317,6 +319,9 @@ api.PersonalBillResponse sampleApiBill({
       reconciledAtUtc: null,
       note: null,
     ),
+    revisionCreationActions: const api.BillRevisionCreationActionsResponse(
+      canCreateRevision: true,
+    ),
     totalAmount: '10.80',
     totalCurrency: 'USD',
     createdAtUtc: _createdAtUtc,
@@ -383,6 +388,9 @@ api.GroupBillResponse sampleApiGroupBill({
       updatedByUserProfileId: null,
       reconciledAtUtc: null,
       note: null,
+    ),
+    revisionCreationActions: const api.BillRevisionCreationActionsResponse(
+      canCreateRevision: false,
     ),
     totalAmount: '10.80',
     totalCurrency: 'USD',
