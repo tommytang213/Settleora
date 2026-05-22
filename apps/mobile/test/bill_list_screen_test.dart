@@ -443,6 +443,13 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<SettleoraBillSummary>> listGroupBills(
     String groupId, {
     int limit = 50,

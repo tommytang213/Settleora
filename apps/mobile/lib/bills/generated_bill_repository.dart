@@ -13,6 +13,11 @@ abstract interface class SettleoraBillGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.PersonalBillResponse> createPersonalBill(
+    api.CreatePersonalBillRequest body, {
+    required String accessToken,
+  });
+
   Future<api.PersonalBillResponse> getPersonalBill(
     String billId, {
     required String accessToken,
@@ -49,6 +54,14 @@ class SettleoraPersonalBillGeneratedClient
       limit: limit,
       accessToken: accessToken,
     );
+  }
+
+  @override
+  Future<api.PersonalBillResponse> createPersonalBill(
+    api.CreatePersonalBillRequest body, {
+    required String accessToken,
+  }) {
+    return _client.createPersonalBill(body, accessToken: accessToken);
   }
 
   @override
@@ -121,6 +134,27 @@ class GeneratedSettleoraBillRepository implements SettleoraBillRepository {
     );
 
     return [...activeBills, ...archivedBills];
+  }
+
+  @override
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  ) {
+    final body = _mapCreateDraft(draft);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.createPersonalBill(
+          body,
+          accessToken: accessToken,
+        );
+        return _mapPersonalDetail(response);
+      } on SettleoraBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
   }
 
   @override
@@ -279,6 +313,88 @@ class GeneratedSettleoraBillRepository implements SettleoraBillRepository {
       return null;
     }
   }
+}
+
+api.CreatePersonalBillRequest _mapCreateDraft(
+  SettleoraPersonalBillCreateDraft draft,
+) {
+  final billDate = _requiredText(
+    draft.billDate,
+    blankMessage: 'Enter a bill date before creating a bill.',
+  );
+  final currency = _requiredCurrency(
+    draft.currency,
+    blankMessage: 'Choose a currency before creating a bill.',
+  );
+  if (draft.items.isEmpty) {
+    throw const SettleoraBillFailure(
+      kind: SettleoraBillFailureKind.validation,
+      message: 'Add at least one item before creating a bill.',
+    );
+  }
+
+  return api.CreatePersonalBillRequest(
+    merchantName: _optionalText(draft.merchantName),
+    billDate: billDate,
+    currency: currency,
+    items: draft.items.map(_mapCreateItemDraft).toList(growable: false),
+    adjustments: draft.adjustments.isEmpty
+        ? null
+        : draft.adjustments
+              .map(_mapCreateAdjustmentDraft)
+              .toList(growable: false),
+    payerPaymentMethodLabelSnapshot: _optionalText(
+      draft.payerPaymentMethodLabelSnapshot,
+    ),
+  );
+}
+
+api.CreatePersonalBillItemRequest _mapCreateItemDraft(
+  SettleoraPersonalBillCreateItemDraft draft,
+) {
+  return api.CreatePersonalBillItemRequest(
+    name: _requiredText(
+      draft.name,
+      blankMessage: 'Add a name for every bill item.',
+    ),
+    note: _optionalText(draft.note),
+    amount: _requiredText(
+      draft.amount,
+      blankMessage: 'Add an amount for every bill item.',
+    ),
+    currency: _requiredCurrency(
+      draft.currency,
+      blankMessage: 'Choose a currency for every bill item.',
+    ),
+  );
+}
+
+api.CreatePersonalBillAdjustmentRequest _mapCreateAdjustmentDraft(
+  SettleoraPersonalBillCreateAdjustmentDraft draft,
+) {
+  return api.CreatePersonalBillAdjustmentRequest(
+    type: _requiredText(
+      draft.type,
+      blankMessage: 'Choose a type for every adjustment.',
+    ),
+    direction: _requiredText(
+      draft.direction,
+      blankMessage: 'Choose a direction for every adjustment.',
+    ),
+    allocationMethod: _requiredText(
+      draft.allocationMethod,
+      blankMessage: 'Choose an allocation method for every adjustment.',
+    ),
+    amount: _requiredText(
+      draft.amount,
+      blankMessage: 'Add an amount for every adjustment.',
+    ),
+    currency: _requiredCurrency(
+      draft.currency,
+      blankMessage: 'Choose a currency for every adjustment.',
+    ),
+    reasonNote: _optionalText(draft.reasonNote),
+  );
 }
 
 SettleoraBillSummary _mapPersonalSummary(
@@ -561,6 +677,31 @@ String _requiredId(String value, {required String blankMessage}) {
       kind: SettleoraBillFailureKind.validation,
       message: blankMessage,
     );
+  }
+
+  return trimmed;
+}
+
+String _requiredText(String value, {required String blankMessage}) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    throw SettleoraBillFailure(
+      kind: SettleoraBillFailureKind.validation,
+      message: blankMessage,
+    );
+  }
+
+  return trimmed;
+}
+
+String _requiredCurrency(String value, {required String blankMessage}) {
+  return _requiredText(value, blankMessage: blankMessage).toUpperCase();
+}
+
+String? _optionalText(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
   }
 
   return trimmed;

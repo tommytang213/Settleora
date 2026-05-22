@@ -225,8 +225,62 @@ class SettleoraBillAdjustment {
   final int sortOrder;
 }
 
+class SettleoraPersonalBillCreateDraft {
+  const SettleoraPersonalBillCreateDraft({
+    this.merchantName,
+    required this.billDate,
+    required this.currency,
+    required this.items,
+    this.adjustments = const [],
+    this.payerPaymentMethodLabelSnapshot,
+  });
+
+  final String? merchantName;
+  final String billDate;
+  final String currency;
+  final List<SettleoraPersonalBillCreateItemDraft> items;
+  final List<SettleoraPersonalBillCreateAdjustmentDraft> adjustments;
+  final String? payerPaymentMethodLabelSnapshot;
+}
+
+class SettleoraPersonalBillCreateItemDraft {
+  const SettleoraPersonalBillCreateItemDraft({
+    required this.name,
+    this.note,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String name;
+  final String? note;
+  final String amount;
+  final String currency;
+}
+
+class SettleoraPersonalBillCreateAdjustmentDraft {
+  const SettleoraPersonalBillCreateAdjustmentDraft({
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    required this.currency,
+    this.reasonNote,
+  });
+
+  final String type;
+  final String direction;
+  final String allocationMethod;
+  final String amount;
+  final String currency;
+  final String? reasonNote;
+}
+
 abstract class SettleoraBillRepository {
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50});
+
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  );
 
   Future<SettleoraBillDetail> getPersonalBill(String billId);
 

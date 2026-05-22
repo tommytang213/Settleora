@@ -481,6 +481,13 @@ class FakeBillRepository implements SettleoraBillRepository {
   int getGroupCalls = 0;
 
   @override
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraBillDetail> getGroupBill(
     String groupId,
     String billId,
