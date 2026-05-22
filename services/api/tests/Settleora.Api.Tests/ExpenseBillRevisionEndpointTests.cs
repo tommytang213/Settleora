@@ -261,6 +261,202 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task PersonalBillDetailExposesRevisionCreationCapabilityForEligibleStatesOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Actor");
+        var participant = await SeedAccountAsync(testFactory, "Revision Capability Participant", InitialTimestamp.AddMinutes(1));
+        using var client = testFactory.CreateClient();
+
+        foreach (var status in new[] { ExpenseBillStatuses.Confirmed, ExpenseBillStatuses.Rejected })
+        {
+            var billId = await SeedBillAsync(
+                testFactory,
+                actorSession.UserProfileId,
+                ownerProfileId: actorSession.UserProfileId,
+                groupId: null,
+                [
+                    new ParticipantSeed(actorSession.UserProfileId, 50m),
+                    new ParticipantSeed(participant.UserProfileId, 50m)
+                ],
+                [new PayerSeed(actorSession.UserProfileId, 100m)],
+                status,
+                InitialTimestamp);
+
+            using var request = CreateBearerRequest(HttpMethod.Get, PersonalBillPath(billId), actorSession.RawSessionToken);
+            using var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var payload = JsonDocument.Parse(content);
+            AssertRevisionCreationCapability(payload.RootElement, canCreateRevision: true);
+        }
+
+        foreach (var status in new[]
+        {
+            ExpenseBillStatuses.Draft,
+            ExpenseBillStatuses.PendingConfirmation,
+            ExpenseBillStatuses.Finalized,
+            ExpenseBillStatuses.Archived,
+            "unsupported_bill_state"
+        })
+        {
+            var billId = await SeedBillAsync(
+                testFactory,
+                actorSession.UserProfileId,
+                ownerProfileId: actorSession.UserProfileId,
+                groupId: null,
+                [
+                    new ParticipantSeed(actorSession.UserProfileId, 50m),
+                    new ParticipantSeed(participant.UserProfileId, 50m)
+                ],
+                [new PayerSeed(actorSession.UserProfileId, 100m)],
+                status,
+                InitialTimestamp);
+
+            using var request = CreateBearerRequest(HttpMethod.Get, PersonalBillPath(billId), actorSession.RawSessionToken);
+            using var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var payload = JsonDocument.Parse(content);
+            AssertRevisionCreationCapability(payload.RootElement, canCreateRevision: false);
+        }
+
+        var activePendingBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            ownerProfileId: actorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(actorSession.UserProfileId, 50m),
+                new ParticipantSeed(participant.UserProfileId, 50m)
+            ],
+            [new PayerSeed(actorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        await CreateDraftRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            activePendingBillId,
+            actorSession.RawSessionToken,
+            actorSession.UserProfileId,
+            participant.UserProfileId);
+
+        using var blockedRequest = CreateBearerRequest(HttpMethod.Get, PersonalBillPath(activePendingBillId), actorSession.RawSessionToken);
+        using var blockedResponse = await client.SendAsync(blockedRequest);
+        var blockedContent = await blockedResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, blockedResponse.StatusCode);
+        using var blockedPayload = JsonDocument.Parse(blockedContent);
+        AssertRevisionCreationCapability(blockedPayload.RootElement, canCreateRevision: false);
+    }
+
+    [Fact]
+    public async Task GroupBillDetailRevisionCreationCapabilityRequiresBillParticipant()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Group Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Group Participant");
+        var observerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Group Observer");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Revision Capability Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(participantSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(observerSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using var participantRequest = CreateBearerRequest(HttpMethod.Get, GroupBillPath(groupId, billId), participantSession.RawSessionToken);
+        using var participantResponse = await client.SendAsync(participantRequest);
+        var participantContent = await participantResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, participantResponse.StatusCode);
+        using (var participantPayload = JsonDocument.Parse(participantContent))
+        {
+            AssertRevisionCreationCapability(participantPayload.RootElement, canCreateRevision: true);
+        }
+
+        using var observerRequest = CreateBearerRequest(HttpMethod.Get, GroupBillPath(groupId, billId), observerSession.RawSessionToken);
+        using var observerResponse = await client.SendAsync(observerRequest);
+        var observerContent = await observerResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, observerResponse.StatusCode);
+        using var observerPayload = JsonDocument.Parse(observerContent);
+        AssertRevisionCreationCapability(observerPayload.RootElement, canCreateRevision: false);
+    }
+
+    [Fact]
+    public async Task BillDetailRevisionCreationCapabilityFailsClosedForUnauthorizedActors()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Owner");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Authorized Participant");
+        var unrelatedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Capability Unrelated");
+        var personalBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Revision Capability Closed Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(participantSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var groupBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using (var personalRequest = CreateBearerRequest(HttpMethod.Get, PersonalBillPath(personalBillId), unrelatedSession.RawSessionToken))
+        using (var personalResponse = await client.SendAsync(personalRequest))
+        {
+            await AssertUnavailableWithoutRevisionCreationCapabilityAsync(personalResponse);
+        }
+
+        using var groupRequest = CreateBearerRequest(HttpMethod.Get, GroupBillPath(groupId, groupBillId), unrelatedSession.RawSessionToken);
+        using var groupResponse = await client.SendAsync(groupRequest);
+        await AssertUnavailableWithoutRevisionCreationCapabilityAsync(groupResponse);
+    }
+
+    [Fact]
     public async Task DraftProposalCanSubmitAndWithdrawOnlyByProposerPolicy()
     {
         var testContext = CreateFactory();
@@ -2149,7 +2345,10 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     public void OpenApiAndGeneratedClientsExposeBillRevisionReviewContext()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
+        var personalBillSchema = ExtractOpenApiSchemaBlock(openApi, "PersonalBillResponse:");
+        var groupBillSchema = ExtractOpenApiSchemaBlock(openApi, "GroupBillResponse:");
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionResponse:");
+        var creationActionsSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionCreationActionsResponse:");
         var viewerActionsSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionViewerActionsResponse:");
         var reviewContextSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewContextResponse:");
         var baselineTypeSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionReviewBaselineType:");
@@ -2157,6 +2356,10 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         var changeSchema = ExtractOpenApiSchemaBlock(openApi, "BillRevisionChangeResponse:");
         var payerConfirmationRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ConfirmBillRevisionPayerRequest:");
 
+        Assert.Contains("revisionCreationActions", personalBillSchema, StringComparison.Ordinal);
+        Assert.Contains("revisionCreationActions", groupBillSchema, StringComparison.Ordinal);
+        Assert.Contains("canCreateRevision", creationActionsSchema, StringComparison.Ordinal);
+        Assert.Contains("clients must not infer", creationActionsSchema, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("reviewContext", responseSchema, StringComparison.Ordinal);
         Assert.Contains("viewerActions", responseSchema, StringComparison.Ordinal);
         Assert.Contains("canConfirmPayer", viewerActionsSchema, StringComparison.Ordinal);
@@ -2178,12 +2381,16 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         var webClient = File.ReadAllText(FindRepoFile("packages/client-web/src/generated/client.ts"));
         var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/models.dart"));
         var dartClient = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/client.dart"));
+        Assert.Contains("revisionCreationActions: BillRevisionCreationActionsResponse", webModels, StringComparison.Ordinal);
+        Assert.Contains("export interface BillRevisionCreationActionsResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("reviewContext: BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("viewerActions: BillRevisionViewerActionsResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("export interface BillRevisionViewerActionsResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("export interface BillRevisionReviewContextResponse", webModels, StringComparison.Ordinal);
         Assert.Contains("ConfirmBillRevisionPayerRequest", webModels, StringComparison.Ordinal);
         Assert.Contains("confirmBillRevisionPayer", webClient, StringComparison.Ordinal);
+        Assert.Contains("final BillRevisionCreationActionsResponse revisionCreationActions", dartModels, StringComparison.Ordinal);
+        Assert.Contains("class BillRevisionCreationActionsResponse", dartModels, StringComparison.Ordinal);
         Assert.Contains("final BillRevisionReviewContextResponse reviewContext", dartModels, StringComparison.Ordinal);
         Assert.Contains("final BillRevisionViewerActionsResponse viewerActions", dartModels, StringComparison.Ordinal);
         Assert.Contains("class BillRevisionViewerActionsResponse", dartModels, StringComparison.Ordinal);
@@ -3133,6 +3340,16 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         return $"/api/v1/bills/{billId:D}/revisions";
     }
 
+    private static string PersonalBillPath(Guid billId)
+    {
+        return $"/api/v1/bills/{billId:D}";
+    }
+
+    private static string GroupBillPath(Guid groupId, Guid billId)
+    {
+        return $"/api/v1/groups/{groupId:D}/bills/{billId:D}";
+    }
+
     private static string RevisionPath(Guid billId, Guid revisionId)
     {
         return $"/api/v1/bills/{billId:D}/revisions/{revisionId:D}";
@@ -3186,6 +3403,23 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Equal(
             "The requested bill revision transition is not allowed.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static void AssertRevisionCreationCapability(
+        JsonElement root,
+        bool canCreateRevision)
+    {
+        var actions = root.GetProperty("revisionCreationActions");
+        Assert.Equal(canCreateRevision, actions.GetProperty("canCreateRevision").GetBoolean());
+    }
+
+    private static async Task AssertUnavailableWithoutRevisionCreationCapabilityAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain("revisionCreationActions", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("canCreateRevision", content, StringComparison.Ordinal);
     }
 
     private sealed record FactoryTestContext(

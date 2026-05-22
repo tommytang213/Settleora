@@ -685,6 +685,13 @@ export interface BillRevisionViewerActionsResponse {
   canApply: boolean;
 }
 
+/**
+ * Server-authoritative bill-detail action capability hint for creating a bill revision proposal. It mirrors the same current bill state, bill participant, and active pending revision constraints enforced by the create-revision runtime path; clients must not infer this from roles, route IDs, status strings, cached profile IDs, or hidden UI.
+ */
+export interface BillRevisionCreationActionsResponse {
+  canCreateRevision: boolean;
+}
+
 export interface BillRevisionParticipantResponse {
   userProfileId: string;
   resolvedShareAmount: string;
@@ -1003,6 +1010,7 @@ export interface PersonalBillResponse {
   billDate: string;
   status: ExpenseBillStatus;
   reconciliation: ExpenseBillReconciliationResponse;
+  revisionCreationActions: BillRevisionCreationActionsResponse;
   /**
    * Decimal-safe total amount represented as a string.
    */
@@ -1961,6 +1969,7 @@ export interface GroupBillResponse {
   billDate: string;
   status: ExpenseBillStatus;
   reconciliation: ExpenseBillReconciliationResponse;
+  revisionCreationActions: BillRevisionCreationActionsResponse;
   /**
    * Decimal-safe total amount represented as a string.
    */

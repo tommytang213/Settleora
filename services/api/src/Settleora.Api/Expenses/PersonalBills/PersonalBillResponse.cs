@@ -1,4 +1,5 @@
 using Settleora.Api.Expenses.Reconciliation;
+using Settleora.Api.Expenses.BillRevisions;
 
 namespace Settleora.Api.Expenses.PersonalBills;
 
@@ -11,6 +12,7 @@ internal sealed record PersonalBillResponse(
     DateOnly BillDate,
     string Status,
     ExpenseBillReconciliationResponse Reconciliation,
+    BillRevisionCreationActionsResponse RevisionCreationActions,
     string TotalAmount,
     string TotalCurrency,
     DateTimeOffset CreatedAtUtc,

@@ -63,7 +63,7 @@ internal static class ExpenseBillRevisionActionCapabilityPolicy
         ExpenseBillRevision revision,
         Guid viewerUserProfileId)
     {
-        return CanCreateRevisionForBillState(bill)
+        return ExpenseBillRevisionCreationCapabilityPolicy.CanCreateRevisionForBillState(bill)
             && revision.ProposalCreatorUserProfileId == viewerUserProfileId
             && ExpenseBillRevisionStatuses.IsActivePending(revision.Status);
     }
@@ -108,8 +108,4 @@ internal static class ExpenseBillRevisionActionCapabilityPolicy
             && payer.PayerConfirmationStatus == ExpenseBillPayerConfirmationStatuses.PendingConfirmation;
     }
 
-    private static bool CanCreateRevisionForBillState(ExpenseBill bill)
-    {
-        return bill.Status is ExpenseBillStatuses.Confirmed or ExpenseBillStatuses.Rejected;
-    }
 }

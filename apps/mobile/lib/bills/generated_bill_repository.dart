@@ -332,6 +332,9 @@ SettleoraBillDetail _mapPersonalDetail(api.PersonalBillResponse response) {
     status: response.status,
     reconciliationStatus: response.reconciliation.status,
     reconciliationNote: response.reconciliation.note,
+    revisionCreationActions: _mapRevisionCreationActions(
+      response.revisionCreationActions,
+    ),
     totalAmount: response.totalAmount,
     totalCurrency: response.totalCurrency,
     createdAtUtc: response.createdAtUtc.toUtc(),
@@ -355,6 +358,9 @@ SettleoraBillDetail _mapGroupDetail(api.GroupBillResponse response) {
     status: response.status,
     reconciliationStatus: response.reconciliation.status,
     reconciliationNote: response.reconciliation.note,
+    revisionCreationActions: _mapRevisionCreationActions(
+      response.revisionCreationActions,
+    ),
     totalAmount: response.totalAmount,
     totalCurrency: response.totalCurrency,
     createdAtUtc: response.createdAtUtc.toUtc(),
@@ -368,6 +374,14 @@ SettleoraBillDetail _mapGroupDetail(api.GroupBillResponse response) {
         .map(_mapGroupAdjustment)
         .toList(growable: false),
     displayNameFallback: 'Group bill',
+  );
+}
+
+SettleoraBillRevisionCreationActions _mapRevisionCreationActions(
+  api.BillRevisionCreationActionsResponse response,
+) {
+  return SettleoraBillRevisionCreationActions(
+    canCreateRevision: response.canCreateRevision,
   );
 }
 

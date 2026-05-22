@@ -116,6 +116,7 @@ class SettleoraBillDetail {
     required this.status,
     required this.reconciliationStatus,
     required this.reconciliationNote,
+    required this.revisionCreationActions,
     required this.totalAmount,
     required this.totalCurrency,
     required this.createdAtUtc,
@@ -133,6 +134,7 @@ class SettleoraBillDetail {
   final SettleoraBillStatus status;
   final SettleoraBillReconciliationStatus reconciliationStatus;
   final String? reconciliationNote;
+  final SettleoraBillRevisionCreationActions revisionCreationActions;
   final String totalAmount;
   final String totalCurrency;
   final DateTime createdAtUtc;
@@ -151,6 +153,12 @@ class SettleoraBillDetail {
 
     return trimmed;
   }
+}
+
+class SettleoraBillRevisionCreationActions {
+  const SettleoraBillRevisionCreationActions({required this.canCreateRevision});
+
+  final bool canCreateRevision;
 }
 
 class SettleoraBillItem {

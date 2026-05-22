@@ -2113,6 +2113,27 @@ class BillRevisionViewerActionsResponse {
   }
 }
 
+/// Server-authoritative bill-detail action capability hint for creating a bill revision proposal. It mirrors the same current bill state, bill participant, and active pending revision constraints enforced by the create-revision runtime path; clients must not infer this from roles, route IDs, status strings, cached profile IDs, or hidden UI.
+class BillRevisionCreationActionsResponse {
+  const BillRevisionCreationActionsResponse({
+    required this.canCreateRevision,
+  });
+
+  final bool canCreateRevision;
+
+  factory BillRevisionCreationActionsResponse.fromJson(JsonObject json) {
+    return BillRevisionCreationActionsResponse(
+      canCreateRevision: json["canCreateRevision"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "canCreateRevision": canCreateRevision,
+    };
+  }
+}
+
 class BillRevisionParticipantResponse {
   const BillRevisionParticipantResponse({
     required this.userProfileId,
@@ -3108,6 +3129,7 @@ class PersonalBillResponse {
     required this.billDate,
     required this.status,
     required this.reconciliation,
+    required this.revisionCreationActions,
     required this.totalAmount,
     required this.totalCurrency,
     required this.createdAtUtc,
@@ -3124,6 +3146,7 @@ class PersonalBillResponse {
   final String billDate;
   final ExpenseBillStatus status;
   final ExpenseBillReconciliationResponse reconciliation;
+  final BillRevisionCreationActionsResponse revisionCreationActions;
   /// Decimal-safe total amount represented as a string.
   final String totalAmount;
   final CurrencyCode totalCurrency;
@@ -3143,6 +3166,7 @@ class PersonalBillResponse {
       billDate: json["billDate"] as String,
       status: json["status"] as String,
       reconciliation: ExpenseBillReconciliationResponse.fromJson(JsonObject.from(json["reconciliation"] as Map)),
+      revisionCreationActions: BillRevisionCreationActionsResponse.fromJson(JsonObject.from(json["revisionCreationActions"] as Map)),
       totalAmount: json["totalAmount"] as String,
       totalCurrency: json["totalCurrency"] as String,
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
@@ -3164,6 +3188,7 @@ class PersonalBillResponse {
       "billDate": billDate,
       "status": status,
       "reconciliation": reconciliation.toJson(),
+      "revisionCreationActions": revisionCreationActions.toJson(),
       "totalAmount": totalAmount,
       "totalCurrency": totalCurrency,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
@@ -5655,6 +5680,7 @@ class GroupBillResponse {
     required this.billDate,
     required this.status,
     required this.reconciliation,
+    required this.revisionCreationActions,
     required this.totalAmount,
     required this.totalCurrency,
     required this.createdAtUtc,
@@ -5672,6 +5698,7 @@ class GroupBillResponse {
   final String billDate;
   final ExpenseBillStatus status;
   final ExpenseBillReconciliationResponse reconciliation;
+  final BillRevisionCreationActionsResponse revisionCreationActions;
   /// Decimal-safe total amount represented as a string.
   final String totalAmount;
   final CurrencyCode totalCurrency;
@@ -5692,6 +5719,7 @@ class GroupBillResponse {
       billDate: json["billDate"] as String,
       status: json["status"] as String,
       reconciliation: ExpenseBillReconciliationResponse.fromJson(JsonObject.from(json["reconciliation"] as Map)),
+      revisionCreationActions: BillRevisionCreationActionsResponse.fromJson(JsonObject.from(json["revisionCreationActions"] as Map)),
       totalAmount: json["totalAmount"] as String,
       totalCurrency: json["totalCurrency"] as String,
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
@@ -5714,6 +5742,7 @@ class GroupBillResponse {
       "billDate": billDate,
       "status": status,
       "reconciliation": reconciliation.toJson(),
+      "revisionCreationActions": revisionCreationActions.toJson(),
       "totalAmount": totalAmount,
       "totalCurrency": totalCurrency,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
