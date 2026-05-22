@@ -186,6 +186,50 @@ void main() {
       expect(find.textContaining('Refresh needed'), findsOneWidget);
     },
   );
+
+  testWidgets('group bill create save refreshes capability before mutation', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary()],
+      details: [
+        sampleBillDetail(canCreateRevision: true),
+        sampleBillDetail(canCreateRevision: true),
+        sampleBillDetail(canCreateRevision: false),
+      ],
+    );
+    final revisionRepository = FakeBillRevisionRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getGroupCalls, 3);
+    expect(revisionRepository.createCalls, 0);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text(
+        'This bill can no longer accept a revision proposal. Review the refreshed bill before trying again.',
+      ),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {

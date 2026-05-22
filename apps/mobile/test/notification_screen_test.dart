@@ -183,6 +183,34 @@ void main() {
     );
   });
 
+  testWidgets('bill revision open action ignores action URLs', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+          actionUrl: '/api/v1/bills/$_billId/revisions/$_revisionId',
+          expenseBillId: null,
+          expenseBillRevisionId: null,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRevisionRepository: FakeBillRevisionRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsNothing,
+    );
+  });
+
   testWidgets('bill revision open action requires repository seam', (
     tester,
   ) async {
