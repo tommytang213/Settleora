@@ -14,5 +14,6 @@
     "**/obj/**": true,
     "**/build/**": true,
     "**/.dart_tool/**": true
-  }
+  },
+  "cmake.sourceDirectory": "I:/Repo/Settleora/apps/mobile/linux"
 }
