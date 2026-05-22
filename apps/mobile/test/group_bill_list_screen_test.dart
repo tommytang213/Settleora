@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
+import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 
 void main() {
@@ -94,27 +95,123 @@ void main() {
     expect(find.text('Group bill'), findsWidgets);
     expect(find.text('Items'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-detail-propose-change')),
+      findsNothing,
+    );
 
     await tester.tap(find.byKey(const Key('group-bill-detail-refresh')));
     await tester.pumpAndSettle();
 
     expect(repository.getGroupCalls, 2);
   });
+
+  testWidgets('group bill detail creates revision from server capability', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final detail = sampleBillDetail(canCreateRevision: true);
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary()],
+      details: [detail, detail, detail],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      createResponse: sampleRevision(id: _createdRevisionId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.getGroupCalls, 3);
+    expect(revisionRepository.createCalls, 1);
+    expect(revisionRepository.lastCreatedBillId, _billId);
+    expect(revisionRepository.lastProposal?.totalAmount, '10.80');
+    expect(find.text('Revision review'), findsOneWidget);
+  });
+
+  testWidgets(
+    'group bill detail stops stale create capability before opening',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        groupBills: [sampleBillSummary()],
+        details: [
+          sampleBillDetail(canCreateRevision: true),
+          sampleBillDetail(canCreateRevision: false),
+        ],
+      );
+      final revisionRepository = FakeBillRevisionRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            revisionRepository: revisionRepository,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('group-bill-detail-propose-change')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.getGroupCalls, 2);
+      expect(revisionRepository.createCalls, 0);
+      expect(
+        find.byKey(const Key('group-bill-detail-propose-change')),
+        findsNothing,
+      );
+      expect(find.textContaining('Refresh needed'), findsOneWidget);
+    },
+  );
+}
+
+Future<void> useLargeSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(900, 1600));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
   FakeBillRepository({
     this.groupBills = const [],
     SettleoraBillDetail? detail,
+    List<SettleoraBillDetail>? details,
     List<SettleoraBillFailure>? listFailures,
-  }) : detail = detail ?? sampleBillDetail(),
+  }) : details = details ?? [detail ?? sampleBillDetail()],
        listFailures = listFailures ?? [];
 
   final List<SettleoraBillSummary> groupBills;
-  final SettleoraBillDetail detail;
+  final List<SettleoraBillDetail> details;
   final List<SettleoraBillFailure> listFailures;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+
+  SettleoraBillDetail _detailForCall(int callIndex) {
+    final index = callIndex < details.length ? callIndex : details.length - 1;
+    return details[index];
+  }
 
   @override
   Future<SettleoraBillDetail> getGroupBill(
@@ -122,7 +219,7 @@ class FakeBillRepository implements SettleoraBillRepository {
     String billId,
   ) async {
     getGroupCalls += 1;
-    return detail;
+    return _detailForCall(getGroupCalls - 1);
   }
 
   @override
@@ -149,6 +246,106 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 }
 
+class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
+  FakeBillRevisionRepository({
+    this.revisions = const [],
+    SettleoraBillRevision? detailResponse,
+    SettleoraBillRevision? createResponse,
+  }) : detailResponse = detailResponse ?? createResponse ?? sampleRevision(),
+       createResponse = createResponse ?? detailResponse ?? sampleRevision();
+
+  final List<SettleoraBillRevision> revisions;
+  SettleoraBillRevision detailResponse;
+  SettleoraBillRevision createResponse;
+  int listCalls = 0;
+  int getCalls = 0;
+  int createCalls = 0;
+  String? lastCreatedBillId;
+  SettleoraBillRevisionProposalSnapshot? lastProposal;
+
+  @override
+  Future<List<SettleoraBillRevision>> listBillRevisions(String billId) async {
+    listCalls += 1;
+    return revisions;
+  }
+
+  @override
+  Future<SettleoraBillRevision> createBillRevision(
+    String billId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) async {
+    createCalls += 1;
+    lastCreatedBillId = billId;
+    lastProposal = proposal;
+    detailResponse = createResponse;
+    return createResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> getBillRevision(
+    String billId,
+    String revisionId,
+  ) async {
+    getCalls += 1;
+    return detailResponse;
+  }
+
+  @override
+  Future<SettleoraBillRevision> reviseBillRevision(
+    String billId,
+    String revisionId,
+    SettleoraBillRevisionProposalSnapshot proposal,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> submitBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> withdrawBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> approveBillRevision(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> rejectBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> confirmBillRevisionPayer(
+    SettleoraBillRevision revision,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillRevision> applyBillRevision(
+    String billId,
+    String revisionId,
+  ) {
+    throw UnimplementedError();
+  }
+}
+
 SettleoraBillSummary sampleBillSummary() {
   return SettleoraBillSummary(
     id: _billId,
@@ -168,7 +365,7 @@ SettleoraBillSummary sampleBillSummary() {
   );
 }
 
-SettleoraBillDetail sampleBillDetail() {
+SettleoraBillDetail sampleBillDetail({bool canCreateRevision = false}) {
   return SettleoraBillDetail(
     id: _billId,
     merchantName: 'Corner Market',
@@ -176,8 +373,8 @@ SettleoraBillDetail sampleBillDetail() {
     status: 'draft',
     reconciliationStatus: 'unreconciled',
     reconciliationNote: null,
-    revisionCreationActions: const SettleoraBillRevisionCreationActions(
-      canCreateRevision: false,
+    revisionCreationActions: SettleoraBillRevisionCreationActions(
+      canCreateRevision: canCreateRevision,
     ),
     totalAmount: '10.80',
     totalCurrency: 'USD',
@@ -195,7 +392,7 @@ SettleoraBillDetail sampleBillDetail() {
     ],
     participants: const [
       SettleoraBillParticipant(
-        userProfileId: 'profile-1',
+        userProfileId: _profileId,
         status: 'pending_acceptance',
         resolvedShareAmount: '10.80',
         resolvedShareCurrency: 'USD',
@@ -203,7 +400,7 @@ SettleoraBillDetail sampleBillDetail() {
     ],
     payers: const [
       SettleoraBillPayer(
-        userProfileId: 'profile-1',
+        userProfileId: _profileId,
         amount: '10.80',
         currency: 'USD',
       ),
@@ -213,7 +410,94 @@ SettleoraBillDetail sampleBillDetail() {
   );
 }
 
+SettleoraBillRevision sampleRevision({String id = _revisionId}) {
+  return SettleoraBillRevision(
+    id: id,
+    billId: _billId,
+    groupId: _groupId,
+    status: SettleoraBillRevisionStatusValues.draftRevision,
+    totalAmount: '10.80',
+    totalCurrency: 'USD',
+    calculationHash: _hash,
+    submittedAtUtc: null,
+    updatedAtUtc: _updatedAtUtc,
+    participants: const [
+      SettleoraBillRevisionParticipant(
+        userProfileId: _profileId,
+        resolvedShareAmount: '10.80',
+        resolvedShareCurrency: 'USD',
+        affectedByRevision: true,
+      ),
+    ],
+    payers: const [
+      SettleoraBillRevisionPayer(
+        userProfileId: _profileId,
+        amount: '10.80',
+        currency: 'USD',
+        requiresPayerConfirmation: false,
+        payerConfirmationStatus:
+            SettleoraBillRevisionPayerConfirmationStatusValues.confirmed,
+      ),
+    ],
+    approvals: const [],
+    viewerActions: const SettleoraBillRevisionViewerActions(
+      canSubmit: true,
+      canWithdraw: false,
+      canRevise: false,
+      canApprove: false,
+      canReject: false,
+      canConfirmPayer: false,
+      canApply: false,
+    ),
+    reviewContext: sampleReviewContext(),
+    viewerApprovalBasis: null,
+  );
+}
+
+SettleoraBillRevisionReviewContext sampleReviewContext() {
+  return SettleoraBillRevisionReviewContext(
+    viewerUserProfileId: _profileId,
+    baseline: SettleoraBillRevisionReviewBaseline(
+      baselineType:
+          SettleoraBillRevisionReviewBaselineTypeValues.activeAcceptedBill,
+      baselineBillRevisionId: '11111111-1111-1111-1111-111111111111',
+      baselineRevisionStatus: SettleoraBillRevisionStatusValues.acceptedApplied,
+      baselineReviewedAtUtc: null,
+      derivationReason: 'Server selected the active accepted bill baseline.',
+    ),
+    defaultViewMode: SettleoraBillRevisionReviewViewModeValues.fullBill,
+    fullViewRecommendedReason:
+        SettleoraBillRevisionReviewRecommendationReasonValues
+            .baselineAvailableFullViewOptional,
+    viewerFinancialImpact: const SettleoraBillRevisionViewerFinancialImpact(
+      previousShare: SettleoraBillRevisionMoneyValue(
+        amount: '10.80',
+        currency: 'USD',
+      ),
+      proposedShare: SettleoraBillRevisionMoneyValue(
+        amount: '10.80',
+        currency: 'USD',
+      ),
+      deltaShare: SettleoraBillRevisionMoneyValue(
+        amount: '0.00',
+        currency: 'USD',
+      ),
+      affectedByRevision: true,
+      isPayer: false,
+      payerImpact: null,
+    ),
+    changeSummary: const [],
+    changes: const [],
+    limitations: const [],
+  );
+}
+
 const _groupId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
+const _revisionId = '33333333-3333-3333-3333-333333333333';
+const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
+const _profileId = '55555555-5555-5555-5555-555555555555';
+const _hash =
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);
 final _updatedAtUtc = DateTime.utc(2026, 5, 17, 11);
