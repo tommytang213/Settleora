@@ -61,6 +61,251 @@ void main() {
     expect(billRepository.listCalls, 2);
   });
 
+  testWidgets('personal bill list shows create entry', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+    expect(find.text('Create bill'), findsOneWidget);
+  });
+
+  testWidgets('tapping create opens the personal bill create screen', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create bill'), findsWidgets);
+    expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
+    expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
+  });
+
+  testWidgets('create validation blocks blank fields and zero item rows', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('personal-bill-currency')), '');
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-currency-0')),
+      '',
+    );
+    await _tapSaveBill(tester);
+
+    expect(find.text('Enter a bill date.'), findsOneWidget);
+    expect(find.text('Enter a currency.'), findsOneWidget);
+    expect(find.text('Enter an item name.'), findsOneWidget);
+    expect(find.text('Enter an item amount.'), findsOneWidget);
+    expect(find.text('Enter an item currency.'), findsOneWidget);
+    expect(repository.createCalls, 0);
+
+    await tester.tap(find.byKey(const Key('personal-bill-item-remove-0')));
+    await tester.pumpAndSettle();
+    await _tapSaveBill(tester);
+
+    expect(find.text('Add at least one item before saving.'), findsOneWidget);
+    expect(repository.createCalls, 0);
+  });
+
+  testWidgets('create save sends expected personal bill draft strings', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      createdDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Brunch Spot',
+        billDate: '2026-05-23',
+        totalAmount: '12.30',
+        totalCurrency: 'USD',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      '  Brunch Spot  ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-date')),
+      '  2026-05-23  ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-currency')),
+      ' usd ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      '  Eggs  ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+      ' 12.30 ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-currency-0')),
+      ' usd ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-note-0')),
+      '  table 4  ',
+    );
+
+    await _tapSaveBill(tester);
+
+    final draft = repository.lastCreateDraft;
+    expect(repository.createCalls, 1);
+    expect(draft?.merchantName, '  Brunch Spot  ');
+    expect(draft?.billDate, '  2026-05-23  ');
+    expect(draft?.currency, ' usd ');
+    expect(draft?.items.single.name, '  Eggs  ');
+    expect(draft?.items.single.amount, ' 12.30 ');
+    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.note, '  table 4  ');
+  });
+
+  testWidgets(
+    'successful create opens returned bill detail and refreshes back',
+    (tester) async {
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'New Market',
+          billDate: '2026-05-23',
+          totalAmount: '7.50',
+          totalCurrency: 'USD',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalCreateForm(tester);
+      await _tapSaveBill(tester);
+
+      expect(find.text('Bill'), findsOneWidget);
+      expect(find.text('New Market'), findsOneWidget);
+      expect(repository.getCalls, 0);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 2);
+    },
+  );
+
+  testWidgets('create failure shows bounded safe copy and stays on form', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      createFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.server,
+        message: 'Bills are unavailable right now. Try again later.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalCreateForm(tester);
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(
+      find.byKey(const Key('personal-bill-create-failure')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Bills unavailable'), findsOneWidget);
+    expect(
+      find.textContaining('Bills are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(find.text('Create bill'), findsWidgets);
+  });
+
+  testWidgets('group bill list and detail do not show personal create entry', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(groupBills: [sampleBillSummary()]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupId: _groupId,
+          groupName: 'Trip',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-create')), findsNothing);
+    expect(find.text('Create bill'), findsNothing);
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-create')), findsNothing);
+    expect(find.text('Create bill'), findsNothing);
+  });
+
   testWidgets('bill list preserves queued work when session is missing', (
     tester,
   ) async {
@@ -408,6 +653,35 @@ Future<void> useLargeSurface(WidgetTester tester) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
+Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-date')),
+    '2026-05-23',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-currency')),
+    'USD',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-item-name-0')),
+    'Coffee',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-item-amount-0')),
+    '7.50',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-item-currency-0')),
+    'USD',
+  );
+}
+
+Future<void> _tapSaveBill(WidgetTester tester) async {
+  final saveButton = find.byKey(const Key('personal-bill-save'));
+  await tester.tap(saveButton);
+  await tester.pumpAndSettle();
+}
+
 SettleoraBillSyncController sampleBillSyncController() {
   final store = MemorySyncQueueStore();
   return SettleoraBillSyncController(
@@ -425,17 +699,24 @@ class FakeBillRepository implements SettleoraBillRepository {
     this.groupBills = const [],
     SettleoraBillDetail? detail,
     List<SettleoraBillDetail>? details,
+    SettleoraBillDetail? createdDetail,
     this.failure,
-  }) : details = details ?? [detail ?? sampleBillDetail()];
+    this.createFailure,
+  }) : details = details ?? [detail ?? sampleBillDetail()],
+       createdDetail = createdDetail ?? sampleBillDetail();
 
   final List<SettleoraBillSummary> bills;
   final List<SettleoraBillSummary> groupBills;
   final List<SettleoraBillDetail> details;
+  final SettleoraBillDetail createdDetail;
   final SettleoraBillFailure? failure;
+  final SettleoraBillFailure? createFailure;
   int listCalls = 0;
+  int createCalls = 0;
   int getCalls = 0;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+  SettleoraPersonalBillCreateDraft? lastCreateDraft;
 
   SettleoraBillDetail _detailForCall(int callIndex) {
     final index = callIndex < details.length ? callIndex : details.length - 1;
@@ -445,8 +726,15 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<SettleoraBillDetail> createPersonalBill(
     SettleoraPersonalBillCreateDraft draft,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    createCalls += 1;
+    lastCreateDraft = draft;
+    final failure = createFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return createdDetail;
   }
 
   @override
@@ -914,16 +1202,21 @@ class FakeAccessTokenProvider implements SettleoraAccessTokenProvider {
 }
 
 SettleoraBillSummary sampleBillSummary({
+  String id = _billId,
+  String? merchantName = 'Corner Market',
+  String billDate = '2026-05-17',
+  String totalAmount = '10.80',
+  String totalCurrency = 'USD',
   String archiveState = SettleoraBillArchiveStateValues.active,
 }) {
   return SettleoraBillSummary(
-    id: _billId,
-    merchantName: 'Corner Market',
-    billDate: '2026-05-17',
+    id: id,
+    merchantName: merchantName,
+    billDate: billDate,
     status: 'draft',
     reconciliationStatus: 'unreconciled',
-    totalAmount: '10.80',
-    totalCurrency: 'USD',
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
     archiveState: archiveState,
     itemCount: 1,
     participantCount: 1,
@@ -933,19 +1226,26 @@ SettleoraBillSummary sampleBillSummary({
   );
 }
 
-SettleoraBillDetail sampleBillDetail({bool canCreateRevision = false}) {
+SettleoraBillDetail sampleBillDetail({
+  String id = _billId,
+  String? merchantName = 'Corner Market',
+  String billDate = '2026-05-17',
+  String totalAmount = '10.80',
+  String totalCurrency = 'USD',
+  bool canCreateRevision = false,
+}) {
   return SettleoraBillDetail(
-    id: _billId,
-    merchantName: 'Corner Market',
-    billDate: '2026-05-17',
+    id: id,
+    merchantName: merchantName,
+    billDate: billDate,
     status: 'draft',
     reconciliationStatus: 'unreconciled',
     reconciliationNote: null,
     revisionCreationActions: SettleoraBillRevisionCreationActions(
       canCreateRevision: canCreateRevision,
     ),
-    totalAmount: '10.80',
-    totalCurrency: 'USD',
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _createdAtUtc,
     items: const [
@@ -1186,6 +1486,8 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
 const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
+const _createdBillId = '66666666-6666-6666-6666-666666666666';
+const _groupId = '99999999-9999-9999-9999-999999999999';
 const _userProfileId = '55555555-5555-5555-5555-555555555555';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
