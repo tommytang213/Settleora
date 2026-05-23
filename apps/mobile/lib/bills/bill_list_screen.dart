@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
+import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
+import 'bill_attachment_repository.dart';
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 import 'bill_revision_review_screen.dart';
@@ -14,11 +17,15 @@ class SettleoraBillListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.syncController,
+    this.attachmentRepository,
+    this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillSyncController syncController;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
@@ -176,6 +183,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SettleoraBillDetailScreen(
           repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: bill.id,
         ),
@@ -208,6 +217,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SettleoraBillDetailScreen(
           repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: createdBill.id,
           initialBill: createdBill,
@@ -728,6 +739,8 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.attachmentRepository,
+    this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
 
@@ -735,6 +748,8 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
@@ -790,6 +805,8 @@ class _SettleoraGroupBillListScreenState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupBillDetailScreen(
           repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
@@ -831,6 +848,8 @@ class _SettleoraGroupBillListScreenState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupBillDetailScreen(
           repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
@@ -1842,12 +1861,16 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     required this.repository,
     required this.billId,
     this.initialBill,
+    this.attachmentRepository,
+    this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final String billId;
   final SettleoraBillDetail? initialBill;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
@@ -1863,6 +1886,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
   bool _isOpeningCreate = false;
+  int _attachmentReloadRevision = 0;
 
   @override
   void initState() {
@@ -1915,6 +1939,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         _pendingRevision = revisionSnapshot.revision;
         _revisionFailure = revisionSnapshot.failure;
         _isLoading = false;
+        _attachmentReloadRevision += 1;
       });
     } catch (error) {
       if (!mounted) {
@@ -2118,6 +2143,17 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                 _BillPayers(payers: bill.payers),
                 const SizedBox(height: 20),
                 _BillAdjustments(adjustments: bill.adjustments),
+                if (widget.attachmentRepository != null) ...[
+                  const SizedBox(height: 20),
+                  _BillAttachmentSection(
+                    keyPrefix: 'bill-attachments',
+                    reloadRevision: _attachmentReloadRevision,
+                    route: SettleoraBillAttachmentRoute.personal(bill.id),
+                    repository: widget.attachmentRepository!,
+                    receiptOcrReviewRepository:
+                        widget.receiptOcrReviewRepository,
+                  ),
+                ],
               ],
             );
           },
@@ -2135,11 +2171,15 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.groupName,
     required this.billId,
     this.initialBill,
+    this.attachmentRepository,
+    this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final String groupId;
   final String groupName;
   final String billId;
@@ -2159,6 +2199,7 @@ class _SettleoraGroupBillDetailScreenState
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
   bool _isOpeningCreate = false;
+  int _attachmentReloadRevision = 0;
 
   @override
   void initState() {
@@ -2214,6 +2255,7 @@ class _SettleoraGroupBillDetailScreenState
         _pendingRevision = revisionSnapshot.revision;
         _revisionFailure = revisionSnapshot.failure;
         _isLoading = false;
+        _attachmentReloadRevision += 1;
       });
     } catch (error) {
       if (!mounted) {
@@ -2426,9 +2468,451 @@ class _SettleoraGroupBillDetailScreenState
                 _BillPayers(payers: bill.payers),
                 const SizedBox(height: 20),
                 _BillAdjustments(adjustments: bill.adjustments),
+                if (widget.attachmentRepository != null) ...[
+                  const SizedBox(height: 20),
+                  _BillAttachmentSection(
+                    keyPrefix: 'group-bill-attachments',
+                    reloadRevision: _attachmentReloadRevision,
+                    route: SettleoraBillAttachmentRoute.group(
+                      groupId: widget.groupId,
+                      billId: bill.id,
+                    ),
+                    repository: widget.attachmentRepository!,
+                    receiptOcrReviewRepository:
+                        widget.receiptOcrReviewRepository,
+                  ),
+                ],
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _BillAttachmentSection extends StatefulWidget {
+  const _BillAttachmentSection({
+    required this.keyPrefix,
+    required this.reloadRevision,
+    required this.route,
+    required this.repository,
+    required this.receiptOcrReviewRepository,
+  });
+
+  final String keyPrefix;
+  final int reloadRevision;
+  final SettleoraBillAttachmentRoute route;
+  final SettleoraBillAttachmentRepository repository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
+
+  @override
+  State<_BillAttachmentSection> createState() => _BillAttachmentSectionState();
+}
+
+class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
+  bool _isLoading = true;
+  String? _busyFileId;
+  List<SettleoraBillAttachment> _attachments = const [];
+  SettleoraBillAttachmentFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_load);
+  }
+
+  @override
+  void didUpdateWidget(_BillAttachmentSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository ||
+        oldWidget.route.billId != widget.route.billId ||
+        oldWidget.route.groupId != widget.route.groupId ||
+        oldWidget.reloadRevision != widget.reloadRevision) {
+      Future<void>.microtask(_load);
+    }
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _failure = null;
+    });
+
+    try {
+      final attachments = await widget.repository.listAttachments(widget.route);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachments = attachments;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillAttachmentFailure.from(error);
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _download(SettleoraBillAttachment attachment) async {
+    if (_busyFileId != null) {
+      return;
+    }
+
+    setState(() {
+      _busyFileId = attachment.fileId;
+      _failure = null;
+    });
+
+    try {
+      final content = await widget.repository.downloadAttachmentContent(
+        widget.route,
+        attachment.fileId,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Downloaded ${content.bytes.length} bytes.');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillAttachmentFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busyFileId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
+    if (_busyFileId != null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove attachment?'),
+        content: const Text(
+          'The server will remove this bill attachment if you still have access.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: Key('${widget.keyPrefix}-remove-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    await _remove(attachment);
+  }
+
+  Future<void> _remove(SettleoraBillAttachment attachment) async {
+    setState(() {
+      _busyFileId = attachment.fileId;
+      _failure = null;
+    });
+
+    try {
+      await widget.repository.removeAttachment(widget.route, attachment.fileId);
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Attachment removed.');
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillAttachmentFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busyFileId = null;
+        });
+      }
+    }
+  }
+
+  void _openOcrReview(SettleoraBillAttachment attachment) {
+    final repository = widget.receiptOcrReviewRepository;
+    if (repository == null) {
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReceiptOcrReviewDetailScreen.forRoute(
+          repository: repository,
+          route: ReceiptOcrReviewRoute(
+            billId: widget.route.billId,
+            fileId: attachment.fileId,
+            groupId: widget.route.groupId,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = _failure;
+
+    return _Section(
+      title: 'Attachments',
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Server-authorized bill files',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              key: Key('${widget.keyPrefix}-refresh'),
+              tooltip: 'Refresh attachments',
+              onPressed: _isLoading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_isLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (failure != null)
+          _AttachmentFailurePanel(
+            keyPrefix: widget.keyPrefix,
+            failure: failure,
+            onRetry: _load,
+          )
+        else if (_attachments.isEmpty)
+          const _StatePanel(
+            icon: Icons.attach_file_outlined,
+            title: 'No attachments',
+            message: 'Receipts and supporting files will appear here.',
+            compact: true,
+          )
+        else
+          for (var index = 0; index < _attachments.length; index += 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _AttachmentTile(
+                attachment: _attachments[index],
+                index: index,
+                keyPrefix: widget.keyPrefix,
+                isBusy: _busyFileId == _attachments[index].fileId,
+                canOpenOcr:
+                    widget.receiptOcrReviewRepository != null &&
+                    _attachments[index].purpose ==
+                        SettleoraBillAttachmentPurposeValues.receipt,
+                onDownload: () => _download(_attachments[index]),
+                onRemove: () => _confirmRemove(_attachments[index]),
+                onOpenOcr: () => _openOcrReview(_attachments[index]),
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+class _AttachmentTile extends StatelessWidget {
+  const _AttachmentTile({
+    required this.attachment,
+    required this.index,
+    required this.keyPrefix,
+    required this.isBusy,
+    required this.canOpenOcr,
+    required this.onDownload,
+    required this.onRemove,
+    required this.onOpenOcr,
+  });
+
+  final SettleoraBillAttachment attachment;
+  final int index;
+  final String keyPrefix;
+  final bool isBusy;
+  final bool canOpenOcr;
+  final VoidCallback onDownload;
+  final VoidCallback onRemove;
+  final VoidCallback onOpenOcr;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.attach_file_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _attachmentPurposeLabel(attachment.purpose),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      _KeyValueText(
+                        label: 'Content type',
+                        value: attachment.contentType,
+                      ),
+                      _KeyValueText(
+                        label: 'Size',
+                        value: _formatBytes(attachment.sizeBytes),
+                      ),
+                      _KeyValueText(
+                        label: 'Uploaded',
+                        value: _formatTimestamp(attachment.uploadedAtUtc),
+                      ),
+                      _KeyValueText(
+                        label: 'Updated',
+                        value: _formatTimestamp(attachment.updatedAtUtc),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  key: ValueKey('$keyPrefix-download-$index'),
+                  onPressed: isBusy ? null : onDownload,
+                  icon: isBusy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined),
+                  label: const Text('Download'),
+                ),
+                OutlinedButton.icon(
+                  key: ValueKey('$keyPrefix-remove-$index'),
+                  onPressed: isBusy ? null : onRemove,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Remove'),
+                ),
+                if (canOpenOcr)
+                  OutlinedButton.icon(
+                    key: ValueKey('$keyPrefix-ocr-$index'),
+                    onPressed: isBusy ? null : onOpenOcr,
+                    icon: const Icon(Icons.fact_check_outlined),
+                    label: const Text('Review OCR'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentFailurePanel extends StatelessWidget {
+  const _AttachmentFailurePanel({
+    required this.keyPrefix,
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final String keyPrefix;
+  final SettleoraBillAttachmentFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  _attachmentFailureIcon(failure.kind),
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        failure.title,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(failure.message),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: Key('$keyPrefix-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
         ),
       ),
     );
@@ -3247,6 +3731,47 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+String _formatBytes(int sizeBytes) {
+  if (sizeBytes < 1024) {
+    return '$sizeBytes bytes';
+  }
+
+  final kib = sizeBytes / 1024;
+  if (kib < 1024) {
+    return '${kib.toStringAsFixed(1)} KiB';
+  }
+
+  return '${(kib / 1024).toStringAsFixed(1)} MiB';
+}
+
+String _formatTimestamp(DateTime value) {
+  return value.toLocal().toString().split('.').first;
+}
+
+String _attachmentPurposeLabel(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => 'Receipt',
+    SettleoraBillAttachmentPurposeValues.supportingAttachment =>
+      'Supporting attachment',
+    _ => _titleFromCode(purpose),
+  };
+}
+
+IconData _attachmentFailureIcon(SettleoraBillAttachmentFailureKind kind) {
+  return switch (kind) {
+    SettleoraBillAttachmentFailureKind.sessionRequired => Icons.lock_outline,
+    SettleoraBillAttachmentFailureKind.sessionExpired => Icons.lock_outline,
+    SettleoraBillAttachmentFailureKind.denied => Icons.no_accounts_outlined,
+    SettleoraBillAttachmentFailureKind.unavailable =>
+      Icons.visibility_off_outlined,
+    SettleoraBillAttachmentFailureKind.conflict => Icons.sync_problem_outlined,
+    SettleoraBillAttachmentFailureKind.validation =>
+      Icons.report_problem_outlined,
+    SettleoraBillAttachmentFailureKind.network => Icons.cloud_off_outlined,
+    SettleoraBillAttachmentFailureKind.server => Icons.error_outline,
+  };
 }
 
 String? _requiredField(String? value, String message) {

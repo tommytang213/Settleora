@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_attachment_repository.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
@@ -148,6 +149,55 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.getGroupCalls, 2);
+  });
+
+  testWidgets('group bill detail loads attachments with group route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      downloadedBytes: const [5, 6],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(
+            groupBills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          groupRepository: FakeGroupRepository(),
+          attachmentRepository: attachmentRepository,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(attachmentRepository.lastRoute?.groupId, _groupId);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(find.text('Attachments'), findsOneWidget);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-attachments-download-0')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachments-download-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.downloadCalls, 1);
+    expect(attachmentRepository.lastRoute?.groupId, _groupId);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(attachmentRepository.lastDownloadedFileId, _fileId);
+    expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
   testWidgets('group bill detail creates revision from server capability', (
@@ -708,6 +758,57 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 }
 
+class FakeBillAttachmentRepository
+    implements SettleoraBillAttachmentRepository {
+  FakeBillAttachmentRepository({
+    this.attachments = const [],
+    this.downloadedBytes = const [7, 8, 9],
+  });
+
+  final List<SettleoraBillAttachment> attachments;
+  final List<int> downloadedBytes;
+  int listCalls = 0;
+  int downloadCalls = 0;
+  SettleoraBillAttachmentRoute? lastRoute;
+  String? lastDownloadedFileId;
+
+  @override
+  Future<SettleoraBillAttachment> attachAttachment(
+    SettleoraBillAttachmentRoute route,
+    SettleoraBillAttachmentUpload upload,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraBillAttachment>> listAttachments(
+    SettleoraBillAttachmentRoute route,
+  ) async {
+    listCalls += 1;
+    lastRoute = route;
+    return attachments;
+  }
+
+  @override
+  Future<void> removeAttachment(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillAttachmentContent> downloadAttachmentContent(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) async {
+    downloadCalls += 1;
+    lastRoute = route;
+    lastDownloadedFileId = fileId;
+    return SettleoraBillAttachmentContent(bytes: downloadedBytes);
+  }
+}
+
 class FakeGroupRepository implements SettleoraGroupRepository {
   FakeGroupRepository({this.members = const [], this.memberFailure});
 
@@ -891,6 +992,18 @@ SettleoraBillSummary sampleBillSummary() {
   );
 }
 
+SettleoraBillAttachment sampleAttachment() {
+  return SettleoraBillAttachment(
+    fileId: _fileId,
+    billId: _billId,
+    purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+    contentType: 'application/pdf',
+    sizeBytes: 2048,
+    uploadedAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
 SettleoraBillDetail sampleBillDetail({
   bool canCreateRevision = false,
   String id = _billId,
@@ -1041,6 +1154,7 @@ const _groupId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
 const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
+const _fileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const _profileId = '55555555-5555-5555-5555-555555555555';
 const _otherProfileId = '66666666-6666-6666-6666-666666666666';
 const _createdBillId = '77777777-7777-7777-7777-777777777777';

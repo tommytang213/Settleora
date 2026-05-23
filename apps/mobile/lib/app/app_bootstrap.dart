@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
+import '../bills/generated_bill_attachment_repository.dart';
 import '../bills/generated_bill_revision_repository.dart';
 import '../bills/generated_bill_repository.dart';
 import '../groups/generated_group_repository.dart';
@@ -43,6 +45,12 @@ typedef SettleoraAuthRepositoryFactory =
 
 typedef SettleoraBillRepositoryFactory =
     SettleoraBillRepository Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
+typedef SettleoraBillAttachmentRepositoryFactory =
+    SettleoraBillAttachmentRepository Function(
       SettleoraApiConfiguration configuration,
       SettleoraAccessTokenProvider accessTokenProvider,
     );
@@ -110,6 +118,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.billRepositoryFactory,
+    this.billAttachmentRepositoryFactory,
     this.billRevisionRepositoryFactory,
     this.settlementRepositoryFactory,
     this.recurringBillRepositoryFactory,
@@ -125,6 +134,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
+  final SettleoraBillAttachmentRepositoryFactory?
+  billAttachmentRepositoryFactory;
   final SettleoraBillRevisionRepositoryFactory? billRevisionRepositoryFactory;
   final SettleoraSettlementRepositoryFactory? settlementRepositoryFactory;
   final SettleoraRecurringBillRepositoryFactory? recurringBillRepositoryFactory;
@@ -395,6 +406,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       apiConfiguration,
       tokenProvider,
     );
+    final billAttachmentRepository = _billAttachmentRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
     final billRevisionRepository = _billRevisionRepositoryFactory(
       apiConfiguration,
       tokenProvider,
@@ -432,6 +447,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       currentUser: snapshot.currentUser!,
       receiptOcrReviewRepository: repository,
       billRepository: billRepository,
+      billAttachmentRepository: billAttachmentRepository,
       billRevisionRepository: billRevisionRepository,
       settlementRepository: settlementRepository,
       recurringBillRepository: recurringBillRepository,
@@ -455,6 +471,11 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
 
   SettleoraBillRepositoryFactory get _billRepositoryFactory =>
       widget.billRepositoryFactory ?? _defaultBillRepositoryFactory;
+
+  SettleoraBillAttachmentRepositoryFactory
+  get _billAttachmentRepositoryFactory =>
+      widget.billAttachmentRepositoryFactory ??
+      _defaultBillAttachmentRepositoryFactory;
 
   SettleoraBillRevisionRepositoryFactory get _billRevisionRepositoryFactory =>
       widget.billRevisionRepositoryFactory ??
@@ -571,6 +592,16 @@ SettleoraBillRepository _defaultBillRepositoryFactory(
   SettleoraAccessTokenProvider accessTokenProvider,
 ) {
   return GeneratedSettleoraBillRepository.fromConfiguration(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
+  );
+}
+
+SettleoraBillAttachmentRepository _defaultBillAttachmentRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  return GeneratedSettleoraBillAttachmentRepository.fromConfiguration(
     configuration: configuration,
     accessTokenProvider: accessTokenProvider,
   );
