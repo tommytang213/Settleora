@@ -5,6 +5,7 @@ import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
+import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
@@ -18,6 +19,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     required this.repository,
     required this.syncController,
     this.attachmentRepository,
+    this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
@@ -25,6 +27,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillRepository repository;
   final SettleoraBillSyncController syncController;
   final SettleoraBillAttachmentRepository? attachmentRepository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
@@ -184,6 +187,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         builder: (_) => SettleoraBillDetailScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: bill.id,
@@ -218,6 +222,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         builder: (_) => SettleoraBillDetailScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: createdBill.id,
@@ -740,6 +745,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     this.attachmentRepository,
+    this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
@@ -749,6 +755,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
   final SettleoraBillAttachmentRepository? attachmentRepository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
@@ -806,6 +813,7 @@ class _SettleoraGroupBillListScreenState
         builder: (_) => SettleoraGroupBillDetailScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
@@ -849,6 +857,7 @@ class _SettleoraGroupBillListScreenState
         builder: (_) => SettleoraGroupBillDetailScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
@@ -1862,6 +1871,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     required this.billId,
     this.initialBill,
     this.attachmentRepository,
+    this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
@@ -1870,6 +1880,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
   final String billId;
   final SettleoraBillDetail? initialBill;
   final SettleoraBillAttachmentRepository? attachmentRepository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
 
@@ -2150,6 +2161,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     reloadRevision: _attachmentReloadRevision,
                     route: SettleoraBillAttachmentRoute.personal(bill.id),
                     repository: widget.attachmentRepository!,
+                    fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
                   ),
@@ -2172,6 +2184,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.billId,
     this.initialBill,
     this.attachmentRepository,
+    this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
   });
@@ -2179,6 +2192,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final SettleoraBillRepository repository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final String groupId;
   final String groupName;
@@ -2478,6 +2492,7 @@ class _SettleoraGroupBillDetailScreenState
                       billId: bill.id,
                     ),
                     repository: widget.attachmentRepository!,
+                    fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
                   ),
@@ -2497,6 +2512,7 @@ class _BillAttachmentSection extends StatefulWidget {
     required this.reloadRevision,
     required this.route,
     required this.repository,
+    required this.fileInput,
     required this.receiptOcrReviewRepository,
   });
 
@@ -2504,6 +2520,7 @@ class _BillAttachmentSection extends StatefulWidget {
   final int reloadRevision;
   final SettleoraBillAttachmentRoute route;
   final SettleoraBillAttachmentRepository repository;
+  final SettleoraBillAttachmentFileInput? fileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
 
   @override
@@ -2512,6 +2529,7 @@ class _BillAttachmentSection extends StatefulWidget {
 
 class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   bool _isLoading = true;
+  bool _isUploading = false;
   String? _busyFileId;
   List<SettleoraBillAttachment> _attachments = const [];
   SettleoraBillAttachmentFailure? _failure;
@@ -2528,6 +2546,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     if (oldWidget.repository != widget.repository ||
         oldWidget.route.billId != widget.route.billId ||
         oldWidget.route.groupId != widget.route.groupId ||
+        oldWidget.fileInput != widget.fileInput ||
         oldWidget.reloadRevision != widget.reloadRevision) {
       Future<void>.microtask(_load);
     }
@@ -2562,7 +2581,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_busyFileId != null) {
+    if (_isUploading || _busyFileId != null) {
       return;
     }
 
@@ -2599,7 +2618,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
-    if (_busyFileId != null) {
+    if (_isUploading || _busyFileId != null) {
       return;
     }
 
@@ -2662,6 +2681,60 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     }
   }
 
+  Future<void> _upload() async {
+    final fileInput = widget.fileInput;
+    if (fileInput == null || _isUploading || _busyFileId != null) {
+      return;
+    }
+
+    final purpose = defaultBillAttachmentUploadPurpose;
+    setState(() {
+      _isUploading = true;
+      _failure = null;
+    });
+
+    try {
+      final pickedFile = await fileInput.pickAttachmentFile(
+        allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
+          purpose,
+        ),
+      );
+      if (!mounted || pickedFile == null) {
+        return;
+      }
+
+      await widget.repository.attachAttachment(
+        widget.route,
+        SettleoraBillAttachmentUpload(
+          bytes: pickedFile.bytes,
+          filename: pickedFile.filename,
+          contentType: pickedFile.contentType,
+          purpose: purpose,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Attachment uploaded.');
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = _attachmentFailureFromUploadError(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
+
   void _openOcrReview(SettleoraBillAttachment attachment) {
     final repository = widget.receiptOcrReviewRepository;
     if (repository == null) {
@@ -2703,6 +2776,21 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (widget.fileInput != null)
+              OutlinedButton.icon(
+                key: Key('${widget.keyPrefix}-upload'),
+                onPressed: _isLoading || _isUploading || _busyFileId != null
+                    ? null
+                    : _upload,
+                icon: _isUploading
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_outlined),
+                label: const Text('Upload attachment'),
+              ),
+            if (widget.fileInput != null) const SizedBox(width: 8),
             IconButton(
               key: Key('${widget.keyPrefix}-refresh'),
               tooltip: 'Refresh attachments',
@@ -3772,6 +3860,17 @@ IconData _attachmentFailureIcon(SettleoraBillAttachmentFailureKind kind) {
     SettleoraBillAttachmentFailureKind.network => Icons.cloud_off_outlined,
     SettleoraBillAttachmentFailureKind.server => Icons.error_outline,
   };
+}
+
+SettleoraBillAttachmentFailure _attachmentFailureFromUploadError(Object error) {
+  if (error is SettleoraBillAttachmentFileInputFailure) {
+    return SettleoraBillAttachmentFailure(
+      kind: SettleoraBillAttachmentFailureKind.validation,
+      message: error.message,
+    );
+  }
+
+  return SettleoraBillAttachmentFailure.from(error);
 }
 
 String? _requiredField(String? value, String message) {

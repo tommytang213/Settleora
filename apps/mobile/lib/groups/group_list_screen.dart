@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
@@ -13,6 +14,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     this.billAttachmentRepository,
+    this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
   });
@@ -20,6 +22,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
 
@@ -119,6 +122,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           repository: widget.repository,
           billRepository: widget.billRepository,
           billAttachmentRepository: widget.billAttachmentRepository,
+          billAttachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
           groupId: group.id,
@@ -219,6 +223,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     required this.billRepository,
     required this.groupId,
     this.billAttachmentRepository,
+    this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
   });
@@ -226,6 +231,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final String groupId;
@@ -491,6 +497,7 @@ class _SettleoraGroupDetailScreenState
           repository: widget.billRepository,
           groupRepository: widget.repository,
           attachmentRepository: widget.billAttachmentRepository,
+          attachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,

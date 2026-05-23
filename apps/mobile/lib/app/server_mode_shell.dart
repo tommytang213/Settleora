@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
@@ -32,6 +33,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.receiptOcrReviewRepository,
     required this.billRepository,
     this.billAttachmentRepository,
+    this.billAttachmentFileInput,
     this.billRevisionRepository,
     required this.settlementRepository,
     required this.recurringBillRepository,
@@ -49,6 +51,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final ReceiptOcrReviewRepository receiptOcrReviewRepository;
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSettlementRepository settlementRepository;
   final SettleoraRecurringBillRepository recurringBillRepository;
@@ -77,6 +80,7 @@ class _SettleoraAuthenticatedServerShellState
           repository: widget.billRepository,
           syncController: widget.billSyncController,
           attachmentRepository: widget.billAttachmentRepository,
+          attachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.billRevisionRepository,
         ),
@@ -157,6 +161,7 @@ class _SettleoraAuthenticatedServerShellState
           repository: widget.groupRepository,
           billRepository: widget.billRepository,
           billAttachmentRepository: widget.billAttachmentRepository,
+          billAttachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
         ),
