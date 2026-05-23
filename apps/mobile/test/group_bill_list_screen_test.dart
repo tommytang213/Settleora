@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
+import 'package:mobile/groups/group_repository.dart';
 
 void main() {
   testWidgets('group bill list renders loading, empty, and refresh states', (
@@ -14,6 +15,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           groupId: _groupId,
           groupName: 'Trip Crew',
         ),
@@ -25,6 +27,8 @@ void main() {
 
     expect(find.text('Trip Crew'), findsOneWidget);
     expect(find.text('No group bills'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
+    expect(find.text('Create group bill'), findsOneWidget);
     expect(repository.listGroupCalls, 1);
 
     await tester.tap(find.byKey(const Key('group-bill-list-refresh')));
@@ -49,6 +53,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           groupId: _groupId,
           groupName: 'Trip Crew',
         ),
@@ -81,6 +86,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           groupId: _groupId,
           groupName: 'Trip Crew',
         ),
@@ -123,6 +129,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           revisionRepository: revisionRepository,
           groupId: _groupId,
           groupName: 'Trip Crew',
@@ -162,6 +169,7 @@ void main() {
         MaterialApp(
           home: SettleoraGroupBillListScreen(
             repository: repository,
+            groupRepository: FakeGroupRepository(),
             revisionRepository: revisionRepository,
             groupId: _groupId,
             groupName: 'Trip Crew',
@@ -205,6 +213,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           revisionRepository: revisionRepository,
           groupId: _groupId,
           groupName: 'Trip Crew',
@@ -230,11 +239,285 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('group bill create validation blocks blank fields and rows', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('group-bill-currency')), '');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-currency-0')),
+      '',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-order-0-0')),
+      '-1',
+    );
+    await _tapSaveGroupBill(tester);
+
+    expect(find.text('Enter a bill date.'), findsOneWidget);
+    expect(find.text('Enter a currency.'), findsOneWidget);
+    expect(find.text('Enter an item name.'), findsOneWidget);
+    expect(find.text('Enter an item amount.'), findsOneWidget);
+    expect(find.text('Enter an item currency.'), findsOneWidget);
+    expect(find.text('Choose a member for every split.'), findsOneWidget);
+    expect(
+      find.text('Allocation order must be zero or greater.'),
+      findsOneWidget,
+    );
+    expect(billRepository.createGroupCalls, 0);
+
+    await tester.tap(find.byKey(const Key('group-bill-item-remove-0')));
+    await tester.pumpAndSettle();
+    await _tapSaveGroupBill(tester);
+
+    expect(find.text('Add at least one item before saving.'), findsOneWidget);
+    expect(billRepository.createGroupCalls, 0);
+  });
+
+  testWidgets('group bill create maps member split and payer draft strings', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-method-0-0')),
+      ' exact_amount ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-basis-0-0')),
+      ' 7.00 ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-order-0-0')),
+      '2',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-member-0'),
+      'Morgan',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-amount-0')),
+      ' 12.00 ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-currency-0')),
+      ' usd ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-method-0')),
+      ' Cash ',
+    );
+    await _tapSaveGroupBill(tester);
+
+    final draft = billRepository.lastGroupCreateDraft;
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.lastGroupId, _groupId);
+    expect(draft?.merchantName, '  Night Market  ');
+    expect(draft?.billDate, '  2026-05-23  ');
+    expect(draft?.currency, ' usd ');
+    expect(draft?.items.single.name, '  Noodles  ');
+    expect(draft?.items.single.note, ' shared bowl ');
+    expect(draft?.items.single.amount, ' 12.00 ');
+    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.splits.single.userProfileId, _profileId);
+    expect(draft?.items.single.splits.single.splitMethod, ' exact_amount ');
+    expect(draft?.items.single.splits.single.basisValue, ' 7.00 ');
+    expect(draft?.items.single.splits.single.allocationOrder, 2);
+    expect(draft?.payers.single.userProfileId, _otherProfileId);
+    expect(draft?.payers.single.amount, ' 12.00 ');
+    expect(draft?.payers.single.currency, ' usd ');
+    expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
+  });
+
+  testWidgets(
+    'group bill create uses returned detail without offline queueing',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Returned Market',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('bill-list-sync')), findsNothing);
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await _tapSaveGroupBill(tester);
+
+      expect(find.text('Group bill'), findsWidgets);
+      expect(find.text('Returned Market'), findsOneWidget);
+      expect(billRepository.createGroupCalls, 1);
+      expect(billRepository.getGroupCalls, 0);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(billRepository.listGroupCalls, 2);
+    },
+  );
+
+  testWidgets('group bill create failure shows bounded safe copy', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createGroupFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.server,
+        message: 'Bills are unavailable right now. Try again later.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(find.byKey(const Key('group-bill-create-failure')), findsOneWidget);
+    expect(find.textContaining('Bills unavailable'), findsOneWidget);
+    expect(
+      find.textContaining('Bills are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(find.text('Create group bill'), findsWidgets);
+  });
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(900, 1600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('group-bill-merchant-name')),
+    '  Night Market  ',
+  );
+  await tester.enterText(
+    find.byKey(const Key('group-bill-date')),
+    '  2026-05-23  ',
+  );
+  await tester.enterText(find.byKey(const Key('group-bill-currency')), ' usd ');
+  await tester.enterText(
+    find.byKey(const Key('group-bill-item-name-0')),
+    '  Noodles  ',
+  );
+  await tester.enterText(
+    find.byKey(const Key('group-bill-item-amount-0')),
+    ' 12.00 ',
+  );
+  await tester.enterText(
+    find.byKey(const Key('group-bill-item-currency-0')),
+    ' usd ',
+  );
+  await tester.enterText(
+    find.byKey(const Key('group-bill-item-note-0')),
+    ' shared bowl ',
+  );
+  await _chooseDropdownValue(
+    tester,
+    const Key('group-bill-split-member-0-0'),
+    'Taylor',
+  );
+}
+
+Future<void> _chooseDropdownValue(
+  WidgetTester tester,
+  Key dropdownKey,
+  String label,
+) async {
+  await tester.ensureVisible(find.byKey(dropdownKey));
+  await tester.tap(find.byKey(dropdownKey));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapSaveGroupBill(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('group-bill-save')));
+  await tester.tap(find.byKey(const Key('group-bill-save')));
+  await tester.pumpAndSettle();
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
@@ -243,14 +526,22 @@ class FakeBillRepository implements SettleoraBillRepository {
     SettleoraBillDetail? detail,
     List<SettleoraBillDetail>? details,
     List<SettleoraBillFailure>? listFailures,
+    SettleoraBillDetail? createdGroupDetail,
+    this.createGroupFailure,
   }) : details = details ?? [detail ?? sampleBillDetail()],
-       listFailures = listFailures ?? [];
+       listFailures = listFailures ?? [],
+       createdGroupDetail = createdGroupDetail ?? sampleBillDetail();
 
   final List<SettleoraBillSummary> groupBills;
   final List<SettleoraBillDetail> details;
   final List<SettleoraBillFailure> listFailures;
+  final SettleoraBillDetail createdGroupDetail;
+  final SettleoraBillFailure? createGroupFailure;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+  int createGroupCalls = 0;
+  String? lastGroupId;
+  SettleoraGroupBillCreateDraft? lastGroupCreateDraft;
 
   SettleoraBillDetail _detailForCall(int callIndex) {
     final index = callIndex < details.length ? callIndex : details.length - 1;
@@ -268,8 +559,16 @@ class FakeBillRepository implements SettleoraBillRepository {
   Future<SettleoraBillDetail> createGroupBill(
     String groupId,
     SettleoraGroupBillCreateDraft draft,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    createGroupCalls += 1;
+    lastGroupId = groupId;
+    lastGroupCreateDraft = draft;
+    final failure = createGroupFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return createdGroupDetail;
   }
 
   @override
@@ -301,6 +600,64 @@ class FakeBillRepository implements SettleoraBillRepository {
 
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({this.members = const []});
+
+  final List<SettleoraGroupMember> members;
+  int listMemberCalls = 0;
+
+  @override
+  Future<List<SettleoraGroup>> listGroups() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroup> createGroup(SettleoraGroupSaveRequest request) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroup> getGroup(String groupId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroup> updateGroup(
+    String groupId,
+    SettleoraGroupSaveRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMemberCalls += 1;
+    return members;
+  }
+
+  @override
+  Future<SettleoraGroupMember> addGroupMember(
+    String groupId,
+    SettleoraGroupMemberAddRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraGroupMember> updateGroupMember(
+    String groupId,
+    String userProfileId,
+    SettleoraGroupMemberRoleUpdate update,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> removeGroupMember(String groupId, String userProfileId) {
     throw UnimplementedError();
   }
 }
@@ -424,10 +781,14 @@ SettleoraBillSummary sampleBillSummary() {
   );
 }
 
-SettleoraBillDetail sampleBillDetail({bool canCreateRevision = false}) {
+SettleoraBillDetail sampleBillDetail({
+  bool canCreateRevision = false,
+  String id = _billId,
+  String? merchantName = 'Corner Market',
+}) {
   return SettleoraBillDetail(
-    id: _billId,
-    merchantName: 'Corner Market',
+    id: id,
+    merchantName: merchantName,
     billDate: '2026-05-17',
     status: 'draft',
     reconciliationStatus: 'unreconciled',
@@ -466,6 +827,20 @@ SettleoraBillDetail sampleBillDetail({bool canCreateRevision = false}) {
     ],
     adjustments: const [],
     displayNameFallback: 'Group bill',
+  );
+}
+
+SettleoraGroupMember sampleMember({
+  String userProfileId = _profileId,
+  String displayName = 'Taylor',
+}) {
+  return SettleoraGroupMember(
+    userProfileId: userProfileId,
+    displayName: displayName,
+    role: SettleoraGroupRoleValues.member,
+    status: SettleoraGroupMembershipStatusValues.active,
+    joinedAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
   );
 }
 
@@ -556,6 +931,8 @@ const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
 const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
 const _profileId = '55555555-5555-5555-5555-555555555555';
+const _otherProfileId = '66666666-6666-6666-6666-666666666666';
+const _createdBillId = '77777777-7777-7777-7777-777777777777';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);

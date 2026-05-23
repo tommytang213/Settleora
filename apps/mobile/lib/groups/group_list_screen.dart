@@ -477,6 +477,7 @@ class _SettleoraGroupDetailScreenState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupBillListScreen(
           repository: widget.billRepository,
+          groupRepository: widget.repository,
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
