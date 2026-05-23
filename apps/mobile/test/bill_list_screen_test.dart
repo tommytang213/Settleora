@@ -4,6 +4,7 @@ import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/bills/bill_attachment_repository.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
@@ -402,6 +403,162 @@ void main() {
     expect(find.byKey(const Key('bill-detail-propose-change')), findsNothing);
   });
 
+  testWidgets('personal bill detail loads and renders attachment metadata', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(attachmentRepository.lastRoute?.groupId, isNull);
+    expect(find.text('Attachments'), findsOneWidget);
+    expect(find.text('Receipt'), findsOneWidget);
+    expect(find.text('image/png'), findsOneWidget);
+    expect(find.text('321 bytes'), findsOneWidget);
+    expect(find.text('Uploaded'), findsOneWidget);
+    expect(find.text('Updated'), findsOneWidget);
+  });
+
+  testWidgets('personal bill attachment load failure is retryable', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      listFailures: [
+        const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message: 'Attachments are unavailable right now. Try again later.',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Attachments unavailable'), findsOneWidget);
+    expect(
+      find.text('Attachments are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('bill-attachments-retry')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Receipt'), findsOneWidget);
+  });
+
+  testWidgets('personal bill attachment remove confirms and refreshes', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('bill-attachments-remove-0')),
+    );
+    await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.removeCalls, 1);
+    expect(attachmentRepository.lastRemovedFileId, _fileId);
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('No attachments'), findsOneWidget);
+  });
+
+  testWidgets('personal bill attachment download reports bounded bytes only', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      downloadedBytes: const [1, 2, 3, 4],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('bill-attachments-download-0')),
+    );
+    await tester.tap(find.byKey(const ValueKey('bill-attachments-download-0')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.downloadCalls, 1);
+    expect(attachmentRepository.lastDownloadedFileId, _fileId);
+    expect(find.text('Downloaded 4 bytes.'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(visibleText(tester), isNot(contains('[1, 2, 3, 4]')));
+  });
+
   testWidgets('bill detail creates revision after fresh capability checks', (
     tester,
   ) async {
@@ -600,6 +757,9 @@ void main() {
       ),
     );
     final billRepository = FakeBillRepository(bills: [sampleBillSummary()]);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -607,6 +767,7 @@ void main() {
           currentUser: sampleCurrentUser(),
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: billRepository,
+          billAttachmentRepository: attachmentRepository,
           settlementRepository: FakeSettlementRepository(),
           recurringBillRepository: FakeRecurringBillRepository(),
           groupRepository: FakeGroupRepository(),
@@ -628,6 +789,12 @@ void main() {
     expect(find.text('Bills'), findsWidgets);
     expect(find.text('Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 1);
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
   });
 
   testWidgets('authenticated server shell opens settlements', (tester) async {
@@ -647,6 +814,7 @@ void main() {
           currentUser: sampleCurrentUser(),
           receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
           billRepository: FakeBillRepository(bills: [sampleBillSummary()]),
+          billAttachmentRepository: FakeBillAttachmentRepository(),
           settlementRepository: settlementRepository,
           recurringBillRepository: FakeRecurringBillRepository(),
           groupRepository: FakeGroupRepository(),
@@ -807,6 +975,71 @@ class FakeBillRepository implements SettleoraBillRepository {
   Future<SettleoraBillDetail> getPersonalBill(String billId) async {
     getCalls += 1;
     return _detailForCall(getCalls - 1);
+  }
+}
+
+class FakeBillAttachmentRepository
+    implements SettleoraBillAttachmentRepository {
+  FakeBillAttachmentRepository({
+    this.attachments = const [],
+    this.listFailures = const [],
+    this.downloadedBytes = const [7, 8, 9],
+  });
+
+  List<SettleoraBillAttachment> attachments;
+  final List<SettleoraBillAttachmentFailure> listFailures;
+  final List<int> downloadedBytes;
+  int listCalls = 0;
+  int removeCalls = 0;
+  int downloadCalls = 0;
+  SettleoraBillAttachmentRoute? lastRoute;
+  String? lastRemovedFileId;
+  String? lastDownloadedFileId;
+
+  @override
+  Future<SettleoraBillAttachment> attachAttachment(
+    SettleoraBillAttachmentRoute route,
+    SettleoraBillAttachmentUpload upload,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SettleoraBillAttachment>> listAttachments(
+    SettleoraBillAttachmentRoute route,
+  ) async {
+    listCalls += 1;
+    lastRoute = route;
+    if (listFailures.length >= listCalls) {
+      throw listFailures[listCalls - 1];
+    }
+
+    return attachments;
+  }
+
+  @override
+  Future<void> removeAttachment(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) async {
+    removeCalls += 1;
+    lastRoute = route;
+    lastRemovedFileId = fileId;
+    attachments = [
+      for (final attachment in attachments)
+        if (attachment.fileId != fileId) attachment,
+    ];
+  }
+
+  @override
+  Future<SettleoraBillAttachmentContent> downloadAttachmentContent(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) async {
+    downloadCalls += 1;
+    lastRoute = route;
+    lastDownloadedFileId = fileId;
+    return SettleoraBillAttachmentContent(bytes: downloadedBytes);
   }
 }
 
@@ -1258,6 +1491,22 @@ SettleoraBillSummary sampleBillSummary({
   );
 }
 
+SettleoraBillAttachment sampleAttachment({
+  String fileId = _fileId,
+  String purpose = SettleoraBillAttachmentPurposeValues.receipt,
+  String contentType = 'image/png',
+}) {
+  return SettleoraBillAttachment(
+    fileId: fileId,
+    billId: _billId,
+    purpose: purpose,
+    contentType: contentType,
+    sizeBytes: 321,
+    uploadedAtUtc: _uploadedAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
 SettleoraBillDetail sampleBillDetail({
   String id = _billId,
   String? merchantName = 'Corner Market',
@@ -1515,13 +1764,24 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   }
 }
 
+String visibleText(WidgetTester tester) {
+  return tester
+      .widgetList<Text>(find.byType(Text))
+      .map((widget) => widget.data)
+      .whereType<String>()
+      .join('\n');
+}
+
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
 const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
 const _createdBillId = '66666666-6666-6666-6666-666666666666';
 const _groupId = '99999999-9999-9999-9999-999999999999';
+const _fileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const _userProfileId = '55555555-5555-5555-5555-555555555555';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);
 final _attemptedAtUtc = DateTime.utc(2026, 5, 17, 11);
+final _uploadedAtUtc = DateTime.utc(2026, 5, 23, 9);
+final _updatedAtUtc = DateTime.utc(2026, 5, 23, 10);

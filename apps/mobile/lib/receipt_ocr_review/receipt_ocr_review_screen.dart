@@ -157,10 +157,18 @@ class ReceiptOcrReviewDetailScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.summary,
-  });
+  }) : route = null;
+
+  const ReceiptOcrReviewDetailScreen.forRoute({
+    super.key,
+    required this.repository,
+    required this.route,
+  }) : summary = null,
+       assert(route != null);
 
   final ReceiptOcrReviewRepository repository;
-  final ReceiptOcrReviewSummary summary;
+  final ReceiptOcrReviewSummary? summary;
+  final ReceiptOcrReviewRoute? route;
 
   @override
   State<ReceiptOcrReviewDetailScreen> createState() =>
@@ -185,7 +193,7 @@ class _ReceiptOcrReviewDetailScreenState
   ReceiptOcrReviewFailure? _deleteFailure;
 
   ReceiptOcrReviewRoute get _route =>
-      ReceiptOcrReviewRoute.fromSummary(widget.summary);
+      widget.route ?? ReceiptOcrReviewRoute.fromSummary(widget.summary!);
 
   @override
   void initState() {

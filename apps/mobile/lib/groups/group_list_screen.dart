@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
+import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -10,11 +12,15 @@ class SettleoraGroupListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billRepository,
+    this.billAttachmentRepository,
+    this.receiptOcrReviewRepository,
     this.billRevisionRepository,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
 
   @override
@@ -112,6 +118,8 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
         builder: (_) => SettleoraGroupDetailScreen(
           repository: widget.repository,
           billRepository: widget.billRepository,
+          billAttachmentRepository: widget.billAttachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
           groupId: group.id,
         ),
@@ -210,11 +218,15 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     required this.groupId,
+    this.billAttachmentRepository,
+    this.receiptOcrReviewRepository,
     this.billRevisionRepository,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final String groupId;
 
@@ -478,6 +490,8 @@ class _SettleoraGroupDetailScreenState
         builder: (_) => SettleoraGroupBillListScreen(
           repository: widget.billRepository,
           groupRepository: widget.repository,
+          attachmentRepository: widget.billAttachmentRepository,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
