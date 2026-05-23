@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
+import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
+import '../bills/file_picker_bill_attachment_file_input.dart';
 import '../bills/generated_bill_attachment_repository.dart';
 import '../bills/generated_bill_revision_repository.dart';
 import '../bills/generated_bill_repository.dart';
@@ -127,6 +129,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.reportRepositoryFactory,
     this.profileRepositoryFactory,
     this.billSyncControllerFactory,
+    this.billAttachmentFileInput,
     this.now,
   });
 
@@ -144,6 +147,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final SettleoraMonthlyReportRepositoryFactory? reportRepositoryFactory;
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
+  final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final DateTime Function()? now;
 
   @override
@@ -448,6 +452,9 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       receiptOcrReviewRepository: repository,
       billRepository: billRepository,
       billAttachmentRepository: billAttachmentRepository,
+      billAttachmentFileInput:
+          widget.billAttachmentFileInput ??
+          FilePickerSettleoraBillAttachmentFileInput(),
       billRevisionRepository: billRevisionRepository,
       settlementRepository: settlementRepository,
       recurringBillRepository: recurringBillRepository,

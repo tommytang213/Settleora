@@ -4,6 +4,7 @@ import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/bills/bill_attachment_file_input.dart';
 import 'package:mobile/bills/bill_attachment_repository.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
@@ -559,6 +560,167 @@ void main() {
     expect(visibleText(tester), isNot(contains('[1, 2, 3, 4]')));
   });
 
+  testWidgets(
+    'personal bill attachment upload button is available with picker',
+    (tester) async {
+      await useLargeSurface(tester);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(),
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('bill-attachments-upload')), findsOneWidget);
+      expect(find.text('Upload attachment'), findsOneWidget);
+    },
+  );
+
+  testWidgets('personal bill attachment upload cancellation does not attach', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+
+    expect(fileInput.pickCalls, 1);
+    expect(attachmentRepository.attachCalls, 0);
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.text('No attachments'), findsOneWidget);
+  });
+
+  testWidgets('personal bill attachment upload uses route and refreshes', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'C:\\Users\\secret\\support.pdf',
+        bytes: const [1, 2, 3],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+
+    expect(fileInput.pickCalls, 1);
+    expect(attachmentRepository.attachCalls, 1);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(attachmentRepository.lastRoute?.groupId, isNull);
+    expect(
+      attachmentRepository.lastUpload?.purpose,
+      SettleoraBillAttachmentPurposeValues.supportingAttachment,
+    );
+    expect(attachmentRepository.lastUpload?.filename, 'support.pdf');
+    expect(attachmentRepository.lastUpload?.contentType, 'application/pdf');
+    expect(attachmentRepository.lastUpload?.bytes, const [1, 2, 3]);
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Attachment uploaded.'), findsOneWidget);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+    expect(find.text('application/pdf'), findsOneWidget);
+    expect(find.text('3 bytes'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+  });
+
+  testWidgets('personal bill attachment upload failure stays bounded', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachFailure: const SettleoraBillAttachmentFailure(
+        kind: SettleoraBillAttachmentFailureKind.validation,
+        message:
+            'The attachment request is no longer valid. Refresh and try again.',
+      ),
+    );
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.attachCalls, 1);
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.text('Unsupported request'), findsOneWidget);
+    expect(
+      find.text(
+        'The attachment request is no longer valid. Refresh and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Supporting attachment'), findsNothing);
+    expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+  });
+
   testWidgets('bill detail creates revision after fresh capability checks', (
     tester,
   ) async {
@@ -984,15 +1146,19 @@ class FakeBillAttachmentRepository
     this.attachments = const [],
     this.listFailures = const [],
     this.downloadedBytes = const [7, 8, 9],
+    this.attachFailure,
   });
 
   List<SettleoraBillAttachment> attachments;
   final List<SettleoraBillAttachmentFailure> listFailures;
   final List<int> downloadedBytes;
+  final SettleoraBillAttachmentFailure? attachFailure;
   int listCalls = 0;
+  int attachCalls = 0;
   int removeCalls = 0;
   int downloadCalls = 0;
   SettleoraBillAttachmentRoute? lastRoute;
+  SettleoraBillAttachmentUpload? lastUpload;
   String? lastRemovedFileId;
   String? lastDownloadedFileId;
 
@@ -1000,8 +1166,29 @@ class FakeBillAttachmentRepository
   Future<SettleoraBillAttachment> attachAttachment(
     SettleoraBillAttachmentRoute route,
     SettleoraBillAttachmentUpload upload,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    attachCalls += 1;
+    lastRoute = route;
+    lastUpload = upload;
+    final failure = attachFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    final attachment = SettleoraBillAttachment(
+      fileId: _uploadedFileId,
+      billId: route.billId,
+      purpose: upload.purpose,
+      contentType: upload.contentType,
+      sizeBytes: upload.bytes.length,
+      uploadedAtUtc: _updatedAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    );
+    attachments = [
+      attachment,
+      ...attachments.where((item) => item.fileId != attachment.fileId),
+    ];
+    return attachment;
   }
 
   @override
@@ -1040,6 +1227,29 @@ class FakeBillAttachmentRepository
     lastRoute = route;
     lastDownloadedFileId = fileId;
     return SettleoraBillAttachmentContent(bytes: downloadedBytes);
+  }
+}
+
+class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
+  FakeBillAttachmentFileInput({this.pickedFile, this.failure});
+
+  final SettleoraPickedBillAttachmentFile? pickedFile;
+  final SettleoraBillAttachmentFileInputFailure? failure;
+  int pickCalls = 0;
+  Set<String>? lastAllowedContentTypes;
+
+  @override
+  Future<SettleoraPickedBillAttachmentFile?> pickAttachmentFile({
+    required Set<String> allowedContentTypes,
+  }) async {
+    pickCalls += 1;
+    lastAllowedContentTypes = allowedContentTypes;
+    final failure = this.failure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return pickedFile;
   }
 }
 
@@ -1507,6 +1717,20 @@ SettleoraBillAttachment sampleAttachment({
   );
 }
 
+SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
+  String filename = 'support.pdf',
+  String contentType = 'application/pdf',
+  List<int> bytes = const [1, 2, 3],
+}) {
+  return pickedBillAttachmentFileFromBytes(
+    filename: filename,
+    contentType: contentType,
+    bytes: bytes,
+    allowedContentTypes:
+        SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
+  );
+}
+
 SettleoraBillDetail sampleBillDetail({
   String id = _billId,
   String? merchantName = 'Corner Market',
@@ -1778,6 +2002,7 @@ const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
 const _createdBillId = '66666666-6666-6666-6666-666666666666';
 const _groupId = '99999999-9999-9999-9999-999999999999';
 const _fileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const _uploadedFileId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const _userProfileId = '55555555-5555-5555-5555-555555555555';
 const _hash =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
