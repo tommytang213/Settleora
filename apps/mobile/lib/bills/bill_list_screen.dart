@@ -1301,22 +1301,24 @@ class _SettleoraGroupBillCreateScreenState
           },
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: FilledButton.icon(
-            key: const Key('group-bill-save'),
-            onPressed: _isSaving || _isLoadingMembers ? null : _save,
-            icon: _isSaving
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check),
-            label: const Text('Save group bill'),
-          ),
-        ),
-      ),
+      bottomNavigationBar: memberFailure == null
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: FilledButton.icon(
+                  key: const Key('group-bill-save'),
+                  onPressed: _isSaving || _isLoadingMembers ? null : _save,
+                  icon: _isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check),
+                  label: const Text('Save group bill'),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

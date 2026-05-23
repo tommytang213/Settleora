@@ -603,6 +603,132 @@ void main() {
       },
     );
 
+    test(
+      'createGroupBill rejects blank split method before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createGroupBill(
+            _groupId,
+            const SettleoraGroupBillCreateDraft(
+              billDate: '2026-05-22',
+              currency: 'usd',
+              items: [
+                SettleoraGroupBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                  splits: [
+                    SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: _userProfileId,
+                      splitMethod: ' ',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createGroupCalls, 0);
+      },
+    );
+
+    test(
+      'createGroupBill rejects invalid allocation order before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createGroupBill(
+            _groupId,
+            const SettleoraGroupBillCreateDraft(
+              billDate: '2026-05-22',
+              currency: 'usd',
+              items: [
+                SettleoraGroupBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                  splits: [
+                    SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: _userProfileId,
+                      splitMethod: 'equal',
+                      allocationOrder: -1,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(failure.message, 'Allocation order must be zero or greater.');
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createGroupCalls, 0);
+      },
+    );
+
+    test(
+      'createGroupBill rejects invalid payer rows before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createGroupBill(
+            _groupId,
+            const SettleoraGroupBillCreateDraft(
+              billDate: '2026-05-22',
+              currency: 'usd',
+              items: [
+                SettleoraGroupBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                  splits: [
+                    SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: _userProfileId,
+                      splitMethod: 'equal',
+                    ),
+                  ],
+                ),
+              ],
+              payers: [
+                SettleoraGroupBillCreatePayerDraft(
+                  userProfileId: ' ',
+                  amount: '4.50',
+                  currency: 'usd',
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createGroupCalls, 0);
+      },
+    );
+
     test('createGroupBill maps generated failures safely', () async {
       final repository = GeneratedSettleoraBillRepository(
         client: FakeBillGeneratedClient(
