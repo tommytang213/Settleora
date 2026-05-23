@@ -182,6 +182,43 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
     );
   }
 
+  Future<void> _openCreateBill() async {
+    final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
+      MaterialPageRoute(
+        builder: (_) =>
+            SettleoraPersonalBillCreateScreen(repository: widget.repository),
+      ),
+    );
+
+    if (!mounted || createdBill == null) {
+      return;
+    }
+
+    setState(() {
+      _failure = null;
+      _syncNotice = null;
+      _bills = [
+        _summaryFromCreatedDetail(createdBill),
+        ..._bills.where((bill) => bill.id != createdBill.id),
+      ];
+    });
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillDetailScreen(
+          repository: widget.repository,
+          revisionRepository: widget.revisionRepository,
+          billId: createdBill.id,
+          initialBill: createdBill,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final snapshot = _syncSnapshot;
@@ -270,6 +307,409 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
               ),
             );
           },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        key: const Key('bill-list-create'),
+        onPressed: _isLoading ? null : _openCreateBill,
+        icon: const Icon(Icons.add),
+        label: const Text('Create bill'),
+      ),
+    );
+  }
+}
+
+class SettleoraPersonalBillCreateScreen extends StatefulWidget {
+  const SettleoraPersonalBillCreateScreen({
+    super.key,
+    required this.repository,
+  });
+
+  final SettleoraBillRepository repository;
+
+  @override
+  State<SettleoraPersonalBillCreateScreen> createState() =>
+      _SettleoraPersonalBillCreateScreenState();
+}
+
+class _SettleoraPersonalBillCreateScreenState
+    extends State<SettleoraPersonalBillCreateScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _merchantController = TextEditingController();
+  final _billDateController = TextEditingController();
+  final _currencyController = TextEditingController(text: 'USD');
+  final List<_PersonalBillCreateItemControllers> _itemControllers = [];
+  bool _isSaving = false;
+  String? _itemListError;
+  SettleoraBillFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemControllers.add(
+      _PersonalBillCreateItemControllers(
+        currency: _currencyController.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _billDateController.dispose();
+    _currencyController.dispose();
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addItem() {
+    setState(() {
+      _itemListError = null;
+      _itemControllers.add(
+        _PersonalBillCreateItemControllers(
+          currency: _currencyController.text.trim(),
+        ),
+      );
+    });
+  }
+
+  void _removeItem(int index) {
+    if (index < 0 || index >= _itemControllers.length) {
+      return;
+    }
+
+    setState(() {
+      final removed = _itemControllers.removeAt(index);
+      removed.dispose();
+      _itemListError = _itemControllers.isEmpty
+          ? 'Add at least one item before saving.'
+          : null;
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _failure = null;
+      _itemListError = _itemControllers.isEmpty
+          ? 'Add at least one item before saving.'
+          : null;
+    });
+
+    final formIsValid = _formKey.currentState?.validate() ?? false;
+    if (!formIsValid || _itemControllers.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    final draft = SettleoraPersonalBillCreateDraft(
+      merchantName: _merchantController.text,
+      billDate: _billDateController.text,
+      currency: _currencyController.text,
+      items: _itemControllers
+          .map(
+            (item) => SettleoraPersonalBillCreateItemDraft(
+              name: item.name.text,
+              note: item.note.text,
+              amount: item.amount.text,
+              currency: item.currency.text,
+            ),
+          )
+          .toList(growable: false),
+    );
+
+    try {
+      final createdBill = await widget.repository.createPersonalBill(draft);
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(createdBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _isSaving = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = _failure;
+    final itemListError = _itemListError;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Create bill')),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (failure != null) ...[
+                  _CreateBillFailureBanner(failure: failure),
+                  const SizedBox(height: 16),
+                ],
+                Text(
+                  'Bill details',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('personal-bill-merchant-name'),
+                  controller: _merchantController,
+                  enabled: !_isSaving,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Merchant name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('personal-bill-date'),
+                  controller: _billDateController,
+                  enabled: !_isSaving,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Bill date',
+                    hintText: 'YYYY-MM-DD',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) =>
+                      _requiredField(value, 'Enter a bill date.'),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('personal-bill-currency'),
+                  controller: _currencyController,
+                  enabled: !_isSaving,
+                  textCapitalization: TextCapitalization.characters,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Currency',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) =>
+                      _requiredField(value, 'Enter a currency.'),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Items',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    TextButton.icon(
+                      key: const Key('personal-bill-add-item'),
+                      onPressed: _isSaving ? null : _addItem,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add item'),
+                    ),
+                  ],
+                ),
+                if (itemListError != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    itemListError,
+                    key: const Key('personal-bill-item-list-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                for (var index = 0; index < _itemControllers.length; index += 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _PersonalBillCreateItemCard(
+                      index: index,
+                      controllers: _itemControllers[index],
+                      isSaving: _isSaving,
+                      onRemove: () => _removeItem(index),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton.icon(
+            key: const Key('personal-bill-save'),
+            onPressed: _isSaving ? null : _save,
+            icon: _isSaving
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
+            label: const Text('Save bill'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PersonalBillCreateItemControllers {
+  _PersonalBillCreateItemControllers({String? currency})
+    : name = TextEditingController(),
+      amount = TextEditingController(),
+      currency = TextEditingController(text: currency ?? ''),
+      note = TextEditingController();
+
+  final TextEditingController name;
+  final TextEditingController amount;
+  final TextEditingController currency;
+  final TextEditingController note;
+
+  void dispose() {
+    name.dispose();
+    amount.dispose();
+    currency.dispose();
+    note.dispose();
+  }
+}
+
+class _PersonalBillCreateItemCard extends StatelessWidget {
+  const _PersonalBillCreateItemCard({
+    required this.index,
+    required this.controllers,
+    required this.isSaving,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _PersonalBillCreateItemControllers controllers;
+  final bool isSaving;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final itemNumber = index + 1;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Item $itemNumber',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('personal-bill-item-remove-$index'),
+                  onPressed: isSaving ? null : onRemove,
+                  tooltip: 'Remove item',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('personal-bill-item-name-$index'),
+              controller: controllers.name,
+              enabled: !isSaving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item name.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('personal-bill-item-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item amount.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('personal-bill-item-currency-$index'),
+              controller: controllers.currency,
+              enabled: !isSaving,
+              textCapitalization: TextCapitalization.characters,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Currency',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item currency.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('personal-bill-item-note-$index'),
+              controller: controllers.note,
+              enabled: !isSaving,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Note',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateBillFailureBanner extends StatelessWidget {
+  const _CreateBillFailureBanner({required this.failure});
+
+  final SettleoraBillFailure failure;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const Key('personal-bill-create-failure'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline),
+            const SizedBox(width: 10),
+            Expanded(child: Text('${failure.title}: ${failure.message}')),
+          ],
         ),
       ),
     );
@@ -418,11 +858,13 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billId,
+    this.initialBill,
     this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
   final String billId;
+  final SettleoraBillDetail? initialBill;
   final SettleoraBillRevisionRepository? revisionRepository;
 
   @override
@@ -431,7 +873,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
 }
 
 class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
-  bool _isLoading = true;
+  late bool _isLoading;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
@@ -442,7 +884,29 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   @override
   void initState() {
     super.initState();
-    Future<void>.microtask(_load);
+    final initialBill = widget.initialBill;
+    _bill = initialBill;
+    _isLoading = initialBill == null;
+    if (initialBill == null) {
+      Future<void>.microtask(_load);
+    } else {
+      Future<void>.microtask(_loadPendingRevisionForInitialBill);
+    }
+  }
+
+  Future<void> _loadPendingRevisionForInitialBill() async {
+    final revisionSnapshot = await _loadPendingRevision(
+      widget.revisionRepository,
+      widget.billId,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _pendingRevision = revisionSnapshot.revision;
+      _revisionFailure = revisionSnapshot.failure;
+    });
   }
 
   Future<void> _load() async {
@@ -1776,6 +2240,34 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+String? _requiredField(String? value, String message) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return message;
+  }
+
+  return null;
+}
+
+SettleoraBillSummary _summaryFromCreatedDetail(SettleoraBillDetail bill) {
+  return SettleoraBillSummary(
+    id: bill.id,
+    merchantName: bill.merchantName,
+    billDate: bill.billDate,
+    status: bill.status,
+    reconciliationStatus: bill.reconciliationStatus,
+    totalAmount: bill.totalAmount,
+    totalCurrency: bill.totalCurrency,
+    archiveState: SettleoraBillArchiveStateValues.active,
+    itemCount: bill.items.length,
+    participantCount: bill.participants.length,
+    payerCount: bill.payers.length,
+    createdAtUtc: bill.createdAtUtc,
+    updatedAtUtc: bill.updatedAtUtc,
+    displayNameFallback: bill.displayNameFallback,
+  );
 }
 
 bool _canShowCreateRevisionAction(
