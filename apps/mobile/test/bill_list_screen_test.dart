@@ -74,6 +74,8 @@ void main() {
 
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     expect(find.text('Create bill'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
+    expect(find.text('Create group bill'), findsNothing);
   });
 
   testWidgets('tapping create opens the personal bill create screen', (
@@ -209,10 +211,10 @@ void main() {
       final repository = FakeBillRepository(
         createdDetail: sampleBillDetail(
           id: _createdBillId,
-          merchantName: 'New Market',
+          merchantName: 'Server Returned Market',
           billDate: '2026-05-23',
-          totalAmount: '7.50',
-          totalCurrency: 'USD',
+          totalAmount: '42.42',
+          totalCurrency: 'EUR',
         ),
       );
 
@@ -232,7 +234,8 @@ void main() {
       await _tapSaveBill(tester);
 
       expect(find.text('Bill'), findsOneWidget);
-      expect(find.text('New Market'), findsOneWidget);
+      expect(find.text('Server Returned Market'), findsOneWidget);
+      expect(find.text('42.42 EUR'), findsOneWidget);
       expect(repository.getCalls, 0);
 
       await tester.pageBack();
@@ -245,7 +248,17 @@ void main() {
   testWidgets('create failure shows bounded safe copy and stays on form', (
     tester,
   ) async {
+    final store = MemorySyncQueueStore();
+    final syncRepository = FakeSyncRepository([]);
+    final controller = SettleoraBillSyncController(
+      queueStore: store,
+      queueProcessor: SettleoraSyncQueueProcessor(
+        queueStore: store,
+        repository: syncRepository,
+      ),
+    );
     final repository = FakeBillRepository(
+      bills: [sampleBillSummary(merchantName: 'Existing Market')],
       createFailure: const SettleoraBillFailure(
         kind: SettleoraBillFailureKind.server,
         message: 'Bills are unavailable right now. Try again later.',
@@ -256,7 +269,7 @@ void main() {
       MaterialApp(
         home: SettleoraBillListScreen(
           repository: repository,
-          syncController: sampleBillSyncController(),
+          syncController: controller,
         ),
       ),
     );
@@ -278,6 +291,14 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Create bill'), findsWidgets);
+    expect(store.state.items, isEmpty);
+    expect(syncRepository.submitCalls, 0);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Existing Market'), findsOneWidget);
+    expect(repository.listCalls, 1);
   });
 
   testWidgets('group bill list and detail do not show personal create entry', (

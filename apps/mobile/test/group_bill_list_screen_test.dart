@@ -29,12 +29,50 @@ void main() {
     expect(find.text('No group bills'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
     expect(find.text('Create group bill'), findsOneWidget);
+    expect(find.byKey(const Key('bill-list-create')), findsNothing);
+    expect(find.text('Create bill'), findsNothing);
     expect(repository.listGroupCalls, 1);
 
     await tester.tap(find.byKey(const Key('group-bill-list-refresh')));
     await tester.pumpAndSettle();
 
     expect(repository.listGroupCalls, 2);
+  });
+
+  testWidgets('group bill create stays unavailable when members fail to load', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            memberFailure: const SettleoraGroupFailure(
+              kind: SettleoraGroupFailureKind.server,
+              message: 'Groups are unavailable right now. Try again later.',
+            ),
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups unavailable'), findsOneWidget);
+    expect(
+      find.text('Groups are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-bill-save')), findsNothing);
+    expect(find.byKey(const Key('group-bill-merchant-name')), findsNothing);
+    expect(billRepository.createGroupCalls, 0);
+    expect(billRepository.createPersonalCalls, 0);
   });
 
   testWidgets('group bill list shows safe error and retries', (tester) async {
@@ -262,14 +300,24 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('group-bill-currency')), '');
     await tester.enterText(
       find.byKey(const Key('group-bill-item-currency-0')),
       '',
     );
     await tester.enterText(
+      find.byKey(const Key('group-bill-split-method-0-0')),
+      '',
+    );
+    await tester.enterText(
       find.byKey(const Key('group-bill-split-order-0-0')),
       '-1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-currency-0')),
+      '',
     );
     await _tapSaveGroupBill(tester);
 
@@ -279,10 +327,14 @@ void main() {
     expect(find.text('Enter an item amount.'), findsOneWidget);
     expect(find.text('Enter an item currency.'), findsOneWidget);
     expect(find.text('Choose a member for every split.'), findsOneWidget);
+    expect(find.text('Enter a split method.'), findsOneWidget);
     expect(
       find.text('Allocation order must be zero or greater.'),
       findsOneWidget,
     );
+    expect(find.text('Choose a member for every payer.'), findsOneWidget);
+    expect(find.text('Enter a payer amount.'), findsOneWidget);
+    expect(find.text('Enter a payer currency.'), findsOneWidget);
     expect(billRepository.createGroupCalls, 0);
 
     await tester.tap(find.byKey(const Key('group-bill-item-remove-0')));
@@ -291,6 +343,54 @@ void main() {
 
     expect(find.text('Add at least one item before saving.'), findsOneWidget);
     expect(billRepository.createGroupCalls, 0);
+  });
+
+  testWidgets('group bill create member menus use active members only', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Removed Morgan',
+                status: SettleoraGroupMembershipStatusValues.removed,
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-split-member-0-0'),
+      'Taylor',
+    );
+    expect(find.text('Removed Morgan'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-payer-member-0')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-payer-member-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Taylor'), findsWidgets);
+    expect(find.text('Removed Morgan'), findsNothing);
   });
 
   testWidgets('group bill create maps member split and payer draft strings', (
@@ -362,6 +462,7 @@ void main() {
 
     final draft = billRepository.lastGroupCreateDraft;
     expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.createPersonalCalls, 0);
     expect(billRepository.lastGroupId, _groupId);
     expect(draft?.merchantName, '  Night Market  ');
     expect(draft?.billDate, '  2026-05-23  ');
@@ -414,6 +515,7 @@ void main() {
       expect(find.text('Group bill'), findsWidgets);
       expect(find.text('Returned Market'), findsOneWidget);
       expect(billRepository.createGroupCalls, 1);
+      expect(billRepository.createPersonalCalls, 0);
       expect(billRepository.getGroupCalls, 0);
 
       await tester.pageBack();
@@ -539,6 +641,7 @@ class FakeBillRepository implements SettleoraBillRepository {
   final SettleoraBillFailure? createGroupFailure;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+  int createPersonalCalls = 0;
   int createGroupCalls = 0;
   String? lastGroupId;
   SettleoraGroupBillCreateDraft? lastGroupCreateDraft;
@@ -551,7 +654,8 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<SettleoraBillDetail> createPersonalBill(
     SettleoraPersonalBillCreateDraft draft,
-  ) {
+  ) async {
+    createPersonalCalls += 1;
     throw UnimplementedError();
   }
 
@@ -605,9 +709,10 @@ class FakeBillRepository implements SettleoraBillRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
-  FakeGroupRepository({this.members = const []});
+  FakeGroupRepository({this.members = const [], this.memberFailure});
 
   final List<SettleoraGroupMember> members;
+  final SettleoraGroupFailure? memberFailure;
   int listMemberCalls = 0;
 
   @override
@@ -636,6 +741,11 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   @override
   Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
     listMemberCalls += 1;
+    final failure = memberFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     return members;
   }
 
@@ -833,12 +943,13 @@ SettleoraBillDetail sampleBillDetail({
 SettleoraGroupMember sampleMember({
   String userProfileId = _profileId,
   String displayName = 'Taylor',
+  String status = SettleoraGroupMembershipStatusValues.active,
 }) {
   return SettleoraGroupMember(
     userProfileId: userProfileId,
     displayName: displayName,
     role: SettleoraGroupRoleValues.member,
-    status: SettleoraGroupMembershipStatusValues.active,
+    status: status,
     joinedAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
