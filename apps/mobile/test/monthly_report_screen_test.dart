@@ -346,6 +346,13 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 
 class FakeBillRepository implements SettleoraBillRepository {
   @override
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraBillDetail> getGroupBill(String groupId, String billId) {
     throw UnimplementedError();
   }

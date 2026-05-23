@@ -73,6 +73,236 @@ void main() {
       expect(client.lastBillId, _billId);
     });
 
+    test('createPersonalBill maps a complete draft request safely', () async {
+      final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
+      final client = FakeBillGeneratedClient(
+        createdBill: sampleApiBill(merchantName: 'Brunch Spot'),
+      );
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      final detail = await repository.createPersonalBill(
+        const SettleoraPersonalBillCreateDraft(
+          merchantName: '  Brunch Spot  ',
+          billDate: '  2026-05-21  ',
+          currency: ' usd ',
+          items: [
+            SettleoraPersonalBillCreateItemDraft(
+              name: '  Eggs  ',
+              note: '  table 4  ',
+              amount: ' 12.30 ',
+              currency: ' usd ',
+            ),
+          ],
+          adjustments: [
+            SettleoraPersonalBillCreateAdjustmentDraft(
+              type: ' tax ',
+              direction: ' charge ',
+              allocationMethod: ' equal ',
+              amount: ' 1.20 ',
+              currency: ' usd ',
+              reasonNote: ' local tax ',
+            ),
+          ],
+          payerPaymentMethodLabelSnapshot: '  Card  ',
+        ),
+      );
+
+      final body = client.lastCreateBody;
+      final payload = body?.toJson();
+      expect(detail.displayName, 'Brunch Spot');
+      expect(client.createCalls, 1);
+      expect(accessTokenProvider.calls, 1);
+      expect(client.accessTokens, ['redacted']);
+      expect(payload?['merchantName'], 'Brunch Spot');
+      expect(payload?['billDate'], '2026-05-21');
+      expect(payload?['currency'], 'USD');
+      expect(payload?['payerPaymentMethodLabelSnapshot'], 'Card');
+      final item = (payload?['items'] as List).single as Map;
+      expect(item['name'], 'Eggs');
+      expect(item['note'], 'table 4');
+      expect(item['amount'], '12.30');
+      expect(item['currency'], 'USD');
+      final adjustment = (payload?['adjustments'] as List).single as Map;
+      expect(adjustment['type'], 'tax');
+      expect(adjustment['direction'], 'charge');
+      expect(adjustment['allocationMethod'], 'equal');
+      expect(adjustment['amount'], '1.20');
+      expect(adjustment['currency'], 'USD');
+      expect(adjustment['reasonNote'], 'local tax');
+    });
+
+    test('createPersonalBill keeps optional blank strings null', () async {
+      final client = FakeBillGeneratedClient();
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      await repository.createPersonalBill(
+        const SettleoraPersonalBillCreateDraft(
+          merchantName: '   ',
+          billDate: '2026-05-21',
+          currency: 'usd',
+          items: [
+            SettleoraPersonalBillCreateItemDraft(
+              name: 'Coffee',
+              note: '   ',
+              amount: '4.50',
+              currency: 'usd',
+            ),
+          ],
+          adjustments: [
+            SettleoraPersonalBillCreateAdjustmentDraft(
+              type: 'tax',
+              direction: 'charge',
+              allocationMethod: 'equal',
+              amount: '0.50',
+              currency: 'usd',
+              reasonNote: '   ',
+            ),
+          ],
+          payerPaymentMethodLabelSnapshot: '   ',
+        ),
+      );
+
+      final payload = client.lastCreateBody!.toJson();
+      expect(payload['merchantName'], isNull);
+      expect(payload['payerPaymentMethodLabelSnapshot'], isNull);
+      final item = (payload['items'] as List).single as Map;
+      expect(item['note'], isNull);
+      expect(item['currency'], 'USD');
+      final adjustment = (payload['adjustments'] as List).single as Map;
+      expect(adjustment['reasonNote'], isNull);
+      expect(adjustment['currency'], 'USD');
+    });
+
+    test(
+      'createPersonalBill validation runs before session and generated calls',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createPersonalBill(
+            const SettleoraPersonalBillCreateDraft(
+              billDate: ' ',
+              currency: 'usd',
+              items: [
+                SettleoraPersonalBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createCalls, 0);
+      },
+    );
+
+    test(
+      'createPersonalBill rejects empty items before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createPersonalBill(
+            const SettleoraPersonalBillCreateDraft(
+              billDate: '2026-05-21',
+              currency: 'usd',
+              items: [],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createCalls, 0);
+      },
+    );
+
+    test(
+      'createPersonalBill rejects invalid item rows before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createPersonalBill(
+            const SettleoraPersonalBillCreateDraft(
+              billDate: '2026-05-21',
+              currency: 'usd',
+              items: [
+                SettleoraPersonalBillCreateItemDraft(
+                  name: ' ',
+                  amount: '4.50',
+                  currency: 'usd',
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createCalls, 0);
+      },
+    );
+
+    test('createPersonalBill maps generated failures safely', () async {
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          failure: api.SettleoraApiException(
+            422,
+            'Unprocessable Content',
+            _hiddenBody,
+          ),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final failure = await captureBillFailure(() {
+        return repository.createPersonalBill(
+          const SettleoraPersonalBillCreateDraft(
+            billDate: '2026-05-21',
+            currency: 'usd',
+            items: [
+              SettleoraPersonalBillCreateItemDraft(
+                name: 'Coffee',
+                amount: '4.50',
+                currency: 'usd',
+              ),
+            ],
+          ),
+        );
+      });
+
+      expect(failure.kind, SettleoraBillFailureKind.validation);
+      expect(failure.statusCode, 422);
+      expect(failure.message, isNot(contains('internal-detail')));
+      expect(failure.toString(), isNot(contains('internal-detail')));
+    });
+
     test(
       'requires a session before calling group bill generated methods',
       () async {
@@ -206,12 +436,14 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
     List<api.GroupBillResponse>? activeGroupBills,
     List<api.GroupBillResponse>? archivedGroupBills,
     api.PersonalBillResponse? detailBill,
+    api.PersonalBillResponse? createdBill,
     api.GroupBillResponse? groupDetailBill,
   }) : activeBills = activeBills ?? const [],
        archivedBills = archivedBills ?? const [],
        activeGroupBills = activeGroupBills ?? const [],
        archivedGroupBills = archivedGroupBills ?? const [],
        detailBill = detailBill ?? sampleApiBill(),
+       createdBill = createdBill ?? sampleApiBill(),
        groupDetailBill = groupDetailBill ?? sampleApiGroupBill();
 
   final Object? failure;
@@ -220,14 +452,17 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
   final List<api.GroupBillResponse> activeGroupBills;
   final List<api.GroupBillResponse> archivedGroupBills;
   final api.PersonalBillResponse detailBill;
+  final api.PersonalBillResponse createdBill;
   final api.GroupBillResponse groupDetailBill;
   final archiveStates = <api.ExpenseBillArchiveState?>[];
   final accessTokens = <String>[];
   final limits = <int?>[];
   int listCalls = 0;
+  int createCalls = 0;
   int getCalls = 0;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
+  api.CreatePersonalBillRequest? lastCreateBody;
   String? lastBillId;
   String? lastGroupId;
 
@@ -247,6 +482,18 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
           ? archivedBills
           : activeBills,
     );
+  }
+
+  @override
+  Future<api.PersonalBillResponse> createPersonalBill(
+    api.CreatePersonalBillRequest body, {
+    required String accessToken,
+  }) async {
+    createCalls += 1;
+    lastCreateBody = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return createdBill;
   }
 
   @override
