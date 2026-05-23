@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../groups/group_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
 import 'bill_revision_proposal_editor_screen.dart';
@@ -689,14 +690,18 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
 }
 
 class _CreateBillFailureBanner extends StatelessWidget {
-  const _CreateBillFailureBanner({required this.failure});
+  const _CreateBillFailureBanner({
+    required this.failure,
+    this.bannerKey = const Key('personal-bill-create-failure'),
+  });
 
   final SettleoraBillFailure failure;
+  final Key bannerKey;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      key: const Key('personal-bill-create-failure'),
+      key: bannerKey,
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.error),
         borderRadius: BorderRadius.circular(8),
@@ -720,12 +725,14 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   const SettleoraGroupBillListScreen({
     super.key,
     required this.repository,
+    required this.groupRepository,
     required this.groupId,
     required this.groupName,
     this.revisionRepository,
   });
 
   final SettleoraBillRepository repository;
+  final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -790,6 +797,52 @@ class _SettleoraGroupBillListScreenState
         ),
       ),
     );
+
+    if (mounted) {
+      await _load();
+    }
+  }
+
+  Future<void> _openCreateGroupBill() async {
+    final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
+      MaterialPageRoute(
+        builder: (_) => SettleoraGroupBillCreateScreen(
+          billRepository: widget.repository,
+          groupRepository: widget.groupRepository,
+          groupId: widget.groupId,
+          groupName: widget.groupName,
+        ),
+      ),
+    );
+
+    if (!mounted || createdBill == null) {
+      return;
+    }
+
+    setState(() {
+      _failure = null;
+      _bills = [
+        _summaryFromCreatedDetail(createdBill),
+        ..._bills.where((bill) => bill.id != createdBill.id),
+      ];
+    });
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraGroupBillDetailScreen(
+          repository: widget.repository,
+          revisionRepository: widget.revisionRepository,
+          groupId: widget.groupId,
+          groupName: widget.groupName,
+          billId: createdBill.id,
+          initialBill: createdBill,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _load();
+    }
   }
 
   @override
@@ -848,6 +901,934 @@ class _SettleoraGroupBillListScreenState
             );
           },
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        key: const Key('group-bill-list-create'),
+        onPressed: _isLoading ? null : _openCreateGroupBill,
+        icon: const Icon(Icons.add),
+        label: const Text('Create group bill'),
+      ),
+    );
+  }
+}
+
+class SettleoraGroupBillCreateScreen extends StatefulWidget {
+  const SettleoraGroupBillCreateScreen({
+    super.key,
+    required this.billRepository,
+    required this.groupRepository,
+    required this.groupId,
+    required this.groupName,
+  });
+
+  final SettleoraBillRepository billRepository;
+  final SettleoraGroupRepository groupRepository;
+  final String groupId;
+  final String groupName;
+
+  @override
+  State<SettleoraGroupBillCreateScreen> createState() =>
+      _SettleoraGroupBillCreateScreenState();
+}
+
+class _SettleoraGroupBillCreateScreenState
+    extends State<SettleoraGroupBillCreateScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _merchantController = TextEditingController();
+  final _billDateController = TextEditingController();
+  final _currencyController = TextEditingController(text: 'USD');
+  final List<_GroupBillCreateItemControllers> _itemControllers = [];
+  final List<_GroupBillCreatePayerControllers> _payerControllers = [];
+  bool _isLoadingMembers = true;
+  bool _isSaving = false;
+  List<SettleoraGroupMember> _members = const [];
+  SettleoraGroupFailure? _memberFailure;
+  SettleoraBillFailure? _failure;
+  String? _itemListError;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemControllers.add(
+      _GroupBillCreateItemControllers(currency: _currencyController.text),
+    );
+    Future<void>.microtask(_loadMembers);
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _billDateController.dispose();
+    _currencyController.dispose();
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
+    for (final payer in _payerControllers) {
+      payer.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadMembers() async {
+    setState(() {
+      _isLoadingMembers = true;
+      _memberFailure = null;
+    });
+
+    try {
+      final members = await widget.groupRepository.listGroupMembers(
+        widget.groupId,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      final activeMembers = members
+          .where(
+            (member) =>
+                member.status == SettleoraGroupMembershipStatusValues.active,
+          )
+          .toList(growable: false);
+      setState(() {
+        _members = activeMembers;
+        _isLoadingMembers = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _memberFailure = SettleoraGroupFailure.from(error);
+        _isLoadingMembers = false;
+      });
+    }
+  }
+
+  void _addItem() {
+    setState(() {
+      _itemListError = null;
+      _itemControllers.add(
+        _GroupBillCreateItemControllers(currency: _currencyController.text),
+      );
+    });
+  }
+
+  void _removeItem(int index) {
+    if (index < 0 || index >= _itemControllers.length) {
+      return;
+    }
+
+    setState(() {
+      final removed = _itemControllers.removeAt(index);
+      removed.dispose();
+      _itemListError = _itemControllers.isEmpty
+          ? 'Add at least one item before saving.'
+          : null;
+    });
+  }
+
+  void _addPayer() {
+    setState(() {
+      _payerControllers.add(
+        _GroupBillCreatePayerControllers(currency: _currencyController.text),
+      );
+    });
+  }
+
+  void _removePayer(int index) {
+    if (index < 0 || index >= _payerControllers.length) {
+      return;
+    }
+
+    setState(() {
+      final removed = _payerControllers.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _failure = null;
+      _itemListError = _itemControllers.isEmpty
+          ? 'Add at least one item before saving.'
+          : null;
+    });
+
+    final formIsValid = _formKey.currentState?.validate() ?? false;
+    if (!formIsValid || _itemControllers.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    final draft = SettleoraGroupBillCreateDraft(
+      merchantName: _merchantController.text,
+      billDate: _billDateController.text,
+      currency: _currencyController.text,
+      items: _itemControllers
+          .map(
+            (item) => SettleoraGroupBillCreateItemDraft(
+              name: item.name.text,
+              note: item.note.text,
+              amount: item.amount.text,
+              currency: item.currency.text,
+              splits: item.splits
+                  .map(
+                    (split) => SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: split.userProfileId ?? '',
+                      splitMethod: split.splitMethod.text,
+                      basisValue: split.basisValue.text,
+                      allocationOrder: _parseAllocationOrder(
+                        split.allocationOrder.text,
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          )
+          .toList(growable: false),
+      payers: _payerControllers
+          .map(
+            (payer) => SettleoraGroupBillCreatePayerDraft(
+              userProfileId: payer.userProfileId ?? '',
+              amount: payer.amount.text,
+              currency: payer.currency.text,
+              paymentMethodLabelSnapshot: payer.paymentMethodLabel.text,
+            ),
+          )
+          .toList(growable: false),
+    );
+
+    try {
+      final createdBill = await widget.billRepository.createGroupBill(
+        widget.groupId,
+        draft,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(createdBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _isSaving = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = _failure;
+    final memberFailure = _memberFailure;
+    final itemListError = _itemListError;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Create group bill')),
+      body: SafeArea(
+        child: Builder(
+          builder: (context) {
+            if (_isLoadingMembers) {
+              return const _LoadingPanel(label: 'Loading group members');
+            }
+
+            if (memberFailure != null) {
+              return _GroupMemberFailurePanel(
+                failure: memberFailure,
+                onRetry: _loadMembers,
+              );
+            }
+
+            return Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _GroupBillContext(groupName: widget.groupName),
+                    if (failure != null) ...[
+                      const SizedBox(height: 16),
+                      _CreateBillFailureBanner(
+                        failure: failure,
+                        bannerKey: const Key('group-bill-create-failure'),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    Text(
+                      'Bill details',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('group-bill-merchant-name'),
+                      controller: _merchantController,
+                      enabled: !_isSaving,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Merchant name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('group-bill-date'),
+                      controller: _billDateController,
+                      enabled: !_isSaving,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Bill date',
+                        hintText: 'YYYY-MM-DD',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _requiredField(value, 'Enter a bill date.'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('group-bill-currency'),
+                      controller: _currencyController,
+                      enabled: !_isSaving,
+                      textCapitalization: TextCapitalization.characters,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Currency',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _requiredField(value, 'Enter a currency.'),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Items',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const Key('group-bill-add-item'),
+                          onPressed: _isSaving ? null : _addItem,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add item'),
+                        ),
+                      ],
+                    ),
+                    if (itemListError != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        itemListError,
+                        key: const Key('group-bill-item-list-error'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    for (
+                      var index = 0;
+                      index < _itemControllers.length;
+                      index += 1
+                    )
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _GroupBillCreateItemCard(
+                          index: index,
+                          controllers: _itemControllers[index],
+                          members: _members,
+                          isSaving: _isSaving,
+                          onRemove: () => _removeItem(index),
+                        ),
+                      ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Payers',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const Key('group-bill-add-payer'),
+                          onPressed: _isSaving ? null : _addPayer,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add payer'),
+                        ),
+                      ],
+                    ),
+                    if (_payerControllers.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'No payer rows added.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      )
+                    else
+                      for (
+                        var index = 0;
+                        index < _payerControllers.length;
+                        index += 1
+                      )
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: _GroupBillCreatePayerCard(
+                            index: index,
+                            controllers: _payerControllers[index],
+                            members: _members,
+                            isSaving: _isSaving,
+                            onRemove: () => _removePayer(index),
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton.icon(
+            key: const Key('group-bill-save'),
+            onPressed: _isSaving || _isLoadingMembers ? null : _save,
+            icon: _isSaving
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
+            label: const Text('Save group bill'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillCreateItemControllers {
+  _GroupBillCreateItemControllers({String? currency})
+    : name = TextEditingController(),
+      amount = TextEditingController(),
+      currency = TextEditingController(text: currency ?? ''),
+      note = TextEditingController(),
+      splits = [_GroupBillCreateSplitControllers()];
+
+  final TextEditingController name;
+  final TextEditingController amount;
+  final TextEditingController currency;
+  final TextEditingController note;
+  final List<_GroupBillCreateSplitControllers> splits;
+
+  void addSplit() {
+    splits.add(_GroupBillCreateSplitControllers());
+  }
+
+  void removeSplit(int index) {
+    if (index < 0 || index >= splits.length) {
+      return;
+    }
+
+    final removed = splits.removeAt(index);
+    removed.dispose();
+  }
+
+  void dispose() {
+    name.dispose();
+    amount.dispose();
+    currency.dispose();
+    note.dispose();
+    for (final split in splits) {
+      split.dispose();
+    }
+  }
+}
+
+class _GroupBillCreateSplitControllers {
+  _GroupBillCreateSplitControllers()
+    : splitMethod = TextEditingController(text: 'equal'),
+      basisValue = TextEditingController(),
+      allocationOrder = TextEditingController();
+
+  String? userProfileId;
+  final TextEditingController splitMethod;
+  final TextEditingController basisValue;
+  final TextEditingController allocationOrder;
+
+  void dispose() {
+    splitMethod.dispose();
+    basisValue.dispose();
+    allocationOrder.dispose();
+  }
+}
+
+class _GroupBillCreatePayerControllers {
+  _GroupBillCreatePayerControllers({String? currency})
+    : amount = TextEditingController(),
+      currency = TextEditingController(text: currency ?? ''),
+      paymentMethodLabel = TextEditingController();
+
+  String? userProfileId;
+  final TextEditingController amount;
+  final TextEditingController currency;
+  final TextEditingController paymentMethodLabel;
+
+  void dispose() {
+    amount.dispose();
+    currency.dispose();
+    paymentMethodLabel.dispose();
+  }
+}
+
+class _GroupBillCreateItemCard extends StatefulWidget {
+  const _GroupBillCreateItemCard({
+    required this.index,
+    required this.controllers,
+    required this.members,
+    required this.isSaving,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _GroupBillCreateItemControllers controllers;
+  final List<SettleoraGroupMember> members;
+  final bool isSaving;
+  final VoidCallback onRemove;
+
+  @override
+  State<_GroupBillCreateItemCard> createState() =>
+      _GroupBillCreateItemCardState();
+}
+
+class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
+  String? _splitListError;
+
+  void _addSplit() {
+    setState(() {
+      _splitListError = null;
+      widget.controllers.addSplit();
+    });
+  }
+
+  void _removeSplit(int index) {
+    setState(() {
+      widget.controllers.removeSplit(index);
+      _splitListError = widget.controllers.splits.isEmpty
+          ? 'Add at least one split before saving.'
+          : null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final itemNumber = widget.index + 1;
+    final splitListError = _splitListError;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Item $itemNumber',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('group-bill-item-remove-${widget.index}'),
+                  onPressed: widget.isSaving ? null : widget.onRemove,
+                  tooltip: 'Remove item',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('group-bill-item-name-${widget.index}'),
+              controller: widget.controllers.name,
+              enabled: !widget.isSaving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item name.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-amount-${widget.index}'),
+              controller: widget.controllers.amount,
+              enabled: !widget.isSaving,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item amount.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-currency-${widget.index}'),
+              controller: widget.controllers.currency,
+              enabled: !widget.isSaving,
+              textCapitalization: TextCapitalization.characters,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Currency',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter an item currency.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-note-${widget.index}'),
+              controller: widget.controllers.note,
+              enabled: !widget.isSaving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Note',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Splits',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                TextButton.icon(
+                  key: ValueKey('group-bill-item-add-split-${widget.index}'),
+                  onPressed: widget.isSaving ? null : _addSplit,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add split'),
+                ),
+              ],
+            ),
+            if (splitListError != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                splitListError,
+                key: ValueKey('group-bill-split-list-error-${widget.index}'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            for (
+              var splitIndex = 0;
+              splitIndex < widget.controllers.splits.length;
+              splitIndex += 1
+            )
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _GroupBillCreateSplitCard(
+                  itemIndex: widget.index,
+                  splitIndex: splitIndex,
+                  controllers: widget.controllers.splits[splitIndex],
+                  members: widget.members,
+                  isSaving: widget.isSaving,
+                  onRemove: () => _removeSplit(splitIndex),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillCreateSplitCard extends StatelessWidget {
+  const _GroupBillCreateSplitCard({
+    required this.itemIndex,
+    required this.splitIndex,
+    required this.controllers,
+    required this.members,
+    required this.isSaving,
+    required this.onRemove,
+  });
+
+  final int itemIndex;
+  final int splitIndex;
+  final _GroupBillCreateSplitControllers controllers;
+  final List<SettleoraGroupMember> members;
+  final bool isSaving;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Split ${splitIndex + 1}',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey(
+                    'group-bill-split-remove-$itemIndex-$splitIndex',
+                  ),
+                  onPressed: isSaving ? null : onRemove,
+                  tooltip: 'Remove split',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _MemberDropdownField(
+              key: ValueKey('group-bill-split-member-$itemIndex-$splitIndex'),
+              label: 'Member',
+              members: members,
+              value: controllers.userProfileId,
+              enabled: !isSaving,
+              requiredMessage: 'Choose a member for every split.',
+              onChanged: (value) => controllers.userProfileId = value,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-split-method-$itemIndex-$splitIndex'),
+              controller: controllers.splitMethod,
+              enabled: !isSaving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Split method',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter a split method.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-split-basis-$itemIndex-$splitIndex'),
+              controller: controllers.basisValue,
+              enabled: !isSaving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Basis value',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-split-order-$itemIndex-$splitIndex'),
+              controller: controllers.allocationOrder,
+              enabled: !isSaving,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Allocation order',
+                border: OutlineInputBorder(),
+              ),
+              validator: _allocationOrderError,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillCreatePayerCard extends StatelessWidget {
+  const _GroupBillCreatePayerCard({
+    required this.index,
+    required this.controllers,
+    required this.members,
+    required this.isSaving,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _GroupBillCreatePayerControllers controllers;
+  final List<SettleoraGroupMember> members;
+  final bool isSaving;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Payer ${index + 1}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('group-bill-payer-remove-$index'),
+                  onPressed: isSaving ? null : onRemove,
+                  tooltip: 'Remove payer',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _MemberDropdownField(
+              key: ValueKey('group-bill-payer-member-$index'),
+              label: 'Member',
+              members: members,
+              value: controllers.userProfileId,
+              enabled: !isSaving,
+              requiredMessage: 'Choose a member for every payer.',
+              onChanged: (value) => controllers.userProfileId = value,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-payer-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter a payer amount.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-payer-currency-$index'),
+              controller: controllers.currency,
+              enabled: !isSaving,
+              textCapitalization: TextCapitalization.characters,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Currency',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  _requiredField(value, 'Enter a payer currency.'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-payer-method-$index'),
+              controller: controllers.paymentMethodLabel,
+              enabled: !isSaving,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Payment method label',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberDropdownField extends StatelessWidget {
+  const _MemberDropdownField({
+    super.key,
+    required this.label,
+    required this.members,
+    required this.value,
+    required this.enabled,
+    required this.requiredMessage,
+    required this.onChanged,
+  });
+
+  final String label;
+  final List<SettleoraGroupMember> members;
+  final String? value;
+  final bool enabled;
+  final String requiredMessage;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      items: [
+        for (final member in members)
+          DropdownMenuItem<String>(
+            value: member.userProfileId,
+            child: Text(member.safeDisplayName),
+          ),
+      ],
+      onChanged: enabled ? onChanged : null,
+      validator: (value) {
+        final trimmed = value?.trim();
+        if (trimmed == null || trimmed.isEmpty) {
+          return requiredMessage;
+        }
+
+        return null;
+      },
+    );
+  }
+}
+
+class _GroupMemberFailurePanel extends StatelessWidget {
+  const _GroupMemberFailurePanel({
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final SettleoraGroupFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.group_off_outlined,
+      title: failure.title,
+      message: failure.message,
+      action: OutlinedButton.icon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
       ),
     );
   }
@@ -1151,6 +2132,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     required this.billId,
+    this.initialBill,
     this.revisionRepository,
   });
 
@@ -1159,6 +2141,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
   final String billId;
+  final SettleoraBillDetail? initialBill;
 
   @override
   State<SettleoraGroupBillDetailScreen> createState() =>
@@ -1167,7 +2150,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
 
 class _SettleoraGroupBillDetailScreenState
     extends State<SettleoraGroupBillDetailScreen> {
-  bool _isLoading = true;
+  late bool _isLoading;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
@@ -1178,7 +2161,29 @@ class _SettleoraGroupBillDetailScreenState
   @override
   void initState() {
     super.initState();
-    Future<void>.microtask(_load);
+    final initialBill = widget.initialBill;
+    _bill = initialBill;
+    _isLoading = initialBill == null;
+    if (initialBill == null) {
+      Future<void>.microtask(_load);
+    } else {
+      Future<void>.microtask(_loadPendingRevisionForInitialBill);
+    }
+  }
+
+  Future<void> _loadPendingRevisionForInitialBill() async {
+    final revisionSnapshot = await _loadPendingRevision(
+      widget.revisionRepository,
+      widget.billId,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _pendingRevision = revisionSnapshot.revision;
+      _revisionFailure = revisionSnapshot.failure;
+    });
   }
 
   Future<void> _load() async {
@@ -2249,6 +3254,29 @@ String? _requiredField(String? value, String message) {
   }
 
   return null;
+}
+
+String? _allocationOrderError(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  final parsed = int.tryParse(trimmed);
+  if (parsed == null || parsed < 0) {
+    return 'Allocation order must be zero or greater.';
+  }
+
+  return null;
+}
+
+int? _parseAllocationOrder(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+
+  return int.parse(trimmed);
 }
 
 SettleoraBillSummary _summaryFromCreatedDetail(SettleoraBillDetail bill) {

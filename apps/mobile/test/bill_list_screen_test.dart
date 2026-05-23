@@ -289,6 +289,7 @@ void main() {
       MaterialApp(
         home: SettleoraGroupBillListScreen(
           repository: repository,
+          groupRepository: FakeGroupRepository(),
           groupId: _groupId,
           groupName: 'Trip',
         ),
@@ -298,12 +299,14 @@ void main() {
 
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
+    expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
+    expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
   });
 
   testWidgets('bill list preserves queued work when session is missing', (
