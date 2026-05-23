@@ -275,6 +275,86 @@ class SettleoraPersonalBillCreateAdjustmentDraft {
   final String? reasonNote;
 }
 
+class SettleoraGroupBillCreateDraft {
+  const SettleoraGroupBillCreateDraft({
+    this.merchantName,
+    required this.billDate,
+    required this.currency,
+    required this.items,
+    this.adjustments = const [],
+    this.payers = const [],
+  });
+
+  final String? merchantName;
+  final String billDate;
+  final String currency;
+  final List<SettleoraGroupBillCreateItemDraft> items;
+  final List<SettleoraGroupBillCreateAdjustmentDraft> adjustments;
+  final List<SettleoraGroupBillCreatePayerDraft> payers;
+}
+
+class SettleoraGroupBillCreateItemDraft {
+  const SettleoraGroupBillCreateItemDraft({
+    required this.name,
+    this.note,
+    required this.amount,
+    required this.currency,
+    required this.splits,
+  });
+
+  final String name;
+  final String? note;
+  final String amount;
+  final String currency;
+  final List<SettleoraGroupBillCreateItemSplitDraft> splits;
+}
+
+class SettleoraGroupBillCreateItemSplitDraft {
+  const SettleoraGroupBillCreateItemSplitDraft({
+    required this.userProfileId,
+    required this.splitMethod,
+    this.basisValue,
+    this.allocationOrder,
+  });
+
+  final String userProfileId;
+  final String splitMethod;
+  final String? basisValue;
+  final int? allocationOrder;
+}
+
+class SettleoraGroupBillCreateAdjustmentDraft {
+  const SettleoraGroupBillCreateAdjustmentDraft({
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    required this.currency,
+    this.reasonNote,
+  });
+
+  final String type;
+  final String direction;
+  final String allocationMethod;
+  final String amount;
+  final String currency;
+  final String? reasonNote;
+}
+
+class SettleoraGroupBillCreatePayerDraft {
+  const SettleoraGroupBillCreatePayerDraft({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+    this.paymentMethodLabelSnapshot,
+  });
+
+  final String userProfileId;
+  final String amount;
+  final String currency;
+  final String? paymentMethodLabelSnapshot;
+}
+
 abstract class SettleoraBillRepository {
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50});
 
@@ -288,6 +368,11 @@ abstract class SettleoraBillRepository {
     String groupId, {
     int limit = 50,
   });
+
+  Future<SettleoraBillDetail> createGroupBill(
+    String groupId,
+    SettleoraGroupBillCreateDraft draft,
+  );
 
   Future<SettleoraBillDetail> getGroupBill(String groupId, String billId);
 }

@@ -363,6 +363,287 @@ void main() {
       expect(accessTokenProvider.calls, 3);
     });
 
+    test('createGroupBill maps a complete draft request safely', () async {
+      final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
+      final client = FakeBillGeneratedClient(
+        createdGroupBill: sampleApiGroupBill(merchantName: 'Night Market'),
+      );
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      final detail = await repository.createGroupBill(
+        '  $_groupId  ',
+        const SettleoraGroupBillCreateDraft(
+          merchantName: '  Night Market  ',
+          billDate: '  2026-05-22  ',
+          currency: ' usd ',
+          items: [
+            SettleoraGroupBillCreateItemDraft(
+              name: '  Noodles  ',
+              note: '  shared bowl  ',
+              amount: ' 12.00 ',
+              currency: ' usd ',
+              splits: [
+                SettleoraGroupBillCreateItemSplitDraft(
+                  userProfileId: '  $_userProfileId  ',
+                  splitMethod: ' exact_amount ',
+                  basisValue: ' 7.00 ',
+                  allocationOrder: 1,
+                ),
+                SettleoraGroupBillCreateItemSplitDraft(
+                  userProfileId: '  $_otherUserProfileId  ',
+                  splitMethod: ' equal ',
+                  allocationOrder: 2,
+                ),
+              ],
+            ),
+          ],
+          adjustments: [
+            SettleoraGroupBillCreateAdjustmentDraft(
+              type: ' service_charge ',
+              direction: ' charge ',
+              allocationMethod: ' equal ',
+              amount: ' 2.00 ',
+              currency: ' usd ',
+              reasonNote: ' tip ',
+            ),
+          ],
+          payers: [
+            SettleoraGroupBillCreatePayerDraft(
+              userProfileId: ' $_userProfileId ',
+              amount: ' 14.00 ',
+              currency: ' usd ',
+              paymentMethodLabelSnapshot: ' Cash ',
+            ),
+          ],
+        ),
+      );
+
+      final body = client.lastGroupCreateBody;
+      final payload = body?.toJson();
+      expect(detail.displayName, 'Night Market');
+      expect(client.createGroupCalls, 1);
+      expect(client.lastGroupId, _groupId);
+      expect(accessTokenProvider.calls, 1);
+      expect(client.accessTokens, ['redacted']);
+      expect(payload?['merchantName'], 'Night Market');
+      expect(payload?['billDate'], '2026-05-22');
+      expect(payload?['currency'], 'USD');
+      final item = (payload?['items'] as List).single as Map;
+      expect(item['name'], 'Noodles');
+      expect(item['note'], 'shared bowl');
+      expect(item['amount'], '12.00');
+      expect(item['currency'], 'USD');
+      final splits = item['splits'] as List;
+      final firstSplit = splits.first as Map;
+      final secondSplit = splits.last as Map;
+      expect(firstSplit['userProfileId'], _userProfileId);
+      expect(firstSplit['splitMethod'], 'exact_amount');
+      expect(firstSplit['basisValue'], '7.00');
+      expect(firstSplit['allocationOrder'], 1);
+      expect(secondSplit['userProfileId'], _otherUserProfileId);
+      expect(secondSplit['splitMethod'], 'equal');
+      expect(secondSplit.containsKey('basisValue'), isFalse);
+      expect(secondSplit['allocationOrder'], 2);
+      final adjustment = (payload?['adjustments'] as List).single as Map;
+      expect(adjustment['type'], 'service_charge');
+      expect(adjustment['direction'], 'charge');
+      expect(adjustment['allocationMethod'], 'equal');
+      expect(adjustment['amount'], '2.00');
+      expect(adjustment['currency'], 'USD');
+      expect(adjustment['reasonNote'], 'tip');
+      final payer = (payload?['payers'] as List).single as Map;
+      expect(payer['userProfileId'], _userProfileId);
+      expect(payer['amount'], '14.00');
+      expect(payer['currency'], 'USD');
+      expect(payer['paymentMethodLabelSnapshot'], 'Cash');
+    });
+
+    test('createGroupBill keeps optional blank strings null', () async {
+      final client = FakeBillGeneratedClient();
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      await repository.createGroupBill(
+        _groupId,
+        const SettleoraGroupBillCreateDraft(
+          merchantName: '   ',
+          billDate: '2026-05-22',
+          currency: 'usd',
+          items: [
+            SettleoraGroupBillCreateItemDraft(
+              name: 'Coffee',
+              note: '   ',
+              amount: '4.50',
+              currency: 'usd',
+              splits: [
+                SettleoraGroupBillCreateItemSplitDraft(
+                  userProfileId: _userProfileId,
+                  splitMethod: 'equal',
+                  basisValue: '   ',
+                ),
+              ],
+            ),
+          ],
+          adjustments: [
+            SettleoraGroupBillCreateAdjustmentDraft(
+              type: 'tax',
+              direction: 'charge',
+              allocationMethod: 'equal',
+              amount: '0.50',
+              currency: 'usd',
+              reasonNote: '   ',
+            ),
+          ],
+          payers: [
+            SettleoraGroupBillCreatePayerDraft(
+              userProfileId: _userProfileId,
+              amount: '5.00',
+              currency: 'usd',
+              paymentMethodLabelSnapshot: '   ',
+            ),
+          ],
+        ),
+      );
+
+      final payload = client.lastGroupCreateBody!.toJson();
+      expect(payload['merchantName'], isNull);
+      final item = (payload['items'] as List).single as Map;
+      expect(item['note'], isNull);
+      expect(item['currency'], 'USD');
+      final split = (item['splits'] as List).single as Map;
+      expect(split['basisValue'], isNull);
+      final adjustment = (payload['adjustments'] as List).single as Map;
+      expect(adjustment['reasonNote'], isNull);
+      expect(adjustment['currency'], 'USD');
+      final payer = (payload['payers'] as List).single as Map;
+      expect(payer['paymentMethodLabelSnapshot'], isNull);
+      expect(payer['currency'], 'USD');
+    });
+
+    test(
+      'createGroupBill validation runs before session and generated calls',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createGroupBill(
+            '   ',
+            const SettleoraGroupBillCreateDraft(
+              billDate: '2026-05-22',
+              currency: 'usd',
+              items: [
+                SettleoraGroupBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                  splits: [
+                    SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: _userProfileId,
+                      splitMethod: 'equal',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createGroupCalls, 0);
+      },
+    );
+
+    test(
+      'createGroupBill rejects invalid split rows before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.createGroupBill(
+            _groupId,
+            const SettleoraGroupBillCreateDraft(
+              billDate: '2026-05-22',
+              currency: 'usd',
+              items: [
+                SettleoraGroupBillCreateItemDraft(
+                  name: 'Coffee',
+                  amount: '4.50',
+                  currency: 'usd',
+                  splits: [
+                    SettleoraGroupBillCreateItemSplitDraft(
+                      userProfileId: ' ',
+                      splitMethod: 'equal',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.createGroupCalls, 0);
+      },
+    );
+
+    test('createGroupBill maps generated failures safely', () async {
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          failure: api.SettleoraApiException(
+            422,
+            'Unprocessable Content',
+            _hiddenBody,
+          ),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final failure = await captureBillFailure(() {
+        return repository.createGroupBill(
+          _groupId,
+          const SettleoraGroupBillCreateDraft(
+            billDate: '2026-05-22',
+            currency: 'usd',
+            items: [
+              SettleoraGroupBillCreateItemDraft(
+                name: 'Coffee',
+                amount: '4.50',
+                currency: 'usd',
+                splits: [
+                  SettleoraGroupBillCreateItemSplitDraft(
+                    userProfileId: _userProfileId,
+                    splitMethod: 'equal',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      });
+
+      expect(failure.kind, SettleoraBillFailureKind.validation);
+      expect(failure.statusCode, 422);
+      expect(failure.message, isNot(contains('internal-detail')));
+      expect(failure.toString(), isNot(contains('internal-detail')));
+    });
+
     test('maps generated failures to bounded safe failures', () async {
       final repository = GeneratedSettleoraBillRepository(
         client: FakeBillGeneratedClient(
@@ -438,13 +719,15 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
     api.PersonalBillResponse? detailBill,
     api.PersonalBillResponse? createdBill,
     api.GroupBillResponse? groupDetailBill,
+    api.GroupBillResponse? createdGroupBill,
   }) : activeBills = activeBills ?? const [],
        archivedBills = archivedBills ?? const [],
        activeGroupBills = activeGroupBills ?? const [],
        archivedGroupBills = archivedGroupBills ?? const [],
        detailBill = detailBill ?? sampleApiBill(),
        createdBill = createdBill ?? sampleApiBill(),
-       groupDetailBill = groupDetailBill ?? sampleApiGroupBill();
+       groupDetailBill = groupDetailBill ?? sampleApiGroupBill(),
+       createdGroupBill = createdGroupBill ?? sampleApiGroupBill();
 
   final Object? failure;
   final List<api.PersonalBillResponse> activeBills;
@@ -454,6 +737,7 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
   final api.PersonalBillResponse detailBill;
   final api.PersonalBillResponse createdBill;
   final api.GroupBillResponse groupDetailBill;
+  final api.GroupBillResponse createdGroupBill;
   final archiveStates = <api.ExpenseBillArchiveState?>[];
   final accessTokens = <String>[];
   final limits = <int?>[];
@@ -461,8 +745,10 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
   int createCalls = 0;
   int getCalls = 0;
   int listGroupCalls = 0;
+  int createGroupCalls = 0;
   int getGroupCalls = 0;
   api.CreatePersonalBillRequest? lastCreateBody;
+  api.CreateGroupBillRequest? lastGroupCreateBody;
   String? lastBillId;
   String? lastGroupId;
 
@@ -494,6 +780,20 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return createdBill;
+  }
+
+  @override
+  Future<api.GroupBillResponse> createGroupBill(
+    String groupId,
+    api.CreateGroupBillRequest body, {
+    required String accessToken,
+  }) async {
+    createGroupCalls += 1;
+    lastGroupId = groupId;
+    lastGroupCreateBody = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return createdGroupBill;
   }
 
   @override
@@ -692,6 +992,7 @@ const _archivedBillId = '33333333-3333-3333-3333-333333333333';
 const _groupId = '99999999-9999-9999-9999-999999999999';
 const _itemId = '44444444-4444-4444-4444-444444444444';
 const _userProfileId = '55555555-5555-5555-5555-555555555555';
+const _otherUserProfileId = '77777777-7777-7777-7777-777777777777';
 const _adjustmentId = '66666666-6666-6666-6666-666666666666';
 const _hiddenBody = {'detail': 'internal-detail'};
 final _createdAtUtc = DateTime.utc(2026, 5, 17, 10);

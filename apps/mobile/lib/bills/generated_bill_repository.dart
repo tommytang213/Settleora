@@ -18,6 +18,12 @@ abstract interface class SettleoraBillGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.GroupBillResponse> createGroupBill(
+    String groupId,
+    api.CreateGroupBillRequest body, {
+    required String accessToken,
+  });
+
   Future<api.PersonalBillResponse> getPersonalBill(
     String billId, {
     required String accessToken,
@@ -62,6 +68,15 @@ class SettleoraPersonalBillGeneratedClient
     required String accessToken,
   }) {
     return _client.createPersonalBill(body, accessToken: accessToken);
+  }
+
+  @override
+  Future<api.GroupBillResponse> createGroupBill(
+    String groupId,
+    api.CreateGroupBillRequest body, {
+    required String accessToken,
+  }) {
+    return _client.createGroupBill(groupId, body, accessToken: accessToken);
   }
 
   @override
@@ -149,6 +164,33 @@ class GeneratedSettleoraBillRepository implements SettleoraBillRepository {
           accessToken: accessToken,
         );
         return _mapPersonalDetail(response);
+      } on SettleoraBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraBillDetail> createGroupBill(
+    String groupId,
+    SettleoraGroupBillCreateDraft draft,
+  ) {
+    final trimmedGroupId = _requiredId(
+      groupId,
+      blankMessage: 'Choose a group before creating a bill.',
+    );
+    final body = _mapGroupCreateDraft(draft);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.createGroupBill(
+          trimmedGroupId,
+          body,
+          accessToken: accessToken,
+        );
+        return _mapGroupDetail(response);
       } on SettleoraBillFailure {
         rethrow;
       } catch (error) {
@@ -394,6 +436,153 @@ api.CreatePersonalBillAdjustmentRequest _mapCreateAdjustmentDraft(
       blankMessage: 'Choose a currency for every adjustment.',
     ),
     reasonNote: _optionalText(draft.reasonNote),
+  );
+}
+
+api.CreateGroupBillRequest _mapGroupCreateDraft(
+  SettleoraGroupBillCreateDraft draft,
+) {
+  final billDate = _requiredText(
+    draft.billDate,
+    blankMessage: 'Enter a bill date before creating a group bill.',
+  );
+  final currency = _requiredCurrency(
+    draft.currency,
+    blankMessage: 'Choose a currency before creating a group bill.',
+  );
+  if (draft.items.isEmpty) {
+    throw const SettleoraBillFailure(
+      kind: SettleoraBillFailureKind.validation,
+      message: 'Add at least one item before creating a group bill.',
+    );
+  }
+
+  return api.CreateGroupBillRequest(
+    merchantName: _optionalText(draft.merchantName),
+    billDate: billDate,
+    currency: currency,
+    items: draft.items.map(_mapGroupCreateItemDraft).toList(growable: false),
+    adjustments: draft.adjustments.isEmpty
+        ? null
+        : draft.adjustments
+              .map(_mapGroupCreateAdjustmentDraft)
+              .toList(growable: false),
+    payers: draft.payers.isEmpty
+        ? null
+        : draft.payers.map(_mapGroupCreatePayerDraft).toList(growable: false),
+  );
+}
+
+api.CreateGroupBillItemRequest _mapGroupCreateItemDraft(
+  SettleoraGroupBillCreateItemDraft draft,
+) {
+  if (draft.splits.isEmpty) {
+    throw const SettleoraBillFailure(
+      kind: SettleoraBillFailureKind.validation,
+      message: 'Add at least one split for every group bill item.',
+    );
+  }
+
+  return api.CreateGroupBillItemRequest(
+    name: _requiredText(
+      draft.name,
+      blankMessage: 'Add a name for every group bill item.',
+    ),
+    note: _optionalText(draft.note),
+    amount: _requiredText(
+      draft.amount,
+      blankMessage: 'Add an amount for every group bill item.',
+    ),
+    currency: _requiredCurrency(
+      draft.currency,
+      blankMessage: 'Choose a currency for every group bill item.',
+    ),
+    splits: draft.splits
+        .map(_mapGroupCreateItemSplitDraft)
+        .toList(growable: false),
+  );
+}
+
+api.CreateGroupBillItemSplitRequest _mapGroupCreateItemSplitDraft(
+  SettleoraGroupBillCreateItemSplitDraft draft,
+) {
+  final basisValue = _optionalText(draft.basisValue);
+  final allocationOrder = _optionalAllocationOrder(draft.allocationOrder);
+
+  if (draft.basisValue == null) {
+    return api.CreateGroupBillItemSplitRequest(
+      userProfileId: _requiredId(
+        draft.userProfileId,
+        blankMessage: 'Choose a user profile for every group bill split.',
+      ),
+      splitMethod: _requiredText(
+        draft.splitMethod,
+        blankMessage: 'Choose a split method for every group bill split.',
+      ),
+      allocationOrder: allocationOrder,
+    );
+  }
+
+  return api.CreateGroupBillItemSplitRequest(
+    userProfileId: _requiredId(
+      draft.userProfileId,
+      blankMessage: 'Choose a user profile for every group bill split.',
+    ),
+    splitMethod: _requiredText(
+      draft.splitMethod,
+      blankMessage: 'Choose a split method for every group bill split.',
+    ),
+    basisValue: basisValue,
+    allocationOrder: allocationOrder,
+  );
+}
+
+api.CreateGroupBillAdjustmentRequest _mapGroupCreateAdjustmentDraft(
+  SettleoraGroupBillCreateAdjustmentDraft draft,
+) {
+  return api.CreateGroupBillAdjustmentRequest(
+    type: _requiredText(
+      draft.type,
+      blankMessage: 'Choose a type for every group bill adjustment.',
+    ),
+    direction: _requiredText(
+      draft.direction,
+      blankMessage: 'Choose a direction for every group bill adjustment.',
+    ),
+    allocationMethod: _requiredText(
+      draft.allocationMethod,
+      blankMessage:
+          'Choose an allocation method for every group bill adjustment.',
+    ),
+    amount: _requiredText(
+      draft.amount,
+      blankMessage: 'Add an amount for every group bill adjustment.',
+    ),
+    currency: _requiredCurrency(
+      draft.currency,
+      blankMessage: 'Choose a currency for every group bill adjustment.',
+    ),
+    reasonNote: _optionalText(draft.reasonNote),
+  );
+}
+
+api.CreateGroupBillPayerRequest _mapGroupCreatePayerDraft(
+  SettleoraGroupBillCreatePayerDraft draft,
+) {
+  return api.CreateGroupBillPayerRequest(
+    userProfileId: _requiredId(
+      draft.userProfileId,
+      blankMessage: 'Choose a user profile for every group bill payer.',
+    ),
+    amount: _requiredText(
+      draft.amount,
+      blankMessage: 'Add an amount for every group bill payer.',
+    ),
+    currency: _requiredCurrency(
+      draft.currency,
+      blankMessage: 'Choose a currency for every group bill payer.',
+    ),
+    paymentMethodLabelSnapshot: _optionalText(draft.paymentMethodLabelSnapshot),
   );
 }
 
@@ -696,6 +885,21 @@ String _requiredText(String value, {required String blankMessage}) {
 
 String _requiredCurrency(String value, {required String blankMessage}) {
   return _requiredText(value, blankMessage: blankMessage).toUpperCase();
+}
+
+int? _optionalAllocationOrder(int? value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value < 0) {
+    throw const SettleoraBillFailure(
+      kind: SettleoraBillFailureKind.validation,
+      message: 'Allocation order must be zero or greater.',
+    );
+  }
+
+  return value;
 }
 
 String? _optionalText(String? value) {
