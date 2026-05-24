@@ -6,6 +6,7 @@ import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/groups/group_repository.dart';
+import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 
 void main() {
   testWidgets('group bill list renders loading, empty, and refresh states', (
@@ -206,6 +207,7 @@ void main() {
     (tester) async {
       await useLargeSurface(tester);
       final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final fileInput = FakeBillAttachmentFileInput(
         pickedFile: samplePickedAttachmentFile(
           filename: 'C:\\Users\\secret\\receipt.png',
@@ -224,6 +226,7 @@ void main() {
             groupRepository: FakeGroupRepository(),
             attachmentRepository: attachmentRepository,
             attachmentFileInput: fileInput,
+            receiptOcrReviewRepository: receiptRepository,
             groupId: _groupId,
             groupName: 'Trip Crew',
           ),
@@ -257,8 +260,20 @@ void main() {
       expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
       expect(attachmentRepository.listCalls, 2);
       expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(
+        find.widgetWithText(SnackBarAction, 'Review receipt'),
+        findsOneWidget,
+      );
       expect(find.text('Receipt'), findsOneWidget);
       expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Review receipt'));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
     },
   );
 
@@ -1024,6 +1039,55 @@ class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
   }
 }
 
+class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  int getCalls = 0;
+  ReceiptOcrReviewRoute? lastRoute;
+
+  @override
+  Future<List<ReceiptOcrReviewSummary>> listReviews({
+    ReceiptOcrReviewStatus? status,
+    ReceiptOcrReviewSource? source,
+    int? limit,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
+    getCalls += 1;
+    lastRoute = route;
+    return sampleReceiptOcrReviewDetail(route);
+  }
+
+  @override
+  Future<ReceiptOcrReviewDetail> saveReview(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewSaveRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> deleteReview(ReceiptOcrReviewRoute route) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ReceiptOcrReviewApplyPreview> previewApply(
+    ReceiptOcrReviewRoute route,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ReceiptOcrReviewApplyResult> applyReview(
+    ReceiptOcrReviewRoute route, {
+    required DateTime expectedReviewUpdatedAtUtc,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
 class FakeGroupRepository implements SettleoraGroupRepository {
   FakeGroupRepository({this.members = const [], this.memberFailure});
 
@@ -1233,6 +1297,41 @@ SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
   );
 }
 
+ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
+  ReceiptOcrReviewRoute route,
+) {
+  return ReceiptOcrReviewDetail(
+    id: _reviewId,
+    billId: route.billId,
+    fileId: route.fileId,
+    groupId: route.groupId,
+    status: ReceiptOcrReviewStatusValues.reviewed,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    merchantText: 'Corner Market',
+    receiptIssuedAtUtc: _createdAtUtc,
+    currency: 'USD',
+    subtotalAmount: '10.00',
+    taxAmount: '0.80',
+    serviceChargeAmount: null,
+    discountAmount: null,
+    grandTotalAmount: '10.80',
+    lines: [
+      ReceiptOcrReviewLine(
+        id: 'line-1',
+        sortOrder: 0,
+        text: 'Milk',
+        quantity: '1',
+        unitPriceAmount: '10.00',
+        lineTotalAmount: '10.00',
+        createdAtUtc: _createdAtUtc,
+        updatedAtUtc: _updatedAtUtc,
+      ),
+    ],
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
 SettleoraBillDetail sampleBillDetail({
   bool canCreateRevision = false,
   String id = _billId,
@@ -1383,6 +1482,7 @@ const _groupId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';
 const _createdRevisionId = '44444444-4444-4444-4444-444444444444';
+const _reviewId = '99999999-9999-9999-9999-999999999999';
 const _fileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const _uploadedFileId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const _profileId = '55555555-5555-5555-5555-555555555555';

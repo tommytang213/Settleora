@@ -2553,30 +2553,47 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _load() async {
+    await _loadAttachments();
+  }
+
+  Future<List<SettleoraBillAttachment>?> _loadAttachments({
+    bool showLoading = true,
+    bool rethrowFailure = false,
+  }) async {
     setState(() {
-      _isLoading = true;
+      if (showLoading) {
+        _isLoading = true;
+      }
       _failure = null;
     });
 
     try {
       final attachments = await widget.repository.listAttachments(widget.route);
       if (!mounted) {
-        return;
+        return attachments;
       }
 
       setState(() {
         _attachments = attachments;
         _isLoading = false;
       });
+      return attachments;
     } catch (error) {
       if (!mounted) {
-        return;
+        if (rethrowFailure) {
+          rethrow;
+        }
+        return null;
       }
 
       setState(() {
         _failure = SettleoraBillAttachmentFailure.from(error);
         _isLoading = false;
       });
+      if (rethrowFailure) {
+        rethrow;
+      }
+      return null;
     }
   }
 
@@ -2707,7 +2724,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         return;
       }
 
-      await widget.repository.attachAttachment(
+      final uploadedAttachment = await widget.repository.attachAttachment(
         widget.route,
         SettleoraBillAttachmentUpload(
           bytes: pickedFile.bytes,
@@ -2720,8 +2737,26 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         return;
       }
 
-      _showSnackBar(_uploadSuccessMessage(purpose));
-      await _load();
+      var refreshedAttachments = const <SettleoraBillAttachment>[];
+      try {
+        refreshedAttachments =
+            await _loadAttachments(showLoading: false, rethrowFailure: true) ??
+            const <SettleoraBillAttachment>[];
+      } catch (_) {
+        refreshedAttachments = const <SettleoraBillAttachment>[];
+      }
+      if (!mounted) {
+        return;
+      }
+
+      _showUploadSuccessSnackBar(
+        purpose,
+        reviewAttachment: _receiptReviewAttachmentForUpload(
+          purpose: purpose,
+          uploadedAttachment: uploadedAttachment,
+          refreshedAttachments: refreshedAttachments,
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -2803,10 +2838,45 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     );
   }
 
-  void _showSnackBar(String message) {
+  SettleoraBillAttachment? _receiptReviewAttachmentForUpload({
+    required SettleoraBillAttachmentPurpose purpose,
+    required SettleoraBillAttachment uploadedAttachment,
+    required List<SettleoraBillAttachment> refreshedAttachments,
+  }) {
+    if (purpose != SettleoraBillAttachmentPurposeValues.receipt ||
+        widget.receiptOcrReviewRepository == null) {
+      return null;
+    }
+
+    for (final attachment in refreshedAttachments) {
+      if (attachment.fileId == uploadedAttachment.fileId &&
+          attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+        return attachment;
+      }
+    }
+
+    return null;
+  }
+
+  void _showUploadSuccessSnackBar(
+    SettleoraBillAttachmentPurpose purpose, {
+    SettleoraBillAttachment? reviewAttachment,
+  }) {
+    _showSnackBar(
+      _uploadSuccessMessage(purpose),
+      action: reviewAttachment == null
+          ? null
+          : SnackBarAction(
+              label: 'Review receipt',
+              onPressed: () => _openOcrReview(reviewAttachment),
+            ),
+    );
+  }
+
+  void _showSnackBar(String message, {SnackBarAction? action}) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showSnackBar(SnackBar(content: Text(message), action: action));
   }
 
   @override

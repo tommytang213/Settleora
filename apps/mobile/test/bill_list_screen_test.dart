@@ -665,6 +665,7 @@ void main() {
   ) async {
     await useLargeSurface(tester);
     final attachmentRepository = FakeBillAttachmentRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository();
     final fileInput = FakeBillAttachmentFileInput(
       pickedFile: samplePickedAttachmentFile(
         filename: 'C:\\Users\\secret\\receipt.png',
@@ -682,6 +683,7 @@ void main() {
           ),
           attachmentRepository: attachmentRepository,
           attachmentFileInput: fileInput,
+          receiptOcrReviewRepository: receiptRepository,
           syncController: sampleBillSyncController(),
         ),
       ),
@@ -714,8 +716,20 @@ void main() {
     expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
     expect(attachmentRepository.listCalls, 2);
     expect(find.text('Receipt uploaded.'), findsOneWidget);
+    expect(
+      find.widgetWithText(SnackBarAction, 'Review receipt'),
+      findsOneWidget,
+    );
     expect(find.text('Receipt'), findsOneWidget);
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Review receipt'));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute?.billId, _billId);
+    expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastRoute?.groupId, isNull);
   });
 
   testWidgets('personal bill attachment upload can choose supporting', (
