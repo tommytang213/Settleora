@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_attachment_file_input.dart';
@@ -277,6 +279,84 @@ void main() {
     },
   );
 
+  testWidgets(
+    'group bill upload ignores repeated taps while repository upload is busy and clears after success',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachCompleter = Completer<void>();
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachCompleter: attachCompleter,
+      );
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(
+              groupBills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            groupRepository: FakeGroupRepository(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-supporting')),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(
+        find.byKey(const Key('group-bill-attachments-upload-progress')),
+        findsOneWidget,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('group-bill-attachments-upload'),
+        isFalse,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('group-bill-attachments-upload')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+
+      attachCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
+      expect(find.text('Attachment uploaded.'), findsOneWidget);
+      expect(
+        find.byKey(const Key('group-bill-attachments-upload-progress')),
+        findsNothing,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('group-bill-attachments-upload'),
+        isTrue,
+      );
+    },
+  );
+
   testWidgets('group bill attachment upload cancellation does not attach', (
     tester,
   ) async {
@@ -314,6 +394,11 @@ void main() {
     expect(attachmentRepository.attachCalls, 0);
     expect(attachmentRepository.listCalls, 1);
     expect(find.text('No attachments'), findsOneWidget);
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('group-bill-attachments-upload'),
+      isTrue,
+    );
   });
 
   testWidgets('group bill attachment upload failure stays bounded', (
@@ -366,6 +451,15 @@ void main() {
     expect(find.text('Supporting attachment'), findsNothing);
     expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(
+      find.byKey(const Key('group-bill-attachments-upload-progress')),
+      findsNothing,
+    );
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('group-bill-attachments-upload'),
+      isTrue,
+    );
   });
 
   testWidgets('group bill detail creates revision from server capability', (
@@ -789,6 +883,15 @@ Future<void> useLargeSurface(WidgetTester tester) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
+void _expectAttachmentUploadEnabled(
+  WidgetTester tester,
+  Key key,
+  Matcher matcher,
+) {
+  final button = tester.widget<OutlinedButton>(find.byKey(key));
+  expect(button.onPressed != null, matcher);
+}
+
 String visibleText(WidgetTester tester) {
   final buffer = StringBuffer();
   for (final element in find.byType(Text).evaluate()) {
@@ -946,11 +1049,13 @@ class FakeBillAttachmentRepository
     this.attachments = const [],
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
+    this.attachCompleter,
   });
 
   List<SettleoraBillAttachment> attachments;
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
+  final Completer<void>? attachCompleter;
   int listCalls = 0;
   int attachCalls = 0;
   int downloadCalls = 0;
@@ -970,6 +1075,7 @@ class FakeBillAttachmentRepository
     if (failure != null) {
       throw failure;
     }
+    await attachCompleter?.future;
 
     final attachment = SettleoraBillAttachment(
       fileId: _uploadedFileId,

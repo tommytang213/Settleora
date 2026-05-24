@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
@@ -621,6 +623,11 @@ void main() {
     expect(attachmentRepository.attachCalls, 0);
     expect(attachmentRepository.listCalls, 1);
     expect(find.text('No attachments'), findsOneWidget);
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('bill-attachments-upload'),
+      isTrue,
+    );
   });
 
   testWidgets('personal bill file picker cancel does not attach', (
@@ -658,7 +665,86 @@ void main() {
     expect(attachmentRepository.attachCalls, 0);
     expect(attachmentRepository.listCalls, 1);
     expect(find.text('No attachments'), findsOneWidget);
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('bill-attachments-upload'),
+      isTrue,
+    );
   });
+
+  testWidgets(
+    'personal bill upload ignores repeated taps while picker is busy and clears after success',
+    (tester) async {
+      await useLargeSurface(tester);
+      final pickCompleter = Completer<SettleoraPickedBillAttachmentFile?>();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickCompleter: pickCompleter,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-supporting')),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(
+        find.byKey(const Key('bill-attachments-upload-progress')),
+        findsOneWidget,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('bill-attachments-upload'),
+        isFalse,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('bill-attachments-upload')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 0);
+
+      pickCompleter.complete(samplePickedAttachmentFile());
+      await tester.pumpAndSettle();
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
+      expect(find.text('Attachment uploaded.'), findsOneWidget);
+      expect(
+        find.byKey(const Key('bill-attachments-upload-progress')),
+        findsNothing,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('bill-attachments-upload'),
+        isTrue,
+      );
+    },
+  );
 
   testWidgets('personal bill attachment upload can choose receipt', (
     tester,
@@ -785,11 +871,64 @@ void main() {
     expect(attachmentRepository.lastUpload?.bytes, const [1, 2, 3]);
     expect(attachmentRepository.listCalls, 2);
     expect(find.text('Attachment uploaded.'), findsOneWidget);
+    expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
     expect(find.text('Supporting attachment'), findsOneWidget);
     expect(find.text('application/pdf'), findsOneWidget);
     expect(find.text('3 bytes'), findsOneWidget);
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
   });
+
+  testWidgets(
+    'receipt upload review action stays hidden when refreshed metadata does not confirm receipt',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        persistUploads: false,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'C:\\Users\\secret\\receipt.png',
+          contentType: 'image/png',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+            receiptOcrReviewRepository: receiptRepository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-receipt')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.attachCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
+      expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(
+        find.widgetWithText(SnackBarAction, 'Review receipt'),
+        findsNothing,
+      );
+      expect(receiptRepository.getCalls, 0);
+      expect(find.text('No attachments'), findsOneWidget);
+    },
+  );
 
   testWidgets('personal bill attachment upload failure stays bounded', (
     tester,
@@ -842,6 +981,138 @@ void main() {
     expect(find.text('Supporting attachment'), findsNothing);
     expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(
+      find.byKey(const Key('bill-attachments-upload-progress')),
+      findsNothing,
+    );
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('bill-attachments-upload'),
+      isTrue,
+    );
+  });
+
+  testWidgets(
+    'personal bill file input failure clears upload state and hides raw details',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        failure: const SettleoraBillAttachmentFileInputFailure(
+          'Failed to read C:\\Users\\secret\\receipt.png\nStackTrace: hidden',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-supporting')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fileInput.pickCalls, 1);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('Unsupported request'), findsOneWidget);
+      expect(
+        find.text(
+          'Choose a supported, readable bill attachment file and try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('StackTrace')));
+      expect(
+        find.byKey(const Key('bill-attachments-upload-progress')),
+        findsNothing,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('bill-attachments-upload'),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets('personal bill upload refresh failure clears busy state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      listFailuresByCall: const {
+        2: SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message: 'Attachments are unavailable right now. Try again later.',
+        ),
+      },
+    );
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'C:\\Users\\secret\\receipt.png',
+        contentType: 'image/png',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-receipt')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.attachCalls, 1);
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Attachments unavailable'), findsOneWidget);
+    expect(
+      find.text('Attachments are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(find.text('Receipt uploaded.'), findsOneWidget);
+    expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(
+      find.byKey(const Key('bill-attachments-upload-progress')),
+      findsNothing,
+    );
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('bill-attachments-upload'),
+      isTrue,
+    );
   });
 
   testWidgets('receipt attachment OCR review uses typed attachment route', (
@@ -1175,6 +1446,15 @@ Future<void> useLargeSurface(WidgetTester tester) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
+void _expectAttachmentUploadEnabled(
+  WidgetTester tester,
+  Key key,
+  Matcher matcher,
+) {
+  final button = tester.widget<OutlinedButton>(find.byKey(key));
+  expect(button.onPressed != null, matcher);
+}
+
 Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const Key('personal-bill-date')),
@@ -1313,14 +1593,20 @@ class FakeBillAttachmentRepository
   FakeBillAttachmentRepository({
     this.attachments = const [],
     this.listFailures = const [],
+    this.listFailuresByCall = const {},
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
+    this.attachCompleter,
+    this.persistUploads = true,
   });
 
   List<SettleoraBillAttachment> attachments;
   final List<SettleoraBillAttachmentFailure> listFailures;
+  final Map<int, SettleoraBillAttachmentFailure> listFailuresByCall;
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
+  final Completer<void>? attachCompleter;
+  final bool persistUploads;
   int listCalls = 0;
   int attachCalls = 0;
   int removeCalls = 0;
@@ -1342,6 +1628,7 @@ class FakeBillAttachmentRepository
     if (failure != null) {
       throw failure;
     }
+    await attachCompleter?.future;
 
     final attachment = SettleoraBillAttachment(
       fileId: _uploadedFileId,
@@ -1352,10 +1639,12 @@ class FakeBillAttachmentRepository
       uploadedAtUtc: _updatedAtUtc,
       updatedAtUtc: _updatedAtUtc,
     );
-    attachments = [
-      attachment,
-      ...attachments.where((item) => item.fileId != attachment.fileId),
-    ];
+    if (persistUploads) {
+      attachments = [
+        attachment,
+        ...attachments.where((item) => item.fileId != attachment.fileId),
+      ];
+    }
     return attachment;
   }
 
@@ -1365,6 +1654,10 @@ class FakeBillAttachmentRepository
   ) async {
     listCalls += 1;
     lastRoute = route;
+    final callFailure = listFailuresByCall[listCalls];
+    if (callFailure != null) {
+      throw callFailure;
+    }
     if (listFailures.length >= listCalls) {
       throw listFailures[listCalls - 1];
     }
@@ -1399,10 +1692,15 @@ class FakeBillAttachmentRepository
 }
 
 class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
-  FakeBillAttachmentFileInput({this.pickedFile, this.failure});
+  FakeBillAttachmentFileInput({
+    this.pickedFile,
+    this.failure,
+    this.pickCompleter,
+  });
 
   final SettleoraPickedBillAttachmentFile? pickedFile;
   final SettleoraBillAttachmentFileInputFailure? failure;
+  final Completer<SettleoraPickedBillAttachmentFile?>? pickCompleter;
   int pickCalls = 0;
   Set<String>? lastAllowedContentTypes;
 
@@ -1415,6 +1713,11 @@ class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
     final failure = this.failure;
     if (failure != null) {
       throw failure;
+    }
+
+    final pickCompleter = this.pickCompleter;
+    if (pickCompleter != null) {
+      return pickCompleter.future;
     }
 
     return pickedFile;

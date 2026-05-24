@@ -2529,6 +2529,7 @@ class _BillAttachmentSection extends StatefulWidget {
 
 class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   bool _isLoading = true;
+  bool _isSelectingUploadPurpose = false;
   bool _isUploading = false;
   String? _busyFileId;
   List<SettleoraBillAttachment> _attachments = const [];
@@ -2560,6 +2561,10 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     bool showLoading = true,
     bool rethrowFailure = false,
   }) async {
+    if (!mounted) {
+      return null;
+    }
+
     setState(() {
       if (showLoading) {
         _isLoading = true;
@@ -2598,7 +2603,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_isUploading || _busyFileId != null) {
+    if (_isSelectingUploadPurpose || _isUploading || _busyFileId != null) {
       return;
     }
 
@@ -2635,7 +2640,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
-    if (_isUploading || _busyFileId != null) {
+    if (_isSelectingUploadPurpose || _isUploading || _busyFileId != null) {
       return;
     }
 
@@ -2700,21 +2705,29 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
 
   Future<void> _upload() async {
     final fileInput = widget.fileInput;
-    if (fileInput == null || _isUploading || _busyFileId != null) {
-      return;
-    }
-
-    final purpose = await _selectUploadPurpose();
-    if (!mounted || purpose == null) {
+    if (fileInput == null ||
+        _isSelectingUploadPurpose ||
+        _isUploading ||
+        _busyFileId != null) {
       return;
     }
 
     setState(() {
-      _isUploading = true;
+      _isSelectingUploadPurpose = true;
       _failure = null;
     });
 
     try {
+      final purpose = await _selectUploadPurpose();
+      if (!mounted || purpose == null) {
+        return;
+      }
+
+      setState(() {
+        _isSelectingUploadPurpose = false;
+        _isUploading = true;
+      });
+
       final pickedFile = await fileInput.pickAttachmentFile(
         allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
           purpose,
@@ -2768,6 +2781,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     } finally {
       if (mounted) {
         setState(() {
+          _isSelectingUploadPurpose = false;
           _isUploading = false;
         });
       }
@@ -2882,6 +2896,8 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
+    final uploadActionDisabled =
+        _isLoading || _isSelectingUploadPurpose || _isUploading;
 
     return _Section(
       title: 'Attachments',
@@ -2897,7 +2913,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
             if (widget.fileInput != null)
               OutlinedButton.icon(
                 key: Key('${widget.keyPrefix}-upload'),
-                onPressed: _isLoading || _isUploading || _busyFileId != null
+                onPressed: uploadActionDisabled || _busyFileId != null
                     ? null
                     : _upload,
                 icon: _isUploading
@@ -2912,11 +2928,17 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
             IconButton(
               key: Key('${widget.keyPrefix}-refresh'),
               tooltip: 'Refresh attachments',
-              onPressed: _isLoading ? null : _load,
+              onPressed: uploadActionDisabled ? null : _load,
               icon: const Icon(Icons.refresh),
             ),
           ],
         ),
+        if (_isUploading) ...[
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            key: Key('${widget.keyPrefix}-upload-progress'),
+          ),
+        ],
         const SizedBox(height: 8),
         if (_isLoading)
           const Padding(
@@ -3984,11 +4006,21 @@ SettleoraBillAttachmentFailure _attachmentFailureFromUploadError(Object error) {
   if (error is SettleoraBillAttachmentFileInputFailure) {
     return SettleoraBillAttachmentFailure(
       kind: SettleoraBillAttachmentFailureKind.validation,
-      message: error.message,
+      message: _safeAttachmentFileInputFailureMessage(error.message),
     );
   }
 
   return SettleoraBillAttachmentFailure.from(error);
+}
+
+String _safeAttachmentFileInputFailureMessage(String message) {
+  return switch (message) {
+    'Choose a PNG, JPG, WEBP, or PDF attachment.' => message,
+    'Choose a supported bill attachment file.' => message,
+    'Choose a non-empty file before uploading an attachment.' => message,
+    'Choose a named file before uploading an attachment.' => message,
+    _ => 'Choose a supported, readable bill attachment file and try again.',
+  };
 }
 
 String _uploadSuccessMessage(SettleoraBillAttachmentPurpose purpose) {
