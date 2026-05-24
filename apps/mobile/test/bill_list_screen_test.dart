@@ -588,7 +588,7 @@ void main() {
     },
   );
 
-  testWidgets('personal bill attachment upload cancellation does not attach', (
+  testWidgets('personal bill upload purpose cancel does not pick or attach', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -614,6 +614,45 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('bill-attachments-upload')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('attachment-upload-purpose-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(fileInput.pickCalls, 0);
+    expect(attachmentRepository.attachCalls, 0);
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.text('No attachments'), findsOneWidget);
+  });
+
+  testWidgets('personal bill file picker cancel does not attach', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-supporting')),
+    );
+    await tester.pumpAndSettle();
 
     expect(fileInput.pickCalls, 1);
     expect(attachmentRepository.attachCalls, 0);
@@ -621,7 +660,65 @@ void main() {
     expect(find.text('No attachments'), findsOneWidget);
   });
 
-  testWidgets('personal bill attachment upload uses route and refreshes', (
+  testWidgets('personal bill attachment upload can choose receipt', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'C:\\Users\\secret\\receipt.png',
+        contentType: 'image/png',
+        bytes: const [4, 5, 6],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-upload')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-receipt')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fileInput.pickCalls, 1);
+    expect(
+      fileInput.lastAllowedContentTypes,
+      SettleoraBillAttachmentContentTypeValues.receiptValues,
+    );
+    expect(attachmentRepository.attachCalls, 1);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(attachmentRepository.lastRoute?.groupId, isNull);
+    expect(
+      attachmentRepository.lastUpload?.purpose,
+      SettleoraBillAttachmentPurposeValues.receipt,
+    );
+    expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
+    expect(attachmentRepository.lastUpload?.contentType, 'image/png');
+    expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Receipt uploaded.'), findsOneWidget);
+    expect(find.text('Receipt'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+  });
+
+  testWidgets('personal bill attachment upload can choose supporting', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -652,8 +749,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('bill-attachments-upload')));
     await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-supporting')),
+    );
+    await tester.pumpAndSettle();
 
     expect(fileInput.pickCalls, 1);
+    expect(
+      fileInput.lastAllowedContentTypes,
+      SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
+    );
     expect(attachmentRepository.attachCalls, 1);
     expect(attachmentRepository.lastRoute?.billId, _billId);
     expect(attachmentRepository.lastRoute?.groupId, isNull);
@@ -706,6 +811,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('bill-attachments-upload')));
     await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-supporting')),
+    );
+    await tester.pumpAndSettle();
 
     expect(attachmentRepository.attachCalls, 1);
     expect(attachmentRepository.listCalls, 1);
@@ -718,6 +827,51 @@ void main() {
     );
     expect(find.text('Supporting attachment'), findsNothing);
     expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+  });
+
+  testWidgets('receipt attachment OCR review uses typed attachment route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [
+        sampleAttachment(
+          fileId: _fileId,
+          purpose: SettleoraBillAttachmentPurposeValues.receipt,
+          contentType: 'image/png',
+        ),
+      ],
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          receiptOcrReviewRepository: receiptRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('bill-attachments-ocr-0')),
+    );
+    await tester.tap(find.byKey(const ValueKey('bill-attachments-ocr-0')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute?.billId, _billId);
+    expect(receiptRepository.lastRoute?.fileId, _fileId);
+    expect(receiptRepository.lastRoute?.groupId, isNull);
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
   });
 
@@ -1409,6 +1563,9 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  int getCalls = 0;
+  ReceiptOcrReviewRoute? lastRoute;
+
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
     ReceiptOcrReviewStatus? status,
@@ -1419,8 +1576,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   }
 
   @override
-  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) {
-    throw UnimplementedError();
+  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
+    getCalls += 1;
+    lastRoute = route;
+    return sampleReceiptOcrReviewDetail(route);
   }
 
   @override
@@ -1728,6 +1887,41 @@ SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
     bytes: bytes,
     allowedContentTypes:
         SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
+  );
+}
+
+ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
+  ReceiptOcrReviewRoute route,
+) {
+  return ReceiptOcrReviewDetail(
+    id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    billId: route.billId,
+    fileId: route.fileId,
+    groupId: route.groupId,
+    status: ReceiptOcrReviewStatusValues.provisional,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    merchantText: 'Corner Market',
+    receiptIssuedAtUtc: _createdAtUtc,
+    currency: 'USD',
+    subtotalAmount: '10.00',
+    taxAmount: '0.80',
+    serviceChargeAmount: null,
+    discountAmount: null,
+    grandTotalAmount: '10.80',
+    lines: [
+      ReceiptOcrReviewLine(
+        id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+        sortOrder: 0,
+        text: 'Milk',
+        quantity: '1',
+        unitPriceAmount: '10.00',
+        lineTotalAmount: '10.00',
+        createdAtUtc: _createdAtUtc,
+        updatedAtUtc: _createdAtUtc,
+      ),
+    ],
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
   );
 }
 

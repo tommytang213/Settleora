@@ -201,56 +201,66 @@ void main() {
     expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
-  testWidgets('group bill attachment upload uses group route and payload', (
-    tester,
-  ) async {
-    await useLargeSurface(tester);
-    final attachmentRepository = FakeBillAttachmentRepository();
-    final fileInput = FakeBillAttachmentFileInput(
-      pickedFile: samplePickedAttachmentFile(
-        filename: 'C:\\Users\\secret\\support.pdf',
-        bytes: const [9, 8, 7],
-      ),
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettleoraGroupBillListScreen(
-          repository: FakeBillRepository(
-            groupBills: [sampleBillSummary()],
-            detail: sampleBillDetail(),
-          ),
-          groupRepository: FakeGroupRepository(),
-          attachmentRepository: attachmentRepository,
-          attachmentFileInput: fileInput,
-          groupId: _groupId,
-          groupName: 'Trip Crew',
+  testWidgets(
+    'group bill attachment upload uses group route and selected purpose',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'C:\\Users\\secret\\receipt.png',
+          contentType: 'image/png',
+          bytes: const [9, 8, 7],
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
 
-    await tester.tap(find.text('Corner Market'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('group-bill-attachments-upload')));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(
+              groupBills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            groupRepository: FakeGroupRepository(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(fileInput.pickCalls, 1);
-    expect(attachmentRepository.attachCalls, 1);
-    expect(attachmentRepository.lastRoute?.groupId, _groupId);
-    expect(attachmentRepository.lastRoute?.billId, _billId);
-    expect(
-      attachmentRepository.lastUpload?.purpose,
-      SettleoraBillAttachmentPurposeValues.supportingAttachment,
-    );
-    expect(attachmentRepository.lastUpload?.filename, 'support.pdf');
-    expect(attachmentRepository.lastUpload?.contentType, 'application/pdf');
-    expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
-    expect(attachmentRepository.listCalls, 2);
-    expect(find.text('Attachment uploaded.'), findsOneWidget);
-    expect(find.text('Supporting attachment'), findsOneWidget);
-    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
-  });
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-receipt')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fileInput.pickCalls, 1);
+      expect(
+        fileInput.lastAllowedContentTypes,
+        SettleoraBillAttachmentContentTypeValues.receiptValues,
+      );
+      expect(attachmentRepository.attachCalls, 1);
+      expect(attachmentRepository.lastRoute?.groupId, _groupId);
+      expect(attachmentRepository.lastRoute?.billId, _billId);
+      expect(
+        attachmentRepository.lastUpload?.purpose,
+        SettleoraBillAttachmentPurposeValues.receipt,
+      );
+      expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
+      expect(attachmentRepository.lastUpload?.contentType, 'image/png');
+      expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
+      expect(attachmentRepository.listCalls, 2);
+      expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    },
+  );
 
   testWidgets('group bill attachment upload cancellation does not attach', (
     tester,
@@ -279,6 +289,10 @@ void main() {
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('group-bill-attachments-upload')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-supporting')),
+    );
     await tester.pumpAndSettle();
 
     expect(fileInput.pickCalls, 1);
@@ -321,6 +335,10 @@ void main() {
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('group-bill-attachments-upload')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('attachment-upload-purpose-supporting')),
+    );
     await tester.pumpAndSettle();
 
     expect(attachmentRepository.attachCalls, 1);

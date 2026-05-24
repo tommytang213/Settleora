@@ -2687,7 +2687,11 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
       return;
     }
 
-    final purpose = defaultBillAttachmentUploadPurpose;
+    final purpose = await _selectUploadPurpose();
+    if (!mounted || purpose == null) {
+      return;
+    }
+
     setState(() {
       _isUploading = true;
       _failure = null;
@@ -2716,7 +2720,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         return;
       }
 
-      _showSnackBar('Attachment uploaded.');
+      _showSnackBar(_uploadSuccessMessage(purpose));
       await _load();
     } catch (error) {
       if (!mounted) {
@@ -2733,6 +2737,50 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         });
       }
     }
+  }
+
+  Future<SettleoraBillAttachmentPurpose?> _selectUploadPurpose() {
+    return showModalBottomSheet<SettleoraBillAttachmentPurpose>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Upload attachment as'),
+              subtitle: Text('Choose how the server should process this file.'),
+            ),
+            ListTile(
+              key: const Key('attachment-upload-purpose-receipt'),
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Receipt'),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(SettleoraBillAttachmentPurposeValues.receipt),
+            ),
+            ListTile(
+              key: const Key('attachment-upload-purpose-supporting'),
+              leading: const Icon(Icons.attach_file_outlined),
+              title: const Text('Supporting attachment'),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(SettleoraBillAttachmentPurposeValues.supportingAttachment),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const Key('attachment-upload-purpose-cancel'),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _openOcrReview(SettleoraBillAttachment attachment) {
@@ -3871,6 +3919,13 @@ SettleoraBillAttachmentFailure _attachmentFailureFromUploadError(Object error) {
   }
 
   return SettleoraBillAttachmentFailure.from(error);
+}
+
+String _uploadSuccessMessage(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => 'Receipt uploaded.',
+    _ => 'Attachment uploaded.',
+  };
 }
 
 String? _requiredField(String? value, String message) {
