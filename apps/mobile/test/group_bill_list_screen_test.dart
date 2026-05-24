@@ -204,6 +204,61 @@ void main() {
     expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
+  testWidgets('group bill attachment metadata keeps OCR review receipt-only', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [
+        sampleAttachment(
+          fileId: _fileId,
+          purpose: SettleoraBillAttachmentPurposeValues.receipt,
+          contentType: 'image/png',
+        ),
+        sampleAttachment(
+          fileId: 'supporting-file-id',
+          purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+          contentType: 'application/pdf',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(
+            groupBills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          groupRepository: FakeGroupRepository(),
+          attachmentRepository: attachmentRepository,
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.lastRoute?.groupId, _groupId);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(find.text('Receipt'), findsOneWidget);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+    expect(find.text('image/png'), findsOneWidget);
+    expect(find.text('application/pdf'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('group-bill-attachments-ocr-1')),
+      findsNothing,
+    );
+  });
+
   testWidgets(
     'group bill attachment download blocks duplicate and conflicting actions',
     (tester) async {
@@ -1806,13 +1861,14 @@ SettleoraBillAttachment sampleAttachment({
   String fileId = _fileId,
   String purpose = SettleoraBillAttachmentPurposeValues.supportingAttachment,
   String contentType = 'application/pdf',
+  int sizeBytes = 2048,
 }) {
   return SettleoraBillAttachment(
     fileId: fileId,
     billId: _billId,
     purpose: purpose,
     contentType: contentType,
-    sizeBytes: 2048,
+    sizeBytes: sizeBytes,
     uploadedAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );

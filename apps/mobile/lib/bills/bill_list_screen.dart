@@ -3215,14 +3215,16 @@ class _AttachmentTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _attachmentPurposeLabel(attachment.purpose),
-                        style: Theme.of(context).textTheme.titleSmall,
+                      _SoftChip(
+                        label: _attachmentPurposeLabel(attachment.purpose),
+                        icon: _attachmentPurposeIcon(attachment.purpose),
                       ),
                       const SizedBox(height: 6),
                       _KeyValueText(
                         label: 'Content type',
-                        value: attachment.contentType,
+                        value: _safeAttachmentContentTypeLabel(
+                          attachment.contentType,
+                        ),
                       ),
                       _KeyValueText(
                         label: 'Size',
@@ -4164,6 +4166,10 @@ String _money(String amount, String currency) {
 }
 
 String _formatBytes(int sizeBytes) {
+  if (sizeBytes < 0) {
+    return 'Unknown size';
+  }
+
   if (sizeBytes < 1024) {
     return '$sizeBytes bytes';
   }
@@ -4185,8 +4191,49 @@ String _attachmentPurposeLabel(SettleoraBillAttachmentPurpose purpose) {
     SettleoraBillAttachmentPurposeValues.receipt => 'Receipt',
     SettleoraBillAttachmentPurposeValues.supportingAttachment =>
       'Supporting attachment',
-    _ => _titleFromCode(purpose),
+    _ => 'Attachment',
   };
+}
+
+IconData _attachmentPurposeIcon(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => Icons.receipt_long_outlined,
+    SettleoraBillAttachmentPurposeValues.supportingAttachment =>
+      Icons.attach_file_outlined,
+    _ => Icons.insert_drive_file_outlined,
+  };
+}
+
+String _safeAttachmentContentTypeLabel(String contentType) {
+  final trimmed = contentType.trim().toLowerCase();
+  if (trimmed.isEmpty ||
+      trimmed.length > 128 ||
+      _containsUnsafeAttachmentMetadataDetail(trimmed) ||
+      !RegExp(
+        r'^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$',
+      ).hasMatch(trimmed)) {
+    return 'Unknown type';
+  }
+
+  return trimmed;
+}
+
+bool _containsUnsafeAttachmentMetadataDetail(String value) {
+  final lower = value.toLowerCase();
+  return lower.contains('stacktrace') ||
+      lower.contains('exception') ||
+      lower.contains('token') ||
+      lower.contains('raw bytes') ||
+      lower.contains('object key') ||
+      lower.contains('storage path') ||
+      lower.contains('filesystem') ||
+      lower.contains('s3://') ||
+      lower.contains('gs://') ||
+      lower.contains('/var/') ||
+      lower.contains('/tmp/') ||
+      lower.contains('\\users\\') ||
+      lower.contains('c:\\') ||
+      RegExp(r'\[[0-9,\s]+\]').hasMatch(value);
 }
 
 IconData _attachmentFailureIcon(SettleoraBillAttachmentFailureKind kind) {

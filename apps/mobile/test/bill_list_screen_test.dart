@@ -442,6 +442,73 @@ void main() {
     expect(find.text('Updated'), findsOneWidget);
   });
 
+  testWidgets(
+    'personal bill attachment metadata labels purposes and bounds unsafe values',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            fileId: _fileId,
+            purpose: SettleoraBillAttachmentPurposeValues.receipt,
+            contentType: 'image/png',
+          ),
+          sampleAttachment(
+            fileId: 'supporting-file-id',
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+          sampleAttachment(
+            fileId: 'future-file-id',
+            purpose: 'C:\\Users\\secret\\provider_path',
+            contentType: 'C:\\Users\\secret\\receipt.png',
+            sizeBytes: -1,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(find.text('Attachment'), findsOneWidget);
+      expect(find.text('image/png'), findsOneWidget);
+      expect(find.text('application/pdf'), findsOneWidget);
+      expect(find.text('Unknown type'), findsOneWidget);
+      expect(find.text('Unknown size'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-2')),
+        findsNothing,
+      );
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('provider_path')));
+    },
+  );
+
   testWidgets('personal bill attachment section shows empty state after load', (
     tester,
   ) async {
@@ -2808,13 +2875,14 @@ SettleoraBillAttachment sampleAttachment({
   String fileId = _fileId,
   String purpose = SettleoraBillAttachmentPurposeValues.receipt,
   String contentType = 'image/png',
+  int sizeBytes = 321,
 }) {
   return SettleoraBillAttachment(
     fileId: fileId,
     billId: _billId,
     purpose: purpose,
     contentType: contentType,
-    sizeBytes: 321,
+    sizeBytes: sizeBytes,
     uploadedAtUtc: _uploadedAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
