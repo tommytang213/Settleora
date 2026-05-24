@@ -662,8 +662,286 @@ void main() {
     expect(attachmentRepository.removeCalls, 1);
     expect(attachmentRepository.lastRemovedFileId, _fileId);
     expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Attachment removed.'), findsOneWidget);
     expect(find.text('No attachments'), findsOneWidget);
   });
+
+  testWidgets(
+    'personal bill attachment remove cancel and dismiss do not call remove',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('bill-attachments-remove-0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove attachment?'), findsOneWidget);
+      expect(
+        find.text('This will remove the attachment from the bill.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.removeCalls, 0);
+      expect(find.text('Receipt'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.removeCalls, 0);
+      expect(find.text('Receipt'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'personal bill attachment remove blocks duplicate actions while active',
+    (tester) async {
+      await useLargeSurface(tester);
+      final removeCompleter = Completer<void>();
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        removeCompleter: removeCompleter,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: FakeBillAttachmentFileInput(),
+            receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('bill-attachments-remove-0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('bill-attachments-remove-confirm')),
+      );
+      await tester.pump();
+
+      expect(attachmentRepository.removeCalls, 1);
+      expect(
+        find.byKey(const Key('bill-attachments-remove-progress')),
+        findsOneWidget,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('bill-attachments-upload'),
+        isFalse,
+      );
+      _expectIconButtonEnabled(
+        tester,
+        const Key('bill-attachments-refresh'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('bill-attachments-download-0'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('bill-attachments-remove-0'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('bill-attachments-ocr-0'),
+        isFalse,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('bill-attachments-remove-0')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('bill-attachments-download-0')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(attachmentRepository.removeCalls, 1);
+      expect(attachmentRepository.downloadCalls, 0);
+
+      removeCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.removeCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
+      expect(
+        find.byKey(const Key('bill-attachments-remove-progress')),
+        findsNothing,
+      );
+      expect(find.text('No attachments'), findsOneWidget);
+    },
+  );
+
+  testWidgets('personal bill attachment remove failure preserves safe metadata', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      removeFailure: const SettleoraBillAttachmentFailure(
+        kind: SettleoraBillAttachmentFailureKind.server,
+        message:
+            'SocketException token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] StackTrace',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('bill-attachments-remove-0')),
+    );
+    await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-attachments-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.removeCalls, 1);
+    expect(find.text('Attachments unavailable'), findsOneWidget);
+    expect(
+      find.text('Attachments are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(find.text('Receipt'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(visibleText(tester), isNot(contains('/var/storage')));
+    expect(visibleText(tester), isNot(contains('object-key')));
+    expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+    expect(visibleText(tester), isNot(contains('StackTrace')));
+    expect(visibleText(tester), isNot(contains('SocketException')));
+    expect(visibleText(tester), isNot(contains('token')));
+  });
+
+  testWidgets(
+    'personal bill remove success hides removed row when refresh fails',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(),
+          sampleAttachment(
+            fileId: 'supporting-file-id',
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+        ],
+        listFailuresByCall: const {
+          2: SettleoraBillAttachmentFailure(
+            kind: SettleoraBillAttachmentFailureKind.server,
+            message:
+                'SocketException token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] StackTrace',
+          ),
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('bill-attachments-remove-0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('bill-attachments-remove-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.removeCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
+      expect(find.text('Attachment removed.'), findsOneWidget);
+      expect(find.text('Receipt'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        findsNothing,
+      );
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(find.text('Attachments unavailable'), findsOneWidget);
+      expect(
+        find.text('Attachments are unavailable right now. Try again later.'),
+        findsOneWidget,
+      );
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('/var/storage')));
+      expect(visibleText(tester), isNot(contains('object-key')));
+      expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+      expect(visibleText(tester), isNot(contains('StackTrace')));
+      expect(visibleText(tester), isNot(contains('SocketException')));
+      expect(visibleText(tester), isNot(contains('token')));
+    },
+  );
 
   testWidgets('personal bill attachment download reports bounded bytes only', (
     tester,
@@ -1596,7 +1874,20 @@ void _expectAttachmentUploadEnabled(
   Key key,
   Matcher matcher,
 ) {
+  _expectOutlinedButtonEnabled(tester, key, matcher);
+}
+
+void _expectOutlinedButtonEnabled(
+  WidgetTester tester,
+  Key key,
+  Matcher matcher,
+) {
   final button = tester.widget<OutlinedButton>(find.byKey(key));
+  expect(button.onPressed != null, matcher);
+}
+
+void _expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
+  final button = tester.widget<IconButton>(find.byKey(key));
   expect(button.onPressed != null, matcher);
 }
 
@@ -1743,6 +2034,8 @@ class FakeBillAttachmentRepository
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
     this.attachCompleter,
+    this.removeFailure,
+    this.removeCompleter,
     this.persistUploads = true,
   });
 
@@ -1753,6 +2046,8 @@ class FakeBillAttachmentRepository
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
   final Completer<void>? attachCompleter;
+  final SettleoraBillAttachmentFailure? removeFailure;
+  final Completer<void>? removeCompleter;
   final bool persistUploads;
   int listCalls = 0;
   int attachCalls = 0;
@@ -1824,6 +2119,11 @@ class FakeBillAttachmentRepository
     removeCalls += 1;
     lastRoute = route;
     lastRemovedFileId = fileId;
+    final failure = removeFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    await removeCompleter?.future;
     attachments = [
       for (final attachment in attachments)
         if (attachment.fileId != fileId) attachment,

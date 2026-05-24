@@ -2533,6 +2533,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   bool _isSelectingUploadPurpose = false;
   bool _isUploading = false;
   String? _busyFileId;
+  String? _removingFileId;
   List<SettleoraBillAttachment> _attachments = const [];
   SettleoraBillAttachmentFailure? _failure;
   int _loadGeneration = 0;
@@ -2638,10 +2639,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_isLoading ||
-        _isSelectingUploadPurpose ||
-        _isUploading ||
-        _busyFileId != null) {
+    if (_attachmentActionsBlocked) {
       return;
     }
 
@@ -2678,10 +2676,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
-    if (_isLoading ||
-        _isSelectingUploadPurpose ||
-        _isUploading ||
-        _busyFileId != null) {
+    if (_attachmentActionsBlocked) {
       return;
     }
 
@@ -2689,9 +2684,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove attachment?'),
-        content: const Text(
-          'The server will remove this bill attachment if you still have access.',
-        ),
+        content: const Text('This will remove the attachment from the bill.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -2710,12 +2703,21 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
       return;
     }
 
+    if (_attachmentActionsBlocked ||
+        !_attachments.any((item) => item.fileId == attachment.fileId)) {
+      return;
+    }
+
     await _remove(attachment);
   }
 
   Future<void> _remove(SettleoraBillAttachment attachment) async {
+    if (_removingFileId != null) {
+      return;
+    }
+
     setState(() {
-      _busyFileId = attachment.fileId;
+      _removingFileId = attachment.fileId;
       _failure = null;
     });
 
@@ -2725,8 +2727,19 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         return;
       }
 
+      setState(() {
+        _attachments = [
+          for (final item in _attachments)
+            if (item.fileId != attachment.fileId) item,
+        ];
+      });
       _showSnackBar('Attachment removed.');
-      await _load();
+      try {
+        await _loadAttachments(showLoading: false, rethrowFailure: true);
+      } catch (_) {
+        // _loadAttachments records a sanitized refresh failure while keeping the
+        // already-filtered list so removed-row actions do not come back.
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -2738,7 +2751,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     } finally {
       if (mounted) {
         setState(() {
-          _busyFileId = null;
+          _removingFileId = null;
         });
       }
     }
@@ -2750,7 +2763,8 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         _isLoading ||
         _isSelectingUploadPurpose ||
         _isUploading ||
-        _busyFileId != null) {
+        _busyFileId != null ||
+        _removingFileId != null) {
       return;
     }
 
@@ -2876,7 +2890,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
 
   void _openOcrReview(SettleoraBillAttachment attachment) {
     final repository = widget.receiptOcrReviewRepository;
-    if (repository == null) {
+    if (repository == null || _attachmentActionsBlocked) {
       return;
     }
 
@@ -2948,14 +2962,19 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         widget.reloadRevision == reloadRevision;
   }
 
+  bool get _attachmentActionsBlocked =>
+      _isLoading ||
+      _loadInFlight ||
+      _isSelectingUploadPurpose ||
+      _isUploading ||
+      _busyFileId != null ||
+      _removingFileId != null;
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
-    final attachmentActionDisabled =
-        _isLoading ||
-        _isSelectingUploadPurpose ||
-        _isUploading ||
-        _busyFileId != null;
+    final attachmentActionDisabled = _attachmentActionsBlocked;
+    final removingFileId = _removingFileId;
     final hasAttachments = _attachments.isNotEmpty;
 
     return _Section(
@@ -3001,6 +3020,14 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
             key: Key('${widget.keyPrefix}-upload-progress'),
           ),
         ],
+        if (removingFileId != null) ...[
+          const SizedBox(height: 8),
+          _AttachmentRefreshStatus(
+            keyPrefix: widget.keyPrefix,
+            keySuffix: 'remove-progress',
+            label: 'Removing attachment',
+          ),
+        ],
         const SizedBox(height: 8),
         if (_isLoading && !hasAttachments)
           Padding(
@@ -3037,6 +3064,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
                   index: index,
                   keyPrefix: widget.keyPrefix,
                   isBusy: attachmentActionDisabled,
+                  isRemoving: _attachments[index].fileId == removingFileId,
                   canOpenOcr:
                       widget.receiptOcrReviewRepository != null &&
                       _attachments[index].purpose ==
@@ -3092,6 +3120,7 @@ class _AttachmentTile extends StatelessWidget {
     required this.index,
     required this.keyPrefix,
     required this.isBusy,
+    required this.isRemoving,
     required this.canOpenOcr,
     required this.onDownload,
     required this.onRemove,
@@ -3102,6 +3131,7 @@ class _AttachmentTile extends StatelessWidget {
   final int index;
   final String keyPrefix;
   final bool isBusy;
+  final bool isRemoving;
   final bool canOpenOcr;
   final VoidCallback onDownload;
   final VoidCallback onRemove;
@@ -3173,7 +3203,12 @@ class _AttachmentTile extends StatelessWidget {
                 OutlinedButton.icon(
                   key: ValueKey('$keyPrefix-remove-$index'),
                   onPressed: isBusy ? null : onRemove,
-                  icon: const Icon(Icons.delete_outline),
+                  icon: isRemoving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline),
                   label: const Text('Remove'),
                 ),
                 if (canOpenOcr)

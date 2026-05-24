@@ -204,6 +204,95 @@ void main() {
     expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
+  testWidgets('group bill attachment remove confirms once with group route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final removeCompleter = Completer<void>();
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      removeCompleter: removeCompleter,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(
+            groupBills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          groupRepository: FakeGroupRepository(),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove attachment?'), findsOneWidget);
+    expect(
+      find.text('This will remove the attachment from the bill.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.removeCalls, 0);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-attachments-remove-confirm')),
+    );
+    await tester.pump();
+
+    expect(attachmentRepository.removeCalls, 1);
+    expect(attachmentRepository.lastRoute?.groupId, _groupId);
+    expect(attachmentRepository.lastRoute?.billId, _billId);
+    expect(attachmentRepository.lastRemovedFileId, _fileId);
+    expect(
+      find.byKey(const Key('group-bill-attachments-remove-progress')),
+      findsOneWidget,
+    );
+    _expectAttachmentUploadEnabled(
+      tester,
+      const Key('group-bill-attachments-upload'),
+      isFalse,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+
+    expect(attachmentRepository.removeCalls, 1);
+
+    removeCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.removeCalls, 1);
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Attachment removed.'), findsOneWidget);
+    expect(find.text('No attachments'), findsOneWidget);
+  });
+
   testWidgets('group bill attachment section shows empty state after load', (
     tester,
   ) async {
@@ -980,6 +1069,14 @@ void _expectAttachmentUploadEnabled(
   Key key,
   Matcher matcher,
 ) {
+  _expectOutlinedButtonEnabled(tester, key, matcher);
+}
+
+void _expectOutlinedButtonEnabled(
+  WidgetTester tester,
+  Key key,
+  Matcher matcher,
+) {
   final button = tester.widget<OutlinedButton>(find.byKey(key));
   expect(button.onPressed != null, matcher);
 }
@@ -1145,6 +1242,8 @@ class FakeBillAttachmentRepository
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
     this.attachCompleter,
+    this.removeFailure,
+    this.removeCompleter,
   });
 
   List<SettleoraBillAttachment> attachments;
@@ -1154,11 +1253,15 @@ class FakeBillAttachmentRepository
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
   final Completer<void>? attachCompleter;
+  final SettleoraBillAttachmentFailure? removeFailure;
+  final Completer<void>? removeCompleter;
   int listCalls = 0;
   int attachCalls = 0;
+  int removeCalls = 0;
   int downloadCalls = 0;
   SettleoraBillAttachmentRoute? lastRoute;
   SettleoraBillAttachmentUpload? lastUpload;
+  String? lastRemovedFileId;
   String? lastDownloadedFileId;
 
   @override
@@ -1216,8 +1319,19 @@ class FakeBillAttachmentRepository
   Future<void> removeAttachment(
     SettleoraBillAttachmentRoute route,
     String fileId,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    removeCalls += 1;
+    lastRoute = route;
+    lastRemovedFileId = fileId;
+    final failure = removeFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    await removeCompleter?.future;
+    attachments = [
+      for (final attachment in attachments)
+        if (attachment.fileId != fileId) attachment,
+    ];
   }
 
   @override
