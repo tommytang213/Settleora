@@ -3196,6 +3196,8 @@ class _AttachmentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final metadata = _AttachmentTileMetadata.from(attachment);
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
@@ -3216,28 +3218,11 @@ class _AttachmentTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _SoftChip(
-                        label: _attachmentPurposeLabel(attachment.purpose),
-                        icon: _attachmentPurposeIcon(attachment.purpose),
+                        label: metadata.purposeLabel,
+                        icon: metadata.purposeIcon,
                       ),
                       const SizedBox(height: 6),
-                      _KeyValueText(
-                        label: 'Content type',
-                        value: _safeAttachmentContentTypeLabel(
-                          attachment.contentType,
-                        ),
-                      ),
-                      _KeyValueText(
-                        label: 'Size',
-                        value: _formatBytes(attachment.sizeBytes),
-                      ),
-                      _KeyValueText(
-                        label: 'Uploaded',
-                        value: _formatTimestamp(attachment.uploadedAtUtc),
-                      ),
-                      _KeyValueText(
-                        label: 'Updated',
-                        value: _formatTimestamp(attachment.updatedAtUtc),
-                      ),
+                      _AttachmentMetadataRows(metadata: metadata),
                     ],
                   ),
                 ),
@@ -3285,6 +3270,54 @@ class _AttachmentTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AttachmentTileMetadata {
+  const _AttachmentTileMetadata({
+    required this.purposeLabel,
+    required this.purposeIcon,
+    required this.contentTypeLabel,
+    required this.sizeLabel,
+    required this.uploadedAtLabel,
+    required this.updatedAtLabel,
+  });
+
+  factory _AttachmentTileMetadata.from(SettleoraBillAttachment attachment) {
+    return _AttachmentTileMetadata(
+      purposeLabel: _attachmentPurposeLabel(attachment.purpose),
+      purposeIcon: _attachmentPurposeIcon(attachment.purpose),
+      contentTypeLabel: _safeAttachmentContentTypeLabel(attachment.contentType),
+      sizeLabel: _formatBytes(attachment.sizeBytes),
+      uploadedAtLabel: _formatTimestamp(attachment.uploadedAtUtc),
+      updatedAtLabel: _formatTimestamp(attachment.updatedAtUtc),
+    );
+  }
+
+  final String purposeLabel;
+  final IconData purposeIcon;
+  final String contentTypeLabel;
+  final String sizeLabel;
+  final String uploadedAtLabel;
+  final String updatedAtLabel;
+}
+
+class _AttachmentMetadataRows extends StatelessWidget {
+  const _AttachmentMetadataRows({required this.metadata});
+
+  final _AttachmentTileMetadata metadata;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _KeyValueText(label: 'Content type', value: metadata.contentTypeLabel),
+        _KeyValueText(label: 'Size', value: metadata.sizeLabel),
+        _KeyValueText(label: 'Uploaded', value: metadata.uploadedAtLabel),
+        _KeyValueText(label: 'Updated', value: metadata.updatedAtLabel),
+      ],
     );
   }
 }
