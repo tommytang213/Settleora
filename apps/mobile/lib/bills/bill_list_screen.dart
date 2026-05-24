@@ -2529,11 +2529,16 @@ class _BillAttachmentSection extends StatefulWidget {
 
 class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   bool _isLoading = true;
+  bool _loadInFlight = false;
   bool _isSelectingUploadPurpose = false;
   bool _isUploading = false;
   String? _busyFileId;
   List<SettleoraBillAttachment> _attachments = const [];
   SettleoraBillAttachmentFailure? _failure;
+  int _loadGeneration = 0;
+  String? _activeLoadBillId;
+  String? _activeLoadGroupId;
+  int? _activeLoadRevision;
 
   @override
   void initState() {
@@ -2565,7 +2570,24 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
       return null;
     }
 
+    if (_loadInFlight &&
+        _activeLoadBillId == widget.route.billId &&
+        _activeLoadGroupId == widget.route.groupId &&
+        _activeLoadRevision == widget.reloadRevision) {
+      return _attachments;
+    }
+
+    final loadGeneration = _loadGeneration + 1;
+    final loadBillId = widget.route.billId;
+    final loadGroupId = widget.route.groupId;
+    final loadRevision = widget.reloadRevision;
+
     setState(() {
+      _loadGeneration = loadGeneration;
+      _loadInFlight = true;
+      _activeLoadBillId = loadBillId;
+      _activeLoadGroupId = loadGroupId;
+      _activeLoadRevision = loadRevision;
       if (showLoading) {
         _isLoading = true;
       }
@@ -2574,17 +2596,29 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
 
     try {
       final attachments = await widget.repository.listAttachments(widget.route);
-      if (!mounted) {
+      if (!_isCurrentLoad(
+        loadGeneration,
+        billId: loadBillId,
+        groupId: loadGroupId,
+        reloadRevision: loadRevision,
+      )) {
         return attachments;
       }
 
       setState(() {
         _attachments = attachments;
         _isLoading = false;
+        _loadInFlight = false;
+        _failure = null;
       });
       return attachments;
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentLoad(
+        loadGeneration,
+        billId: loadBillId,
+        groupId: loadGroupId,
+        reloadRevision: loadRevision,
+      )) {
         if (rethrowFailure) {
           rethrow;
         }
@@ -2594,6 +2628,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
       setState(() {
         _failure = SettleoraBillAttachmentFailure.from(error);
         _isLoading = false;
+        _loadInFlight = false;
       });
       if (rethrowFailure) {
         rethrow;
@@ -2603,7 +2638,10 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_isSelectingUploadPurpose || _isUploading || _busyFileId != null) {
+    if (_isLoading ||
+        _isSelectingUploadPurpose ||
+        _isUploading ||
+        _busyFileId != null) {
       return;
     }
 
@@ -2640,7 +2678,10 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
-    if (_isSelectingUploadPurpose || _isUploading || _busyFileId != null) {
+    if (_isLoading ||
+        _isSelectingUploadPurpose ||
+        _isUploading ||
+        _busyFileId != null) {
       return;
     }
 
@@ -2706,6 +2747,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   Future<void> _upload() async {
     final fileInput = widget.fileInput;
     if (fileInput == null ||
+        _isLoading ||
         _isSelectingUploadPurpose ||
         _isUploading ||
         _busyFileId != null) {
@@ -2893,11 +2935,28 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
     ).showSnackBar(SnackBar(content: Text(message), action: action));
   }
 
+  bool _isCurrentLoad(
+    int loadGeneration, {
+    required String billId,
+    required String? groupId,
+    required int reloadRevision,
+  }) {
+    return mounted &&
+        _loadGeneration == loadGeneration &&
+        widget.route.billId == billId &&
+        widget.route.groupId == groupId &&
+        widget.reloadRevision == reloadRevision;
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
-    final uploadActionDisabled =
-        _isLoading || _isSelectingUploadPurpose || _isUploading;
+    final attachmentActionDisabled =
+        _isLoading ||
+        _isSelectingUploadPurpose ||
+        _isUploading ||
+        _busyFileId != null;
+    final hasAttachments = _attachments.isNotEmpty;
 
     return _Section(
       title: 'Attachments',
@@ -2913,9 +2972,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
             if (widget.fileInput != null)
               OutlinedButton.icon(
                 key: Key('${widget.keyPrefix}-upload'),
-                onPressed: uploadActionDisabled || _busyFileId != null
-                    ? null
-                    : _upload,
+                onPressed: attachmentActionDisabled ? null : _upload,
                 icon: _isUploading
                     ? const SizedBox.square(
                         dimension: 18,
@@ -2928,8 +2985,13 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
             IconButton(
               key: Key('${widget.keyPrefix}-refresh'),
               tooltip: 'Refresh attachments',
-              onPressed: uploadActionDisabled ? null : _load,
-              icon: const Icon(Icons.refresh),
+              onPressed: attachmentActionDisabled ? null : _load,
+              icon: _isLoading && hasAttachments
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
             ),
           ],
         ),
@@ -2940,42 +3002,85 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
           ),
         ],
         const SizedBox(height: 8),
-        if (_isLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if (failure != null)
-          _AttachmentFailurePanel(
-            keyPrefix: widget.keyPrefix,
-            failure: failure,
-            onRetry: _load,
-          )
-        else if (_attachments.isEmpty)
-          const _StatePanel(
-            icon: Icons.attach_file_outlined,
-            title: 'No attachments',
-            message: 'Receipts and supporting files will appear here.',
-            compact: true,
-          )
-        else
-          for (var index = 0; index < _attachments.length; index += 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _AttachmentTile(
-                attachment: _attachments[index],
-                index: index,
-                keyPrefix: widget.keyPrefix,
-                isBusy: _busyFileId == _attachments[index].fileId,
-                canOpenOcr:
-                    widget.receiptOcrReviewRepository != null &&
-                    _attachments[index].purpose ==
-                        SettleoraBillAttachmentPurposeValues.receipt,
-                onDownload: () => _download(_attachments[index]),
-                onRemove: () => _confirmRemove(_attachments[index]),
-                onOpenOcr: () => _openOcrReview(_attachments[index]),
-              ),
+        if (_isLoading && !hasAttachments)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: _AttachmentRefreshStatus(
+              keyPrefix: widget.keyPrefix,
+              keySuffix: 'loading',
+              label: 'Loading attachments',
             ),
+          )
+        else ...[
+          if (_isLoading && hasAttachments) ...[
+            _AttachmentRefreshStatus(
+              keyPrefix: widget.keyPrefix,
+              keySuffix: 'refreshing',
+              label: 'Refreshing attachments',
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (failure != null) ...[
+            _AttachmentFailurePanel(
+              keyPrefix: widget.keyPrefix,
+              failure: failure,
+              onRetry: attachmentActionDisabled ? null : _load,
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (hasAttachments)
+            for (var index = 0; index < _attachments.length; index += 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _AttachmentTile(
+                  attachment: _attachments[index],
+                  index: index,
+                  keyPrefix: widget.keyPrefix,
+                  isBusy: attachmentActionDisabled,
+                  canOpenOcr:
+                      widget.receiptOcrReviewRepository != null &&
+                      _attachments[index].purpose ==
+                          SettleoraBillAttachmentPurposeValues.receipt,
+                  onDownload: () => _download(_attachments[index]),
+                  onRemove: () => _confirmRemove(_attachments[index]),
+                  onOpenOcr: () => _openOcrReview(_attachments[index]),
+                ),
+              )
+          else if (failure == null)
+            const _StatePanel(
+              icon: Icons.attach_file_outlined,
+              title: 'No attachments',
+              message: 'Receipts and supporting files will appear here.',
+              compact: true,
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _AttachmentRefreshStatus extends StatelessWidget {
+  const _AttachmentRefreshStatus({
+    required this.keyPrefix,
+    required this.keySuffix,
+    required this.label,
+  });
+
+  final String keyPrefix;
+  final String keySuffix;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: Key('$keyPrefix-$keySuffix'),
+      children: [
+        const SizedBox.square(
+          dimension: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -3096,10 +3201,12 @@ class _AttachmentFailurePanel extends StatelessWidget {
 
   final String keyPrefix;
   final SettleoraBillAttachmentFailure failure;
-  final VoidCallback onRetry;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final message = _safeAttachmentFailureDisplayMessage(failure);
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
@@ -3127,7 +3234,7 @@ class _AttachmentFailurePanel extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 4),
-                      Text(failure.message),
+                      Text(message),
                     ],
                   ),
                 ),
@@ -3999,6 +4106,58 @@ IconData _attachmentFailureIcon(SettleoraBillAttachmentFailureKind kind) {
       Icons.report_problem_outlined,
     SettleoraBillAttachmentFailureKind.network => Icons.cloud_off_outlined,
     SettleoraBillAttachmentFailureKind.server => Icons.error_outline,
+  };
+}
+
+String _safeAttachmentFailureDisplayMessage(
+  SettleoraBillAttachmentFailure failure,
+) {
+  final message = failure.message.trim();
+  if (message.isEmpty || _containsUnsafeAttachmentFailureDetail(message)) {
+    return _fallbackAttachmentFailureMessage(failure.kind);
+  }
+
+  return message;
+}
+
+bool _containsUnsafeAttachmentFailureDetail(String message) {
+  final lower = message.toLowerCase();
+  return lower.contains('stacktrace') ||
+      lower.contains('exception') ||
+      lower.contains('token') ||
+      lower.contains('raw bytes') ||
+      lower.contains('object key') ||
+      lower.contains('storage path') ||
+      lower.contains('filesystem') ||
+      lower.contains('s3://') ||
+      lower.contains('gs://') ||
+      lower.contains('/var/') ||
+      lower.contains('/tmp/') ||
+      lower.contains('\\users\\') ||
+      lower.contains('c:\\') ||
+      RegExp(r'\[[0-9,\s]+\]').hasMatch(message);
+}
+
+String _fallbackAttachmentFailureMessage(
+  SettleoraBillAttachmentFailureKind kind,
+) {
+  return switch (kind) {
+    SettleoraBillAttachmentFailureKind.sessionRequired =>
+      'Sign in before loading attachments.',
+    SettleoraBillAttachmentFailureKind.sessionExpired =>
+      'Your session has expired. Sign in again before loading attachments.',
+    SettleoraBillAttachmentFailureKind.denied =>
+      'Attachments are not available to this account.',
+    SettleoraBillAttachmentFailureKind.unavailable =>
+      'The attachment is no longer available.',
+    SettleoraBillAttachmentFailureKind.conflict =>
+      'Refresh the bill attachments and try again.',
+    SettleoraBillAttachmentFailureKind.validation =>
+      'The attachment request is no longer valid. Refresh and try again.',
+    SettleoraBillAttachmentFailureKind.network =>
+      'The server is unavailable. Try again when the connection is back.',
+    SettleoraBillAttachmentFailureKind.server =>
+      'Attachments are unavailable right now. Try again later.',
   };
 }
 

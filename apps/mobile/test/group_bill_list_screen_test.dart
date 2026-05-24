@@ -204,6 +204,98 @@ void main() {
     expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
+  testWidgets('group bill attachment section shows empty state after load', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(
+            groupBills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          groupRepository: FakeGroupRepository(),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.text('No attachments'), findsOneWidget);
+    expect(
+      find.text('Receipts and supporting files will appear here.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('group-bill-attachments-upload')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('group bill attachment load failure retries with safe text', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment()],
+      listFailures: const [
+        SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message:
+              'SocketException token C:\\Users\\secret\\receipt.png /tmp/object-key [1, 2, 3] StackTrace',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(
+            groupBills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          groupRepository: FakeGroupRepository(),
+          attachmentRepository: attachmentRepository,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Attachments unavailable'), findsOneWidget);
+    expect(
+      find.text('Attachments are unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+    expect(visibleText(tester), isNot(contains('/tmp/object-key')));
+    expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+    expect(visibleText(tester), isNot(contains('StackTrace')));
+    expect(visibleText(tester), isNot(contains('SocketException')));
+    expect(visibleText(tester), isNot(contains('token')));
+
+    await tester.tap(find.byKey(const Key('group-bill-attachments-retry')));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 2);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+    expect(find.text('Attachments unavailable'), findsNothing);
+  });
+
   testWidgets(
     'group bill attachment upload uses group route and selected purpose',
     (tester) async {
@@ -1047,12 +1139,18 @@ class FakeBillAttachmentRepository
     implements SettleoraBillAttachmentRepository {
   FakeBillAttachmentRepository({
     this.attachments = const [],
+    this.listFailures = const [],
+    this.listFailuresByCall = const {},
+    this.listCompletersByCall = const {},
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
     this.attachCompleter,
   });
 
   List<SettleoraBillAttachment> attachments;
+  final List<SettleoraBillAttachmentFailure> listFailures;
+  final Map<int, SettleoraBillAttachmentFailure> listFailuresByCall;
+  final Map<int, Completer<List<SettleoraBillAttachment>>> listCompletersByCall;
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
   final Completer<void>? attachCompleter;
@@ -1099,7 +1197,19 @@ class FakeBillAttachmentRepository
   ) async {
     listCalls += 1;
     lastRoute = route;
-    return attachments;
+    final listCompleter = listCompletersByCall[listCalls];
+    final completedAttachments = listCompleter == null
+        ? null
+        : await listCompleter.future;
+    final callFailure = listFailuresByCall[listCalls];
+    if (callFailure != null) {
+      throw callFailure;
+    }
+    if (listFailures.length >= listCalls) {
+      throw listFailures[listCalls - 1];
+    }
+
+    return completedAttachments ?? attachments;
   }
 
   @override

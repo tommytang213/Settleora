@@ -442,6 +442,75 @@ void main() {
     expect(find.text('Updated'), findsOneWidget);
   });
 
+  testWidgets('personal bill attachment section shows empty state after load', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.text('No attachments'), findsOneWidget);
+    expect(
+      find.text('Receipts and supporting files will appear here.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('bill-attachments-upload')), findsOneWidget);
+  });
+
+  testWidgets('personal bill attachment section shows loading affordance', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final listCompleter = Completer<List<SettleoraBillAttachment>>();
+    final attachmentRepository = FakeBillAttachmentRepository(
+      listCompletersByCall: {1: listCompleter},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(
+            bills: [sampleBillSummary()],
+            detail: sampleBillDetail(),
+          ),
+          attachmentRepository: attachmentRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(attachmentRepository.listCalls, 1);
+    expect(find.byKey(const Key('bill-attachments-loading')), findsOneWidget);
+
+    listCompleter.complete(const []);
+    await tester.pumpAndSettle();
+
+    expect(find.text('No attachments'), findsOneWidget);
+  });
+
   testWidgets('personal bill attachment load failure is retryable', (
     tester,
   ) async {
@@ -485,6 +554,78 @@ void main() {
     expect(attachmentRepository.listCalls, 2);
     expect(find.text('Receipt'), findsOneWidget);
   });
+
+  testWidgets(
+    'personal bill refresh failure preserves metadata and blocks duplicate refresh',
+    (tester) async {
+      await useLargeSurface(tester);
+      final refreshCompleter = Completer<List<SettleoraBillAttachment>>();
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        listCompletersByCall: {2: refreshCompleter},
+        listFailuresByCall: const {
+          2: SettleoraBillAttachmentFailure(
+            kind: SettleoraBillAttachmentFailureKind.server,
+            message:
+                'SocketException token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] StackTrace',
+          ),
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(
+              bills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            attachmentRepository: attachmentRepository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      expect(find.text('Receipt'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('bill-attachments-refresh')));
+      await tester.pump();
+
+      expect(attachmentRepository.listCalls, 2);
+      expect(
+        find.byKey(const Key('bill-attachments-refreshing')),
+        findsOneWidget,
+      );
+      expect(find.text('Receipt'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('bill-attachments-refresh')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(attachmentRepository.listCalls, 2);
+
+      refreshCompleter.complete([sampleAttachment()]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Attachments unavailable'), findsOneWidget);
+      expect(
+        find.text('Attachments are unavailable right now. Try again later.'),
+        findsOneWidget,
+      );
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('/var/storage')));
+      expect(visibleText(tester), isNot(contains('object-key')));
+      expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+      expect(visibleText(tester), isNot(contains('StackTrace')));
+      expect(visibleText(tester), isNot(contains('SocketException')));
+      expect(visibleText(tester), isNot(contains('token')));
+    },
+  );
 
   testWidgets('personal bill attachment remove confirms and refreshes', (
     tester,
@@ -823,6 +964,7 @@ void main() {
   ) async {
     await useLargeSurface(tester);
     final attachmentRepository = FakeBillAttachmentRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository();
     final fileInput = FakeBillAttachmentFileInput(
       pickedFile: samplePickedAttachmentFile(
         filename: 'C:\\Users\\secret\\support.pdf',
@@ -839,6 +981,7 @@ void main() {
           ),
           attachmentRepository: attachmentRepository,
           attachmentFileInput: fileInput,
+          receiptOcrReviewRepository: receiptRepository,
           syncController: sampleBillSyncController(),
         ),
       ),
@@ -872,6 +1015,8 @@ void main() {
     expect(attachmentRepository.listCalls, 2);
     expect(find.text('Attachment uploaded.'), findsOneWidget);
     expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
+    expect(find.text('Review OCR'), findsNothing);
+    expect(receiptRepository.getCalls, 0);
     expect(find.text('Supporting attachment'), findsOneWidget);
     expect(find.text('application/pdf'), findsOneWidget);
     expect(find.text('3 bytes'), findsOneWidget);
@@ -1594,6 +1739,7 @@ class FakeBillAttachmentRepository
     this.attachments = const [],
     this.listFailures = const [],
     this.listFailuresByCall = const {},
+    this.listCompletersByCall = const {},
     this.downloadedBytes = const [7, 8, 9],
     this.attachFailure,
     this.attachCompleter,
@@ -1603,6 +1749,7 @@ class FakeBillAttachmentRepository
   List<SettleoraBillAttachment> attachments;
   final List<SettleoraBillAttachmentFailure> listFailures;
   final Map<int, SettleoraBillAttachmentFailure> listFailuresByCall;
+  final Map<int, Completer<List<SettleoraBillAttachment>>> listCompletersByCall;
   final List<int> downloadedBytes;
   final SettleoraBillAttachmentFailure? attachFailure;
   final Completer<void>? attachCompleter;
@@ -1654,6 +1801,10 @@ class FakeBillAttachmentRepository
   ) async {
     listCalls += 1;
     lastRoute = route;
+    final listCompleter = listCompletersByCall[listCalls];
+    final completedAttachments = listCompleter == null
+        ? null
+        : await listCompleter.future;
     final callFailure = listFailuresByCall[listCalls];
     if (callFailure != null) {
       throw callFailure;
@@ -1662,7 +1813,7 @@ class FakeBillAttachmentRepository
       throw listFailures[listCalls - 1];
     }
 
-    return attachments;
+    return completedAttachments ?? attachments;
   }
 
   @override
