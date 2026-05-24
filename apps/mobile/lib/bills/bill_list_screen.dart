@@ -2532,7 +2532,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   bool _loadInFlight = false;
   bool _isSelectingUploadPurpose = false;
   bool _isUploading = false;
-  String? _busyFileId;
+  String? _downloadingFileId;
   String? _removingFileId;
   List<SettleoraBillAttachment> _attachments = const [];
   SettleoraBillAttachmentFailure? _failure;
@@ -2540,6 +2540,9 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   String? _activeLoadBillId;
   String? _activeLoadGroupId;
   int? _activeLoadRevision;
+  int _downloadGeneration = 0;
+  String? _activeDownloadBillId;
+  String? _activeDownloadGroupId;
 
   @override
   void initState() {
@@ -2550,9 +2553,19 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   @override
   void didUpdateWidget(_BillAttachmentSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.repository != widget.repository ||
+    final routeChanged =
+        oldWidget.repository != widget.repository ||
         oldWidget.route.billId != widget.route.billId ||
-        oldWidget.route.groupId != widget.route.groupId ||
+        oldWidget.route.groupId != widget.route.groupId;
+    if (routeChanged) {
+      setState(() {
+        _downloadGeneration += 1;
+        _downloadingFileId = null;
+        _activeDownloadBillId = null;
+        _activeDownloadGroupId = null;
+      });
+    }
+    if (routeChanged ||
         oldWidget.fileInput != widget.fileInput ||
         oldWidget.reloadRevision != widget.reloadRevision) {
       Future<void>.microtask(_load);
@@ -2639,27 +2652,44 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_attachmentActionsBlocked) {
+    if (_attachmentActionsBlocked ||
+        !_attachments.any((item) => item.fileId == attachment.fileId)) {
       return;
     }
 
+    final route = widget.route;
+    final fileId = attachment.fileId;
+    final downloadGeneration = _downloadGeneration + 1;
     setState(() {
-      _busyFileId = attachment.fileId;
+      _downloadGeneration = downloadGeneration;
+      _downloadingFileId = fileId;
+      _activeDownloadBillId = route.billId;
+      _activeDownloadGroupId = route.groupId;
       _failure = null;
     });
 
     try {
       final content = await widget.repository.downloadAttachmentContent(
-        widget.route,
-        attachment.fileId,
+        route,
+        fileId,
       );
-      if (!mounted) {
+      if (!_isCurrentDownload(
+        downloadGeneration,
+        billId: route.billId,
+        groupId: route.groupId,
+        fileId: fileId,
+      )) {
         return;
       }
 
       _showSnackBar('Downloaded ${content.bytes.length} bytes.');
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentDownload(
+        downloadGeneration,
+        billId: route.billId,
+        groupId: route.groupId,
+        fileId: fileId,
+      )) {
         return;
       }
 
@@ -2667,9 +2697,16 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         _failure = SettleoraBillAttachmentFailure.from(error);
       });
     } finally {
-      if (mounted) {
+      if (_isCurrentDownload(
+        downloadGeneration,
+        billId: route.billId,
+        groupId: route.groupId,
+        fileId: fileId,
+      )) {
         setState(() {
-          _busyFileId = null;
+          _downloadingFileId = null;
+          _activeDownloadBillId = null;
+          _activeDownloadGroupId = null;
         });
       }
     }
@@ -2763,7 +2800,7 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         _isLoading ||
         _isSelectingUploadPurpose ||
         _isUploading ||
-        _busyFileId != null ||
+        _downloadingFileId != null ||
         _removingFileId != null) {
       return;
     }
@@ -2962,18 +2999,34 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
         widget.reloadRevision == reloadRevision;
   }
 
+  bool _isCurrentDownload(
+    int downloadGeneration, {
+    required String billId,
+    required String? groupId,
+    required String fileId,
+  }) {
+    return mounted &&
+        _downloadGeneration == downloadGeneration &&
+        _downloadingFileId == fileId &&
+        _activeDownloadBillId == billId &&
+        _activeDownloadGroupId == groupId &&
+        widget.route.billId == billId &&
+        widget.route.groupId == groupId;
+  }
+
   bool get _attachmentActionsBlocked =>
       _isLoading ||
       _loadInFlight ||
       _isSelectingUploadPurpose ||
       _isUploading ||
-      _busyFileId != null ||
+      _downloadingFileId != null ||
       _removingFileId != null;
 
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
     final attachmentActionDisabled = _attachmentActionsBlocked;
+    final downloadingFileId = _downloadingFileId;
     final removingFileId = _removingFileId;
     final hasAttachments = _attachments.isNotEmpty;
 
@@ -3064,6 +3117,8 @@ class _BillAttachmentSectionState extends State<_BillAttachmentSection> {
                   index: index,
                   keyPrefix: widget.keyPrefix,
                   isBusy: attachmentActionDisabled,
+                  isDownloading:
+                      _attachments[index].fileId == downloadingFileId,
                   isRemoving: _attachments[index].fileId == removingFileId,
                   canOpenOcr:
                       widget.receiptOcrReviewRepository != null &&
@@ -3120,6 +3175,7 @@ class _AttachmentTile extends StatelessWidget {
     required this.index,
     required this.keyPrefix,
     required this.isBusy,
+    required this.isDownloading,
     required this.isRemoving,
     required this.canOpenOcr,
     required this.onDownload,
@@ -3131,6 +3187,7 @@ class _AttachmentTile extends StatelessWidget {
   final int index;
   final String keyPrefix;
   final bool isBusy;
+  final bool isDownloading;
   final bool isRemoving;
   final bool canOpenOcr;
   final VoidCallback onDownload;
@@ -3192,10 +3249,13 @@ class _AttachmentTile extends StatelessWidget {
                 OutlinedButton.icon(
                   key: ValueKey('$keyPrefix-download-$index'),
                   onPressed: isBusy ? null : onDownload,
-                  icon: isBusy
-                      ? const SizedBox.square(
+                  icon: isDownloading
+                      ? SizedBox.square(
+                          key: ValueKey('$keyPrefix-download-progress-$index'),
                           dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
                         )
                       : const Icon(Icons.download_outlined),
                   label: const Text('Download'),

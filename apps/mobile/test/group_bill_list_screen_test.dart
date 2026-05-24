@@ -204,6 +204,193 @@ void main() {
     expect(find.text('Downloaded 2 bytes.'), findsOneWidget);
   });
 
+  testWidgets(
+    'group bill attachment download blocks duplicate and conflicting actions',
+    (tester) async {
+      await useLargeSurface(tester);
+      final downloadCompleter = Completer<void>();
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            purpose: SettleoraBillAttachmentPurposeValues.receipt,
+            contentType: 'image/png',
+          ),
+          sampleAttachment(
+            fileId: 'supporting-file-id',
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+        ],
+        downloadCompleter: downloadCompleter,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(
+              groupBills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            groupRepository: FakeGroupRepository(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: FakeBillAttachmentFileInput(),
+            receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('group-bill-attachments-download-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-download-0')),
+      );
+      await tester.pump();
+
+      expect(attachmentRepository.downloadCalls, 1);
+      expect(attachmentRepository.lastRoute?.groupId, _groupId);
+      expect(attachmentRepository.lastRoute?.billId, _billId);
+      expect(
+        find.byKey(
+          const ValueKey('group-bill-attachments-download-progress-0'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey('group-bill-attachments-download-progress-1'),
+        ),
+        findsNothing,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('group-bill-attachments-upload'),
+        isFalse,
+      );
+      _expectIconButtonEnabled(
+        tester,
+        const Key('group-bill-attachments-refresh'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('group-bill-attachments-download-0'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('group-bill-attachments-remove-0'),
+        isFalse,
+      );
+      _expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('group-bill-attachments-ocr-0'),
+        isFalse,
+      );
+      expect(
+        find.byKey(const ValueKey('group-bill-attachments-ocr-1')),
+        findsNothing,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-download-0')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(attachmentRepository.downloadCalls, 1);
+      expect(attachmentRepository.removeCalls, 0);
+
+      downloadCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.downloadCalls, 1);
+      expect(find.text('Downloaded 3 bytes.'), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('group-bill-attachments-download-progress-0'),
+        ),
+        findsNothing,
+      );
+      _expectAttachmentUploadEnabled(
+        tester,
+        const Key('group-bill-attachments-upload'),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets(
+    'group bill attachment download failure is sanitized and preserves metadata',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        downloadFailure: const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message:
+              'SocketException token C:\\Users\\secret\\receipt.png /tmp/object-key [1, 2, 3] StackTrace',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(
+              groupBills: [sampleBillSummary()],
+              detail: sampleBillDetail(),
+            ),
+            groupRepository: FakeGroupRepository(),
+            attachmentRepository: attachmentRepository,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('group-bill-attachments-download-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-download-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(attachmentRepository.downloadCalls, 1);
+      expect(attachmentRepository.lastRoute?.groupId, _groupId);
+      expect(attachmentRepository.lastRoute?.billId, _billId);
+      expect(find.text('Attachments unavailable'), findsOneWidget);
+      expect(
+        find.text('Attachments are unavailable right now. Try again later.'),
+        findsOneWidget,
+      );
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(find.text('application/pdf'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('/tmp/object-key')));
+      expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+      expect(visibleText(tester), isNot(contains('StackTrace')));
+      expect(visibleText(tester), isNot(contains('SocketException')));
+      expect(visibleText(tester), isNot(contains('token')));
+    },
+  );
+
   testWidgets('group bill attachment remove confirms once with group route', (
     tester,
   ) async {
@@ -1081,6 +1268,11 @@ void _expectOutlinedButtonEnabled(
   expect(button.onPressed != null, matcher);
 }
 
+void _expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
+  final button = tester.widget<IconButton>(find.byKey(key));
+  expect(button.onPressed != null, matcher);
+}
+
 String visibleText(WidgetTester tester) {
   final buffer = StringBuffer();
   for (final element in find.byType(Text).evaluate()) {
@@ -1240,6 +1432,8 @@ class FakeBillAttachmentRepository
     this.listFailuresByCall = const {},
     this.listCompletersByCall = const {},
     this.downloadedBytes = const [7, 8, 9],
+    this.downloadFailure,
+    this.downloadCompleter,
     this.attachFailure,
     this.attachCompleter,
     this.removeFailure,
@@ -1251,6 +1445,8 @@ class FakeBillAttachmentRepository
   final Map<int, SettleoraBillAttachmentFailure> listFailuresByCall;
   final Map<int, Completer<List<SettleoraBillAttachment>>> listCompletersByCall;
   final List<int> downloadedBytes;
+  final SettleoraBillAttachmentFailure? downloadFailure;
+  final Completer<void>? downloadCompleter;
   final SettleoraBillAttachmentFailure? attachFailure;
   final Completer<void>? attachCompleter;
   final SettleoraBillAttachmentFailure? removeFailure;
@@ -1342,6 +1538,11 @@ class FakeBillAttachmentRepository
     downloadCalls += 1;
     lastRoute = route;
     lastDownloadedFileId = fileId;
+    final failure = downloadFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    await downloadCompleter?.future;
     return SettleoraBillAttachmentContent(bytes: downloadedBytes);
   }
 }
@@ -1601,12 +1802,16 @@ SettleoraBillSummary sampleBillSummary() {
   );
 }
 
-SettleoraBillAttachment sampleAttachment() {
+SettleoraBillAttachment sampleAttachment({
+  String fileId = _fileId,
+  String purpose = SettleoraBillAttachmentPurposeValues.supportingAttachment,
+  String contentType = 'application/pdf',
+}) {
   return SettleoraBillAttachment(
-    fileId: _fileId,
+    fileId: fileId,
     billId: _billId,
-    purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
-    contentType: 'application/pdf',
+    purpose: purpose,
+    contentType: contentType,
     sizeBytes: 2048,
     uploadedAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
