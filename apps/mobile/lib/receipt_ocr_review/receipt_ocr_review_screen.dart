@@ -17,6 +17,7 @@ class _ReceiptOcrReviewQueueScreenState
   bool _isLoading = false;
   List<ReceiptOcrReviewSummary> _reviews = const [];
   ReceiptOcrReviewFailure? _failure;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -42,14 +43,16 @@ class _ReceiptOcrReviewQueueScreenState
       return;
     }
 
+    final loadGeneration = _loadGeneration + 1;
     setState(() {
+      _loadGeneration = loadGeneration;
       _isLoading = true;
       _failure = null;
     });
 
     try {
       final reviews = await repository.listReviews(limit: 50);
-      if (!mounted) {
+      if (!_isCurrentLoad(loadGeneration, repository)) {
         return;
       }
 
@@ -58,7 +61,7 @@ class _ReceiptOcrReviewQueueScreenState
         _isLoading = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentLoad(loadGeneration, repository)) {
         return;
       }
 
@@ -67,6 +70,15 @@ class _ReceiptOcrReviewQueueScreenState
         _isLoading = false;
       });
     }
+  }
+
+  bool _isCurrentLoad(
+    int loadGeneration,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _loadGeneration == loadGeneration &&
+        identical(widget.repository, repository);
   }
 
   void _openReview(ReceiptOcrReviewSummary review) {
@@ -191,9 +203,13 @@ class _ReceiptOcrReviewDetailScreenState
   ReceiptOcrReviewFailure? _applyFailure;
   ReceiptOcrReviewFailure? _saveFailure;
   ReceiptOcrReviewFailure? _deleteFailure;
+  int _reviewLoadGeneration = 0;
+  int _previewLoadGeneration = 0;
+  int _saveGeneration = 0;
+  int _deleteGeneration = 0;
+  int _applyGeneration = 0;
 
-  ReceiptOcrReviewRoute get _route =>
-      widget.route ?? ReceiptOcrReviewRoute.fromSummary(widget.summary!);
+  ReceiptOcrReviewRoute get _route => _routeFor(widget);
 
   @override
   void initState() {
@@ -201,8 +217,43 @@ class _ReceiptOcrReviewDetailScreenState
     Future<void>.microtask(_loadReview);
   }
 
+  @override
+  void didUpdateWidget(ReceiptOcrReviewDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository ||
+        !_sameRoute(_routeFor(oldWidget), _route)) {
+      _reviewLoadGeneration += 1;
+      _previewLoadGeneration += 1;
+      _saveGeneration += 1;
+      _deleteGeneration += 1;
+      _applyGeneration += 1;
+      _isLoadingPreview = false;
+      _isApplying = false;
+      _isEditing = false;
+      _isSaving = false;
+      _isDeleting = false;
+      _review = null;
+      _preview = null;
+      _applyResult = null;
+      _reviewFailure = null;
+      _previewFailure = null;
+      _applyFailure = null;
+      _saveFailure = null;
+      _deleteFailure = null;
+      Future<void>.microtask(_loadReview);
+    }
+  }
+
   Future<void> _loadReview() async {
+    if (_isSaving || _isDeleting || _isApplying) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final route = _route;
+    final loadGeneration = _reviewLoadGeneration + 1;
     setState(() {
+      _reviewLoadGeneration = loadGeneration;
       _isLoadingReview = true;
       _isEditing = false;
       _reviewFailure = null;
@@ -215,8 +266,8 @@ class _ReceiptOcrReviewDetailScreenState
     });
 
     try {
-      final review = await widget.repository.getReview(_route);
-      if (!mounted) {
+      final review = await repository.getReview(route);
+      if (!_isCurrentDetailOperation(loadGeneration, route, repository)) {
         return;
       }
 
@@ -225,7 +276,7 @@ class _ReceiptOcrReviewDetailScreenState
         _isLoadingReview = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentDetailOperation(loadGeneration, route, repository)) {
         return;
       }
 
@@ -237,7 +288,15 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _loadPreview() async {
+    if (_detailActionsBlocked || _isLoadingPreview) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final route = _route;
+    final loadGeneration = _previewLoadGeneration + 1;
     setState(() {
+      _previewLoadGeneration = loadGeneration;
       _isLoadingPreview = true;
       _previewFailure = null;
       _applyResult = null;
@@ -245,8 +304,8 @@ class _ReceiptOcrReviewDetailScreenState
     });
 
     try {
-      final preview = await widget.repository.previewApply(_route);
-      if (!mounted) {
+      final preview = await repository.previewApply(route);
+      if (!_isCurrentPreviewOperation(loadGeneration, route, repository)) {
         return;
       }
 
@@ -255,7 +314,7 @@ class _ReceiptOcrReviewDetailScreenState
         _isLoadingPreview = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentPreviewOperation(loadGeneration, route, repository)) {
         return;
       }
 
@@ -267,6 +326,10 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   void _startEditing() {
+    if (_detailActionsBlocked || _review == null) {
+      return;
+    }
+
     setState(() {
       _isEditing = true;
       _saveFailure = null;
@@ -287,15 +350,23 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _saveReview(ReceiptOcrReviewSaveRequest request) async {
+    if (_isSaving || _isDeleting || _isLoadingReview) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final route = _route;
+    final saveGeneration = _saveGeneration + 1;
     setState(() {
+      _saveGeneration = saveGeneration;
       _isSaving = true;
       _saveFailure = null;
       _deleteFailure = null;
     });
 
     try {
-      final review = await widget.repository.saveReview(_route, request);
-      if (!mounted) {
+      final review = await repository.saveReview(route, request);
+      if (!_isCurrentSaveOperation(saveGeneration, route, repository)) {
         return;
       }
 
@@ -309,7 +380,7 @@ class _ReceiptOcrReviewDetailScreenState
         _applyFailure = null;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentSaveOperation(saveGeneration, route, repository)) {
         return;
       }
 
@@ -321,7 +392,7 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _confirmDelete() async {
-    if (_isDeleting) {
+    if (_isSaving || _isDeleting || _isLoadingReview) {
       return;
     }
 
@@ -355,21 +426,30 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _deleteReview() async {
+    if (_isSaving || _isDeleting || _isLoadingReview) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final route = _route;
+    final deleteGeneration = _deleteGeneration + 1;
     setState(() {
+      _deleteGeneration = deleteGeneration;
       _isDeleting = true;
       _deleteFailure = null;
       _saveFailure = null;
     });
 
     try {
-      await widget.repository.deleteReview(_route);
-      if (!mounted) {
+      final navigator = Navigator.of(context);
+      await repository.deleteReview(route);
+      if (!_isCurrentDeleteOperation(deleteGeneration, route, repository)) {
         return;
       }
 
-      Navigator.of(context).pop();
+      navigator.pop();
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentDeleteOperation(deleteGeneration, route, repository)) {
         return;
       }
 
@@ -382,7 +462,7 @@ class _ReceiptOcrReviewDetailScreenState
 
   Future<void> _confirmApply() async {
     final preview = _preview;
-    if (preview == null || !preview.canApply) {
+    if (preview == null || !preview.canApply || _detailActionsBlocked) {
       return;
     }
 
@@ -416,18 +496,26 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _applyReview(ReceiptOcrReviewApplyPreview preview) async {
+    if (_isApplying || _isLoadingPreview || _isLoadingReview || _isEditing) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final route = _route;
+    final applyGeneration = _applyGeneration + 1;
     setState(() {
+      _applyGeneration = applyGeneration;
       _isApplying = true;
       _applyFailure = null;
       _applyResult = null;
     });
 
     try {
-      final result = await widget.repository.applyReview(
-        _route,
+      final result = await repository.applyReview(
+        route,
         expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
       );
-      if (!mounted) {
+      if (!_isCurrentApplyOperation(applyGeneration, route, repository)) {
         return;
       }
 
@@ -436,7 +524,7 @@ class _ReceiptOcrReviewDetailScreenState
         _isApplying = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!_isCurrentApplyOperation(applyGeneration, route, repository)) {
         return;
       }
 
@@ -447,6 +535,68 @@ class _ReceiptOcrReviewDetailScreenState
     }
   }
 
+  bool get _detailActionsBlocked =>
+      _isLoadingReview ||
+      _isLoadingPreview ||
+      _isApplying ||
+      _isSaving ||
+      _isDeleting;
+
+  bool _isCurrentDetailOperation(
+    int generation,
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _reviewLoadGeneration == generation &&
+        identical(widget.repository, repository) &&
+        _sameRoute(_route, route);
+  }
+
+  bool _isCurrentPreviewOperation(
+    int generation,
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _previewLoadGeneration == generation &&
+        identical(widget.repository, repository) &&
+        _sameRoute(_route, route);
+  }
+
+  bool _isCurrentSaveOperation(
+    int generation,
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _saveGeneration == generation &&
+        identical(widget.repository, repository) &&
+        _sameRoute(_route, route);
+  }
+
+  bool _isCurrentDeleteOperation(
+    int generation,
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _deleteGeneration == generation &&
+        identical(widget.repository, repository) &&
+        _sameRoute(_route, route);
+  }
+
+  bool _isCurrentApplyOperation(
+    int generation,
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewRepository repository,
+  ) {
+    return mounted &&
+        _applyGeneration == generation &&
+        identical(widget.repository, repository) &&
+        _sameRoute(_route, route);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -455,12 +605,17 @@ class _ReceiptOcrReviewDetailScreenState
         actions: [
           if (!_isEditing)
             IconButton(
-              onPressed: _isLoadingReview ? null : _startEditing,
+              onPressed:
+                  _detailActionsBlocked ||
+                      _reviewFailure != null ||
+                      _review == null
+                  ? null
+                  : _startEditing,
               tooltip: 'Edit',
               icon: const Icon(Icons.edit_outlined),
             ),
           IconButton(
-            onPressed: _isLoadingReview || _isEditing ? null : _loadReview,
+            onPressed: _detailActionsBlocked || _isEditing ? null : _loadReview,
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
           ),
@@ -510,13 +665,23 @@ class _ReceiptOcrReviewDetailScreenState
               children: [
                 _ReceiptOcrReviewHeader(review: review),
                 const SizedBox(height: 20),
-                _ReceiptOcrReviewTotals(review: review),
-                const SizedBox(height: 20),
-                _ReceiptOcrReviewLines(lines: review.lines),
+                if (_hasAnyReviewCandidate(review)) ...[
+                  _ReceiptOcrReviewTotals(review: review),
+                  const SizedBox(height: 20),
+                  _ReceiptOcrReviewLines(lines: review.lines),
+                ] else
+                  const _StatePanel(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'No OCR result',
+                    message:
+                        'No reviewed OCR candidates are saved for this receipt yet.',
+                    compact: true,
+                  ),
                 const SizedBox(height: 20),
                 _ApplyPreviewSection(
                   isLoadingPreview: _isLoadingPreview,
                   isApplying: _isApplying,
+                  actionsBlocked: _detailActionsBlocked,
                   preview: _preview,
                   previewFailure: _previewFailure,
                   applyResult: _applyResult,
@@ -531,6 +696,16 @@ class _ReceiptOcrReviewDetailScreenState
       ),
     );
   }
+}
+
+ReceiptOcrReviewRoute _routeFor(ReceiptOcrReviewDetailScreen widget) {
+  return widget.route ?? ReceiptOcrReviewRoute.fromSummary(widget.summary!);
+}
+
+bool _sameRoute(ReceiptOcrReviewRoute left, ReceiptOcrReviewRoute right) {
+  return left.billId == right.billId &&
+      left.fileId == right.fileId &&
+      left.groupId == right.groupId;
 }
 
 class _ReceiptOcrReviewEditForm extends StatefulWidget {
@@ -1209,6 +1384,7 @@ class _ApplyPreviewSection extends StatelessWidget {
   const _ApplyPreviewSection({
     required this.isLoadingPreview,
     required this.isApplying,
+    required this.actionsBlocked,
     required this.preview,
     required this.previewFailure,
     required this.applyResult,
@@ -1219,6 +1395,7 @@ class _ApplyPreviewSection extends StatelessWidget {
 
   final bool isLoadingPreview;
   final bool isApplying;
+  final bool actionsBlocked;
   final ReceiptOcrReviewApplyPreview? preview;
   final ReceiptOcrReviewFailure? previewFailure;
   final ReceiptOcrReviewApplyResult? applyResult;
@@ -1229,7 +1406,7 @@ class _ApplyPreviewSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = this.preview;
-    final applyEnabled = preview != null && preview.canApply && !isApplying;
+    final applyEnabled = preview != null && preview.canApply && !actionsBlocked;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1240,7 +1417,7 @@ class _ApplyPreviewSection extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isLoadingPreview ? null : onPreview,
+                onPressed: actionsBlocked ? null : onPreview,
                 icon: isLoadingPreview
                     ? const SizedBox.square(
                         dimension: 18,
@@ -1445,7 +1622,7 @@ class _FailurePanel extends StatelessWidget {
     return _StatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
-      message: failure.message,
+      message: _safeReceiptOcrReviewFailureDisplayMessage(failure),
       action: OutlinedButton.icon(
         onPressed: onRetry,
         icon: const Icon(Icons.refresh),
@@ -1486,7 +1663,7 @@ class _InlineFailure extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 4),
-                  Text(failure.message),
+                  Text(_safeReceiptOcrReviewFailureDisplayMessage(failure)),
                 ],
               ),
             ),
@@ -1701,6 +1878,77 @@ String _lineSummary(ReceiptOcrReviewLine line) {
   ];
 
   return parts.isEmpty ? 'No amount candidates' : parts.join('  ');
+}
+
+bool _hasAnyReviewCandidate(ReceiptOcrReviewDetail review) {
+  return review.merchantText != null ||
+      review.receiptIssuedAtUtc != null ||
+      review.currency != null ||
+      review.subtotalAmount != null ||
+      review.taxAmount != null ||
+      review.serviceChargeAmount != null ||
+      review.discountAmount != null ||
+      review.grandTotalAmount != null ||
+      review.lines.isNotEmpty;
+}
+
+String _safeReceiptOcrReviewFailureDisplayMessage(
+  ReceiptOcrReviewFailure failure,
+) {
+  final message = failure.message.trim();
+  if (message.isEmpty ||
+      _containsUnsafeReceiptOcrReviewFailureDetail(message)) {
+    return _fallbackReceiptOcrReviewFailureMessage(failure.kind);
+  }
+
+  return message;
+}
+
+bool _containsUnsafeReceiptOcrReviewFailureDetail(String message) {
+  final lower = message.toLowerCase();
+  return lower.contains('stacktrace') ||
+      lower.contains('stack trace') ||
+      lower.contains('exception') ||
+      lower.contains('bearer ') ||
+      lower.contains('access token') ||
+      lower.contains('refresh token') ||
+      lower.contains('session token') ||
+      lower.contains('authorization:') ||
+      lower.contains('raw bytes') ||
+      lower.contains('object key') ||
+      lower.contains('storage path') ||
+      lower.contains('filesystem') ||
+      lower.contains('ocr payload') ||
+      lower.contains('raw ocr') ||
+      lower.contains('full ocr') ||
+      lower.contains('s3://') ||
+      lower.contains('gs://') ||
+      lower.contains('/var/') ||
+      lower.contains('/tmp/') ||
+      lower.contains('\\users\\') ||
+      lower.contains('c:\\') ||
+      RegExp(r'\[[0-9,\s]+\]').hasMatch(message);
+}
+
+String _fallbackReceiptOcrReviewFailureMessage(
+  ReceiptOcrReviewFailureKind kind,
+) {
+  return switch (kind) {
+    ReceiptOcrReviewFailureKind.unauthenticated =>
+      'Sign in before loading receipt reviews.',
+    ReceiptOcrReviewFailureKind.denied =>
+      'This receipt review is not available to this account.',
+    ReceiptOcrReviewFailureKind.unavailable =>
+      'The receipt review is no longer available.',
+    ReceiptOcrReviewFailureKind.conflict =>
+      'Refresh the receipt review and try again.',
+    ReceiptOcrReviewFailureKind.validation =>
+      'The receipt review request is no longer valid. Refresh and try again.',
+    ReceiptOcrReviewFailureKind.network =>
+      'The server is unavailable. Try again when the connection is back.',
+    ReceiptOcrReviewFailureKind.server =>
+      'Receipt reviews are unavailable right now. Try again later.',
+  };
 }
 
 String _money(String? amount, String? currency) {
