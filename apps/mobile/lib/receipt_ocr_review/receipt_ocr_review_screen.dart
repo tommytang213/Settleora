@@ -622,76 +622,28 @@ class _ReceiptOcrReviewDetailScreenState
         ],
       ),
       body: SafeArea(
-        child: Builder(
-          builder: (context) {
-            if (_isLoadingReview) {
-              return const _LoadingPanel(label: 'Loading receipt review');
-            }
-
-            final failure = _reviewFailure;
-            if (failure != null) {
-              return _FailurePanel(failure: failure, onRetry: _loadReview);
-            }
-
-            final review = _review;
-            if (review == null) {
-              return _FailurePanel(
-                failure: const ReceiptOcrReviewFailure(
-                  kind: ReceiptOcrReviewFailureKind.unavailable,
-                  message: 'The receipt review is no longer available.',
-                ),
-                onRetry: _loadReview,
-              );
-            }
-
-            if (_isEditing) {
-              return _ReceiptOcrReviewEditForm(
-                key: ValueKey(
-                  '${review.id}-${review.updatedAtUtc.toIso8601String()}',
-                ),
-                review: review,
-                isSaving: _isSaving,
-                isDeleting: _isDeleting,
-                saveFailure: _saveFailure,
-                deleteFailure: _deleteFailure,
-                onSave: _saveReview,
-                onCancel: _cancelEditing,
-                onDelete: _confirmDelete,
-              );
-            }
-
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-              children: [
-                _ReceiptOcrReviewHeader(review: review),
-                const SizedBox(height: 20),
-                if (_hasAnyReviewCandidate(review)) ...[
-                  _ReceiptOcrReviewTotals(review: review),
-                  const SizedBox(height: 20),
-                  _ReceiptOcrReviewLines(lines: review.lines),
-                ] else
-                  const _StatePanel(
-                    icon: Icons.receipt_long_outlined,
-                    title: 'No OCR result',
-                    message:
-                        'No reviewed OCR candidates are saved for this receipt yet.',
-                    compact: true,
-                  ),
-                const SizedBox(height: 20),
-                _ApplyPreviewSection(
-                  isLoadingPreview: _isLoadingPreview,
-                  isApplying: _isApplying,
-                  actionsBlocked: _detailActionsBlocked,
-                  preview: _preview,
-                  previewFailure: _previewFailure,
-                  applyResult: _applyResult,
-                  applyFailure: _applyFailure,
-                  onPreview: _loadPreview,
-                  onApply: _confirmApply,
-                ),
-              ],
-            );
-          },
+        child: _ReceiptOcrReviewDetailBody(
+          isLoadingReview: _isLoadingReview,
+          isEditing: _isEditing,
+          isSaving: _isSaving,
+          isDeleting: _isDeleting,
+          isLoadingPreview: _isLoadingPreview,
+          isApplying: _isApplying,
+          actionsBlocked: _detailActionsBlocked,
+          review: _review,
+          reviewFailure: _reviewFailure,
+          preview: _preview,
+          previewFailure: _previewFailure,
+          applyResult: _applyResult,
+          applyFailure: _applyFailure,
+          saveFailure: _saveFailure,
+          deleteFailure: _deleteFailure,
+          onRetry: _loadReview,
+          onSave: _saveReview,
+          onCancelEditing: _cancelEditing,
+          onDelete: _confirmDelete,
+          onPreview: _loadPreview,
+          onApply: _confirmApply,
         ),
       ),
     );
@@ -706,6 +658,165 @@ bool _sameRoute(ReceiptOcrReviewRoute left, ReceiptOcrReviewRoute right) {
   return left.billId == right.billId &&
       left.fileId == right.fileId &&
       left.groupId == right.groupId;
+}
+
+class _ReceiptOcrReviewDetailBody extends StatelessWidget {
+  const _ReceiptOcrReviewDetailBody({
+    required this.isLoadingReview,
+    required this.isEditing,
+    required this.isSaving,
+    required this.isDeleting,
+    required this.isLoadingPreview,
+    required this.isApplying,
+    required this.actionsBlocked,
+    required this.review,
+    required this.reviewFailure,
+    required this.preview,
+    required this.previewFailure,
+    required this.applyResult,
+    required this.applyFailure,
+    required this.saveFailure,
+    required this.deleteFailure,
+    required this.onRetry,
+    required this.onSave,
+    required this.onCancelEditing,
+    required this.onDelete,
+    required this.onPreview,
+    required this.onApply,
+  });
+
+  final bool isLoadingReview;
+  final bool isEditing;
+  final bool isSaving;
+  final bool isDeleting;
+  final bool isLoadingPreview;
+  final bool isApplying;
+  final bool actionsBlocked;
+  final ReceiptOcrReviewDetail? review;
+  final ReceiptOcrReviewFailure? reviewFailure;
+  final ReceiptOcrReviewApplyPreview? preview;
+  final ReceiptOcrReviewFailure? previewFailure;
+  final ReceiptOcrReviewApplyResult? applyResult;
+  final ReceiptOcrReviewFailure? applyFailure;
+  final ReceiptOcrReviewFailure? saveFailure;
+  final ReceiptOcrReviewFailure? deleteFailure;
+  final VoidCallback onRetry;
+  final Future<void> Function(ReceiptOcrReviewSaveRequest request) onSave;
+  final VoidCallback onCancelEditing;
+  final VoidCallback onDelete;
+  final VoidCallback onPreview;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoadingReview) {
+      return const _LoadingPanel(label: 'Loading receipt review');
+    }
+
+    final failure = reviewFailure;
+    if (failure != null) {
+      return _FailurePanel(failure: failure, onRetry: onRetry);
+    }
+
+    final review = this.review;
+    if (review == null) {
+      return _FailurePanel(
+        failure: const ReceiptOcrReviewFailure(
+          kind: ReceiptOcrReviewFailureKind.unavailable,
+          message: 'The receipt review is no longer available.',
+        ),
+        onRetry: onRetry,
+      );
+    }
+
+    if (isEditing) {
+      return _ReceiptOcrReviewEditForm(
+        key: ValueKey('${review.id}-${review.updatedAtUtc.toIso8601String()}'),
+        review: review,
+        isSaving: isSaving,
+        isDeleting: isDeleting,
+        saveFailure: saveFailure,
+        deleteFailure: deleteFailure,
+        onSave: onSave,
+        onCancel: onCancelEditing,
+        onDelete: onDelete,
+      );
+    }
+
+    return _ReceiptOcrReviewReadOnlyContent(
+      review: review,
+      isLoadingPreview: isLoadingPreview,
+      isApplying: isApplying,
+      actionsBlocked: actionsBlocked,
+      preview: preview,
+      previewFailure: previewFailure,
+      applyResult: applyResult,
+      applyFailure: applyFailure,
+      onPreview: onPreview,
+      onApply: onApply,
+    );
+  }
+}
+
+class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
+  const _ReceiptOcrReviewReadOnlyContent({
+    required this.review,
+    required this.isLoadingPreview,
+    required this.isApplying,
+    required this.actionsBlocked,
+    required this.preview,
+    required this.previewFailure,
+    required this.applyResult,
+    required this.applyFailure,
+    required this.onPreview,
+    required this.onApply,
+  });
+
+  final ReceiptOcrReviewDetail review;
+  final bool isLoadingPreview;
+  final bool isApplying;
+  final bool actionsBlocked;
+  final ReceiptOcrReviewApplyPreview? preview;
+  final ReceiptOcrReviewFailure? previewFailure;
+  final ReceiptOcrReviewApplyResult? applyResult;
+  final ReceiptOcrReviewFailure? applyFailure;
+  final VoidCallback onPreview;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      children: [
+        _ReceiptOcrReviewHeader(review: review),
+        const SizedBox(height: 20),
+        if (_hasAnyReviewCandidate(review)) ...[
+          _ReceiptOcrReviewTotals(review: review),
+          const SizedBox(height: 20),
+          _ReceiptOcrReviewLines(lines: review.lines),
+        ] else
+          const _StatePanel(
+            icon: Icons.receipt_long_outlined,
+            title: 'No OCR result',
+            message:
+                'No reviewed OCR candidates are saved for this receipt yet.',
+            compact: true,
+          ),
+        const SizedBox(height: 20),
+        _ApplyPreviewSection(
+          isLoadingPreview: isLoadingPreview,
+          isApplying: isApplying,
+          actionsBlocked: actionsBlocked,
+          preview: preview,
+          previewFailure: previewFailure,
+          applyResult: applyResult,
+          applyFailure: applyFailure,
+          onPreview: onPreview,
+          onApply: onApply,
+        ),
+      ],
+    );
+  }
 }
 
 class _ReceiptOcrReviewEditForm extends StatefulWidget {
