@@ -658,6 +658,7 @@ void main() {
   testWidgets('detail edit mode saves bounded header and line changes', (
     tester,
   ) async {
+    await useLargeSurface(tester);
     final repository = FakeReceiptOcrReviewRepository(
       reviewResponse: sampleReview(),
     );
@@ -686,7 +687,7 @@ void main() {
     );
     await tester.dragUntilVisible(
       find.byKey(const Key('receipt-review-edit-line-add')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.ensureVisible(
@@ -697,7 +698,7 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const ValueKey('receipt-review-edit-line-text-0')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.enterText(
@@ -707,7 +708,7 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const ValueKey('receipt-review-edit-line-text-2')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.enterText(
@@ -717,7 +718,7 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const ValueKey('receipt-review-edit-line-remove-2')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.ensureVisible(
@@ -730,13 +731,13 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const Key('receipt-review-edit-save')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.ensureVisible(
       find.byKey(const Key('receipt-review-edit-save')),
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -80));
+    await tester.drag(verticalScrollable(), const Offset(0, -80));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
     await tester.pumpAndSettle();
@@ -756,6 +757,7 @@ void main() {
   });
 
   testWidgets('cancel exits edit mode without saving', (tester) async {
+    await useLargeSurface(tester);
     final repository = FakeReceiptOcrReviewRepository(
       reviewResponse: sampleReview(),
     );
@@ -779,7 +781,7 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const Key('receipt-review-edit-cancel')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.ensureVisible(
@@ -795,6 +797,7 @@ void main() {
   });
 
   testWidgets('save failure displays a safe bounded message', (tester) async {
+    await useLargeSurface(tester);
     final repository = FakeReceiptOcrReviewRepository(
       reviewResponse: sampleReview(),
       saveFailure: const ReceiptOcrReviewFailure(
@@ -820,13 +823,13 @@ void main() {
 
     await tester.dragUntilVisible(
       find.byKey(const Key('receipt-review-edit-save')),
-      find.byType(ListView),
+      verticalScrollable(),
       const Offset(0, -300),
     );
     await tester.ensureVisible(
       find.byKey(const Key('receipt-review-edit-save')),
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -80));
+    await tester.drag(verticalScrollable(), const Offset(0, -80));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
     await tester.pumpAndSettle();
@@ -1336,4 +1339,16 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Finder verticalScrollable() {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is Scrollable && widget.axisDirection == AxisDirection.down,
+  );
+}
+
+Future<void> useLargeSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(900, 1600));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
 }

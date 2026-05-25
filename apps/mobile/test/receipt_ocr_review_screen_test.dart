@@ -304,6 +304,60 @@ void main() {
       expect(find.text('Preview apply'), findsOneWidget);
     });
 
+    testWidgets('blocks invalid edited candidate values before save', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-currency')),
+        '',
+      );
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-subtotal')),
+        '12.3.4',
+      );
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-grand-total')),
+        '-10.80',
+      );
+      await tester.enterText(
+        editableTextForKey(
+          const ValueKey('receipt-review-edit-line-quantity-0'),
+        ),
+        '0',
+      );
+      await tester.enterText(
+        editableTextForKey(const ValueKey('receipt-review-edit-line-unit-0')),
+        'abc',
+      );
+      await tester.enterText(
+        editableTextForKey(const ValueKey('receipt-review-edit-line-total-0')),
+        '-10.00',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 0);
+      expect(find.text('Required when amounts are present'), findsOneWidget);
+      expect(find.text('Use a non-negative decimal amount'), findsNWidgets(4));
+      expect(find.text('Use a positive decimal quantity'), findsOneWidget);
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
+
     testWidgets('sanitizes save failures without exposing unsafe details', (
       tester,
     ) async {

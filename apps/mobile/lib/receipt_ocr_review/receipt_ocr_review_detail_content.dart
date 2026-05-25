@@ -295,6 +295,14 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
         : 'Use a 3-letter code';
   }
 
+  String? _moneyValidator(String? value) {
+    return _optionalDecimalStringValidator(
+      value,
+      pattern: _receiptOcrMoneyPattern,
+      message: 'Use a non-negative decimal amount',
+    );
+  }
+
   bool _hasAnyAmountCandidate() {
     final headerControllers = [
       _subtotalController,
@@ -316,157 +324,178 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
 
     return Form(
       key: _formKey,
-      child: ListView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-        children: [
-          Text('Review fields', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 10),
-          _EditTextField(
-            key: const Key('receipt-review-edit-merchant'),
-            controller: _merchantController,
-            label: 'Merchant candidate',
-            enabled: !isBusy,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-date'),
-            controller: _receiptDateController,
-            label: 'Receipt date',
-            enabled: !isBusy,
-            keyboardType: TextInputType.datetime,
-            validator: _dateValidator,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-currency'),
-            controller: _currencyController,
-            label: 'Currency',
-            enabled: !isBusy,
-            textCapitalization: TextCapitalization.characters,
-            validator: _currencyValidator,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Header candidates',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 10),
-          _EditTextField(
-            key: const Key('receipt-review-edit-subtotal'),
-            controller: _subtotalController,
-            label: 'Subtotal',
-            enabled: !isBusy,
-            keyboardType: TextInputType.number,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-tax'),
-            controller: _taxController,
-            label: 'Tax',
-            enabled: !isBusy,
-            keyboardType: TextInputType.number,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-service-charge'),
-            controller: _serviceChargeController,
-            label: 'Service charge',
-            enabled: !isBusy,
-            keyboardType: TextInputType.number,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-discount'),
-            controller: _discountController,
-            label: 'Discount',
-            enabled: !isBusy,
-            keyboardType: TextInputType.number,
-          ),
-          _EditTextField(
-            key: const Key('receipt-review-edit-grand-total'),
-            controller: _grandTotalController,
-            label: 'Grand total',
-            enabled: !isBusy,
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Line candidates',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              IconButton(
-                key: const Key('receipt-review-edit-line-add'),
-                onPressed: isBusy ? null : _addLine,
-                tooltip: 'Add line',
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_lineEditors.isEmpty)
-            const _StatePanel(
-              icon: Icons.format_list_bulleted,
-              title: 'No line candidates',
-              message:
-                  'Save can proceed, but apply may be blocked by the server.',
-              compact: true,
-            )
-          else
-            for (var index = 0; index < _lineEditors.length; index++)
-              _LineEditCard(
-                key: ValueKey('receipt-review-edit-line-card-$index'),
-                index: index,
-                editors: _lineEditors[index],
-                enabled: !isBusy,
-                onRemove: () => _removeLine(index),
-              ),
-          if (widget.saveFailure != null) ...[
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Review fields',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            _EditTextField(
+              key: const Key('receipt-review-edit-merchant'),
+              controller: _merchantController,
+              label: 'Merchant candidate',
+              enabled: !isBusy,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-date'),
+              controller: _receiptDateController,
+              label: 'Receipt date',
+              enabled: !isBusy,
+              keyboardType: TextInputType.datetime,
+              validator: _dateValidator,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-currency'),
+              controller: _currencyController,
+              label: 'Currency',
+              enabled: !isBusy,
+              textCapitalization: TextCapitalization.characters,
+              validator: _currencyValidator,
+            ),
             const SizedBox(height: 12),
-            _InlineFailure(failure: widget.saveFailure!),
-          ],
-          if (widget.deleteFailure != null) ...[
+            Text(
+              'Header candidates',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            _EditTextField(
+              key: const Key('receipt-review-edit-subtotal'),
+              controller: _subtotalController,
+              label: 'Subtotal',
+              enabled: !isBusy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: _moneyValidator,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-tax'),
+              controller: _taxController,
+              label: 'Tax',
+              enabled: !isBusy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: _moneyValidator,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-service-charge'),
+              controller: _serviceChargeController,
+              label: 'Service charge',
+              enabled: !isBusy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: _moneyValidator,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-discount'),
+              controller: _discountController,
+              label: 'Discount',
+              enabled: !isBusy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: _moneyValidator,
+            ),
+            _EditTextField(
+              key: const Key('receipt-review-edit-grand-total'),
+              controller: _grandTotalController,
+              label: 'Grand total',
+              enabled: !isBusy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: _moneyValidator,
+            ),
             const SizedBox(height: 12),
-            _InlineFailure(failure: widget.deleteFailure!),
-          ],
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  key: const Key('receipt-review-edit-cancel'),
-                  onPressed: isBusy ? null : widget.onCancel,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Cancel'),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Line candidates',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  key: const Key('receipt-review-edit-save'),
-                  onPressed: isBusy ? null : _submit,
-                  icon: widget.isSaving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: const Text('Save'),
+                IconButton(
+                  key: const Key('receipt-review-edit-line-add'),
+                  onPressed: isBusy ? null : _addLine,
+                  tooltip: 'Add line',
+                  icon: const Icon(Icons.add),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_lineEditors.isEmpty)
+              const _StatePanel(
+                icon: Icons.format_list_bulleted,
+                title: 'No line candidates',
+                message:
+                    'Save can proceed, but apply may be blocked by the server.',
+                compact: true,
+              )
+            else
+              for (var index = 0; index < _lineEditors.length; index++)
+                _LineEditCard(
+                  key: ValueKey('receipt-review-edit-line-card-$index'),
+                  index: index,
+                  editors: _lineEditors[index],
+                  enabled: !isBusy,
+                  onRemove: () => _removeLine(index),
+                ),
+            if (widget.saveFailure != null) ...[
+              const SizedBox(height: 12),
+              _InlineFailure(failure: widget.saveFailure!),
             ],
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            key: const Key('receipt-review-edit-delete'),
-            onPressed: isBusy ? null : widget.onDelete,
-            icon: widget.isDeleting
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.delete_outline),
-            label: const Text('Remove review'),
-          ),
-        ],
+            if (widget.deleteFailure != null) ...[
+              const SizedBox(height: 12),
+              _InlineFailure(failure: widget.deleteFailure!),
+            ],
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('receipt-review-edit-cancel'),
+                    onPressed: isBusy ? null : widget.onCancel,
+                    icon: const Icon(Icons.close),
+                    label: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const Key('receipt-review-edit-save'),
+                    onPressed: isBusy ? null : _submit,
+                    icon: widget.isSaving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: const Text('Save'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const Key('receipt-review-edit-delete'),
+              onPressed: isBusy ? null : widget.onDelete,
+              icon: widget.isDeleting
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+              label: const Text('Remove review'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -529,21 +558,30 @@ class _LineEditCard extends StatelessWidget {
                 controller: editors.quantityController,
                 label: 'Quantity',
                 enabled: enabled,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: _quantityValidator,
               ),
               _EditTextField(
                 key: ValueKey('receipt-review-edit-line-unit-$index'),
                 controller: editors.unitPriceAmountController,
                 label: 'Unit price',
                 enabled: enabled,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: _lineMoneyValidator,
               ),
               _EditTextField(
                 key: ValueKey('receipt-review-edit-line-total-$index'),
                 controller: editors.lineTotalAmountController,
                 label: 'Line total',
                 enabled: enabled,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: _lineMoneyValidator,
               ),
             ],
           ),
@@ -1100,6 +1138,40 @@ String? _dateValidator(String? value) {
   return _parseDate(trimmed) == null ? 'Use YYYY-MM-DD' : null;
 }
 
+String? _lineMoneyValidator(String? value) {
+  return _optionalDecimalStringValidator(
+    value,
+    pattern: _receiptOcrMoneyPattern,
+    message: 'Use a non-negative decimal amount',
+  );
+}
+
+String? _quantityValidator(String? value) {
+  return _optionalDecimalStringValidator(
+    value,
+    pattern: _receiptOcrQuantityPattern,
+    message: 'Use a positive decimal quantity',
+  );
+}
+
+String? _optionalDecimalStringValidator(
+  String? value, {
+  required RegExp pattern,
+  required String message,
+}) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  if (trimmed.length > _receiptOcrDecimalMaxLength ||
+      !pattern.hasMatch(trimmed)) {
+    return message;
+  }
+
+  return null;
+}
+
 String? _lineTextValidator(String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
@@ -1108,3 +1180,9 @@ String? _lineTextValidator(String? value) {
 
   return null;
 }
+
+const _receiptOcrDecimalMaxLength = 22;
+final _receiptOcrMoneyPattern = RegExp(r'^(0|[1-9][0-9]*)(\.[0-9]{1,4})?$');
+final _receiptOcrQuantityPattern = RegExp(
+  r'^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$',
+);
