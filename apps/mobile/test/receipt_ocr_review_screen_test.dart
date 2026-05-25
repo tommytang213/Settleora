@@ -7,6 +7,32 @@ import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
 
 void main() {
   group('ReceiptOcrReviewDetailScreen', () {
+    testWidgets('renders read-only review candidates and action labels', (
+      tester,
+    ) async {
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(
+          route,
+          status: ReceiptOcrReviewStatusValues.provisional,
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Corner Market'), findsOneWidget);
+      expect(find.text('Provisional'), findsOneWidget);
+      expect(find.text('Personal bill'), findsOneWidget);
+      expect(find.text('On device OCR'), findsOneWidget);
+      expect(find.text('Header candidates'), findsOneWidget);
+      expect(find.text('Line candidates'), findsOneWidget);
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.text('Apply preview'), findsOneWidget);
+      expect(find.text('Preview apply'), findsOneWidget);
+      expect(find.text('Apply to draft'), findsOneWidget);
+    });
+
     testWidgets('ignores stale review loads when the route changes', (
       tester,
     ) async {
@@ -108,7 +134,7 @@ void main() {
     testWidgets('blocks duplicate preview and apply actions while busy', (
       tester,
     ) async {
-      final route = sampleRoute();
+      final route = sampleRoute(groupId: _groupId);
       final previewCompleter = Completer<ReceiptOcrReviewApplyPreview>();
       final applyCompleter = Completer<ReceiptOcrReviewApplyResult>();
       final repository = FakeReceiptOcrReviewRepository(
@@ -124,6 +150,9 @@ void main() {
       await tester.pump();
 
       expect(repository.previewCalls, 1);
+      expect(repository.lastPreviewRoute?.groupId, _groupId);
+      expect(repository.lastPreviewRoute?.billId, _billId);
+      expect(repository.lastPreviewRoute?.fileId, _fileId);
       expectOutlinedButtonEnabled(
         tester,
         find.widgetWithText(OutlinedButton, 'Preview apply'),
@@ -180,7 +209,206 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Applied to draft'), findsOneWidget);
-      expect(repository.lastApplyRoute, route);
+      expect(repository.lastApplyRoute?.groupId, _groupId);
+      expect(repository.lastApplyRoute?.billId, _billId);
+      expect(repository.lastApplyRoute?.fileId, _fileId);
+      expect(repository.lastApplyExpectedReviewUpdatedAtUtc, _updatedAtUtc);
+    });
+
+    testWidgets('saves edits through the group route and blocks conflicts', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute(groupId: _groupId);
+      final saveCompleter = Completer<ReceiptOcrReviewDetail>();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        saveCompleter: saveCompleter,
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Preview apply'), findsNothing);
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-merchant')),
+        'Updated Merchant',
+      );
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-currency')),
+        'usd',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pump();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.lastSaveRoute?.groupId, _groupId);
+      expect(repository.lastSaveRoute?.billId, _billId);
+      expect(repository.lastSaveRoute?.fileId, _fileId);
+      expect(repository.lastSaveRequest?.merchantText, 'Updated Merchant');
+      expect(repository.lastSaveRequest?.currency, 'USD');
+      expect(
+        repository.lastSaveRequest?.status,
+        ReceiptOcrReviewStatusValues.reviewed,
+      );
+      expect(
+        repository.lastSaveRequest?.source,
+        ReceiptOcrReviewSourceValues.onDevice,
+      );
+      expect(repository.lastSaveRequest?.lines.single.text, 'Milk');
+      expectFilledButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-save')),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-cancel')),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-delete')),
+        isFalse,
+      );
+      expectIconButtonEnabled(
+        tester,
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        isFalse,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('receipt-review-edit-save')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const Key('receipt-review-edit-delete')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.deleteCalls, 0);
+
+      saveCompleter.complete(
+        sampleReview(route, merchantText: 'Updated Merchant'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Updated Merchant'), findsOneWidget);
+      expect(find.text('Preview apply'), findsOneWidget);
+    });
+
+    testWidgets('sanitizes save failures without exposing unsafe details', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        saveFailure: suspiciousFailure(ReceiptOcrReviewFailureKind.validation),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      expect(find.text('Unsupported request'), findsOneWidget);
+      expect(
+        find.text(
+          'The receipt review request is no longer valid. Refresh and try again.',
+        ),
+        findsOneWidget,
+      );
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
+
+    testWidgets('deletes through the group route and bounds failures', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute(groupId: _groupId);
+      final deleteCompleter = Completer<void>();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        deleteCompleter: deleteCompleter,
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-delete')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pump();
+
+      expect(repository.deleteCalls, 1);
+      expect(repository.lastDeleteRoute?.groupId, _groupId);
+      expect(repository.lastDeleteRoute?.billId, _billId);
+      expect(repository.lastDeleteRoute?.fileId, _fileId);
+      expectOutlinedButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-delete')),
+        isFalse,
+      );
+      expectFilledButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-save')),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        find.byKey(const Key('receipt-review-edit-cancel')),
+        isFalse,
+      );
+      expectIconButtonEnabled(
+        tester,
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        isFalse,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('receipt-review-edit-save')),
+        warnIfMissed: false,
+      );
+      await tester.tap(
+        find.byKey(const Key('receipt-review-edit-delete')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(repository.saveCalls, 0);
+      expect(repository.deleteCalls, 1);
+
+      deleteCompleter.completeError(
+        suspiciousFailure(ReceiptOcrReviewFailureKind.server),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt reviews are unavailable right now. Try again later.',
+        ),
+        findsOneWidget,
+      );
+      expectVisibleTextOmitsUnsafeDetails(tester);
     });
   });
 }
@@ -235,24 +463,70 @@ String visibleText(WidgetTester tester) {
       .join('\n');
 }
 
+Finder editableTextForKey(Key key) {
+  return find.descendant(
+    of: find.byKey(key),
+    matching: find.byType(EditableText),
+  );
+}
+
+Future<void> useLargeSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(900, 1600));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+ReceiptOcrReviewFailure suspiciousFailure(ReceiptOcrReviewFailureKind kind) {
+  return ReceiptOcrReviewFailure(
+    kind: kind,
+    message:
+        'StackTrace bearer token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] OCR payload dump',
+  );
+}
+
+void expectVisibleTextOmitsUnsafeDetails(WidgetTester tester) {
+  expect(visibleText(tester), isNot(contains('StackTrace')));
+  expect(visibleText(tester), isNot(contains('bearer')));
+  expect(visibleText(tester), isNot(contains('token')));
+  expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+  expect(visibleText(tester), isNot(contains('/var/storage')));
+  expect(visibleText(tester), isNot(contains('object-key')));
+  expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+  expect(visibleText(tester), isNot(contains('OCR payload')));
+}
+
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({
     this.reviewResponse,
     this.reviewFailure,
+    this.saveCompleter,
+    this.saveFailure,
+    this.deleteCompleter,
+    this.deleteFailure,
     this.previewCompleter,
     this.applyCompleter,
   });
 
   final ReceiptOcrReviewDetail? reviewResponse;
   final ReceiptOcrReviewFailure? reviewFailure;
+  final Completer<ReceiptOcrReviewDetail>? saveCompleter;
+  final ReceiptOcrReviewFailure? saveFailure;
+  final Completer<void>? deleteCompleter;
+  final ReceiptOcrReviewFailure? deleteFailure;
   final Completer<ReceiptOcrReviewApplyPreview>? previewCompleter;
   final Completer<ReceiptOcrReviewApplyResult>? applyCompleter;
   final Map<String, Completer<ReceiptOcrReviewDetail>> _getCompleters = {};
   final List<ReceiptOcrReviewRoute> getRoutes = [];
   int getCalls = 0;
+  int saveCalls = 0;
+  int deleteCalls = 0;
   int previewCalls = 0;
   int applyCalls = 0;
+  ReceiptOcrReviewRoute? lastSaveRoute;
+  ReceiptOcrReviewSaveRequest? lastSaveRequest;
+  ReceiptOcrReviewRoute? lastDeleteRoute;
+  ReceiptOcrReviewRoute? lastPreviewRoute;
   ReceiptOcrReviewRoute? lastApplyRoute;
+  DateTime? lastApplyExpectedReviewUpdatedAtUtc;
 
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
@@ -291,12 +565,28 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     ReceiptOcrReviewRoute route,
     ReceiptOcrReviewSaveRequest request,
   ) {
-    throw UnimplementedError();
+    saveCalls += 1;
+    lastSaveRoute = route;
+    lastSaveRequest = request;
+    final failure = saveFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return saveCompleter?.future ??
+        Future.value(sampleReview(route, merchantText: request.merchantText));
   }
 
   @override
   Future<void> deleteReview(ReceiptOcrReviewRoute route) {
-    throw UnimplementedError();
+    deleteCalls += 1;
+    lastDeleteRoute = route;
+    final failure = deleteFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return deleteCompleter?.future ?? Future.value();
   }
 
   @override
@@ -304,6 +594,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     ReceiptOcrReviewRoute route,
   ) {
     previewCalls += 1;
+    lastPreviewRoute = route;
     return previewCompleter?.future ?? Future.value(samplePreview(route));
   }
 
@@ -314,6 +605,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   }) {
     applyCalls += 1;
     lastApplyRoute = route;
+    lastApplyExpectedReviewUpdatedAtUtc = expectedReviewUpdatedAtUtc;
     return applyCompleter?.future ?? Future.value(sampleApplyResult(route));
   }
 }
@@ -332,6 +624,7 @@ ReceiptOcrReviewRoute sampleRoute({
 
 ReceiptOcrReviewDetail sampleReview(
   ReceiptOcrReviewRoute route, {
+  ReceiptOcrReviewStatus status = ReceiptOcrReviewStatusValues.reviewed,
   String? merchantText = 'Corner Market',
   DateTime? receiptIssuedAtUtc,
   bool includeReceiptDate = true,
@@ -346,7 +639,7 @@ ReceiptOcrReviewDetail sampleReview(
     billId: route.billId,
     fileId: route.fileId,
     groupId: route.groupId,
-    status: ReceiptOcrReviewStatusValues.reviewed,
+    status: status,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: merchantText,
     receiptIssuedAtUtc: includeReceiptDate
