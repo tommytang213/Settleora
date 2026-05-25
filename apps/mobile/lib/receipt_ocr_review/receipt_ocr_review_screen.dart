@@ -194,6 +194,7 @@ class _ReceiptOcrReviewDetailScreenState
   bool _isLoadingReview = true;
   bool _isLoadingPreview = false;
   bool _isApplying = false;
+  bool _isConfirmingApply = false;
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isDeleting = false;
@@ -231,6 +232,7 @@ class _ReceiptOcrReviewDetailScreenState
       _applyGeneration += 1;
       _isLoadingPreview = false;
       _isApplying = false;
+      _isConfirmingApply = false;
       _isEditing = false;
       _isSaving = false;
       _isDeleting = false;
@@ -468,13 +470,20 @@ class _ReceiptOcrReviewDetailScreenState
       return;
     }
 
+    final repository = widget.repository;
+    final route = _route;
+    setState(() {
+      _isConfirmingApply = true;
+      _applyFailure = null;
+    });
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: const Text('Apply reviewed lines?'),
           content: const Text(
-            'The server will revalidate the saved review before changing draft bill items.',
+            'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
           ),
           actions: [
             TextButton(
@@ -490,23 +499,39 @@ class _ReceiptOcrReviewDetailScreenState
       },
     );
 
-    if (!mounted || confirmed != true) {
+    if (!mounted ||
+        !identical(widget.repository, repository) ||
+        !_sameRoute(_route, route)) {
       return;
     }
 
-    await _applyReview(preview);
+    if (confirmed != true) {
+      setState(() {
+        _isConfirmingApply = false;
+      });
+      return;
+    }
+
+    await _applyReview(
+      repository: repository,
+      route: route,
+      expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
+    );
   }
 
-  Future<void> _applyReview(ReceiptOcrReviewApplyPreview preview) async {
+  Future<void> _applyReview({
+    required ReceiptOcrReviewRepository repository,
+    required ReceiptOcrReviewRoute route,
+    required DateTime expectedReviewUpdatedAtUtc,
+  }) async {
     if (_isApplying || _isLoadingPreview || _isLoadingReview || _isEditing) {
       return;
     }
 
-    final repository = widget.repository;
-    final route = _route;
     final applyGeneration = _applyGeneration + 1;
     setState(() {
       _applyGeneration = applyGeneration;
+      _isConfirmingApply = false;
       _isApplying = true;
       _applyFailure = null;
       _applyResult = null;
@@ -515,7 +540,7 @@ class _ReceiptOcrReviewDetailScreenState
     try {
       final result = await repository.applyReview(
         route,
-        expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
+        expectedReviewUpdatedAtUtc: expectedReviewUpdatedAtUtc,
       );
       if (!_isCurrentApplyOperation(applyGeneration, route, repository)) {
         return;
@@ -540,6 +565,7 @@ class _ReceiptOcrReviewDetailScreenState
   bool get _detailActionsBlocked =>
       _isLoadingReview ||
       _isLoadingPreview ||
+      _isConfirmingApply ||
       _isApplying ||
       _isSaving ||
       _isDeleting;

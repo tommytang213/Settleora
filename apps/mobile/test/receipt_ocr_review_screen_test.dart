@@ -182,6 +182,22 @@ void main() {
 
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
       await tester.pumpAndSettle();
+
+      expect(find.text('Apply reviewed lines?'), findsOneWidget);
+      expect(
+        find.text(
+          'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
+        ),
+        findsOneWidget,
+      );
+      expect(repository.applyCalls, 0);
+      expectFilledButtonEnabled(
+        tester,
+        find.widgetWithText(FilledButton, 'Apply to draft'),
+        isFalse,
+      );
+      expect(repository.applyCalls, 0);
+
       await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
       await tester.pump();
 
@@ -215,6 +231,38 @@ void main() {
       expect(repository.lastApplyExpectedReviewUpdatedAtUtc, _updatedAtUtc);
     });
 
+    testWidgets('cancel and dismiss confirmation do not apply', (tester) async {
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Apply reviewed lines?'), findsOneWidget);
+      expect(repository.applyCalls, 0);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Apply reviewed lines?'), findsNothing);
+      expect(repository.applyCalls, 0);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Apply reviewed lines?'), findsNothing);
+      expect(repository.applyCalls, 0);
+    });
+
     testWidgets('saves edits through the group route and blocks conflicts', (
       tester,
     ) async {
@@ -232,6 +280,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Preview apply'), findsNothing);
+      expect(find.text('Apply to draft'), findsNothing);
       await tester.enterText(
         editableTextForKey(const Key('receipt-review-edit-merchant')),
         'Updated Merchant',
@@ -355,6 +404,38 @@ void main() {
       expect(find.text('Required when amounts are present'), findsOneWidget);
       expect(find.text('Use a non-negative decimal amount'), findsNWidgets(4));
       expect(find.text('Use a positive decimal quantity'), findsOneWidget);
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
+
+    testWidgets('sanitizes apply failures without exposing unsafe details', (
+      tester,
+    ) async {
+      final route = sampleRoute(groupId: _groupId);
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        applyFailure: suspiciousFailure(ReceiptOcrReviewFailureKind.server),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(repository.applyCalls, 1);
+      expect(repository.lastApplyRoute?.groupId, _groupId);
+      expect(repository.lastApplyRoute?.billId, _billId);
+      expect(repository.lastApplyRoute?.fileId, _fileId);
+      expect(find.text('Review unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt reviews are unavailable right now. Try again later.',
+        ),
+        findsOneWidget,
+      );
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
 
@@ -558,6 +639,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.deleteFailure,
     this.previewCompleter,
     this.applyCompleter,
+    this.applyFailure,
   });
 
   final ReceiptOcrReviewDetail? reviewResponse;
@@ -568,6 +650,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   final ReceiptOcrReviewFailure? deleteFailure;
   final Completer<ReceiptOcrReviewApplyPreview>? previewCompleter;
   final Completer<ReceiptOcrReviewApplyResult>? applyCompleter;
+  final ReceiptOcrReviewFailure? applyFailure;
   final Map<String, Completer<ReceiptOcrReviewDetail>> _getCompleters = {};
   final List<ReceiptOcrReviewRoute> getRoutes = [];
   int getCalls = 0;
@@ -660,6 +743,11 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     applyCalls += 1;
     lastApplyRoute = route;
     lastApplyExpectedReviewUpdatedAtUtc = expectedReviewUpdatedAtUtc;
+    final failure = applyFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     return applyCompleter?.future ?? Future.value(sampleApplyResult(route));
   }
 }
