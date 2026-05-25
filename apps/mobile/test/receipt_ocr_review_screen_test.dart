@@ -470,6 +470,87 @@ void main() {
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
 
+    testWidgets(
+      'cancel dismiss and back from delete confirmation preserve review',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-delete')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Remove saved review?'), findsOneWidget);
+        expect(
+          find.text(
+            'This deletes the saved OCR review and candidate data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
+          ),
+          findsOneWidget,
+        );
+        expect(repository.deleteCalls, 0);
+        expectIconButtonEnabled(
+          tester,
+          find.widgetWithIcon(IconButton, Icons.refresh),
+          isFalse,
+        );
+        expectFilledButtonEnabled(
+          tester,
+          find.byKey(const Key('receipt-review-edit-save')),
+          isFalse,
+        );
+        expectOutlinedButtonEnabled(
+          tester,
+          find.byKey(const Key('receipt-review-edit-delete')),
+          isFalse,
+        );
+
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Remove saved review?'), findsNothing);
+        expect(repository.deleteCalls, 0);
+        expect(
+          editableTextValue(tester, const Key('receipt-review-edit-merchant')),
+          'Corner Market',
+        );
+
+        await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+        await tester.pumpAndSettle();
+        await tester.tapAt(const Offset(8, 8));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Remove saved review?'), findsNothing);
+        expect(repository.deleteCalls, 0);
+        expect(
+          editableTextValue(tester, const Key('receipt-review-edit-merchant')),
+          'Corner Market',
+        );
+
+        await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        expect(find.text('Remove saved review?'), findsNothing);
+        expect(repository.deleteCalls, 0);
+        expect(find.text('Review fields'), findsOneWidget);
+        expect(
+          editableTextValue(tester, const Key('receipt-review-edit-merchant')),
+          'Corner Market',
+        );
+      },
+    );
+
     testWidgets('deletes through the group route and bounds failures', (
       tester,
     ) async {
@@ -491,6 +572,10 @@ void main() {
       await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Remove'),
+        warnIfMissed: false,
+      );
       await tester.pump();
 
       expect(repository.deleteCalls, 1);
@@ -603,6 +688,10 @@ Finder editableTextForKey(Key key) {
     of: find.byKey(key),
     matching: find.byType(EditableText),
   );
+}
+
+String editableTextValue(WidgetTester tester, Key key) {
+  return tester.widget<EditableText>(editableTextForKey(key)).controller.text;
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {

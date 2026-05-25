@@ -195,6 +195,7 @@ class _ReceiptOcrReviewDetailScreenState
   bool _isLoadingPreview = false;
   bool _isApplying = false;
   bool _isConfirmingApply = false;
+  bool _isConfirmingDelete = false;
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isDeleting = false;
@@ -233,6 +234,7 @@ class _ReceiptOcrReviewDetailScreenState
       _isLoadingPreview = false;
       _isApplying = false;
       _isConfirmingApply = false;
+      _isConfirmingDelete = false;
       _isEditing = false;
       _isSaving = false;
       _isDeleting = false;
@@ -249,7 +251,7 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _loadReview() async {
-    if (_isSaving || _isDeleting || _isApplying) {
+    if (_isSaving || _isDeleting || _isConfirmingDelete || _isApplying) {
       return;
     }
 
@@ -354,7 +356,7 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _saveReview(ReceiptOcrReviewSaveRequest request) async {
-    if (_isSaving || _isDeleting || _isLoadingReview) {
+    if (_isSaving || _isDeleting || _isConfirmingDelete || _isLoadingReview) {
       return;
     }
 
@@ -396,9 +398,16 @@ class _ReceiptOcrReviewDetailScreenState
   }
 
   Future<void> _confirmDelete() async {
-    if (_isSaving || _isDeleting || _isLoadingReview) {
+    if (_isSaving || _isDeleting || _isConfirmingDelete || _isLoadingReview) {
       return;
     }
+
+    final repository = widget.repository;
+    final route = _route;
+    setState(() {
+      _isConfirmingDelete = true;
+      _deleteFailure = null;
+    });
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -406,7 +415,7 @@ class _ReceiptOcrReviewDetailScreenState
         return AlertDialog(
           title: const Text('Remove saved review?'),
           content: const Text(
-            'The saved OCR review will be removed from this receipt attachment.',
+            'This deletes the saved OCR review and candidate data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
           ),
           actions: [
             TextButton(
@@ -422,23 +431,34 @@ class _ReceiptOcrReviewDetailScreenState
       },
     );
 
-    if (!mounted || confirmed != true) {
+    if (!mounted ||
+        !identical(widget.repository, repository) ||
+        !_sameRoute(_route, route)) {
       return;
     }
 
-    await _deleteReview();
+    if (confirmed != true) {
+      setState(() {
+        _isConfirmingDelete = false;
+      });
+      return;
+    }
+
+    await _deleteReview(repository: repository, route: route);
   }
 
-  Future<void> _deleteReview() async {
+  Future<void> _deleteReview({
+    required ReceiptOcrReviewRepository repository,
+    required ReceiptOcrReviewRoute route,
+  }) async {
     if (_isSaving || _isDeleting || _isLoadingReview) {
       return;
     }
 
-    final repository = widget.repository;
-    final route = _route;
     final deleteGeneration = _deleteGeneration + 1;
     setState(() {
       _deleteGeneration = deleteGeneration;
+      _isConfirmingDelete = false;
       _isDeleting = true;
       _deleteFailure = null;
       _saveFailure = null;
@@ -566,6 +586,7 @@ class _ReceiptOcrReviewDetailScreenState
       _isLoadingReview ||
       _isLoadingPreview ||
       _isConfirmingApply ||
+      _isConfirmingDelete ||
       _isApplying ||
       _isSaving ||
       _isDeleting;
@@ -655,6 +676,7 @@ class _ReceiptOcrReviewDetailScreenState
           isEditing: _isEditing,
           isSaving: _isSaving,
           isDeleting: _isDeleting,
+          isDeleteWorkActive: _isDeleting || _isConfirmingDelete,
           isLoadingPreview: _isLoadingPreview,
           isApplying: _isApplying,
           actionsBlocked: _detailActionsBlocked,

@@ -6,6 +6,7 @@ class _ReceiptOcrReviewDetailBody extends StatelessWidget {
     required this.isEditing,
     required this.isSaving,
     required this.isDeleting,
+    required this.isDeleteWorkActive,
     required this.isLoadingPreview,
     required this.isApplying,
     required this.actionsBlocked,
@@ -29,6 +30,7 @@ class _ReceiptOcrReviewDetailBody extends StatelessWidget {
   final bool isEditing;
   final bool isSaving;
   final bool isDeleting;
+  final bool isDeleteWorkActive;
   final bool isLoadingPreview;
   final bool isApplying;
   final bool actionsBlocked;
@@ -75,6 +77,7 @@ class _ReceiptOcrReviewDetailBody extends StatelessWidget {
         review: review,
         isSaving: isSaving,
         isDeleting: isDeleting,
+        isDeleteWorkActive: isDeleteWorkActive,
         saveFailure: saveFailure,
         deleteFailure: deleteFailure,
         onSave: onSave,
@@ -165,6 +168,7 @@ class _ReceiptOcrReviewEditForm extends StatefulWidget {
     required this.review,
     required this.isSaving,
     required this.isDeleting,
+    required this.isDeleteWorkActive,
     required this.saveFailure,
     required this.deleteFailure,
     required this.onSave,
@@ -175,6 +179,7 @@ class _ReceiptOcrReviewEditForm extends StatefulWidget {
   final ReceiptOcrReviewDetail review;
   final bool isSaving;
   final bool isDeleting;
+  final bool isDeleteWorkActive;
   final ReceiptOcrReviewFailure? saveFailure;
   final ReceiptOcrReviewFailure? deleteFailure;
   final Future<void> Function(ReceiptOcrReviewSaveRequest request) onSave;
@@ -320,7 +325,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
 
   @override
   Widget build(BuildContext context) {
-    final isBusy = widget.isSaving || widget.isDeleting;
+    final isBusy = widget.isSaving || widget.isDeleteWorkActive;
 
     return Form(
       key: _formKey,
