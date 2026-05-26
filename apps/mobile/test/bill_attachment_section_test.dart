@@ -96,6 +96,68 @@ void main() {
       expect(find.text('Review OCR'), findsNothing);
     });
 
+    testWidgets('opens personal receipt OCR detail from attachment metadata', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(
+              purpose: SettleoraBillAttachmentPurposeValues.receipt,
+              contentType: 'C:\\Users\\secret\\receipt.png token',
+            ),
+          ],
+        ),
+        route: const SettleoraBillAttachmentRoute.personal(_billId),
+        receiptOcrReviewRepository: receiptRepository,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _fileId);
+      expect(receiptRepository.lastRoute?.groupId, isNull);
+      expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expect(visibleText(tester), isNot(contains('token')));
+    });
+
+    testWidgets('opens group receipt OCR detail from attachment metadata', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(
+              purpose: SettleoraBillAttachmentPurposeValues.receipt,
+            ),
+          ],
+        ),
+        route: const SettleoraBillAttachmentRoute.group(
+          groupId: _groupId,
+          billId: _billId,
+        ),
+        receiptOcrReviewRepository: receiptRepository,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _fileId);
+      expect(receiptRepository.lastRoute?.groupId, _groupId);
+    });
+
     testWidgets('downloads through the personal route and stable file ID', (
       tester,
     ) async {
@@ -222,6 +284,55 @@ void main() {
       );
     });
 
+    testWidgets(
+      'post-upload review action opens refreshed receipt attachment route',
+      (tester) async {
+        await useLargeSurface(tester);
+        final receiptRepository = FakeReceiptOcrReviewRepository();
+        final fileInput = FakeBillAttachmentFileInput(
+          pickedFile: samplePickedAttachmentFile(
+            filename: 'C:\\Users\\secret\\local-receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+        );
+        final repository = FakeBillAttachmentRepository();
+
+        await pumpAttachmentSection(
+          tester,
+          repository: repository,
+          fileInput: fileInput,
+          receiptOcrReviewRepository: receiptRepository,
+        );
+
+        await tester.tap(find.byKey(const Key('attachments-upload')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('attachment-upload-purpose-receipt')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(fileInput.pickCalls, 1);
+        expect(repository.attachCalls, 1);
+        expect(repository.listCalls, 2);
+        expect(repository.lastUpload?.filename, 'local-receipt.png');
+        expect(find.text('Receipt uploaded.'), findsOneWidget);
+        expect(
+          find.widgetWithText(SnackBarAction, 'Review receipt'),
+          findsOneWidget,
+        );
+        expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+
+        await tester.tap(find.widgetWithText(SnackBarAction, 'Review receipt'));
+        await tester.pumpAndSettle();
+
+        expect(receiptRepository.getCalls, 1);
+        expect(receiptRepository.lastRoute?.billId, _billId);
+        expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+        expect(receiptRepository.lastRoute?.groupId, isNull);
+      },
+    );
+
     testWidgets('renders suspicious failures as bounded generic UI text', (
       tester,
     ) async {
@@ -330,6 +441,7 @@ class FakeBillAttachmentRepository
   int removeCalls = 0;
   int downloadCalls = 0;
   SettleoraBillAttachmentRoute? lastRoute;
+  SettleoraBillAttachmentUpload? lastUpload;
   String? lastRemovedFileId;
   String? lastDownloadedFileId;
 
@@ -340,6 +452,7 @@ class FakeBillAttachmentRepository
   ) async {
     attachCalls += 1;
     lastRoute = route;
+    lastUpload = upload;
     final attachment = SettleoraBillAttachment(
       fileId: _uploadedFileId,
       billId: route.billId,
@@ -397,18 +510,26 @@ class FakeBillAttachmentRepository
 }
 
 class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
+  FakeBillAttachmentFileInput({this.pickedFile});
+
+  final SettleoraPickedBillAttachmentFile? pickedFile;
   int pickCalls = 0;
+  Set<String>? lastAllowedContentTypes;
 
   @override
   Future<SettleoraPickedBillAttachmentFile?> pickAttachmentFile({
     required Set<String> allowedContentTypes,
   }) async {
     pickCalls += 1;
-    return null;
+    lastAllowedContentTypes = allowedContentTypes;
+    return pickedFile;
   }
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  int getCalls = 0;
+  ReceiptOcrReviewRoute? lastRoute;
+
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
     ReceiptOcrReviewStatus? status,
@@ -420,6 +541,8 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 
   @override
   Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
+    getCalls += 1;
+    lastRoute = route;
     return sampleReceiptOcrReviewDetail(route);
   }
 
@@ -466,6 +589,19 @@ SettleoraBillAttachment sampleAttachment({
     sizeBytes: sizeBytes,
     uploadedAtUtc: _uploadedAtUtc,
     updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
+  String filename = 'receipt.png',
+  String contentType = 'image/png',
+  List<int> bytes = const [1, 2, 3],
+}) {
+  return pickedBillAttachmentFileFromBytes(
+    filename: filename,
+    contentType: contentType,
+    bytes: bytes,
+    allowedContentTypes: SettleoraBillAttachmentContentTypeValues.receiptValues,
   );
 }
 
