@@ -26,22 +26,27 @@ class _ReceiptOcrReviewQueueScreenState
     super.initState();
     if (widget.repository != null) {
       _isLoading = true;
-      Future<void>.microtask(_loadReviews);
+      Future<void>.microtask(() => _loadReviews(force: true));
     }
   }
 
   @override
   void didUpdateWidget(ReceiptOcrReviewQueueScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.repository != widget.repository &&
-        widget.repository != null) {
-      _loadReviews();
+    if (oldWidget.repository != widget.repository) {
+      _loadGeneration += 1;
+      _isLoading = widget.repository != null;
+      _reviews = const [];
+      _failure = null;
+      if (widget.repository != null) {
+        Future<void>.microtask(() => _loadReviews(force: true));
+      }
     }
   }
 
-  Future<void> _loadReviews() async {
+  Future<void> _loadReviews({bool force = false}) async {
     final repository = widget.repository;
-    if (repository == null) {
+    if (repository == null || (_isLoading && !force)) {
       return;
     }
 
@@ -126,40 +131,130 @@ class _ReceiptOcrReviewQueueScreenState
               );
             }
 
+            final failure = _failure;
+            if (_reviews.isNotEmpty) {
+              return _ReceiptOcrReviewSummaryList(
+                reviews: _reviews,
+                isRefreshing: _isLoading,
+                failure: failure,
+                onRefresh: _loadReviews,
+                onRetry: _loadReviews,
+                onOpenReview: _openReview,
+              );
+            }
+
             if (_isLoading) {
               return const _LoadingPanel(label: 'Loading receipt reviews');
             }
 
-            final failure = _failure;
             if (failure != null) {
               return _FailurePanel(failure: failure, onRetry: _loadReviews);
             }
 
-            if (_reviews.isEmpty) {
-              return const _StatePanel(
-                icon: Icons.receipt_long_outlined,
-                title: 'No receipt reviews',
-                message:
-                    'Saved reviews that are visible to this account will appear here.',
-              );
-            }
-
-            return RefreshIndicator(
-              onRefresh: _loadReviews,
-              child: ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemBuilder: (context, index) {
-                  final review = _reviews[index];
-                  return _ReceiptOcrReviewSummaryTile(
-                    review: review,
-                    onTap: () => _openReview(review),
-                  );
-                },
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemCount: _reviews.length,
-              ),
+            return const _StatePanel(
+              icon: Icons.receipt_long_outlined,
+              title: 'No receipt reviews',
+              message:
+                  'Saved reviews that are visible to this account will appear here.',
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptOcrReviewSummaryList extends StatelessWidget {
+  const _ReceiptOcrReviewSummaryList({
+    required this.reviews,
+    required this.isRefreshing,
+    required this.failure,
+    required this.onRefresh,
+    required this.onRetry,
+    required this.onOpenReview,
+  });
+
+  final List<ReceiptOcrReviewSummary> reviews;
+  final bool isRefreshing;
+  final ReceiptOcrReviewFailure? failure;
+  final Future<void> Function() onRefresh;
+  final VoidCallback onRetry;
+  final void Function(ReceiptOcrReviewSummary review) onOpenReview;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (isRefreshing) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+          ],
+          if (failure != null) ...[
+            _QueueFailureBanner(failure: failure!, onRetry: onRetry),
+            const SizedBox(height: 12),
+          ],
+          for (var index = 0; index < reviews.length; index++) ...[
+            if (index > 0) const SizedBox(height: 12),
+            _ReceiptOcrReviewSummaryTile(
+              review: reviews[index],
+              onTap: () => onOpenReview(reviews[index]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QueueFailureBanner extends StatelessWidget {
+  const _QueueFailureBanner({required this.failure, required this.onRetry});
+
+  final ReceiptOcrReviewFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              _failureIcon(failure.kind),
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    failure.title,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(_safeReceiptOcrReviewFailureDisplayMessage(failure)),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

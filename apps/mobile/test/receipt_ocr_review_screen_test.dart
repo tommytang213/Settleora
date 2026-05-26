@@ -6,6 +6,160 @@ import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
 
 void main() {
+  group('ReceiptOcrReviewQueueScreen', () {
+    testWidgets('renders empty queue state from repository', (tester) async {
+      final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text('No receipt reviews'), findsOneWidget);
+      expect(repository.listCalls, 1);
+      expect(repository.lastListLimit, 50);
+    });
+
+    testWidgets('sanitizes queue failures before display', (tester) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listFailure: suspiciousFailure(ReceiptOcrReviewFailureKind.server),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt reviews are unavailable right now. Try again later.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
+
+    testWidgets('keeps last-known reviews visible when refresh fails', (
+      tester,
+    ) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(merchantText: 'Corner Market'),
+          sampleSummary(
+            reviewId: _groupReviewId,
+            groupId: _groupId,
+            merchantText: 'Team Dinner',
+            fileId: _newFileId,
+          ),
+        ],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Corner Market'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsOneWidget);
+
+      repository.listFailure = suspiciousFailure(
+        ReceiptOcrReviewFailureKind.network,
+      );
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 2);
+      expect(find.text('Corner Market'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Server unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'The server is unavailable. Try again when the connection is back.',
+        ),
+        findsOneWidget,
+      );
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
+
+    testWidgets('suppresses duplicate queue refresh while active', (
+      tester,
+    ) async {
+      final refreshCompleter = Completer<List<ReceiptOcrReviewSummary>>();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary()],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      repository.listCompleter = refreshCompleter;
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      await tester.pump();
+
+      expect(repository.listCalls, 2);
+      expectIconButtonEnabled(
+        tester,
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        isFalse,
+      );
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      await tester.tap(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(repository.listCalls, 2);
+
+      refreshCompleter.complete([sampleSummary(merchantText: 'Updated Queue')]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Updated Queue'), findsOneWidget);
+    });
+
+    testWidgets('opens group summaries with typed routes', (tester) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(merchantText: 'Personal Receipt'),
+          sampleSummary(
+            reviewId: _groupReviewId,
+            groupId: _groupId,
+            merchantText: 'Group Receipt',
+            fileId: _newFileId,
+          ),
+        ],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Group Receipt'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(repository.getRoutes.last.groupId, _groupId);
+      expect(repository.getRoutes.last.billId, _billId);
+      expect(repository.getRoutes.last.fileId, _newFileId);
+      expect(find.text('Group bill'), findsOneWidget);
+    });
+
+    testWidgets('opens personal summaries with typed routes', (tester) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Personal Receipt')],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Personal Receipt'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(repository.getRoutes.last.groupId, isNull);
+      expect(repository.getRoutes.last.billId, _billId);
+      expect(repository.getRoutes.last.fileId, _fileId);
+      expect(find.text('Personal bill'), findsOneWidget);
+    });
+  });
+
   group('ReceiptOcrReviewDetailScreen', () {
     testWidgets('renders read-only review candidates and action labels', (
       tester,
@@ -648,6 +802,15 @@ Future<void> pumpDetail(
   );
 }
 
+Future<void> pumpQueue(
+  WidgetTester tester, {
+  required FakeReceiptOcrReviewRepository repository,
+}) {
+  return tester.pumpWidget(
+    MaterialApp(home: ReceiptOcrReviewQueueScreen(repository: repository)),
+  );
+}
+
 void expectOutlinedButtonEnabled(
   WidgetTester tester,
   Finder finder,
@@ -720,6 +883,9 @@ void expectVisibleTextOmitsUnsafeDetails(WidgetTester tester) {
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({
+    this.listResponse,
+    this.listFailure,
+    this.listCompleter,
     this.reviewResponse,
     this.reviewFailure,
     this.saveCompleter,
@@ -731,6 +897,9 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.applyFailure,
   });
 
+  List<ReceiptOcrReviewSummary>? listResponse;
+  ReceiptOcrReviewFailure? listFailure;
+  Completer<List<ReceiptOcrReviewSummary>>? listCompleter;
   final ReceiptOcrReviewDetail? reviewResponse;
   final ReceiptOcrReviewFailure? reviewFailure;
   final Completer<ReceiptOcrReviewDetail>? saveCompleter;
@@ -742,11 +911,13 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   final ReceiptOcrReviewFailure? applyFailure;
   final Map<String, Completer<ReceiptOcrReviewDetail>> _getCompleters = {};
   final List<ReceiptOcrReviewRoute> getRoutes = [];
+  int listCalls = 0;
   int getCalls = 0;
   int saveCalls = 0;
   int deleteCalls = 0;
   int previewCalls = 0;
   int applyCalls = 0;
+  int? lastListLimit;
   ReceiptOcrReviewRoute? lastSaveRoute;
   ReceiptOcrReviewSaveRequest? lastSaveRequest;
   ReceiptOcrReviewRoute? lastDeleteRoute;
@@ -760,7 +931,19 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     ReceiptOcrReviewSource? source,
     int? limit,
   }) async {
-    return const [];
+    listCalls += 1;
+    lastListLimit = limit;
+    final failure = listFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    final completer = listCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
+
+    return listResponse ?? const [];
   }
 
   @override
@@ -850,6 +1033,30 @@ ReceiptOcrReviewRoute sampleRoute({
     billId: billId,
     fileId: fileId,
     groupId: groupId,
+  );
+}
+
+ReceiptOcrReviewSummary sampleSummary({
+  String reviewId = _reviewId,
+  String billId = _billId,
+  String fileId = _fileId,
+  String? groupId,
+  String? merchantText = 'Corner Market',
+  String? currency = 'USD',
+  int lineCount = 1,
+}) {
+  return ReceiptOcrReviewSummary(
+    reviewId: reviewId,
+    billId: billId,
+    groupId: groupId,
+    fileId: fileId,
+    status: ReceiptOcrReviewStatusValues.reviewed,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    merchantText: merchantText,
+    currency: currency,
+    lineCount: lineCount,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
   );
 }
 
@@ -967,6 +1174,7 @@ const _fileId = '44444444-4444-4444-4444-444444444444';
 const _oldFileId = '55555555-5555-5555-5555-555555555555';
 const _newFileId = '66666666-6666-6666-6666-666666666666';
 const _reviewId = '77777777-7777-7777-7777-777777777777';
+const _groupReviewId = '77777777-7777-7777-7777-777777777778';
 const _lineId = '88888888-8888-8888-8888-888888888888';
 final _createdAtUtc = DateTime.utc(2026, 5, 25, 4);
 final _updatedAtUtc = DateTime.utc(2026, 5, 25, 5);
