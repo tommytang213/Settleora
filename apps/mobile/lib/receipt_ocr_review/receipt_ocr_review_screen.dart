@@ -21,9 +21,8 @@ class _ReceiptOcrReviewQueueScreenState
   List<ReceiptOcrReviewSummary> _reviews = const [];
   ReceiptOcrReviewFailure? _failure;
   int _loadGeneration = 0;
-  Set<String> _locallySuppressedDeletedRouteKeys = const {};
-  bool _refreshAfterActiveLoad = false;
-  String? _activeReturnFeedbackKey;
+  _ReceiptOcrReviewQueueReturnState _returnState =
+      const _ReceiptOcrReviewQueueReturnState();
 
   @override
   void initState() {
@@ -42,9 +41,7 @@ class _ReceiptOcrReviewQueueScreenState
       _isLoading = widget.repository != null;
       _reviews = const [];
       _failure = null;
-      _locallySuppressedDeletedRouteKeys = const {};
-      _refreshAfterActiveLoad = false;
-      _activeReturnFeedbackKey = null;
+      _returnState = const _ReceiptOcrReviewQueueReturnState();
       ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
       if (widget.repository != null) {
         Future<void>.microtask(() => _loadReviews(force: true));
@@ -59,7 +56,7 @@ class _ReceiptOcrReviewQueueScreenState
     }
 
     final loadGeneration = _loadGeneration + 1;
-    final suppressedKeysAtLoadStart = _locallySuppressedDeletedRouteKeys;
+    final suppressedKeysAtLoadStart = _returnState.suppressedDeletedRouteKeys;
     setState(() {
       _loadGeneration = loadGeneration;
       _isLoading = true;
@@ -72,37 +69,40 @@ class _ReceiptOcrReviewQueueScreenState
         return;
       }
 
-      final currentSuppressedKeys = _locallySuppressedDeletedRouteKeys;
+      final currentSuppressedKeys = _returnState.suppressedDeletedRouteKeys;
       final staleSuppressedKeys = currentSuppressedKeys.difference(
         suppressedKeysAtLoadStart,
       );
-      final shouldRefreshAgain = _refreshAfterActiveLoad;
+      final shouldRefreshAgain = _returnState.refreshAfterActiveLoad;
       setState(() {
         _reviews = _withoutSuppressedDeletedRoutes(
           reviews,
           staleSuppressedKeys,
         );
         _isLoading = false;
-        _refreshAfterActiveLoad = false;
-        _locallySuppressedDeletedRouteKeys = staleSuppressedKeys;
+        _returnState = _returnState.completeActiveLoad(staleSuppressedKeys);
       });
-      if (shouldRefreshAgain) {
-        Future<void>.microtask(_loadReviews);
-      }
+      _scheduleFollowUpRefreshIfNeeded(shouldRefreshAgain);
     } catch (error) {
       if (!_isCurrentLoad(loadGeneration, repository)) {
         return;
       }
 
-      final shouldRefreshAgain = _refreshAfterActiveLoad;
+      final shouldRefreshAgain = _returnState.refreshAfterActiveLoad;
       setState(() {
         _failure = ReceiptOcrReviewFailure.from(error);
         _isLoading = false;
-        _refreshAfterActiveLoad = false;
+        _returnState = _returnState.completeActiveLoad(
+          _returnState.suppressedDeletedRouteKeys,
+        );
       });
-      if (shouldRefreshAgain) {
-        Future<void>.microtask(_loadReviews);
-      }
+      _scheduleFollowUpRefreshIfNeeded(shouldRefreshAgain);
+    }
+  }
+
+  void _scheduleFollowUpRefreshIfNeeded(bool shouldRefreshAgain) {
+    if (shouldRefreshAgain) {
+      Future<void>.microtask(_loadReviews);
     }
   }
 
@@ -158,20 +158,17 @@ class _ReceiptOcrReviewQueueScreenState
 
     _showReturnFeedback(result);
 
-    if (result.kind == _ReceiptOcrReviewDetailResultKind.deleted) {
-      final routeKey = _routeKeyFor(result.route);
+    if (result.suppressesQueueRow) {
+      final routeKey = result.routeKey;
       setState(() {
-        _locallySuppressedDeletedRouteKeys = {
-          ..._locallySuppressedDeletedRouteKeys,
-          routeKey,
-        };
+        _returnState = _returnState.suppressDeletedRoute(result.route);
         _reviews = _withoutSuppressedDeletedRoutes(_reviews, {routeKey});
       });
     }
 
     if (_isLoading) {
       setState(() {
-        _refreshAfterActiveLoad = true;
+        _returnState = _returnState.scheduleRefreshAfterActiveLoad();
       });
       return;
     }
@@ -180,33 +177,24 @@ class _ReceiptOcrReviewQueueScreenState
   }
 
   void _showReturnFeedback(_ReceiptOcrReviewDetailResult result) {
-    final feedbackKey = '${_routeKeyFor(result.route)}|${result.kind.name}';
-    if (_activeReturnFeedbackKey == feedbackKey) {
+    final feedbackKey = result.feedbackKey;
+    if (_returnState.activeFeedbackKey == feedbackKey) {
       return;
     }
 
-    _activeReturnFeedbackKey = feedbackKey;
+    _returnState = _returnState.activateFeedback(result);
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     final controller = messenger.showSnackBar(
-      SnackBar(content: Text(_returnFeedbackMessage(result.kind))),
+      SnackBar(content: Text(result.feedbackMessage)),
     );
     controller.closed.then((_) {
-      if (!mounted || _activeReturnFeedbackKey != feedbackKey) {
+      if (!mounted || _returnState.activeFeedbackKey != feedbackKey) {
         return;
       }
 
-      _activeReturnFeedbackKey = null;
+      _returnState = _returnState.clearActiveFeedback(feedbackKey);
     });
-  }
-
-  String _returnFeedbackMessage(_ReceiptOcrReviewDetailResultKind kind) {
-    return switch (kind) {
-      _ReceiptOcrReviewDetailResultKind.saved => 'Receipt review saved.',
-      _ReceiptOcrReviewDetailResultKind.applied =>
-        'Receipt review applied. Check the bill draft before saving.',
-      _ReceiptOcrReviewDetailResultKind.deleted => 'Receipt review deleted.',
-    };
   }
 
   List<ReceiptOcrReviewSummary> _withoutSuppressedDeletedRoutes(
@@ -221,14 +209,6 @@ class _ReceiptOcrReviewQueueScreenState
       for (final review in reviews)
         if (!routeKeys.contains(_routeKeyForSummary(review))) review,
     ];
-  }
-
-  String _routeKeyForSummary(ReceiptOcrReviewSummary summary) {
-    return _routeKeyFor(ReceiptOcrReviewRoute.fromSummary(summary));
-  }
-
-  String _routeKeyFor(ReceiptOcrReviewRoute route) {
-    return '${route.groupId ?? ''}|${route.billId}|${route.fileId}';
   }
 
   @override
@@ -874,9 +854,100 @@ class _ReceiptOcrReviewDetailResult {
 
   final ReceiptOcrReviewRoute route;
   final _ReceiptOcrReviewDetailResultKind kind;
+
+  String get routeKey => _routeKeyFor(route);
+
+  String get feedbackKey => '$routeKey|${kind.name}';
+
+  String get feedbackMessage => kind.feedbackMessage;
+
+  bool get suppressesQueueRow =>
+      kind == _ReceiptOcrReviewDetailResultKind.deleted;
 }
 
 enum _ReceiptOcrReviewDetailResultKind { saved, applied, deleted }
+
+extension on _ReceiptOcrReviewDetailResultKind {
+  String get feedbackMessage {
+    return switch (this) {
+      _ReceiptOcrReviewDetailResultKind.saved => 'Receipt review saved.',
+      _ReceiptOcrReviewDetailResultKind.applied =>
+        'Receipt review applied. Check the bill draft before saving.',
+      _ReceiptOcrReviewDetailResultKind.deleted => 'Receipt review deleted.',
+    };
+  }
+}
+
+class _ReceiptOcrReviewQueueReturnState {
+  const _ReceiptOcrReviewQueueReturnState({
+    this.suppressedDeletedRouteKeys = const {},
+    this.refreshAfterActiveLoad = false,
+    this.activeFeedbackKey,
+  });
+
+  final Set<String> suppressedDeletedRouteKeys;
+  final bool refreshAfterActiveLoad;
+  final String? activeFeedbackKey;
+
+  _ReceiptOcrReviewQueueReturnState suppressDeletedRoute(
+    ReceiptOcrReviewRoute route,
+  ) {
+    return _ReceiptOcrReviewQueueReturnState(
+      suppressedDeletedRouteKeys: {
+        ...suppressedDeletedRouteKeys,
+        _routeKeyFor(route),
+      },
+      refreshAfterActiveLoad: refreshAfterActiveLoad,
+      activeFeedbackKey: activeFeedbackKey,
+    );
+  }
+
+  _ReceiptOcrReviewQueueReturnState scheduleRefreshAfterActiveLoad() {
+    return _ReceiptOcrReviewQueueReturnState(
+      suppressedDeletedRouteKeys: suppressedDeletedRouteKeys,
+      refreshAfterActiveLoad: true,
+      activeFeedbackKey: activeFeedbackKey,
+    );
+  }
+
+  _ReceiptOcrReviewQueueReturnState completeActiveLoad(
+    Set<String> retainedSuppressedDeletedRouteKeys,
+  ) {
+    return _ReceiptOcrReviewQueueReturnState(
+      suppressedDeletedRouteKeys: retainedSuppressedDeletedRouteKeys,
+      activeFeedbackKey: activeFeedbackKey,
+    );
+  }
+
+  _ReceiptOcrReviewQueueReturnState activateFeedback(
+    _ReceiptOcrReviewDetailResult result,
+  ) {
+    return _ReceiptOcrReviewQueueReturnState(
+      suppressedDeletedRouteKeys: suppressedDeletedRouteKeys,
+      refreshAfterActiveLoad: refreshAfterActiveLoad,
+      activeFeedbackKey: result.feedbackKey,
+    );
+  }
+
+  _ReceiptOcrReviewQueueReturnState clearActiveFeedback(String feedbackKey) {
+    if (activeFeedbackKey != feedbackKey) {
+      return this;
+    }
+
+    return _ReceiptOcrReviewQueueReturnState(
+      suppressedDeletedRouteKeys: suppressedDeletedRouteKeys,
+      refreshAfterActiveLoad: refreshAfterActiveLoad,
+    );
+  }
+}
+
+String _routeKeyForSummary(ReceiptOcrReviewSummary summary) {
+  return _routeKeyFor(ReceiptOcrReviewRoute.fromSummary(summary));
+}
+
+String _routeKeyFor(ReceiptOcrReviewRoute route) {
+  return '${route.groupId ?? ''}|${route.billId}|${route.fileId}';
+}
 
 class _FailurePanel extends StatelessWidget {
   const _FailurePanel({required this.failure, required this.onRetry});
