@@ -158,6 +158,294 @@ void main() {
       expect(repository.getRoutes.last.fileId, _fileId);
       expect(find.text('Personal bill'), findsOneWidget);
     });
+
+    testWidgets('refreshes queue after returning from successful save', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-edit-merchant')),
+        'Updated Merchant',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Updated Merchant'), findsOneWidget);
+      expect(repository.listCalls, 1);
+
+      repository.listResponse = [
+        sampleSummary(merchantText: 'Updated Merchant'),
+      ];
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(find.text('Updated Merchant'), findsOneWidget);
+      expect(find.text('Corner Market'), findsNothing);
+    });
+
+    testWidgets('refreshes queue after returning from successful apply', (
+      tester,
+    ) async {
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Applied to draft'), findsOneWidget);
+      expect(repository.listCalls, 1);
+
+      repository.listResponse = [
+        sampleSummary(merchantText: 'Applied Receipt'),
+      ];
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repository.applyCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(find.text('Applied Receipt'), findsOneWidget);
+      expect(find.text('Corner Market'), findsNothing);
+    });
+
+    testWidgets('does not refresh queue after returning without mutation', (
+      tester,
+    ) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 0);
+      expect(repository.applyCalls, 0);
+      expect(repository.deleteCalls, 0);
+      expect(repository.listCalls, 1);
+      expect(find.text('Corner Market'), findsOneWidget);
+    });
+
+    testWidgets('suppresses deleted row locally while return refresh runs', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final refreshCompleter = Completer<List<ReceiptOcrReviewSummary>>();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(merchantText: 'Corner Market'),
+          sampleSummary(
+            reviewId: _groupReviewId,
+            groupId: _groupId,
+            merchantText: 'Team Dinner',
+            fileId: _newFileId,
+          ),
+        ],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      repository.listCompleter = refreshCompleter;
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-delete')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+
+      expect(repository.deleteCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(find.text('Corner Market'), findsNothing);
+      expect(find.text('Team Dinner'), findsOneWidget);
+
+      refreshCompleter.complete([
+        sampleSummary(
+          reviewId: _groupReviewId,
+          groupId: _groupId,
+          merchantText: 'Team Dinner',
+          fileId: _newFileId,
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Corner Market'), findsNothing);
+      expect(find.text('Team Dinner'), findsOneWidget);
+    });
+
+    testWidgets('suppresses duplicate return refresh while active', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final refreshCompleter = Completer<List<ReceiptOcrReviewSummary>>();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      repository.listCompleter = refreshCompleter;
+      await tester.pageBack();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+
+      expect(find.text('Receipt Review'), findsNothing);
+      expect(find.text('Receipt Reviews'), findsOneWidget);
+      expect(repository.listCalls, 2);
+      expectIconButtonEnabled(
+        tester,
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        isFalse,
+      );
+      await tester.tap(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(repository.listCalls, 2);
+
+      refreshCompleter.complete([sampleSummary(merchantText: 'Updated Queue')]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Updated Queue'), findsOneWidget);
+    });
+
+    testWidgets('ignores stale return result after repository changes', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final hostKey = GlobalKey<_QueueHostState>();
+      final firstRepository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'First Account')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+      final secondRepository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(
+            reviewId: _groupReviewId,
+            groupId: _groupId,
+            merchantText: 'Second Account',
+            fileId: _newFileId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _QueueHost(key: hostKey, repository: firstRepository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('First Account'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      hostKey.currentState!.setRepository(secondRepository);
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(firstRepository.listCalls, 1);
+      expect(secondRepository.listCalls, 1);
+      expect(find.text('Second Account'), findsOneWidget);
+      expect(find.text('First Account'), findsNothing);
+    });
+
+    testWidgets('sanitizes failed return refresh and retains queue', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      repository.listFailure = suspiciousFailure(
+        ReceiptOcrReviewFailureKind.server,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 2);
+      expect(find.text('Corner Market'), findsOneWidget);
+      expect(find.text('Review unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt reviews are unavailable right now. Try again later.',
+        ),
+        findsOneWidget,
+      );
+      expectVisibleTextOmitsUnsafeDetails(tester);
+    });
   });
 
   group('ReceiptOcrReviewDetailScreen', () {
@@ -809,6 +1097,32 @@ Future<void> pumpQueue(
   return tester.pumpWidget(
     MaterialApp(home: ReceiptOcrReviewQueueScreen(repository: repository)),
   );
+}
+
+class _QueueHost extends StatefulWidget {
+  const _QueueHost({super.key, required this.repository});
+
+  final FakeReceiptOcrReviewRepository repository;
+
+  @override
+  State<_QueueHost> createState() => _QueueHostState();
+}
+
+class _QueueHostState extends State<_QueueHost> {
+  late ReceiptOcrReviewRepository _repository = widget.repository;
+
+  void setRepository(ReceiptOcrReviewRepository repository) {
+    setState(() {
+      _repository = repository;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: ReceiptOcrReviewQueueScreen(repository: _repository),
+    );
+  }
 }
 
 void expectOutlinedButtonEnabled(

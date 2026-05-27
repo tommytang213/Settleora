@@ -21,6 +21,8 @@ class _ReceiptOcrReviewQueueScreenState
   List<ReceiptOcrReviewSummary> _reviews = const [];
   ReceiptOcrReviewFailure? _failure;
   int _loadGeneration = 0;
+  Set<String> _locallySuppressedDeletedRouteKeys = const {};
+  bool _refreshAfterActiveLoad = false;
 
   @override
   void initState() {
@@ -39,6 +41,8 @@ class _ReceiptOcrReviewQueueScreenState
       _isLoading = widget.repository != null;
       _reviews = const [];
       _failure = null;
+      _locallySuppressedDeletedRouteKeys = const {};
+      _refreshAfterActiveLoad = false;
       if (widget.repository != null) {
         Future<void>.microtask(() => _loadReviews(force: true));
       }
@@ -52,6 +56,7 @@ class _ReceiptOcrReviewQueueScreenState
     }
 
     final loadGeneration = _loadGeneration + 1;
+    final suppressedKeysAtLoadStart = _locallySuppressedDeletedRouteKeys;
     setState(() {
       _loadGeneration = loadGeneration;
       _isLoading = true;
@@ -64,19 +69,37 @@ class _ReceiptOcrReviewQueueScreenState
         return;
       }
 
+      final currentSuppressedKeys = _locallySuppressedDeletedRouteKeys;
+      final staleSuppressedKeys = currentSuppressedKeys.difference(
+        suppressedKeysAtLoadStart,
+      );
+      final shouldRefreshAgain = _refreshAfterActiveLoad;
       setState(() {
-        _reviews = reviews;
+        _reviews = _withoutSuppressedDeletedRoutes(
+          reviews,
+          staleSuppressedKeys,
+        );
         _isLoading = false;
+        _refreshAfterActiveLoad = false;
+        _locallySuppressedDeletedRouteKeys = staleSuppressedKeys;
       });
+      if (shouldRefreshAgain) {
+        Future<void>.microtask(_loadReviews);
+      }
     } catch (error) {
       if (!_isCurrentLoad(loadGeneration, repository)) {
         return;
       }
 
+      final shouldRefreshAgain = _refreshAfterActiveLoad;
       setState(() {
         _failure = ReceiptOcrReviewFailure.from(error);
         _isLoading = false;
+        _refreshAfterActiveLoad = false;
       });
+      if (shouldRefreshAgain) {
+        Future<void>.microtask(_loadReviews);
+      }
     }
   }
 
@@ -95,14 +118,82 @@ class _ReceiptOcrReviewQueueScreenState
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ReceiptOcrReviewDetailScreen(
-          repository: repository,
-          summary: review,
-        ),
-      ),
-    );
+    final route = ReceiptOcrReviewRoute.fromSummary(review);
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<_ReceiptOcrReviewDetailResult>(
+            builder: (_) => ReceiptOcrReviewDetailScreen(
+              repository: repository,
+              summary: review,
+              returnMutationResult: true,
+            ),
+          ),
+        )
+        .then((result) {
+          if (result == null) {
+            return;
+          }
+
+          _handleDetailReturnResult(
+            result: result,
+            openedRoute: route,
+            openedRepository: repository,
+          );
+        });
+  }
+
+  void _handleDetailReturnResult({
+    required _ReceiptOcrReviewDetailResult result,
+    required ReceiptOcrReviewRoute openedRoute,
+    required ReceiptOcrReviewRepository openedRepository,
+  }) {
+    if (!mounted ||
+        !identical(widget.repository, openedRepository) ||
+        !_sameRoute(result.route, openedRoute)) {
+      return;
+    }
+
+    if (result.deleted) {
+      final routeKey = _routeKeyFor(result.route);
+      setState(() {
+        _locallySuppressedDeletedRouteKeys = {
+          ..._locallySuppressedDeletedRouteKeys,
+          routeKey,
+        };
+        _reviews = _withoutSuppressedDeletedRoutes(_reviews, {routeKey});
+      });
+    }
+
+    if (_isLoading) {
+      setState(() {
+        _refreshAfterActiveLoad = true;
+      });
+      return;
+    }
+
+    Future<void>.microtask(_loadReviews);
+  }
+
+  List<ReceiptOcrReviewSummary> _withoutSuppressedDeletedRoutes(
+    List<ReceiptOcrReviewSummary> reviews,
+    Set<String> routeKeys,
+  ) {
+    if (routeKeys.isEmpty) {
+      return reviews;
+    }
+
+    return [
+      for (final review in reviews)
+        if (!routeKeys.contains(_routeKeyForSummary(review))) review,
+    ];
+  }
+
+  String _routeKeyForSummary(ReceiptOcrReviewSummary summary) {
+    return _routeKeyFor(ReceiptOcrReviewRoute.fromSummary(summary));
+  }
+
+  String _routeKeyFor(ReceiptOcrReviewRoute route) {
+    return '${route.groupId ?? ''}|${route.billId}|${route.fileId}';
   }
 
   @override
@@ -140,18 +231,21 @@ class ReceiptOcrReviewDetailScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.summary,
+    this.returnMutationResult = false,
   }) : route = null;
 
   const ReceiptOcrReviewDetailScreen.forRoute({
     super.key,
     required this.repository,
     required this.route,
+    this.returnMutationResult = false,
   }) : summary = null,
        assert(route != null);
 
   final ReceiptOcrReviewRepository repository;
   final ReceiptOcrReviewSummary? summary;
   final ReceiptOcrReviewRoute? route;
+  final bool returnMutationResult;
 
   @override
   State<ReceiptOcrReviewDetailScreen> createState() =>
@@ -181,6 +275,8 @@ class _ReceiptOcrReviewDetailScreenState
   int _saveGeneration = 0;
   int _deleteGeneration = 0;
   int _applyGeneration = 0;
+  _ReceiptOcrReviewDetailResult? _pendingMutationResult;
+  bool _isReturningMutationResult = false;
 
   ReceiptOcrReviewRoute get _route => _routeFor(widget);
 
@@ -215,6 +311,8 @@ class _ReceiptOcrReviewDetailScreenState
       _applyFailure = null;
       _saveFailure = null;
       _deleteFailure = null;
+      _pendingMutationResult = null;
+      _isReturningMutationResult = false;
       Future<void>.microtask(_loadReview);
     }
   }
@@ -353,6 +451,7 @@ class _ReceiptOcrReviewDetailScreenState
         _previewFailure = null;
         _applyResult = null;
         _applyFailure = null;
+        _pendingMutationResult = _mutationResultFor(route);
       });
     } catch (error) {
       if (!_isCurrentSaveOperation(saveGeneration, route, repository)) {
@@ -440,7 +539,7 @@ class _ReceiptOcrReviewDetailScreenState
         return;
       }
 
-      navigator.pop();
+      navigator.pop(_mutationResultFor(route, deleted: true));
     } catch (error) {
       if (!_isCurrentDeleteOperation(deleteGeneration, route, repository)) {
         return;
@@ -538,6 +637,7 @@ class _ReceiptOcrReviewDetailScreenState
       setState(() {
         _applyResult = result;
         _isApplying = false;
+        _pendingMutationResult = _mutationResultFor(route);
       });
     } catch (error) {
       if (!_isCurrentApplyOperation(applyGeneration, route, repository)) {
@@ -615,54 +715,95 @@ class _ReceiptOcrReviewDetailScreenState
         _sameRoute(_route, route);
   }
 
+  _ReceiptOcrReviewDetailResult? _mutationResultFor(
+    ReceiptOcrReviewRoute route, {
+    bool deleted = false,
+  }) {
+    if (!widget.returnMutationResult) {
+      return null;
+    }
+
+    return _ReceiptOcrReviewDetailResult(route: route, deleted: deleted);
+  }
+
+  void _returnPendingMutationResult() {
+    final result = _pendingMutationResult;
+    if (result == null || _isReturningMutationResult) {
+      return;
+    }
+
+    setState(() {
+      _isReturningMutationResult = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(result);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Receipt Review'),
-        actions: [
-          if (!_isEditing)
+    return PopScope<_ReceiptOcrReviewDetailResult>(
+      canPop: _pendingMutationResult == null || _isReturningMutationResult,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+
+        _returnPendingMutationResult();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Receipt Review'),
+          actions: [
+            if (!_isEditing)
+              IconButton(
+                onPressed:
+                    _detailActionsBlocked ||
+                        _reviewFailure != null ||
+                        _review == null
+                    ? null
+                    : _startEditing,
+                tooltip: 'Edit',
+                icon: const Icon(Icons.edit_outlined),
+              ),
             IconButton(
-              onPressed:
-                  _detailActionsBlocked ||
-                      _reviewFailure != null ||
-                      _review == null
+              onPressed: _detailActionsBlocked || _isEditing
                   ? null
-                  : _startEditing,
-              tooltip: 'Edit',
-              icon: const Icon(Icons.edit_outlined),
+                  : _loadReview,
+              tooltip: 'Refresh',
+              icon: const Icon(Icons.refresh),
             ),
-          IconButton(
-            onPressed: _detailActionsBlocked || _isEditing ? null : _loadReview,
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
+          ],
+        ),
+        body: SafeArea(
+          child: _ReceiptOcrReviewDetailBody(
+            isLoadingReview: _isLoadingReview,
+            isEditing: _isEditing,
+            isSaving: _isSaving,
+            isDeleting: _isDeleting,
+            isDeleteWorkActive: _isDeleting || _isConfirmingDelete,
+            isLoadingPreview: _isLoadingPreview,
+            isApplying: _isApplying,
+            actionsBlocked: _detailActionsBlocked,
+            review: _review,
+            reviewFailure: _reviewFailure,
+            preview: _preview,
+            previewFailure: _previewFailure,
+            applyResult: _applyResult,
+            applyFailure: _applyFailure,
+            saveFailure: _saveFailure,
+            deleteFailure: _deleteFailure,
+            onRetry: _loadReview,
+            onSave: _saveReview,
+            onCancelEditing: _cancelEditing,
+            onDelete: _confirmDelete,
+            onPreview: _loadPreview,
+            onApply: _confirmApply,
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: _ReceiptOcrReviewDetailBody(
-          isLoadingReview: _isLoadingReview,
-          isEditing: _isEditing,
-          isSaving: _isSaving,
-          isDeleting: _isDeleting,
-          isDeleteWorkActive: _isDeleting || _isConfirmingDelete,
-          isLoadingPreview: _isLoadingPreview,
-          isApplying: _isApplying,
-          actionsBlocked: _detailActionsBlocked,
-          review: _review,
-          reviewFailure: _reviewFailure,
-          preview: _preview,
-          previewFailure: _previewFailure,
-          applyResult: _applyResult,
-          applyFailure: _applyFailure,
-          saveFailure: _saveFailure,
-          deleteFailure: _deleteFailure,
-          onRetry: _loadReview,
-          onSave: _saveReview,
-          onCancelEditing: _cancelEditing,
-          onDelete: _confirmDelete,
-          onPreview: _loadPreview,
-          onApply: _confirmApply,
         ),
       ),
     );
@@ -677,6 +818,16 @@ bool _sameRoute(ReceiptOcrReviewRoute left, ReceiptOcrReviewRoute right) {
   return left.billId == right.billId &&
       left.fileId == right.fileId &&
       left.groupId == right.groupId;
+}
+
+class _ReceiptOcrReviewDetailResult {
+  const _ReceiptOcrReviewDetailResult({
+    required this.route,
+    required this.deleted,
+  });
+
+  final ReceiptOcrReviewRoute route;
+  final bool deleted;
 }
 
 class _FailurePanel extends StatelessWidget {
