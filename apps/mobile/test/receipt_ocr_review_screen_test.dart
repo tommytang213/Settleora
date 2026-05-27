@@ -159,7 +159,7 @@ void main() {
       expect(find.text('Personal bill'), findsOneWidget);
     });
 
-    testWidgets('refreshes queue after returning from successful save', (
+    testWidgets('shows save-return feedback and refreshes queue', (
       tester,
     ) async {
       await useLargeSurface(tester);
@@ -191,15 +191,16 @@ void main() {
         sampleSummary(merchantText: 'Updated Merchant'),
       ];
       await tester.pageBack();
-      await tester.pumpAndSettle();
+      await pumpRouteReturn(tester);
 
       expect(repository.saveCalls, 1);
       expect(repository.listCalls, 2);
+      expect(find.text('Receipt review saved.'), findsOneWidget);
       expect(find.text('Updated Merchant'), findsOneWidget);
       expect(find.text('Corner Market'), findsNothing);
     });
 
-    testWidgets('refreshes queue after returning from successful apply', (
+    testWidgets('shows apply-return feedback and refreshes queue', (
       tester,
     ) async {
       final route = sampleRoute();
@@ -226,10 +227,18 @@ void main() {
         sampleSummary(merchantText: 'Applied Receipt'),
       ];
       await tester.pageBack();
-      await tester.pumpAndSettle();
+      await pumpRouteReturn(tester);
 
       expect(repository.applyCalls, 1);
       expect(repository.listCalls, 2);
+      expect(
+        find.text(
+          'Receipt review applied. Check the bill draft before saving.',
+        ),
+        findsOneWidget,
+      );
+      expect(visibleText(tester), isNot(contains('financial authority')));
+      expect(visibleText(tester), isNot(contains('final bill')));
       expect(find.text('Applied Receipt'), findsOneWidget);
       expect(find.text('Corner Market'), findsNothing);
     });
@@ -294,6 +303,7 @@ void main() {
 
       expect(repository.deleteCalls, 1);
       expect(repository.listCalls, 2);
+      expect(find.text('Receipt review deleted.'), findsOneWidget);
       expect(find.text('Corner Market'), findsNothing);
       expect(find.text('Team Dinner'), findsOneWidget);
 
@@ -404,6 +414,7 @@ void main() {
 
       expect(firstRepository.listCalls, 1);
       expect(secondRepository.listCalls, 1);
+      expect(find.text('Receipt review saved.'), findsNothing);
       expect(find.text('Second Account'), findsOneWidget);
       expect(find.text('First Account'), findsNothing);
     });
@@ -433,9 +444,10 @@ void main() {
         ReceiptOcrReviewFailureKind.server,
       );
       await tester.pageBack();
-      await tester.pumpAndSettle();
+      await pumpRouteReturn(tester);
 
       expect(repository.listCalls, 2);
+      expect(find.text('Receipt review saved.'), findsOneWidget);
       expect(find.text('Corner Market'), findsOneWidget);
       expect(find.text('Review unavailable'), findsOneWidget);
       expect(
@@ -912,6 +924,37 @@ void main() {
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
 
+    testWidgets('direct route entry stays result-free after successful save', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      expect(find.text('Receipt Review'), findsOneWidget);
+      expect(find.text('Receipt review saved.'), findsNothing);
+      expect(
+        find.text(
+          'Receipt review applied. Check the bill draft before saving.',
+        ),
+        findsNothing,
+      );
+      expect(find.text('Receipt review deleted.'), findsNothing);
+    });
+
     testWidgets(
       'cancel dismiss and back from delete confirmation preserve review',
       (tester) async {
@@ -1097,6 +1140,10 @@ Future<void> pumpQueue(
   return tester.pumpWidget(
     MaterialApp(home: ReceiptOcrReviewQueueScreen(repository: repository)),
   );
+}
+
+Future<void> pumpRouteReturn(WidgetTester tester) async {
+  await tester.pumpAndSettle();
 }
 
 class _QueueHost extends StatefulWidget {
