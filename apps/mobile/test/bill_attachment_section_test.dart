@@ -380,6 +380,11 @@ void main() {
       final repository = FakeBillAttachmentRepository(
         attachments: [
           sampleAttachment(contentType: 'C:\\Users\\secret\\receipt.png token'),
+          sampleAttachment(
+            fileId: _supportingFileId,
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
         ],
         downloadCompleter: downloadCompleter,
       );
@@ -397,6 +402,20 @@ void main() {
       expect(
         find.byKey(const ValueKey('attachments-download-progress-0')),
         findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('attachments-download-progress-1')),
+        findsNothing,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-1'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-1'),
+        isFalse,
       );
       expectBusySemanticsFor(const [
         'Open bill attachment',
@@ -433,7 +452,9 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-download-1')));
       await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-1')));
       await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
       await tester.tap(find.byKey(const Key('attachments-refresh')));
       await tester.tap(find.byKey(const Key('attachments-upload')));
@@ -461,6 +482,7 @@ void main() {
     ) async {
       final semantics = enableAttachmentSemantics(tester);
       final refreshCompleter = Completer<void>();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
       );
@@ -469,7 +491,7 @@ void main() {
         tester,
         repository: repository,
         fileInput: FakeBillAttachmentFileInput(),
-        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+        receiptOcrReviewRepository: receiptRepository,
       );
 
       repository.listCompleter = refreshCompleter;
@@ -482,10 +504,13 @@ void main() {
         find.bySemanticsLabel(RegExp('Refreshing attachments')),
         findsOneWidget,
       );
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('image/png'), findsOneWidget);
       expectBusySemanticsFor(const [
         'Upload bill attachment',
         'Open bill attachment',
         'Remove bill attachment',
+        'Review receipt OCR',
       ]);
       expectOutlinedButtonEnabled(
         tester,
@@ -502,15 +527,22 @@ void main() {
         const ValueKey('attachments-remove-0'),
         isFalse,
       );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-ocr-0'),
+        isFalse,
+      );
 
       await tester.tap(find.byKey(const Key('attachments-upload')));
       await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
       await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
       await tester.pump();
 
       expect(repository.attachCalls, 0);
       expect(repository.downloadCalls, 0);
       expect(repository.removeCalls, 0);
+      expect(receiptRepository.getCalls, 0);
 
       refreshCompleter.complete();
       await tester.pumpAndSettle();
@@ -527,6 +559,7 @@ void main() {
       tester,
     ) async {
       final semantics = enableAttachmentSemantics(tester);
+      final fileInput = FakeBillAttachmentFileInput();
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
       );
@@ -534,7 +567,7 @@ void main() {
       await pumpAttachmentSection(
         tester,
         repository: repository,
-        fileInput: FakeBillAttachmentFileInput(),
+        fileInput: fileInput,
         receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
       );
 
@@ -542,10 +575,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Upload as receipt'), findsOneWidget);
+      expect(
+        find.byKey(const Key('attachments-upload-progress')),
+        findsNothing,
+      );
       expectBusySemanticsFor(const [
         'Upload bill attachment',
         'Refresh bill attachments',
         'Open bill attachment',
+        'Remove bill attachment',
+        'Review receipt OCR',
       ]);
       expectOutlinedButtonEnabled(
         tester,
@@ -562,7 +601,18 @@ void main() {
         const ValueKey('attachments-download-0'),
         isFalse,
       );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-ocr-0'),
+        isFalse,
+      );
 
+      expect(fileInput.pickCalls, 0);
       expect(repository.downloadCalls, 0);
       expect(repository.removeCalls, 0);
 
@@ -572,6 +622,99 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.attachCalls, 0);
+      expect(fileInput.pickCalls, 0);
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isTrue,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('blocks duplicate and conflicting actions while uploading', (
+      tester,
+    ) async {
+      final semantics = enableAttachmentSemantics(tester);
+      final attachCompleter = Completer<void>();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(),
+      );
+      final repository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        attachCompleter: attachCompleter,
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        fileInput: fileInput,
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-receipt')),
+      );
+      await tester.pump();
+
+      expect(fileInput.pickCalls, 1);
+      expect(repository.attachCalls, 1);
+      expect(
+        find.byKey(const Key('attachments-upload-progress')),
+        findsOneWidget,
+      );
+      expectBusySemanticsFor(const [
+        'Upload bill attachment',
+        'Refresh bill attachments',
+        'Open bill attachment',
+        'Remove bill attachment',
+        'Review receipt OCR',
+      ]);
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isFalse,
+      );
+      expectIconButtonEnabled(
+        tester,
+        const Key('attachments-refresh'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-ocr-0'),
+        isFalse,
+      );
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.tap(find.byKey(const Key('attachments-refresh')));
+      await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
+      await tester.pump();
+
+      expect(fileInput.pickCalls, 1);
+      expect(repository.attachCalls, 1);
+      expect(repository.listCalls, 1);
+      expect(repository.downloadCalls, 0);
+      expect(repository.removeCalls, 0);
+
+      attachCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Receipt uploaded.'), findsOneWidget);
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -602,6 +745,38 @@ void main() {
 
       expect(find.byTooltip('Cancel attachment removal'), findsOneWidget);
       expect(find.byTooltip('Confirm remove bill attachment'), findsOneWidget);
+      expectBusySemanticsFor(const [
+        'Upload bill attachment',
+        'Refresh bill attachments',
+        'Open bill attachment',
+        'Remove bill attachment',
+        'Review receipt OCR',
+      ]);
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isFalse,
+      );
+      expectIconButtonEnabled(
+        tester,
+        const Key('attachments-refresh'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-ocr-0'),
+        isFalse,
+      );
 
       expect(repository.downloadCalls, 0);
       expect(repository.attachCalls, 0);
@@ -886,7 +1061,7 @@ void expectBusySemanticsFor(Iterable<String> labels) {
           '${RegExp.escape(label)}.*Disabled while attachment work is in progress',
         ),
       ),
-      findsOneWidget,
+      findsWidgets,
     );
   }
 }
@@ -974,6 +1149,7 @@ class FakeBillAttachmentRepository
     this.attachFailure,
     this.downloadFailure,
     this.removeFailure,
+    this.attachCompleter,
     this.removeCompleter,
     this.downloadCompleter,
   });
@@ -984,6 +1160,7 @@ class FakeBillAttachmentRepository
   final SettleoraBillAttachmentFailure? attachFailure;
   final SettleoraBillAttachmentFailure? downloadFailure;
   final SettleoraBillAttachmentFailure? removeFailure;
+  final Completer<void>? attachCompleter;
   final Completer<void>? removeCompleter;
   final Completer<void>? downloadCompleter;
   Completer<void>? listCompleter;
@@ -1004,6 +1181,7 @@ class FakeBillAttachmentRepository
     attachCalls += 1;
     lastRoute = route;
     lastUpload = upload;
+    await attachCompleter?.future;
     final failure = attachFailure;
     if (failure != null) {
       throw failure;
