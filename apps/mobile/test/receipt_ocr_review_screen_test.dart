@@ -759,6 +759,22 @@ void main() {
         findsOneWidget,
       );
       expect(
+        find.bySemanticsLabel(RegExp('Subtotal amount candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Tax amount candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Service charge amount candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Discount amount candidate')),
+        findsOneWidget,
+      );
+      expect(
         find.bySemanticsLabel(RegExp('Grand total amount candidate')),
         findsOneWidget,
       );
@@ -793,6 +809,81 @@ void main() {
         findsOneWidget,
       );
       expectSemanticsOmitsUnsafeDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('labels busy detail actions safely while work is active', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final semantics = tester.ensureSemantics();
+      final route = sampleRoute(groupId: _groupId);
+      final previewCompleter = Completer<ReceiptOcrReviewApplyPreview>();
+      final saveCompleter = Completer<ReceiptOcrReviewDetail>();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewCompleter: previewCompleter,
+        saveCompleter: saveCompleter,
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.pump();
+
+      expect(repository.previewCalls, 1);
+      expect(
+        find.bySemanticsLabel(RegExp('Loading bill draft preview')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Apply OCR review to bill draft. '
+            'Disabled while receipt review action is in progress.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeDetails();
+
+      previewCompleter.complete(samplePreview(route));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit receipt review'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pump();
+
+      expect(repository.saveCalls, 1);
+      expect(
+        find.bySemanticsLabel(RegExp('Saving receipt review')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Cancel receipt review edit. '
+            'Disabled while receipt review action is in progress.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Delete saved OCR review. '
+            'Disabled while receipt review action is in progress.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeDetails();
+
+      saveCompleter.complete(sampleReview(route, merchantText: 'Saved Review'));
+      await tester.pumpAndSettle();
       semantics.dispose();
     });
 
