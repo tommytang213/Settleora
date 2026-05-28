@@ -5,6 +5,20 @@ import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 
+const _uploadBillAttachmentLabel = 'Upload bill attachment';
+const _refreshBillAttachmentsLabel = 'Refresh bill attachments';
+const _retryBillAttachmentsLabel = 'Retry loading bill attachments';
+const _openBillAttachmentLabel = 'Open bill attachment';
+const _removeBillAttachmentLabel = 'Remove bill attachment';
+const _reviewReceiptOcrLabel = 'Review receipt OCR';
+const _uploadAsReceiptLabel = 'Upload as receipt';
+const _uploadAsSupportingAttachmentLabel = 'Upload as supporting attachment';
+const _cancelAttachmentUploadLabel = 'Cancel attachment upload';
+const _cancelRemoveBillAttachmentLabel = 'Cancel attachment removal';
+const _confirmRemoveBillAttachmentLabel = 'Confirm remove bill attachment';
+const _billAttachmentBusyDisabledSemanticLabel =
+    'Disabled while attachment work is in progress';
+
 class BillAttachmentSection extends StatefulWidget {
   const BillAttachmentSection({
     super.key,
@@ -223,14 +237,22 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         title: const Text('Remove attachment?'),
         content: const Text('This will remove the attachment from the bill.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+          _AttachmentSemanticButtonLabel(
+            label: _cancelRemoveBillAttachmentLabel,
+            onTap: () => Navigator.of(context).pop(false),
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
           ),
-          FilledButton(
-            key: Key('${widget.keyPrefix}-remove-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
+          _AttachmentSemanticButtonLabel(
+            label: _confirmRemoveBillAttachmentLabel,
+            onTap: () => Navigator.of(context).pop(true),
+            child: FilledButton(
+              key: Key('${widget.keyPrefix}-remove-confirm'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
           ),
         ],
       ),
@@ -392,30 +414,46 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
               title: Text('Upload attachment as'),
               subtitle: Text('Choose how the server should process this file.'),
             ),
-            ListTile(
-              key: const Key('attachment-upload-purpose-receipt'),
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Receipt'),
+            _AttachmentSemanticButtonLabel(
+              label: _uploadAsReceiptLabel,
               onTap: () => Navigator.of(
                 context,
               ).pop(SettleoraBillAttachmentPurposeValues.receipt),
+              child: ListTile(
+                key: const Key('attachment-upload-purpose-receipt'),
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Receipt'),
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(SettleoraBillAttachmentPurposeValues.receipt),
+              ),
             ),
-            ListTile(
-              key: const Key('attachment-upload-purpose-supporting'),
-              leading: const Icon(Icons.attach_file_outlined),
-              title: const Text('Supporting attachment'),
+            _AttachmentSemanticButtonLabel(
+              label: _uploadAsSupportingAttachmentLabel,
               onTap: () => Navigator.of(
                 context,
               ).pop(SettleoraBillAttachmentPurposeValues.supportingAttachment),
+              child: ListTile(
+                key: const Key('attachment-upload-purpose-supporting'),
+                leading: const Icon(Icons.attach_file_outlined),
+                title: const Text('Supporting attachment'),
+                onTap: () => Navigator.of(context).pop(
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+                ),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
               child: Align(
                 alignment: Alignment.centerRight,
-                child: TextButton(
-                  key: const Key('attachment-upload-purpose-cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                child: _AttachmentSemanticButtonLabel(
+                  label: _cancelAttachmentUploadLabel,
+                  onTap: () => Navigator.of(context).pop(),
+                  child: TextButton(
+                    key: const Key('attachment-upload-purpose-cancel'),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
                 ),
               ),
             ),
@@ -542,28 +580,37 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
               ),
             ),
             if (widget.fileInput != null)
-              OutlinedButton.icon(
-                key: Key('${widget.keyPrefix}-upload'),
-                onPressed: attachmentActionDisabled ? null : _upload,
-                icon: _isUploading
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.upload_file_outlined),
-                label: const Text('Upload attachment'),
+              _AttachmentSemanticButtonLabel(
+                label: _uploadBillAttachmentLabel,
+                enabled: !attachmentActionDisabled,
+                onTap: _upload,
+                child: OutlinedButton.icon(
+                  key: Key('${widget.keyPrefix}-upload'),
+                  onPressed: attachmentActionDisabled ? null : _upload,
+                  icon: _isUploading
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload_file_outlined),
+                  label: const Text('Upload attachment'),
+                ),
               ),
             if (widget.fileInput != null) const SizedBox(width: 8),
-            IconButton(
-              key: Key('${widget.keyPrefix}-refresh'),
-              tooltip: 'Refresh attachments',
-              onPressed: attachmentActionDisabled ? null : _load,
-              icon: _isLoading && hasAttachments
-                  ? const SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
+            _AttachmentSemanticButtonLabel(
+              label: _refreshBillAttachmentsLabel,
+              enabled: !attachmentActionDisabled,
+              onTap: _load,
+              child: IconButton(
+                key: Key('${widget.keyPrefix}-refresh'),
+                onPressed: attachmentActionDisabled ? null : _load,
+                icon: _isLoading && hasAttachments
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+              ),
             ),
           ],
         ),
@@ -655,16 +702,52 @@ class _AttachmentRefreshStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      key: Key('$keyPrefix-$keySuffix'),
-      children: [
-        const SizedBox.square(
-          dimension: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        const SizedBox(width: 8),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
+    return Semantics(
+      label: label,
+      child: Row(
+        key: Key('$keyPrefix-$keySuffix'),
+        children: [
+          const SizedBox.square(
+            dimension: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentSemanticButtonLabel extends StatelessWidget {
+  const _AttachmentSemanticButtonLabel({
+    required this.label,
+    required this.child,
+    this.enabled = true,
+    this.onTap,
+  });
+
+  final String label;
+  final Widget child;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final semanticLabel = enabled
+        ? label
+        : '$label. $_billAttachmentBusyDisabledSemanticLabel.';
+
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        excludeSemantics: true,
+        label: semanticLabel,
+        onTap: enabled ? onTap : null,
+        child: child,
+      ),
     );
   }
 }
@@ -698,76 +781,100 @@ class _AttachmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final metadata = _AttachmentTileMetadata.from(attachment);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.attach_file_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _AttachmentSoftChip(
-                        label: metadata.purposeLabel,
-                        icon: metadata.purposeIcon,
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: _attachmentSummarySemanticLabel(metadata),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.attach_file_outlined),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _AttachmentSoftChip(
+                          label: metadata.purposeLabel,
+                          icon: metadata.purposeIcon,
+                        ),
+                        const SizedBox(height: 6),
+                        _AttachmentMetadataRows(metadata: metadata),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _AttachmentSemanticButtonLabel(
+                    label: _openBillAttachmentLabel,
+                    enabled: !isBusy,
+                    onTap: onDownload,
+                    child: OutlinedButton.icon(
+                      key: ValueKey('$keyPrefix-download-$index'),
+                      onPressed: isBusy ? null : onDownload,
+                      icon: isDownloading
+                          ? SizedBox.square(
+                              key: ValueKey(
+                                '$keyPrefix-download-progress-$index',
+                              ),
+                              dimension: 18,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.download_outlined),
+                      label: const Text('Download'),
+                    ),
+                  ),
+                  _AttachmentSemanticButtonLabel(
+                    label: _removeBillAttachmentLabel,
+                    enabled: !isBusy,
+                    onTap: onRemove,
+                    child: OutlinedButton.icon(
+                      key: ValueKey('$keyPrefix-remove-$index'),
+                      onPressed: isBusy ? null : onRemove,
+                      icon: isRemoving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.delete_outline),
+                      label: const Text('Remove'),
+                    ),
+                  ),
+                  if (canOpenOcr)
+                    _AttachmentSemanticButtonLabel(
+                      label: _reviewReceiptOcrLabel,
+                      enabled: !isBusy,
+                      onTap: onOpenOcr,
+                      child: OutlinedButton.icon(
+                        key: ValueKey('$keyPrefix-ocr-$index'),
+                        onPressed: isBusy ? null : onOpenOcr,
+                        icon: const Icon(Icons.fact_check_outlined),
+                        label: const Text('Review OCR'),
                       ),
-                      const SizedBox(height: 6),
-                      _AttachmentMetadataRows(metadata: metadata),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  key: ValueKey('$keyPrefix-download-$index'),
-                  onPressed: isBusy ? null : onDownload,
-                  icon: isDownloading
-                      ? SizedBox.square(
-                          key: ValueKey('$keyPrefix-download-progress-$index'),
-                          dimension: 18,
-                          child: const CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(Icons.download_outlined),
-                  label: const Text('Download'),
-                ),
-                OutlinedButton.icon(
-                  key: ValueKey('$keyPrefix-remove-$index'),
-                  onPressed: isBusy ? null : onRemove,
-                  icon: isRemoving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.delete_outline),
-                  label: const Text('Remove'),
-                ),
-                if (canOpenOcr)
-                  OutlinedButton.icon(
-                    key: ValueKey('$keyPrefix-ocr-$index'),
-                    onPressed: isBusy ? null : onOpenOcr,
-                    icon: const Icon(Icons.fact_check_outlined),
-                    label: const Text('Review OCR'),
-                  ),
-              ],
-            ),
-          ],
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -880,11 +987,16 @@ class _AttachmentFailurePanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            OutlinedButton.icon(
-              key: Key('$keyPrefix-retry'),
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+            _AttachmentSemanticButtonLabel(
+              label: _retryBillAttachmentsLabel,
+              enabled: onRetry != null,
+              onTap: onRetry,
+              child: OutlinedButton.icon(
+                key: Key('$keyPrefix-retry'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
             ),
           ],
         ),
@@ -1065,6 +1177,14 @@ String _safeAttachmentContentTypeLabel(String contentType) {
   }
 
   return trimmed;
+}
+
+String _attachmentSummarySemanticLabel(_AttachmentTileMetadata metadata) {
+  return 'Bill attachment. Purpose: ${metadata.purposeLabel}. '
+      'Content type: ${metadata.contentTypeLabel}. '
+      'Size: ${metadata.sizeLabel}. '
+      'Uploaded: ${metadata.uploadedAtLabel}. '
+      'Updated: ${metadata.updatedAtLabel}.';
 }
 
 bool _containsUnsafeAttachmentMetadataDetail(String value) {

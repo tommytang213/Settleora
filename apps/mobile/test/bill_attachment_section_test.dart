@@ -46,9 +46,152 @@ void main() {
       expect(visibleText(tester), isNot(contains('token')));
     });
 
+    testWidgets('labels refresh and retry controls accessibly', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          listFailures: const [
+            SettleoraBillAttachmentFailure(
+              kind: SettleoraBillAttachmentFailureKind.network,
+              message:
+                  'StackTrace token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3]',
+            ),
+          ],
+        ),
+      );
+
+      expect(find.byTooltip('Refresh bill attachments'), findsOneWidget);
+      expect(find.byTooltip('Retry loading bill attachments'), findsOneWidget);
+      expect(find.bySemanticsLabel('Refresh bill attachments'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Retry loading bill attachments'),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('labels upload button and purpose choices accessibly', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(),
+        fileInput: FakeBillAttachmentFileInput(),
+      );
+
+      expect(find.byTooltip('Upload bill attachment'), findsOneWidget);
+      expect(find.bySemanticsLabel('Upload bill attachment'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Upload as receipt'), findsOneWidget);
+      expect(find.byTooltip('Upload as supporting attachment'), findsOneWidget);
+      expect(find.byTooltip('Cancel attachment upload'), findsOneWidget);
+      expect(find.bySemanticsLabel('Upload as receipt'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Upload as supporting attachment'),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Cancel attachment upload'), findsOneWidget);
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('bounds personal attachment row summary semantics', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(
+              purpose: SettleoraBillAttachmentPurposeValues.receipt,
+              contentType: 'IMAGE/PNG',
+              sizeBytes: 321,
+            ),
+          ],
+        ),
+        route: const SettleoraBillAttachmentRoute.personal(_billId),
+      );
+
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'Bill attachment.*Purpose: Receipt.*Content type: image/png.*Size: 321 bytes',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('bounds group attachment row summary semantics', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(
+              fileId: _supportingFileId,
+              purpose:
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+              contentType: 'application/pdf',
+              sizeBytes: 2048,
+            ),
+            sampleAttachment(
+              fileId: _futureFileId,
+              purpose: 'future_raw_path_purpose',
+              contentType: 'C:\\Users\\secret\\receipt.png token',
+              sizeBytes: -99,
+            ),
+          ],
+        ),
+        route: const SettleoraBillAttachmentRoute.group(
+          groupId: _groupId,
+          billId: _billId,
+        ),
+      );
+
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'Bill attachment.*Purpose: Supporting attachment.*Content type: application/pdf.*Size: 2.0 KiB',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'Bill attachment.*Purpose: Attachment.*Content type: Unknown type.*Size: Unknown size',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
+    });
+
     testWidgets('shows receipt OCR review only for receipt metadata', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [
@@ -73,7 +216,11 @@ void main() {
       expect(find.byKey(const ValueKey('attachments-ocr-0')), findsOneWidget);
       expect(find.byKey(const ValueKey('attachments-ocr-1')), findsNothing);
       expect(find.byKey(const ValueKey('attachments-ocr-2')), findsNothing);
+      expect(find.byTooltip('Review receipt OCR'), findsOneWidget);
+      expect(find.bySemanticsLabel('Review receipt OCR'), findsOneWidget);
       expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
     });
 
     testWidgets('hides receipt OCR review when review repository is absent', (
@@ -161,6 +308,7 @@ void main() {
     testWidgets('downloads through the personal route and stable file ID', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
@@ -172,6 +320,11 @@ void main() {
         repository: repository,
         route: const SettleoraBillAttachmentRoute.personal(_billId),
       );
+      expect(find.byTooltip('Open bill attachment'), findsOneWidget);
+      expect(find.bySemanticsLabel('Open bill attachment'), findsOneWidget);
+      expect(find.byTooltip('Remove bill attachment'), findsOneWidget);
+      expect(find.bySemanticsLabel('Remove bill attachment'), findsOneWidget);
+
       await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
       await tester.pumpAndSettle();
 
@@ -181,11 +334,14 @@ void main() {
       expect(repository.lastDownloadedFileId, _fileId);
       expect(find.text('Downloaded 3 bytes.'), findsOneWidget);
       expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
     });
 
     testWidgets('removes through the group route and stable file ID', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
@@ -201,6 +357,19 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
       await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Cancel attachment removal'), findsOneWidget);
+      expect(find.byTooltip('Confirm remove bill attachment'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Cancel attachment removal'),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel('Confirm remove bill attachment'),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+
       await tester.tap(find.byKey(const Key('attachments-remove-confirm')));
       await tester.pumpAndSettle();
 
@@ -209,15 +378,19 @@ void main() {
       expect(repository.lastRoute?.billId, _billId);
       expect(repository.lastRemovedFileId, _fileId);
       expect(find.text('Attachment removed.'), findsOneWidget);
+      semantics.dispose();
     });
 
     testWidgets('blocks duplicate and conflicting actions while downloading', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
       final downloadCompleter = Completer<void>();
       final repository = FakeBillAttachmentRepository(
-        attachments: [sampleAttachment()],
+        attachments: [
+          sampleAttachment(contentType: 'C:\\Users\\secret\\receipt.png token'),
+        ],
         downloadCompleter: downloadCompleter,
       );
 
@@ -235,6 +408,47 @@ void main() {
         find.byKey(const ValueKey('attachments-download-progress-0')),
         findsOneWidget,
       );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Open bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Remove bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Review receipt OCR.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Upload bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Refresh bill attachments.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeAttachmentDetails();
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -282,6 +496,7 @@ void main() {
         const Key('attachments-upload'),
         isTrue,
       );
+      semantics.dispose();
     });
 
     testWidgets(
@@ -336,6 +551,7 @@ void main() {
     testWidgets('renders suspicious failures as bounded generic UI text', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
 
       await pumpAttachmentSection(
@@ -362,6 +578,8 @@ void main() {
       expect(visibleText(tester), isNot(contains('/var/storage')));
       expect(visibleText(tester), isNot(contains('object-key')));
       expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
     });
   });
 }
@@ -421,6 +639,34 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+void expectSemanticsOmitsUnsafeAttachmentDetails() {
+  expect(find.bySemanticsLabel(RegExp('StackTrace')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('bearer')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('token')), findsNothing);
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape('C:\\Users\\secret'))),
+    findsNothing,
+  );
+  expect(find.bySemanticsLabel(RegExp('/var/storage')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('object-key')), findsNothing);
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape('[1, 2, 3]'))),
+    findsNothing,
+  );
+  expect(find.bySemanticsLabel(RegExp('OCR payload')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_billId))), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_groupId))), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_fileId))), findsNothing);
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape(_supportingFileId))),
+    findsNothing,
+  );
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape(_futureFileId))),
+    findsNothing,
+  );
 }
 
 class FakeBillAttachmentRepository
