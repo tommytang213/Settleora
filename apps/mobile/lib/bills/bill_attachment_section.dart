@@ -36,6 +36,7 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
   bool _isUploading = false;
   String? _downloadingFileId;
   String? _removingFileId;
+  String? _confirmingRemoveFileId;
   List<SettleoraBillAttachment> _attachments = const [];
   SettleoraBillAttachmentFailure? _failure;
   int _loadGeneration = 0;
@@ -65,6 +66,7 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         _downloadingFileId = null;
         _activeDownloadBillId = null;
         _activeDownloadGroupId = null;
+        _confirmingRemoveFileId = null;
       });
     }
     if (routeChanged ||
@@ -154,8 +156,10 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
   }
 
   Future<void> _download(SettleoraBillAttachment attachment) async {
-    if (_attachmentActionsBlocked ||
-        !_attachments.any((item) => item.fileId == attachment.fileId)) {
+    if (!_attachmentActionState.canStartAttachmentAction(
+      attachment,
+      _attachments,
+    )) {
       return;
     }
 
@@ -215,9 +219,18 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
   }
 
   Future<void> _confirmRemove(SettleoraBillAttachment attachment) async {
-    if (_attachmentActionsBlocked) {
+    if (!_attachmentActionState.canStartAttachmentAction(
+      attachment,
+      _attachments,
+    )) {
       return;
     }
+
+    final route = widget.route;
+    final fileId = attachment.fileId;
+    setState(() {
+      _confirmingRemoveFileId = fileId;
+    });
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -246,12 +259,26 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
       ),
     );
 
-    if (!mounted || confirmed != true) {
+    if (!mounted) {
       return;
     }
 
-    if (_attachmentActionsBlocked ||
-        !_attachments.any((item) => item.fileId == attachment.fileId)) {
+    if (_confirmingRemoveFileId == fileId) {
+      setState(() {
+        _confirmingRemoveFileId = null;
+      });
+    }
+
+    if (confirmed != true) {
+      return;
+    }
+
+    if (widget.route.billId != route.billId ||
+        widget.route.groupId != route.groupId ||
+        !_attachmentActionState.canStartAttachmentAction(
+          attachment,
+          _attachments,
+        )) {
       return;
     }
 
@@ -306,14 +333,10 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
 
   Future<void> _upload() async {
     final fileInput = widget.fileInput;
-    if (fileInput == null ||
-        _isLoading ||
-        _isSelectingUploadPurpose ||
-        _isUploading ||
-        _downloadingFileId != null ||
-        _removingFileId != null) {
+    if (!_attachmentActionState.canStartUpload(fileInput)) {
       return;
     }
+    final activeFileInput = fileInput!;
 
     setState(() {
       _isSelectingUploadPurpose = true;
@@ -331,7 +354,7 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         _isUploading = true;
       });
 
-      final pickedFile = await fileInput.pickAttachmentFile(
+      final pickedFile = await activeFileInput.pickAttachmentFile(
         allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
           purpose,
         ),
@@ -453,14 +476,18 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
 
   void _openOcrReview(SettleoraBillAttachment attachment) {
     final repository = widget.receiptOcrReviewRepository;
-    if (repository == null || _attachmentActionsBlocked) {
+    if (!_attachmentActionState.canOpenOcrReview(
+      attachment,
+      _attachments,
+      repository,
+    )) {
       return;
     }
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReceiptOcrReviewDetailScreen.forRoute(
-          repository: repository,
+          repository: repository!,
           route: ReceiptOcrReviewRoute(
             billId: widget.route.billId,
             fileId: attachment.fileId,
@@ -540,20 +567,21 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         widget.route.groupId == groupId;
   }
 
-  bool get _attachmentActionsBlocked =>
-      _isLoading ||
-      _loadInFlight ||
-      _isSelectingUploadPurpose ||
-      _isUploading ||
-      _downloadingFileId != null ||
-      _removingFileId != null;
+  _AttachmentActionState get _attachmentActionState => _AttachmentActionState(
+    isLoading: _isLoading,
+    loadInFlight: _loadInFlight,
+    isSelectingUploadPurpose: _isSelectingUploadPurpose,
+    isUploading: _isUploading,
+    downloadingFileId: _downloadingFileId,
+    removingFileId: _removingFileId,
+    confirmingRemoveFileId: _confirmingRemoveFileId,
+  );
 
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
-    final attachmentActionDisabled = _attachmentActionsBlocked;
-    final downloadingFileId = _downloadingFileId;
-    final removingFileId = _removingFileId;
+    final actionState = _attachmentActionState;
+    final attachmentActionDisabled = actionState.blocksActions;
     final hasAttachments = _attachments.isNotEmpty;
 
     return _AttachmentSectionContainer(
@@ -608,7 +636,7 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
             key: Key('${widget.keyPrefix}-upload-progress'),
           ),
         ],
-        if (removingFileId != null) ...[
+        if (actionState.removingFileId != null) ...[
           const SizedBox(height: 8),
           _AttachmentRefreshStatus(
             keyPrefix: widget.keyPrefix,
@@ -652,13 +680,12 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
                   index: index,
                   keyPrefix: widget.keyPrefix,
                   isBusy: attachmentActionDisabled,
-                  isDownloading:
-                      _attachments[index].fileId == downloadingFileId,
-                  isRemoving: _attachments[index].fileId == removingFileId,
-                  canOpenOcr:
-                      widget.receiptOcrReviewRepository != null &&
-                      _attachments[index].purpose ==
-                          SettleoraBillAttachmentPurposeValues.receipt,
+                  isDownloading: actionState.isDownloading(_attachments[index]),
+                  isRemoving: actionState.isRemoving(_attachments[index]),
+                  canOpenOcr: actionState.showsOcrReviewAction(
+                    _attachments[index],
+                    widget.receiptOcrReviewRepository,
+                  ),
                   onDownload: () => _download(_attachments[index]),
                   onRemove: () => _confirmRemove(_attachments[index]),
                   onOpenOcr: () => _openOcrReview(_attachments[index]),
@@ -674,6 +701,78 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         ],
       ],
     );
+  }
+}
+
+class _AttachmentActionState {
+  const _AttachmentActionState({
+    required this.isLoading,
+    required this.loadInFlight,
+    required this.isSelectingUploadPurpose,
+    required this.isUploading,
+    required this.downloadingFileId,
+    required this.removingFileId,
+    required this.confirmingRemoveFileId,
+  });
+
+  final bool isLoading;
+  final bool loadInFlight;
+  final bool isSelectingUploadPurpose;
+  final bool isUploading;
+  final String? downloadingFileId;
+  final String? removingFileId;
+  final String? confirmingRemoveFileId;
+
+  bool get blocksActions =>
+      isLoading ||
+      loadInFlight ||
+      isSelectingUploadPurpose ||
+      isUploading ||
+      downloadingFileId != null ||
+      removingFileId != null ||
+      confirmingRemoveFileId != null;
+
+  bool canStartUpload(SettleoraBillAttachmentFileInput? fileInput) {
+    return fileInput != null && !blocksActions;
+  }
+
+  bool canStartAttachmentAction(
+    SettleoraBillAttachment attachment,
+    Iterable<SettleoraBillAttachment> attachments,
+  ) {
+    return !blocksActions && _containsAttachment(attachment, attachments);
+  }
+
+  bool canOpenOcrReview(
+    SettleoraBillAttachment attachment,
+    Iterable<SettleoraBillAttachment> attachments,
+    ReceiptOcrReviewRepository? repository,
+  ) {
+    return canStartAttachmentAction(attachment, attachments) &&
+        showsOcrReviewAction(attachment, repository);
+  }
+
+  bool showsOcrReviewAction(
+    SettleoraBillAttachment attachment,
+    ReceiptOcrReviewRepository? repository,
+  ) {
+    return repository != null &&
+        attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt;
+  }
+
+  bool isDownloading(SettleoraBillAttachment attachment) {
+    return attachment.fileId == downloadingFileId;
+  }
+
+  bool isRemoving(SettleoraBillAttachment attachment) {
+    return attachment.fileId == removingFileId;
+  }
+
+  bool _containsAttachment(
+    SettleoraBillAttachment attachment,
+    Iterable<SettleoraBillAttachment> attachments,
+  ) {
+    return attachments.any((item) => item.fileId == attachment.fileId);
   }
 }
 
