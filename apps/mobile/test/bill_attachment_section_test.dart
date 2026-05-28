@@ -10,7 +10,6 @@ import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 void main() {
   group('BillAttachmentSection', () {
     testWidgets('renders bounded attachment metadata labels', (tester) async {
-      await useLargeSurface(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [
           sampleAttachment(
@@ -47,8 +46,7 @@ void main() {
     });
 
     testWidgets('labels refresh and retry controls accessibly', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
 
       await pumpAttachmentSection(
         tester,
@@ -77,8 +75,7 @@ void main() {
     testWidgets('labels upload button and purpose choices accessibly', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
 
       await pumpAttachmentSection(
         tester,
@@ -108,8 +105,7 @@ void main() {
     testWidgets('bounds personal attachment row summary semantics', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
 
       await pumpAttachmentSection(
         tester,
@@ -140,8 +136,7 @@ void main() {
     testWidgets('bounds group attachment row summary semantics', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
 
       await pumpAttachmentSection(
         tester,
@@ -191,8 +186,7 @@ void main() {
     testWidgets('shows receipt OCR review only for receipt metadata', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [
           sampleAttachment(
@@ -226,8 +220,6 @@ void main() {
     testWidgets('hides receipt OCR review when review repository is absent', (
       tester,
     ) async {
-      await useLargeSurface(tester);
-
       await pumpAttachmentSection(
         tester,
         repository: FakeBillAttachmentRepository(
@@ -246,7 +238,6 @@ void main() {
     testWidgets('opens personal receipt OCR detail from attachment metadata', (
       tester,
     ) async {
-      await useLargeSurface(tester);
       final receiptRepository = FakeReceiptOcrReviewRepository();
 
       await pumpAttachmentSection(
@@ -267,9 +258,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(receiptRepository.getCalls, 1);
-      expect(receiptRepository.lastRoute?.billId, _billId);
-      expect(receiptRepository.lastRoute?.fileId, _fileId);
-      expect(receiptRepository.lastRoute?.groupId, isNull);
+      expectLastReceiptRoute(
+        receiptRepository,
+        billId: _billId,
+        fileId: _fileId,
+      );
       expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
       expect(visibleText(tester), isNot(contains('token')));
     });
@@ -277,7 +270,6 @@ void main() {
     testWidgets('opens group receipt OCR detail from attachment metadata', (
       tester,
     ) async {
-      await useLargeSurface(tester);
       final receiptRepository = FakeReceiptOcrReviewRepository();
 
       await pumpAttachmentSection(
@@ -300,16 +292,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(receiptRepository.getCalls, 1);
-      expect(receiptRepository.lastRoute?.billId, _billId);
-      expect(receiptRepository.lastRoute?.fileId, _fileId);
-      expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expectLastReceiptRoute(
+        receiptRepository,
+        billId: _billId,
+        fileId: _fileId,
+        groupId: _groupId,
+      );
     });
 
     testWidgets('downloads through the personal route and stable file ID', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
         downloadedBytes: const [1, 2, 3],
@@ -329,8 +323,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.downloadCalls, 1);
-      expect(repository.lastRoute?.billId, _billId);
-      expect(repository.lastRoute?.groupId, isNull);
+      expectLastRepositoryRoute(repository, billId: _billId);
       expect(repository.lastDownloadedFileId, _fileId);
       expect(find.text('Downloaded 3 bytes.'), findsOneWidget);
       expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
@@ -341,8 +334,7 @@ void main() {
     testWidgets('removes through the group route and stable file ID', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
       );
@@ -374,8 +366,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.removeCalls, 1);
-      expect(repository.lastRoute?.groupId, _groupId);
-      expect(repository.lastRoute?.billId, _billId);
+      expectLastRepositoryRoute(repository, billId: _billId, groupId: _groupId);
       expect(repository.lastRemovedFileId, _fileId);
       expect(find.text('Attachment removed.'), findsOneWidget);
       semantics.dispose();
@@ -384,8 +375,7 @@ void main() {
     testWidgets('blocks duplicate and conflicting actions while downloading', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final downloadCompleter = Completer<void>();
       final repository = FakeBillAttachmentRepository(
         attachments: [
@@ -408,46 +398,13 @@ void main() {
         find.byKey(const ValueKey('attachments-download-progress-0')),
         findsOneWidget,
       );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Open bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Remove bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Review receipt OCR.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Upload bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Refresh bill attachments.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
+      expectBusySemanticsFor(const [
+        'Open bill attachment',
+        'Remove bill attachment',
+        'Review receipt OCR',
+        'Upload bill attachment',
+        'Refresh bill attachments',
+      ]);
       expectSemanticsOmitsUnsafeAttachmentDetails();
       expectOutlinedButtonEnabled(
         tester,
@@ -502,8 +459,7 @@ void main() {
     testWidgets('blocks row actions and upload while refreshing list', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final refreshCompleter = Completer<void>();
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
@@ -526,30 +482,11 @@ void main() {
         find.bySemanticsLabel(RegExp('Refreshing attachments')),
         findsOneWidget,
       );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Upload bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Open bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Remove bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
+      expectBusySemanticsFor(const [
+        'Upload bill attachment',
+        'Open bill attachment',
+        'Remove bill attachment',
+      ]);
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -589,8 +526,7 @@ void main() {
     testWidgets('blocks conflicting actions while choosing upload purpose', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
       );
@@ -606,30 +542,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Upload as receipt'), findsOneWidget);
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Upload bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Refresh bill attachments.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Open bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
+      expectBusySemanticsFor(const [
+        'Upload bill attachment',
+        'Refresh bill attachments',
+        'Open bill attachment',
+      ]);
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -666,8 +583,7 @@ void main() {
     testWidgets('remove confirmation and remove work block conflicts', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final removeCompleter = Completer<void>();
       final repository = FakeBillAttachmentRepository(
         attachments: [sampleAttachment()],
@@ -703,22 +619,10 @@ void main() {
         find.bySemanticsLabel(RegExp('Removing attachment')),
         findsOneWidget,
       );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Open bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel(
-          RegExp(
-            'Upload bill attachment.*Disabled while attachment work is in progress',
-          ),
-        ),
-        findsOneWidget,
-      );
+      expectBusySemanticsFor(const [
+        'Open bill attachment',
+        'Upload bill attachment',
+      ]);
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -754,7 +658,6 @@ void main() {
     testWidgets(
       'post-upload review action opens refreshed receipt attachment route',
       (tester) async {
-        await useLargeSurface(tester);
         final receiptRepository = FakeReceiptOcrReviewRepository();
         final fileInput = FakeBillAttachmentFileInput(
           pickedFile: samplePickedAttachmentFile(
@@ -794,17 +697,18 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(receiptRepository.getCalls, 1);
-        expect(receiptRepository.lastRoute?.billId, _billId);
-        expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
-        expect(receiptRepository.lastRoute?.groupId, isNull);
+        expectLastReceiptRoute(
+          receiptRepository,
+          billId: _billId,
+          fileId: _uploadedFileId,
+        );
       },
     );
 
     testWidgets('renders suspicious failures as bounded generic UI text', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
 
       await pumpAttachmentSection(
         tester,
@@ -837,8 +741,7 @@ void main() {
     testWidgets('sanitizes upload download and remove failure details', (
       tester,
     ) async {
-      final semantics = tester.ensureSemantics();
-      await useLargeSurface(tester);
+      final semantics = enableAttachmentSemantics(tester);
       final fileInput = FakeBillAttachmentFileInput(
         pickedFile: samplePickedAttachmentFile(
           filename: 'C:\\Users\\secret\\receipt.png',
@@ -929,6 +832,7 @@ Future<void> pumpAttachmentSection(
   SettleoraBillAttachmentFileInput? fileInput,
   ReceiptOcrReviewRepository? receiptOcrReviewRepository,
 }) async {
+  await useLargeSurface(tester);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -951,6 +855,10 @@ Future<void> pumpAttachmentSection(
   await tester.pumpAndSettle();
 }
 
+SemanticsHandle enableAttachmentSemantics(WidgetTester tester) {
+  return tester.ensureSemantics();
+}
+
 Future<void> useLargeSurface(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(900, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -968,6 +876,39 @@ void expectOutlinedButtonEnabled(
 void expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
   final button = tester.widget<IconButton>(find.byKey(key));
   expect(button.onPressed != null, matcher);
+}
+
+void expectBusySemanticsFor(Iterable<String> labels) {
+  for (final label in labels) {
+    expect(
+      find.bySemanticsLabel(
+        RegExp(
+          '${RegExp.escape(label)}.*Disabled while attachment work is in progress',
+        ),
+      ),
+      findsOneWidget,
+    );
+  }
+}
+
+void expectLastRepositoryRoute(
+  FakeBillAttachmentRepository repository, {
+  required String billId,
+  String? groupId,
+}) {
+  expect(repository.lastRoute?.billId, billId);
+  expect(repository.lastRoute?.groupId, groupId ?? isNull);
+}
+
+void expectLastReceiptRoute(
+  FakeReceiptOcrReviewRepository repository, {
+  required String fileId,
+  required String billId,
+  String? groupId,
+}) {
+  expect(repository.lastRoute?.billId, billId);
+  expect(repository.lastRoute?.fileId, fileId);
+  expect(repository.lastRoute?.groupId, groupId ?? isNull);
 }
 
 String visibleText(WidgetTester tester) {
