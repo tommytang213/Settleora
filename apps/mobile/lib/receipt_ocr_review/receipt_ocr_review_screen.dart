@@ -5,6 +5,9 @@ import 'receipt_ocr_review_repository.dart';
 part 'receipt_ocr_review_detail_content.dart';
 part 'receipt_ocr_review_queue_content.dart';
 
+const _refreshReceiptOcrReviewsLabel = 'Refresh receipt reviews';
+const _retryReceiptOcrReviewsLabel = 'Retry loading receipt reviews';
+
 class ReceiptOcrReviewQueueScreen extends StatefulWidget {
   const ReceiptOcrReviewQueueScreen({super.key, this.repository});
 
@@ -221,7 +224,7 @@ class _ReceiptOcrReviewQueueScreenState
         actions: [
           IconButton(
             onPressed: repository == null || _isLoading ? null : _loadReviews,
-            tooltip: 'Refresh',
+            tooltip: _refreshReceiptOcrReviewsLabel,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -961,10 +964,30 @@ class _FailurePanel extends StatelessWidget {
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: _safeReceiptOcrReviewFailureDisplayMessage(failure),
-      action: OutlinedButton.icon(
-        onPressed: onRetry,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Retry'),
+      action: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
+    );
+  }
+}
+
+class _ReceiptOcrReviewRetryButton extends StatelessWidget {
+  const _ReceiptOcrReviewRetryButton({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: _retryReceiptOcrReviewsLabel,
+      child: Semantics(
+        button: true,
+        excludeSemantics: true,
+        label: _retryReceiptOcrReviewsLabel,
+        onTap: onRetry,
+        child: OutlinedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry'),
+        ),
       ),
     );
   }

@@ -140,11 +140,7 @@ class _QueueFailureBanner extends StatelessWidget {
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
+                    child: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
                   ),
                 ],
               ),
@@ -171,31 +167,84 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
     final scope = review.groupId == null ? 'Personal bill' : 'Group bill';
     final currency = review.currency;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 10,
-        ),
-        leading: const Icon(Icons.receipt_long_outlined),
-        title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
-              _SoftChip(label: scope),
-              _SoftChip(label: '${review.lineCount} lines'),
-              if (currency != null) _SoftChip(label: currency),
-            ],
+    return Semantics(
+      button: true,
+      excludeSemantics: true,
+      label: _receiptOcrReviewSummarySemanticLabel(review),
+      onTap: onTap,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 10,
           ),
+          leading: const Icon(Icons.receipt_long_outlined),
+          title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
+                _SoftChip(label: scope),
+                _SoftChip(label: '${review.lineCount} lines'),
+                if (currency != null) _SoftChip(label: currency),
+              ],
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
         ),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
       ),
     );
   }
+}
+
+String _receiptOcrReviewSummarySemanticLabel(ReceiptOcrReviewSummary review) {
+  final scope = review.groupId == null ? 'personal bill' : 'group bill';
+  final status = _receiptOcrReviewStatusSemanticLabel(review.status);
+  final lineCount = _receiptOcrReviewLineCountSemanticLabel(review.lineCount);
+  final currency = _receiptOcrReviewCurrencySemanticLabel(review.currency);
+
+  return 'Open $scope receipt review. Scope: $scope. Status: $status. '
+      '$lineCount. $currency. OCR data is provisional until applied by the server.';
+}
+
+String _receiptOcrReviewStatusSemanticLabel(ReceiptOcrReviewStatus status) {
+  return switch (status) {
+    ReceiptOcrReviewStatusValues.provisional => 'Provisional',
+    ReceiptOcrReviewStatusValues.reviewed => 'Reviewed',
+    _ => 'Other status',
+  };
+}
+
+String _receiptOcrReviewLineCountSemanticLabel(int lineCount) {
+  if (lineCount <= 0) {
+    return 'No line candidates';
+  }
+
+  if (lineCount == 1) {
+    return '1 line candidate';
+  }
+
+  if (lineCount > 50) {
+    return '50 or more line candidates';
+  }
+
+  return '$lineCount line candidates';
+}
+
+String _receiptOcrReviewCurrencySemanticLabel(String? currency) {
+  if (currency == null || currency.trim().isEmpty) {
+    return 'No currency candidate';
+  }
+
+  final normalized = currency.trim().toUpperCase();
+  if (!RegExp(r'^[A-Z]{3}$').hasMatch(normalized)) {
+    return 'Currency candidate present';
+  }
+
+  return 'Currency candidate $normalized';
 }

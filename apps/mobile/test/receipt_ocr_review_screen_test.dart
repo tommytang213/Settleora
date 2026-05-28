@@ -37,6 +37,97 @@ void main() {
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
 
+    testWidgets('labels queue refresh and retry controls accessibly', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeReceiptOcrReviewRepository(
+        listFailure: suspiciousFailure(ReceiptOcrReviewFailureKind.network),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Refresh receipt reviews'), findsOneWidget);
+      expect(find.byTooltip('Retry loading receipt reviews'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Retry loading receipt reviews'),
+        findsOneWidget,
+      );
+      expectVisibleTextOmitsUnsafeDetails(tester);
+      semantics.dispose();
+    });
+
+    testWidgets('bounds queue summary semantics without unsafe row details', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      const merchantCandidate = 'Corner Market OCR Candidate';
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(
+            merchantText: merchantCandidate,
+            currency: 'usd',
+            lineCount: 77,
+          ),
+          sampleSummary(
+            reviewId: _groupReviewId,
+            groupId: _groupId,
+            merchantText: 'Group Receipt',
+            fileId: _newFileId,
+            currency: 'usd1',
+          ),
+        ],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text(merchantCandidate), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Open personal bill receipt review')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('50 or more line candidates')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Currency candidate USD')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Open group bill receipt review')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Currency candidate present')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(merchantCandidate))),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(_billId))),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(_groupId))),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(_fileId))),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(_newFileId))),
+        findsNothing,
+      );
+      expect(find.bySemanticsLabel(RegExp('usd1')), findsNothing);
+      semantics.dispose();
+    });
+
     testWidgets('keeps last-known reviews visible when refresh fails', (
       tester,
     ) async {
