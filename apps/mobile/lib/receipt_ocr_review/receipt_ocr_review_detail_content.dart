@@ -1178,10 +1178,6 @@ class _IssueWrap extends StatelessWidget {
   }
 }
 
-String _busyActionSemanticLabel(String actionLabel) {
-  return '$actionLabel. $_receiptOcrBusyDisabledSemanticLabel.';
-}
-
 String _money(String? amount, String? currency) {
   if (amount == null) {
     return 'Not provided';
