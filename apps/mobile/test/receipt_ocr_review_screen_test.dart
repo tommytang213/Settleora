@@ -373,6 +373,58 @@ void main() {
       expect(find.text('Updated Queue'), findsOneWidget);
     });
 
+    testWidgets('schedules one follow-up refresh after active return load', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final activeRefreshCompleter = Completer<List<ReceiptOcrReviewSummary>>();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Corner Market')],
+        reviewResponse: sampleReview(sampleRoute()),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      repository.listCompleter = activeRefreshCompleter;
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      await tester.pump();
+
+      expect(repository.listCalls, 2);
+      expect(find.text('Corner Market'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(find.text('Receipt review saved.'), findsOneWidget);
+
+      activeRefreshCompleter.complete([
+        sampleSummary(merchantText: 'Refreshed After Return'),
+      ]);
+      await tester.pump();
+      await tester.pump();
+
+      expect(repository.listCalls, 3);
+      expect(find.text('Refreshed After Return'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(repository.listCalls, 3);
+    });
+
     testWidgets('ignores stale return result after repository changes', (
       tester,
     ) async {
@@ -418,6 +470,79 @@ void main() {
       expect(find.text('Second Account'), findsOneWidget);
       expect(find.text('First Account'), findsNothing);
     });
+
+    testWidgets(
+      'clears return feedback and deleted suppression when repository changes',
+      (tester) async {
+        await useLargeSurface(tester);
+        final hostKey = GlobalKey<_QueueHostState>();
+        final firstRefreshCompleter =
+            Completer<List<ReceiptOcrReviewSummary>>();
+        final secondLoadCompleter = Completer<List<ReceiptOcrReviewSummary>>();
+        final firstRepository = FakeReceiptOcrReviewRepository(
+          listResponse: [
+            sampleSummary(merchantText: 'First Account Deleted'),
+            sampleSummary(
+              reviewId: _groupReviewId,
+              groupId: _groupId,
+              merchantText: 'First Account Other',
+              fileId: _newFileId,
+            ),
+          ],
+          reviewResponse: sampleReview(sampleRoute()),
+        );
+        final secondRepository = FakeReceiptOcrReviewRepository(
+          listCompleter: secondLoadCompleter,
+        );
+
+        await tester.pumpWidget(
+          _QueueHost(key: hostKey, repository: firstRepository),
+        );
+        await tester.pumpAndSettle();
+
+        firstRepository.listCompleter = firstRefreshCompleter;
+        await tester.tap(find.text('First Account Deleted'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-delete')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+
+        expect(firstRepository.deleteCalls, 1);
+        expect(firstRepository.listCalls, 2);
+        expect(find.text('Receipt review deleted.'), findsOneWidget);
+        expect(find.text('First Account Deleted'), findsNothing);
+        expect(find.text('First Account Other'), findsOneWidget);
+
+        hostKey.currentState!.setRepository(secondRepository);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+
+        expect(secondRepository.listCalls, 1);
+        expect(find.text('Receipt review deleted.'), findsNothing);
+        expect(find.text('First Account Deleted'), findsNothing);
+        expect(find.text('First Account Other'), findsNothing);
+        expect(find.text('Loading receipt reviews'), findsOneWidget);
+
+        secondLoadCompleter.complete([
+          sampleSummary(merchantText: 'Second Account Same Route'),
+        ]);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Second Account Same Route'), findsOneWidget);
+        expect(find.text('No receipt reviews'), findsNothing);
+
+        firstRefreshCompleter.complete(const []);
+        await tester.pump();
+      },
+    );
 
     testWidgets('sanitizes failed return refresh and retains queue', (
       tester,
