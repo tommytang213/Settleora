@@ -499,6 +499,258 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('blocks row actions and upload while refreshing list', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      final refreshCompleter = Completer<void>();
+      final repository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        fileInput: FakeBillAttachmentFileInput(),
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      repository.listCompleter = refreshCompleter;
+      await tester.tap(find.byKey(const Key('attachments-refresh')));
+      await tester.pump();
+
+      expect(repository.listCalls, 2);
+      expect(find.byKey(const Key('attachments-refreshing')), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Refreshing attachments')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Upload bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Open bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Remove bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-0'),
+        isFalse,
+      );
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.pump();
+
+      expect(repository.attachCalls, 0);
+      expect(repository.downloadCalls, 0);
+      expect(repository.removeCalls, 0);
+
+      refreshCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isTrue,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('blocks conflicting actions while choosing upload purpose', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      final repository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        fileInput: FakeBillAttachmentFileInput(),
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Upload as receipt'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Upload bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Refresh bill attachments.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Open bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isFalse,
+      );
+      expectIconButtonEnabled(
+        tester,
+        const Key('attachments-refresh'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-0'),
+        isFalse,
+      );
+
+      expect(repository.downloadCalls, 0);
+      expect(repository.removeCalls, 0);
+
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-cancel')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.attachCalls, 0);
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isTrue,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('remove confirmation and remove work block conflicts', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      final removeCompleter = Completer<void>();
+      final repository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        removeCompleter: removeCompleter,
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        fileInput: FakeBillAttachmentFileInput(),
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Cancel attachment removal'), findsOneWidget);
+      expect(find.byTooltip('Confirm remove bill attachment'), findsOneWidget);
+
+      expect(repository.downloadCalls, 0);
+      expect(repository.attachCalls, 0);
+      expect(repository.removeCalls, 0);
+
+      await tester.tap(find.byKey(const Key('attachments-remove-confirm')));
+      await tester.pump();
+
+      expect(repository.removeCalls, 1);
+      expect(
+        find.byKey(const Key('attachments-remove-progress')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Removing attachment')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Open bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Upload bill attachment.*Disabled while attachment work is in progress',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const Key('attachments-upload'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-download-0'),
+        isFalse,
+      );
+      expectOutlinedButtonEnabled(
+        tester,
+        const ValueKey('attachments-remove-0'),
+        isFalse,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.pump();
+
+      expect(repository.downloadCalls, 0);
+      expect(repository.removeCalls, 1);
+      expect(repository.attachCalls, 0);
+
+      removeCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Attachment removed.'), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets(
       'post-upload review action opens refreshed receipt attachment route',
       (tester) async {
@@ -579,6 +831,91 @@ void main() {
       expect(visibleText(tester), isNot(contains('object-key')));
       expect(visibleText(tester), isNot(contains('[1, 2, 3]')));
       expectSemanticsOmitsUnsafeAttachmentDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('sanitizes upload download and remove failure details', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'C:\\Users\\secret\\receipt.png',
+          contentType: 'image/png',
+          bytes: const [1, 2, 3],
+        ),
+      );
+      final repository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment()],
+        attachFailure: const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.validation,
+          message:
+              'StackTrace token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] OCR payload dump',
+        ),
+        downloadFailure: const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.network,
+          message:
+              'StackTrace token C:\\Users\\secret\\receipt.png /tmp/object-key [1, 2, 3]',
+        ),
+        removeFailure: const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message:
+              'StackTrace token s3://settleora/object-key raw bytes [1, 2, 3]',
+        ),
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        fileInput: fileInput,
+      );
+
+      await tester.tap(find.byKey(const Key('attachments-upload')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('attachment-upload-purpose-receipt')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unsupported request'), findsOneWidget);
+      expect(
+        find.text(
+          'The attachment request is no longer valid. Refresh and try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(repository.attachCalls, 1);
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      expectVisibleTextOmitsUnsafeAttachmentDetails(tester);
+
+      await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Server unavailable'), findsOneWidget);
+      expect(
+        find.text(
+          'The server is unavailable. Try again when the connection is back.',
+        ),
+        findsOneWidget,
+      );
+      expect(repository.downloadCalls, 1);
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      expectVisibleTextOmitsUnsafeAttachmentDetails(tester);
+
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('attachments-remove-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Attachments unavailable'), findsOneWidget);
+      expect(
+        find.text('Attachments are unavailable right now. Try again later.'),
+        findsOneWidget,
+      );
+      expect(repository.removeCalls, 1);
+      expectSemanticsOmitsUnsafeAttachmentDetails();
+      expectVisibleTextOmitsUnsafeAttachmentDetails(tester);
       semantics.dispose();
     });
   });
@@ -669,19 +1006,46 @@ void expectSemanticsOmitsUnsafeAttachmentDetails() {
   );
 }
 
+void expectVisibleTextOmitsUnsafeAttachmentDetails(WidgetTester tester) {
+  final text = visibleText(tester);
+  expect(text, isNot(contains('StackTrace')));
+  expect(text, isNot(contains('bearer')));
+  expect(text, isNot(contains('token')));
+  expect(text, isNot(contains('C:\\Users\\secret')));
+  expect(text, isNot(contains('/var/storage')));
+  expect(text, isNot(contains('/tmp')));
+  expect(text, isNot(contains('s3://')));
+  expect(text, isNot(contains('object-key')));
+  expect(text, isNot(contains('[1, 2, 3]')));
+  expect(text, isNot(contains('raw bytes')));
+  expect(text, isNot(contains('OCR payload')));
+  expect(text, isNot(contains(_billId)));
+  expect(text, isNot(contains(_groupId)));
+  expect(text, isNot(contains(_fileId)));
+}
+
 class FakeBillAttachmentRepository
     implements SettleoraBillAttachmentRepository {
   FakeBillAttachmentRepository({
     this.attachments = const [],
     this.listFailures = const [],
     this.downloadedBytes = const [1, 2, 3],
+    this.attachFailure,
+    this.downloadFailure,
+    this.removeFailure,
+    this.removeCompleter,
     this.downloadCompleter,
   });
 
   List<SettleoraBillAttachment> attachments;
   final List<SettleoraBillAttachmentFailure> listFailures;
   final List<int> downloadedBytes;
+  final SettleoraBillAttachmentFailure? attachFailure;
+  final SettleoraBillAttachmentFailure? downloadFailure;
+  final SettleoraBillAttachmentFailure? removeFailure;
+  final Completer<void>? removeCompleter;
   final Completer<void>? downloadCompleter;
+  Completer<void>? listCompleter;
   int listCalls = 0;
   int attachCalls = 0;
   int removeCalls = 0;
@@ -699,6 +1063,11 @@ class FakeBillAttachmentRepository
     attachCalls += 1;
     lastRoute = route;
     lastUpload = upload;
+    final failure = attachFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     final attachment = SettleoraBillAttachment(
       fileId: _uploadedFileId,
       billId: route.billId,
@@ -721,6 +1090,11 @@ class FakeBillAttachmentRepository
   ) async {
     listCalls += 1;
     lastRoute = route;
+    final pendingList = listCompleter;
+    if (pendingList != null) {
+      await pendingList.future;
+    }
+
     if (listFailures.length >= listCalls) {
       throw listFailures[listCalls - 1];
     }
@@ -736,6 +1110,12 @@ class FakeBillAttachmentRepository
     removeCalls += 1;
     lastRoute = route;
     lastRemovedFileId = fileId;
+    await removeCompleter?.future;
+    final failure = removeFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     attachments = [
       for (final attachment in attachments)
         if (attachment.fileId != fileId) attachment,
@@ -751,6 +1131,11 @@ class FakeBillAttachmentRepository
     lastRoute = route;
     lastDownloadedFileId = fileId;
     await downloadCompleter?.future;
+    final failure = downloadFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     return SettleoraBillAttachmentContent(bytes: downloadedBytes);
   }
 }
