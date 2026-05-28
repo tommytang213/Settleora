@@ -7,6 +7,33 @@ part 'receipt_ocr_review_queue_content.dart';
 
 const _refreshReceiptOcrReviewsLabel = 'Refresh receipt reviews';
 const _retryReceiptOcrReviewsLabel = 'Retry loading receipt reviews';
+const _receiptOcrReviewDetailLabel = 'Receipt OCR review detail';
+const _refreshReceiptOcrReviewLabel = 'Refresh receipt review';
+const _editReceiptOcrReviewLabel = 'Edit receipt review';
+const _cancelReceiptOcrReviewEditLabel = 'Cancel receipt review edit';
+const _saveReceiptOcrReviewLabel = 'Save receipt review';
+const _savingReceiptOcrReviewLabel = 'Saving receipt review';
+const _deleteReceiptOcrReviewLabel = 'Delete saved OCR review';
+const _deletingReceiptOcrReviewLabel = 'Deleting saved OCR review';
+const _cancelReceiptOcrReviewDeletionLabel = 'Cancel receipt review deletion';
+const _confirmReceiptOcrReviewDeletionLabel = 'Confirm delete saved OCR review';
+const _previewReceiptOcrReviewApplyLabel = 'Preview bill draft changes';
+const _loadingReceiptOcrReviewApplyPreviewLabel = 'Loading bill draft preview';
+const _applyReceiptOcrReviewLabel = 'Apply OCR review to bill draft';
+const _applyingReceiptOcrReviewLabel = 'Applying OCR review to bill draft';
+const _cancelReceiptOcrReviewApplyLabel =
+    'Cancel applying OCR review to bill draft';
+const _confirmReceiptOcrReviewApplyLabel =
+    'Confirm apply OCR review to bill draft';
+const _provisionalReceiptOcrReviewSemanticLabel =
+    'Provisional OCR data. Review before applying.';
+const _headerOcrCandidatesSemanticLabel = 'Header OCR candidates, provisional';
+const _totalOcrCandidatesSemanticLabel = 'Total OCR candidates, provisional';
+const _lineOcrCandidatesSemanticLabel = 'Line OCR candidates, provisional';
+const _lineOcrCandidateSemanticLabel = 'Line OCR candidate';
+const _ocrReviewIssueSemanticLabel = 'OCR review issue';
+const _receiptOcrBusyDisabledSemanticLabel =
+    'Disabled while receipt review action is in progress';
 
 class ReceiptOcrReviewQueueScreen extends StatefulWidget {
   const ReceiptOcrReviewQueueScreen({super.key, this.repository});
@@ -509,11 +536,17 @@ class _ReceiptOcrReviewDetailScreenState
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: const _SemanticButtonLabel(
+                label: _cancelReceiptOcrReviewDeletionLabel,
+                child: Text('Cancel'),
+              ),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remove'),
+              child: const _SemanticButtonLabel(
+                label: _confirmReceiptOcrReviewDeletionLabel,
+                child: Text('Remove'),
+              ),
             ),
           ],
         );
@@ -602,11 +635,17 @@ class _ReceiptOcrReviewDetailScreenState
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: const _SemanticButtonLabel(
+                label: _cancelReceiptOcrReviewApplyLabel,
+                child: Text('Cancel'),
+              ),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Apply'),
+              child: const _SemanticButtonLabel(
+                label: _confirmReceiptOcrReviewApplyLabel,
+                child: Text('Apply'),
+              ),
             ),
           ],
         );
@@ -796,14 +835,14 @@ class _ReceiptOcrReviewDetailScreenState
                         _review == null
                     ? null
                     : _startEditing,
-                tooltip: 'Edit',
+                tooltip: _editReceiptOcrReviewLabel,
                 icon: const Icon(Icons.edit_outlined),
               ),
             IconButton(
               onPressed: _detailActionsBlocked || _isEditing
                   ? null
                   : _loadReview,
-              tooltip: 'Refresh',
+              tooltip: _refreshReceiptOcrReviewLabel,
               icon: const Icon(Icons.refresh),
             ),
           ],
@@ -988,6 +1027,32 @@ class _ReceiptOcrReviewRetryButton extends StatelessWidget {
           icon: const Icon(Icons.refresh),
           label: const Text('Retry'),
         ),
+      ),
+    );
+  }
+}
+
+class _SemanticButtonLabel extends StatelessWidget {
+  const _SemanticButtonLabel({
+    required this.label,
+    required this.child,
+    this.enabled = true,
+  });
+
+  final String label;
+  final Widget child;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        excludeSemantics: true,
+        label: label,
+        child: child,
       ),
     );
   }

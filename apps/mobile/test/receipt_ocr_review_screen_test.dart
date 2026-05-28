@@ -680,6 +680,7 @@ void main() {
     testWidgets('renders read-only review candidates and action labels', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
       final route = sampleRoute();
       final repository = FakeReceiptOcrReviewRepository(
         reviewResponse: sampleReview(
@@ -701,6 +702,159 @@ void main() {
       expect(find.text('Apply preview'), findsOneWidget);
       expect(find.text('Preview apply'), findsOneWidget);
       expect(find.text('Apply to draft'), findsOneWidget);
+      expect(find.byTooltip('Edit receipt review'), findsOneWidget);
+      expect(find.byTooltip('Refresh receipt review'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Receipt OCR review detail')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp('Provisional OCR data. Review before applying.'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Header OCR candidates, provisional')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Total OCR candidates, provisional')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Line OCR candidates, provisional')),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel(RegExp('Line OCR candidate')), findsWidgets);
+      expect(find.byTooltip('Preview bill draft changes'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Preview bill draft changes')),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('labels detail edit actions and delete confirmation controls', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final semantics = tester.ensureSemantics();
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit receipt review'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Cancel receipt review edit'), findsOneWidget);
+      expect(find.byTooltip('Save receipt review'), findsOneWidget);
+      expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Currency candidate, three-letter code')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Grand total amount candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Line quantity candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Line unit price amount candidate')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Line total amount candidate')),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-delete')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove saved review?'), findsOneWidget);
+      expect(find.byTooltip('Cancel receipt review deletion'), findsOneWidget);
+      expect(find.byTooltip('Confirm delete saved OCR review'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Cancel receipt review deletion')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Confirm delete saved OCR review')),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeDetails();
+      semantics.dispose();
+    });
+
+    testWidgets('labels preview apply controls and issue chips safely', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final route = sampleRoute(groupId: _groupId);
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewResponse: samplePreview(
+          route,
+          warnings: const [
+            ReceiptOcrReviewApplyPreviewIssueCodeValues.lineTotalMismatch,
+          ],
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Warnings'), findsOneWidget);
+      expect(find.text('Line total mismatch'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('OCR review issue')), findsOneWidget);
+      expect(find.byTooltip('Apply OCR review to bill draft'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Apply OCR review to bill draft')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Apply reviewed lines?'), findsOneWidget);
+      expect(
+        find.text(
+          'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip('Cancel applying OCR review to bill draft'),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip('Confirm apply OCR review to bill draft'),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp('Cancel applying OCR review to bill draft'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Confirm apply OCR review to bill draft')),
+        findsOneWidget,
+      );
+      expectSemanticsOmitsUnsafeDetails();
+      semantics.dispose();
     });
 
     testWidgets('ignores stale review loads when the route changes', (
@@ -1458,6 +1612,26 @@ void expectVisibleTextOmitsUnsafeDetails(WidgetTester tester) {
   expect(visibleText(tester), isNot(contains('OCR payload')));
 }
 
+void expectSemanticsOmitsUnsafeDetails() {
+  expect(find.bySemanticsLabel(RegExp('StackTrace')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('bearer')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('token')), findsNothing);
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape('C:\\Users\\secret'))),
+    findsNothing,
+  );
+  expect(find.bySemanticsLabel(RegExp('/var/storage')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp('object-key')), findsNothing);
+  expect(
+    find.bySemanticsLabel(RegExp(RegExp.escape('[1, 2, 3]'))),
+    findsNothing,
+  );
+  expect(find.bySemanticsLabel(RegExp('OCR payload')), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_billId))), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_groupId))), findsNothing);
+  expect(find.bySemanticsLabel(RegExp(RegExp.escape(_fileId))), findsNothing);
+}
+
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({
     this.listResponse,
@@ -1470,6 +1644,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.deleteCompleter,
     this.deleteFailure,
     this.previewCompleter,
+    this.previewResponse,
     this.applyCompleter,
     this.applyFailure,
   });
@@ -1484,6 +1659,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   final Completer<void>? deleteCompleter;
   final ReceiptOcrReviewFailure? deleteFailure;
   final Completer<ReceiptOcrReviewApplyPreview>? previewCompleter;
+  final ReceiptOcrReviewApplyPreview? previewResponse;
   final Completer<ReceiptOcrReviewApplyResult>? applyCompleter;
   final ReceiptOcrReviewFailure? applyFailure;
   final Map<String, Completer<ReceiptOcrReviewDetail>> _getCompleters = {};
@@ -1581,7 +1757,8 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   ) {
     previewCalls += 1;
     lastPreviewRoute = route;
-    return previewCompleter?.future ?? Future.value(samplePreview(route));
+    return previewCompleter?.future ??
+        Future.value(previewResponse ?? samplePreview(route));
   }
 
   @override
@@ -1687,7 +1864,12 @@ List<ReceiptOcrReviewLine> sampleLines() {
   ];
 }
 
-ReceiptOcrReviewApplyPreview samplePreview(ReceiptOcrReviewRoute route) {
+ReceiptOcrReviewApplyPreview samplePreview(
+  ReceiptOcrReviewRoute route, {
+  bool canApply = true,
+  List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons = const [],
+  List<ReceiptOcrReviewApplyPreviewIssueCode> warnings = const [],
+}) {
   return ReceiptOcrReviewApplyPreview(
     reviewId: _reviewId,
     billId: route.billId,
@@ -1705,9 +1887,9 @@ ReceiptOcrReviewApplyPreview samplePreview(ReceiptOcrReviewRoute route) {
     proposedGrandTotalAmount: '10.80',
     proposedLines: const [],
     summary: samplePreviewSummary(),
-    canApply: true,
-    blockedReasons: const [],
-    warnings: const [],
+    canApply: canApply,
+    blockedReasons: blockedReasons,
+    warnings: warnings,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );

@@ -128,36 +128,42 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-      children: [
-        _ReceiptOcrReviewHeader(review: review),
-        const SizedBox(height: 20),
-        if (_hasAnyReviewCandidate(review)) ...[
-          _ReceiptOcrReviewTotals(review: review),
+    return Semantics(
+      container: true,
+      label:
+          '$_receiptOcrReviewDetailLabel. '
+          '$_provisionalReceiptOcrReviewSemanticLabel',
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          _ReceiptOcrReviewHeader(review: review),
           const SizedBox(height: 20),
-          _ReceiptOcrReviewLines(lines: review.lines),
-        ] else
-          const _StatePanel(
-            icon: Icons.receipt_long_outlined,
-            title: 'No OCR result',
-            message:
-                'No reviewed OCR candidates are saved for this receipt yet.',
-            compact: true,
+          if (_hasAnyReviewCandidate(review)) ...[
+            _ReceiptOcrReviewTotals(review: review),
+            const SizedBox(height: 20),
+            _ReceiptOcrReviewLines(lines: review.lines),
+          ] else
+            const _StatePanel(
+              icon: Icons.receipt_long_outlined,
+              title: 'No OCR result',
+              message:
+                  'No reviewed OCR candidates are saved for this receipt yet.',
+              compact: true,
+            ),
+          const SizedBox(height: 20),
+          _ApplyPreviewSection(
+            isLoadingPreview: isLoadingPreview,
+            isApplying: isApplying,
+            actionsBlocked: actionsBlocked,
+            preview: preview,
+            previewFailure: previewFailure,
+            applyResult: applyResult,
+            applyFailure: applyFailure,
+            onPreview: onPreview,
+            onApply: onApply,
           ),
-        const SizedBox(height: 20),
-        _ApplyPreviewSection(
-          isLoadingPreview: isLoadingPreview,
-          isApplying: isApplying,
-          actionsBlocked: actionsBlocked,
-          preview: preview,
-          previewFailure: previewFailure,
-          applyResult: applyResult,
-          applyFailure: applyFailure,
-          onPreview: onPreview,
-          onApply: onApply,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -357,6 +363,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-currency'),
               controller: _currencyController,
               label: 'Currency',
+              semanticLabel: 'Currency candidate, three-letter code',
               enabled: !isBusy,
               textCapitalization: TextCapitalization.characters,
               validator: _currencyValidator,
@@ -371,6 +378,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-subtotal'),
               controller: _subtotalController,
               label: 'Subtotal',
+              semanticLabel: 'Subtotal amount candidate',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -381,6 +389,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-tax'),
               controller: _taxController,
               label: 'Tax',
+              semanticLabel: 'Tax amount candidate',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -391,6 +400,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-service-charge'),
               controller: _serviceChargeController,
               label: 'Service charge',
+              semanticLabel: 'Service charge amount candidate',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -401,6 +411,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-discount'),
               controller: _discountController,
               label: 'Discount',
+              semanticLabel: 'Discount amount candidate',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -411,6 +422,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-grand-total'),
               controller: _grandTotalController,
               label: 'Grand total',
+              semanticLabel: 'Grand total amount candidate',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -468,7 +480,15 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                     key: const Key('receipt-review-edit-cancel'),
                     onPressed: isBusy ? null : widget.onCancel,
                     icon: const Icon(Icons.close),
-                    label: const Text('Cancel'),
+                    label: _SemanticButtonLabel(
+                      label: isBusy
+                          ? _busyActionSemanticLabel(
+                              _cancelReceiptOcrReviewEditLabel,
+                            )
+                          : _cancelReceiptOcrReviewEditLabel,
+                      enabled: !isBusy,
+                      child: const Text('Cancel'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -482,7 +502,15 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.save_outlined),
-                    label: const Text('Save'),
+                    label: _SemanticButtonLabel(
+                      label: widget.isSaving
+                          ? _savingReceiptOcrReviewLabel
+                          : isBusy
+                          ? _busyActionSemanticLabel(_saveReceiptOcrReviewLabel)
+                          : _saveReceiptOcrReviewLabel,
+                      enabled: !isBusy,
+                      child: const Text('Save'),
+                    ),
                   ),
                 ),
               ],
@@ -497,7 +525,15 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.delete_outline),
-              label: const Text('Remove review'),
+              label: _SemanticButtonLabel(
+                label: widget.isDeleting
+                    ? _deletingReceiptOcrReviewLabel
+                    : isBusy
+                    ? _busyActionSemanticLabel(_deleteReceiptOcrReviewLabel)
+                    : _deleteReceiptOcrReviewLabel,
+                enabled: !isBusy,
+                child: const Text('Remove review'),
+              ),
             ),
           ],
         ),
@@ -562,6 +598,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-quantity-$index'),
                 controller: editors.quantityController,
                 label: 'Quantity',
+                semanticLabel: 'Line quantity candidate',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -572,6 +609,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-unit-$index'),
                 controller: editors.unitPriceAmountController,
                 label: 'Unit price',
+                semanticLabel: 'Line unit price amount candidate',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -582,6 +620,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-total-$index'),
                 controller: editors.lineTotalAmountController,
                 label: 'Line total',
+                semanticLabel: 'Line total amount candidate',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -602,6 +641,7 @@ class _EditTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     required this.enabled,
+    this.semanticLabel,
     this.keyboardType,
     this.textCapitalization = TextCapitalization.none,
     this.validator,
@@ -610,25 +650,36 @@ class _EditTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final bool enabled;
+  final String? semanticLabel;
   final TextInputType? keyboardType;
   final TextCapitalization textCapitalization;
   final String? Function(String?)? validator;
 
   @override
   Widget build(BuildContext context) {
+    final textField = TextFormField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      validator: validator,
+      decoration: InputDecoration(
+        border: const OutlineInputBorder(),
+        labelText: label,
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: TextFormField(
-        controller: controller,
-        enabled: enabled,
-        keyboardType: keyboardType,
-        textCapitalization: textCapitalization,
-        validator: validator,
-        decoration: InputDecoration(
-          border: const OutlineInputBorder(),
-          labelText: label,
-        ),
-      ),
+      child: semanticLabel == null
+          ? textField
+          : Semantics(
+              label: enabled
+                  ? semanticLabel
+                  : _busyActionSemanticLabel(semanticLabel!),
+              enabled: enabled,
+              child: textField,
+            ),
     );
   }
 }
@@ -721,42 +772,46 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
     final merchant = review.merchantText ?? 'Receipt review';
     final scope = review.groupId == null ? 'Personal bill' : 'Group bill';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                merchant,
-                style: Theme.of(context).textTheme.headlineSmall,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+    return Semantics(
+      container: true,
+      label: _headerOcrCandidatesSemanticLabel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  merchant,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            _SoftChip(label: scope),
-            _SoftChip(label: receiptOcrReviewSourceLabel(review.source)),
-            if (review.currency != null) _SoftChip(label: review.currency!),
-          ],
-        ),
-        if (review.receiptIssuedAtUtc != null) ...[
-          const SizedBox(height: 12),
-          _KeyValueText(
-            label: 'Receipt date',
-            value: _formatDate(review.receiptIssuedAtUtc!),
+              const SizedBox(width: 12),
+              _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
+            ],
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _SoftChip(label: scope),
+              _SoftChip(label: receiptOcrReviewSourceLabel(review.source)),
+              if (review.currency != null) _SoftChip(label: review.currency!),
+            ],
+          ),
+          if (review.receiptIssuedAtUtc != null) ...[
+            const SizedBox(height: 12),
+            _KeyValueText(
+              label: 'Receipt date',
+              value: _formatDate(review.receiptIssuedAtUtc!),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -785,17 +840,24 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Header candidates',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        for (final row in rows)
-          _KeyValueText(label: row.$1, value: _money(row.$2, review.currency)),
-      ],
+    return Semantics(
+      container: true,
+      label: _totalOcrCandidatesSemanticLabel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Header candidates',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          for (final row in rows)
+            _KeyValueText(
+              label: row.$1,
+              value: _money(row.$2, review.currency),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -819,35 +881,46 @@ class _ReceiptOcrReviewLines extends StatelessWidget {
     final sorted = [...lines]
       ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Line candidates', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        for (final line in sorted)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListTile(
-                title: Text(
-                  line.text,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(_lineSummary(line)),
+    return Semantics(
+      container: true,
+      label: _lineOcrCandidatesSemanticLabel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Line candidates',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          for (final line in sorted)
+            Semantics(
+              container: true,
+              label: _lineOcrCandidateSemanticLabel,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ListTile(
+                    title: Text(
+                      line.text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(_lineSummary(line)),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -896,7 +969,17 @@ class _ApplyPreviewSection extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.fact_check_outlined),
-                label: const Text('Preview apply'),
+                label: _SemanticButtonLabel(
+                  label: isLoadingPreview
+                      ? _loadingReceiptOcrReviewApplyPreviewLabel
+                      : actionsBlocked
+                      ? _busyActionSemanticLabel(
+                          _previewReceiptOcrReviewApplyLabel,
+                        )
+                      : _previewReceiptOcrReviewApplyLabel,
+                  enabled: !actionsBlocked,
+                  child: const Text('Preview apply'),
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -909,7 +992,15 @@ class _ApplyPreviewSection extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check_circle_outline),
-                label: const Text('Apply to draft'),
+                label: _SemanticButtonLabel(
+                  label: isApplying
+                      ? _applyingReceiptOcrReviewLabel
+                      : applyEnabled
+                      ? _applyReceiptOcrReviewLabel
+                      : _busyActionSemanticLabel(_applyReceiptOcrReviewLabel),
+                  enabled: applyEnabled,
+                  child: const Text('Apply to draft'),
+                ),
               ),
             ),
           ],
@@ -1072,15 +1163,23 @@ class _IssueWrap extends StatelessWidget {
           runSpacing: 6,
           children: [
             for (final issue in issues)
-              _SoftChip(
-                label: receiptOcrReviewIssueLabel(issue),
-                icon: Icons.info_outline,
+              Semantics(
+                container: true,
+                label: _ocrReviewIssueSemanticLabel,
+                child: _SoftChip(
+                  label: receiptOcrReviewIssueLabel(issue),
+                  icon: Icons.info_outline,
+                ),
               ),
           ],
         ),
       ],
     );
   }
+}
+
+String _busyActionSemanticLabel(String actionLabel) {
+  return '$actionLabel. $_receiptOcrBusyDisabledSemanticLabel.';
 }
 
 String _money(String? amount, String? currency) {
