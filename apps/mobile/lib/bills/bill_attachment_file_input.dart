@@ -124,6 +124,18 @@ SettleoraPickedBillAttachmentFile pickedBillAttachmentFileFromBytes({
   );
 }
 
+SettleoraPickedBillAttachmentFile validatePickedBillAttachmentFile(
+  SettleoraPickedBillAttachmentFile file, {
+  required Set<String> allowedContentTypes,
+}) {
+  return pickedBillAttachmentFileFromBytes(
+    filename: file.filename,
+    contentType: file.contentType,
+    bytes: file.bytes,
+    allowedContentTypes: allowedContentTypes,
+  );
+}
+
 String _safeFilename(String filename) {
   final withoutPath = filename.replaceAll('\\', '/').split('/').last.trim();
   final withoutControls = withoutPath.replaceAll(

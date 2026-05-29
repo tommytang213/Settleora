@@ -1339,6 +1339,72 @@ void main() {
     },
   );
 
+  testWidgets('group bill create rejects invalid draft attachment', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: SettleoraPickedBillAttachmentFile(
+        filename: '   ',
+        contentType: 'image/png',
+        bytes: const [1, 2, 3],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-receipt'),
+    );
+
+    expect(fileInput.pickCalls, 1);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(find.text('No attachments selected'), findsOneWidget);
+    expect(
+      find.text('Choose a named file before uploading an attachment.'),
+      findsOneWidget,
+    );
+    expect(find.text('image/png - 3 bytes'), findsNothing);
+    expect(attachmentRepository.attachCalls, 0);
+    expect(attachmentRepository.removeCalls, 0);
+
+    await _tapSaveGroupBill(tester);
+
+    final draft = billRepository.lastGroupCreateDraft;
+    expect(billRepository.createGroupCalls, 1);
+    expect(draft?.merchantName, '  Night Market  ');
+    expect(draft?.billDate, '  2026-05-23  ');
+    expect(draft?.items.single.name, '  Noodles  ');
+    expect(draft?.items.single.splits.single.userProfileId, _profileId);
+    expect(attachmentRepository.attachCalls, 0);
+    expect(attachmentRepository.removeCalls, 0);
+  });
+
   testWidgets('group bill create removing draft attachment keeps form state', (
     tester,
   ) async {

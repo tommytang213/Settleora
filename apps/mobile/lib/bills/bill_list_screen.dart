@@ -436,20 +436,25 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
 
+      final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
+        purpose,
+      );
       final pickedFile = await fileInput.pickAttachmentFile(
-        allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
-          purpose,
-        ),
+        allowedContentTypes: allowedContentTypes,
       );
       if (!mounted || pickedFile == null) {
         return;
       }
 
+      final validatedFile = validatePickedBillAttachmentFile(
+        pickedFile,
+        allowedContentTypes: allowedContentTypes,
+      );
       setState(() {
         _draftAttachments.add(
           _BillCreateDraftAttachment(
             id: _nextDraftAttachmentId,
-            file: pickedFile,
+            file: validatedFile,
             purpose: purpose,
           ),
         );
@@ -1562,20 +1567,25 @@ class _SettleoraGroupBillCreateScreenState
         return;
       }
 
+      final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
+        purpose,
+      );
       final pickedFile = await fileInput.pickAttachmentFile(
-        allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
-          purpose,
-        ),
+        allowedContentTypes: allowedContentTypes,
       );
       if (!mounted || pickedFile == null) {
         return;
       }
 
+      final validatedFile = validatePickedBillAttachmentFile(
+        pickedFile,
+        allowedContentTypes: allowedContentTypes,
+      );
       setState(() {
         _draftAttachments.add(
           _BillCreateDraftAttachment(
             id: _nextDraftAttachmentId,
-            file: pickedFile,
+            file: validatedFile,
             purpose: purpose,
           ),
         );
