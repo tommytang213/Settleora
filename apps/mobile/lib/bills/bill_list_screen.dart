@@ -1547,6 +1547,7 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
   SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
   String? _itemListError;
+  String? _payerTotalError;
   String? _attachmentDraftError;
   int _nextDraftAttachmentId = 0;
 
@@ -1612,6 +1613,7 @@ class _SettleoraGroupBillCreateScreenState
   void _addItem() {
     setState(() {
       _itemListError = null;
+      _payerTotalError = null;
       _itemControllers.add(
         _GroupBillCreateItemControllers(currency: _currencyController.text),
       );
@@ -1629,11 +1631,13 @@ class _SettleoraGroupBillCreateScreenState
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
+      _payerTotalError = null;
     });
   }
 
   void _addPayer() {
     setState(() {
+      _payerTotalError = null;
       _payerControllers.add(
         _GroupBillCreatePayerControllers(currency: _currencyController.text),
       );
@@ -1648,6 +1652,7 @@ class _SettleoraGroupBillCreateScreenState
     setState(() {
       final removed = _payerControllers.removeAt(index);
       removed.dispose();
+      _payerTotalError = null;
     });
   }
 
@@ -1812,6 +1817,7 @@ class _SettleoraGroupBillCreateScreenState
     setState(() {
       _failure = null;
       _attachmentUploadFailure = null;
+      _payerTotalError = null;
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
@@ -1819,6 +1825,18 @@ class _SettleoraGroupBillCreateScreenState
 
     final formIsValid = _formKey.currentState?.validate() ?? false;
     if (!formIsValid || _itemControllers.isEmpty) {
+      return;
+    }
+
+    if (_payerControllers.isNotEmpty &&
+        !_decimalAmountTotalsMatch(
+          _itemControllers.map((item) => item.amount.text),
+          _payerControllers.map((payer) => payer.amount.text),
+        )) {
+      setState(() {
+        _payerTotalError =
+            'Payer amounts must add up to the item total before saving.';
+      });
       return;
     }
 
@@ -1974,6 +1992,7 @@ class _SettleoraGroupBillCreateScreenState
     final memberFailure = _memberFailure;
     final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final payerTotalError = _payerTotalError;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save group bill'
         : 'Retry remaining attachment uploads';
@@ -2153,6 +2172,16 @@ class _SettleoraGroupBillCreateScreenState
                             onRemove: () => _removePayer(index),
                           ),
                         ),
+                    if (payerTotalError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        payerTotalError,
+                        key: const Key('group-bill-payer-total-error'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 22),
                     _BillCreateDraftAttachmentSection(
                       keyPrefix: 'group-bill',
@@ -4205,6 +4234,70 @@ String? _positiveMoneyAmountField(
   }
 
   return null;
+}
+
+bool _decimalAmountTotalsMatch(
+  Iterable<String> expectedAmounts,
+  Iterable<String> actualAmounts,
+) {
+  final expected = expectedAmounts
+      .map(_parseExactDecimalAmount)
+      .whereType<_ExactDecimalAmount>()
+      .toList(growable: false);
+  final actual = actualAmounts
+      .map(_parseExactDecimalAmount)
+      .whereType<_ExactDecimalAmount>()
+      .toList(growable: false);
+  if (expected.length != expectedAmounts.length ||
+      actual.length != actualAmounts.length) {
+    return false;
+  }
+
+  final scale = [
+    ...expected.map((amount) => amount.scale),
+    ...actual.map((amount) => amount.scale),
+  ].fold<int>(0, (current, next) => next > current ? next : current);
+
+  return _sumExactDecimals(expected, scale) == _sumExactDecimals(actual, scale);
+}
+
+_ExactDecimalAmount? _parseExactDecimalAmount(String value) {
+  final trimmed = value.trim();
+  final match = RegExp(r'^(\d+)(?:\.(\d+))?$').firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final whole = match.group(1)!;
+  final fractional = match.group(2) ?? '';
+  final digits = '$whole$fractional'.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+  return _ExactDecimalAmount(
+    value: BigInt.parse(digits.isEmpty ? '0' : digits),
+    scale: fractional.length,
+  );
+}
+
+BigInt _sumExactDecimals(List<_ExactDecimalAmount> amounts, int scale) {
+  return amounts.fold<BigInt>(
+    BigInt.zero,
+    (total, amount) =>
+        total + amount.value * _bigIntPow10(scale - amount.scale),
+  );
+}
+
+BigInt _bigIntPow10(int exponent) {
+  var value = BigInt.one;
+  for (var index = 0; index < exponent; index += 1) {
+    value *= BigInt.from(10);
+  }
+  return value;
+}
+
+class _ExactDecimalAmount {
+  const _ExactDecimalAmount({required this.value, required this.scale});
+
+  final BigInt value;
+  final int scale;
 }
 
 String? _currencyCodeField(String? value, {required String requiredMessage}) {
