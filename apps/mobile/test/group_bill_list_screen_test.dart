@@ -2032,6 +2032,138 @@ void main() {
     },
   );
 
+  testWidgets('group bill retry preserves only remaining upload rows', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachFailuresByCall: const {
+        2: SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message: 'Second attachment failed.',
+        ),
+        4: SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.server,
+          message: 'Third attachment failed.',
+        ),
+      },
+    );
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFiles: [
+        samplePickedAttachmentFile(
+          filename: 'receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+        samplePickedAttachmentFile(
+          filename: 'invoice.pdf',
+          bytes: const [7, 8, 9, 10],
+        ),
+        samplePickedAttachmentFile(
+          filename: 'counter-receipt.webp',
+          contentType: 'image/webp',
+          bytes: const [11, 12],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-receipt'),
+    );
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-supporting'),
+    );
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-receipt'),
+    );
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.createPersonalCalls, 0);
+    expect(attachmentRepository.attachCalls, 2);
+    expect(find.text('2 attachments selected'), findsOneWidget);
+    expect(find.text('receipt.png'), findsNothing);
+    expect(find.text('invoice.pdf'), findsOneWidget);
+    expect(find.text('counter-receipt.webp'), findsOneWidget);
+
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.createPersonalCalls, 0);
+    expect(attachmentRepository.attachCalls, 4);
+    expect(attachmentRepository.uploads[2].filename, 'invoice.pdf');
+    expect(find.text('1 attachment selected'), findsOneWidget);
+    expect(find.text('invoice.pdf'), findsNothing);
+    expect(find.text('counter-receipt.webp'), findsOneWidget);
+    expect(find.text('Receipt'), findsOneWidget);
+    expect(find.text('image/webp - 2 bytes'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-create-attachment-upload-failure')),
+      findsOneWidget,
+    );
+
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.createPersonalCalls, 0);
+    expect(attachmentRepository.attachCalls, 5);
+    expect(attachmentRepository.uploadRoutes.last.groupId, _groupId);
+    expect(attachmentRepository.uploadRoutes.last.billId, _createdBillId);
+    expect(attachmentRepository.uploads.last.filename, 'counter-receipt.webp');
+    expect(attachmentRepository.uploads.last.contentType, 'image/webp');
+    expect(attachmentRepository.uploads.last.bytes, const [11, 12]);
+    expect(
+      attachmentRepository.uploads.last.purpose,
+      SettleoraBillAttachmentPurposeValues.receipt,
+    );
+    expect(
+      find.byKey(const Key('group-bill-create-attachment-upload-failure')),
+      findsNothing,
+    );
+    expect(find.text('Group bill'), findsWidgets);
+
+    Navigator.of(tester.element(find.text('Group bill').first)).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(find.text('No attachments selected'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-create-attachment-upload-failure')),
+      findsNothing,
+    );
+    expect(find.text('counter-receipt.webp'), findsNothing);
+  });
+
   testWidgets(
     'group bill create submit and draft attachment controls are disabled while upload is running',
     (tester) async {
