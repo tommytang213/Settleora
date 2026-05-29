@@ -715,7 +715,7 @@ class _SettleoraPersonalBillCreateScreenState
     final itemListError = _itemListError;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save bill'
-        : 'Retry attachment upload';
+        : 'Retry remaining attachment uploads';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create bill')),
@@ -839,16 +839,19 @@ class _SettleoraPersonalBillCreateScreenState
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: FilledButton.icon(
-            key: const Key('personal-bill-save'),
-            onPressed: _isSaving ? null : _save,
-            icon: _isSaving
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check),
-            label: Text(saveLabel),
+          child: Tooltip(
+            message: saveLabel,
+            child: FilledButton.icon(
+              key: const Key('personal-bill-save'),
+              onPressed: _isSaving ? null : _save,
+              icon: _isSaving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check),
+              label: Text(saveLabel),
+            ),
           ),
         ),
       ),
@@ -1262,26 +1265,30 @@ class _CreateBillAttachmentUploadFailureBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final message =
+        'Bill created, but some attachments were not uploaded. '
+        '${failure.title}: ${failure.message}';
+
+    return Semantics(
       key: bannerKey,
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Bill created, but some attachments were not uploaded. '
-                '${failure.title}: ${failure.message}',
-              ),
-            ),
-          ],
+      container: true,
+      liveRegion: true,
+      label: message,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.error),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message, semanticsLabel: message)),
+            ],
+          ),
         ),
       ),
     );
@@ -1963,7 +1970,7 @@ class _SettleoraGroupBillCreateScreenState
     final itemListError = _itemListError;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save group bill'
-        : 'Retry attachment upload';
+        : 'Retry remaining attachment uploads';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create group bill')),
@@ -2162,16 +2169,19 @@ class _SettleoraGroupBillCreateScreenState
           ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: FilledButton.icon(
-                  key: const Key('group-bill-save'),
-                  onPressed: _isSaving || _isLoadingMembers ? null : _save,
-                  icon: _isSaving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.check),
-                  label: Text(saveLabel),
+                child: Tooltip(
+                  message: saveLabel,
+                  child: FilledButton.icon(
+                    key: const Key('group-bill-save'),
+                    onPressed: _isSaving || _isLoadingMembers ? null : _save,
+                    icon: _isSaving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check),
+                    label: Text(saveLabel),
+                  ),
                 ),
               ),
             )
