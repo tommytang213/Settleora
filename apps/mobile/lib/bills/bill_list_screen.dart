@@ -1547,6 +1547,7 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
   SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
   String? _itemListError;
+  String? _splitTotalError;
   String? _payerTotalError;
   String? _attachmentDraftError;
   int _nextDraftAttachmentId = 0;
@@ -1613,6 +1614,7 @@ class _SettleoraGroupBillCreateScreenState
   void _addItem() {
     setState(() {
       _itemListError = null;
+      _splitTotalError = null;
       _payerTotalError = null;
       _itemControllers.add(
         _GroupBillCreateItemControllers(currency: _currencyController.text),
@@ -1631,6 +1633,7 @@ class _SettleoraGroupBillCreateScreenState
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
+      _splitTotalError = null;
       _payerTotalError = null;
     });
   }
@@ -1817,6 +1820,7 @@ class _SettleoraGroupBillCreateScreenState
     setState(() {
       _failure = null;
       _attachmentUploadFailure = null;
+      _splitTotalError = null;
       _payerTotalError = null;
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
@@ -1825,6 +1829,20 @@ class _SettleoraGroupBillCreateScreenState
 
     final formIsValid = _formKey.currentState?.validate() ?? false;
     if (!formIsValid || _itemControllers.isEmpty) {
+      return;
+    }
+
+    if (_shouldValidateExactAmountSplitTotal() &&
+        !_decimalAmountTotalsMatch(
+          _itemControllers.map((item) => item.amount.text),
+          _itemControllers.expand(
+            (item) => item.splits.map((split) => split.basisValue.text),
+          ),
+        )) {
+      setState(() {
+        _splitTotalError =
+            'Split amounts must add up to the item total before saving.';
+      });
       return;
     }
 
@@ -1986,12 +2004,33 @@ class _SettleoraGroupBillCreateScreenState
     }
   }
 
+  bool _shouldValidateExactAmountSplitTotal() {
+    if (_itemControllers.isEmpty) {
+      return false;
+    }
+
+    for (final item in _itemControllers) {
+      if (item.splits.isEmpty) {
+        return false;
+      }
+
+      for (final split in item.splits) {
+        if (!_isExactAmountSplitMethod(split.splitMethod.text)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
     final memberFailure = _memberFailure;
     final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final splitTotalError = _splitTotalError;
     final payerTotalError = _payerTotalError;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save group bill'
@@ -2126,6 +2165,16 @@ class _SettleoraGroupBillCreateScreenState
                           onRemove: () => _removeItem(index),
                         ),
                       ),
+                    if (splitTotalError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        splitTotalError,
+                        key: const Key('group-bill-split-total-error'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -2554,6 +2603,13 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
                 labelText: 'Basis value',
                 border: OutlineInputBorder(),
               ),
+              validator: (value) =>
+                  _isExactAmountSplitMethod(controllers.splitMethod.text)
+                  ? _positiveMoneyAmountField(
+                      value,
+                      requiredMessage: 'Enter a split amount.',
+                    )
+                  : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -4235,6 +4291,9 @@ String? _positiveMoneyAmountField(
 
   return null;
 }
+
+bool _isExactAmountSplitMethod(String value) =>
+    value.trim().toLowerCase() == 'exact_amount';
 
 bool _decimalAmountTotalsMatch(
   Iterable<String> expectedAmounts,
