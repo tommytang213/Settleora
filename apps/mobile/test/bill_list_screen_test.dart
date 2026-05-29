@@ -139,6 +139,14 @@ void main() {
     await _tapSaveBill(tester);
 
     expect(find.text('Add at least one item before saving.'), findsOneWidget);
+    final itemListError = tester.widget<Semantics>(
+      find.byKey(const Key('personal-bill-item-list-error')),
+    );
+    expect(itemListError.properties.liveRegion, isTrue);
+    expect(
+      itemListError.properties.label,
+      'Add at least one item before saving.',
+    );
     expect(repository.createCalls, 0);
   });
 

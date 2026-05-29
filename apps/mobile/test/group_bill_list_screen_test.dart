@@ -1077,6 +1077,14 @@ void main() {
     await _tapSaveGroupBill(tester);
 
     expect(find.text('Add at least one item before saving.'), findsOneWidget);
+    final itemListError = tester.widget<Semantics>(
+      find.byKey(const Key('group-bill-item-list-error')),
+    );
+    expect(itemListError.properties.liveRegion, isTrue);
+    expect(
+      itemListError.properties.label,
+      'Add at least one item before saving.',
+    );
     expect(billRepository.createGroupCalls, 0);
   });
 
@@ -1268,6 +1276,14 @@ void main() {
         find.byKey(const Key('group-bill-payer-total-error')),
         findsOneWidget,
       );
+      final payerTotalError = tester.widget<Semantics>(
+        find.byKey(const Key('group-bill-payer-total-error')),
+      );
+      expect(payerTotalError.properties.liveRegion, isTrue);
+      expect(
+        payerTotalError.properties.label,
+        'Payer amounts must add up to the item total before saving.',
+      );
       expect(billRepository.createGroupCalls, 0);
       expect(billRepository.createPersonalCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
@@ -1354,6 +1370,14 @@ void main() {
       expect(
         find.byKey(const Key('group-bill-split-total-error')),
         findsOneWidget,
+      );
+      final splitTotalError = tester.widget<Semantics>(
+        find.byKey(const Key('group-bill-split-total-error')),
+      );
+      expect(splitTotalError.properties.liveRegion, isTrue);
+      expect(
+        splitTotalError.properties.label,
+        'Split amounts must add up to the item total before saving.',
       );
       expect(
         find.text('Payer amounts must add up to the item total before saving.'),
