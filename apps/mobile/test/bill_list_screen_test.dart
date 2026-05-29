@@ -210,6 +210,95 @@ void main() {
   });
 
   testWidgets(
+    'create draft attachment removal updates list and keeps form state',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Brunch Spot',
+          billDate: '2026-05-23',
+          totalAmount: '12.30',
+          totalCurrency: 'USD',
+        ),
+      );
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'C:\\Users\\secret\\local-receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+      );
+
+      await tester.binding.setSurfaceSize(const Size(900, 2200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-merchant-name')),
+        'Brunch Spot',
+      );
+      await _fillMinimalCreateForm(tester);
+
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('0 attachments selected'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('personal-bill-attachment-add')));
+      await tester.pump(const Duration(milliseconds: 300));
+      final receiptPurposeTile = tester.widget<ListTile>(
+        find.byKey(const Key('personal-bill-attachment-purpose-receipt')),
+      );
+      receiptPurposeTile.onTap?.call();
+      await tester.pumpAndSettle();
+
+      expect(fileInput.pickCalls, 1);
+      expect(
+        fileInput.lastAllowedContentTypes,
+        SettleoraBillAttachmentContentTypeValues.receiptValues,
+      );
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('local-receipt.png'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsNothing);
+      expect(find.byTooltip('Remove selected bill attachment'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('Selected bill attachment.*Receipt')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('personal-bill-attachment-remove-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('local-receipt.png'), findsNothing);
+      expect(find.text('Receipt'), findsNothing);
+
+      await _tapSaveBill(tester);
+
+      final draft = repository.lastCreateDraft;
+      expect(repository.createCalls, 1);
+      expect(draft?.merchantName, 'Brunch Spot');
+      expect(draft?.billDate, '2026-05-23');
+      expect(draft?.items.single.name, 'Coffee');
+      semantics.dispose();
+    },
+  );
+
+  testWidgets(
     'successful create opens returned bill detail and refreshes back',
     (tester) async {
       final repository = FakeBillRepository(

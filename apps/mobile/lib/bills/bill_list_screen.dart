@@ -199,8 +199,10 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   Future<void> _openCreateBill() async {
     final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
       MaterialPageRoute(
-        builder: (_) =>
-            SettleoraPersonalBillCreateScreen(repository: widget.repository),
+        builder: (_) => SettleoraPersonalBillCreateScreen(
+          repository: widget.repository,
+          attachmentFileInput: widget.attachmentFileInput,
+        ),
       ),
     );
 
@@ -340,9 +342,11 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   const SettleoraPersonalBillCreateScreen({
     super.key,
     required this.repository,
+    this.attachmentFileInput,
   });
 
   final SettleoraBillRepository repository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
 
   @override
   State<SettleoraPersonalBillCreateScreen> createState() =>
@@ -356,9 +360,13 @@ class _SettleoraPersonalBillCreateScreenState
   final _billDateController = TextEditingController();
   final _currencyController = TextEditingController(text: 'USD');
   final List<_PersonalBillCreateItemControllers> _itemControllers = [];
+  final List<_PersonalBillDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
+  bool _isPickingAttachment = false;
   String? _itemListError;
+  String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
+  int _nextDraftAttachmentId = 0;
 
   @override
   void initState() {
@@ -403,6 +411,123 @@ class _SettleoraPersonalBillCreateScreenState
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
+    });
+  }
+
+  Future<void> _addDraftAttachment() async {
+    final fileInput = widget.attachmentFileInput;
+    if (fileInput == null || _isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      final purpose = await _selectDraftAttachmentPurpose();
+      if (!mounted || purpose == null) {
+        return;
+      }
+
+      final pickedFile = await fileInput.pickAttachmentFile(
+        allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
+          purpose,
+        ),
+      );
+      if (!mounted || pickedFile == null) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.add(
+          _PersonalBillDraftAttachment(
+            id: _nextDraftAttachmentId,
+            file: pickedFile,
+            purpose: purpose,
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError =
+            'The attachment could not be selected. Try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
+  }
+
+  Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
+    return showModalBottomSheet<SettleoraBillAttachmentPurpose>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Add attachment as',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('personal-bill-attachment-purpose-receipt'),
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Receipt'),
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(SettleoraBillAttachmentPurposeValues.receipt),
+              ),
+              ListTile(
+                key: const Key('personal-bill-attachment-purpose-supporting'),
+                leading: const Icon(Icons.attach_file_outlined),
+                title: const Text('Supporting attachment'),
+                onTap: () => Navigator.of(context).pop(
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                key: const Key('personal-bill-attachment-purpose-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _removeDraftAttachment(int id) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _attachmentDraftError = null;
+      _draftAttachments.removeWhere((attachment) => attachment.id == id);
     });
   }
 
@@ -558,6 +683,15 @@ class _SettleoraPersonalBillCreateScreenState
                       onRemove: () => _removeItem(index),
                     ),
                   ),
+                const SizedBox(height: 10),
+                _PersonalBillDraftAttachmentSection(
+                  attachments: _draftAttachments,
+                  errorText: _attachmentDraftError,
+                  canAdd: widget.attachmentFileInput != null,
+                  isBusy: _isSaving || _isPickingAttachment,
+                  onAdd: _addDraftAttachment,
+                  onRemove: _removeDraftAttachment,
+                ),
               ],
             ),
           ),
@@ -600,6 +734,177 @@ class _PersonalBillCreateItemControllers {
     amount.dispose();
     currency.dispose();
     note.dispose();
+  }
+}
+
+class _PersonalBillDraftAttachment {
+  const _PersonalBillDraftAttachment({
+    required this.id,
+    required this.file,
+    required this.purpose,
+  });
+
+  final int id;
+  final SettleoraPickedBillAttachmentFile file;
+  final SettleoraBillAttachmentPurpose purpose;
+}
+
+class _PersonalBillDraftAttachmentSection extends StatelessWidget {
+  const _PersonalBillDraftAttachmentSection({
+    required this.attachments,
+    required this.errorText,
+    required this.canAdd,
+    required this.isBusy,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<_PersonalBillDraftAttachment> attachments;
+  final String? errorText;
+  final bool canAdd;
+  final bool isBusy;
+  final VoidCallback onAdd;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final attachmentCount = attachments.length;
+
+    return Column(
+      key: const Key('personal-bill-attachments-section'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Attachments',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            TextButton.icon(
+              key: const Key('personal-bill-attachment-add'),
+              onPressed: canAdd && !isBusy ? onAdd : null,
+              icon: isBusy
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.attach_file_outlined),
+              label: const Text('Add attachment'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          attachmentCount == 1
+              ? '1 attachment selected'
+              : '$attachmentCount attachments selected',
+          key: const Key('personal-bill-attachment-count'),
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        if (errorText != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            errorText!,
+            key: const Key('personal-bill-attachment-error'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+        const SizedBox(height: 10),
+        if (attachments.isEmpty)
+          const _StatePanel(
+            icon: Icons.attach_file_outlined,
+            title: 'No attachments selected',
+            message: 'Receipts and supporting files can be added later.',
+          )
+        else
+          for (var index = 0; index < attachments.length; index += 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _PersonalBillDraftAttachmentTile(
+                attachment: attachments[index],
+                index: index,
+                isBusy: isBusy,
+                onRemove: () => onRemove(attachments[index].id),
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+class _PersonalBillDraftAttachmentTile extends StatelessWidget {
+  const _PersonalBillDraftAttachmentTile({
+    required this.attachment,
+    required this.index,
+    required this.isBusy,
+    required this.onRemove,
+  });
+
+  final _PersonalBillDraftAttachment attachment;
+  final int index;
+  final bool isBusy;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final purposeLabel = _billAttachmentPurposeLabel(attachment.purpose);
+
+    return Semantics(
+      label:
+          'Selected bill attachment. Purpose: $purposeLabel. Filename: ${attachment.file.filename}.',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                attachment.purpose ==
+                        SettleoraBillAttachmentPurposeValues.receipt
+                    ? Icons.receipt_long_outlined
+                    : Icons.attach_file_outlined,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      attachment.file.filename,
+                      key: ValueKey('personal-bill-attachment-name-$index'),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      purposeLabel,
+                      key: ValueKey('personal-bill-attachment-purpose-$index'),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${attachment.file.contentType} - ${attachment.file.bytes.length} bytes',
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                key: ValueKey('personal-bill-attachment-remove-$index'),
+                onPressed: isBusy ? null : onRemove,
+                tooltip: 'Remove selected bill attachment',
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -3327,6 +3632,15 @@ String? _requiredField(String? value, String message) {
   }
 
   return null;
+}
+
+String _billAttachmentPurposeLabel(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => 'Receipt',
+    SettleoraBillAttachmentPurposeValues.supportingAttachment =>
+      'Supporting attachment',
+    _ => 'Attachment',
+  };
 }
 
 String? _allocationOrderError(String? value) {
