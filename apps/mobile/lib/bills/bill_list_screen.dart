@@ -542,6 +542,30 @@ class _SettleoraPersonalBillCreateScreenState
     });
   }
 
+  void _changeDraftAttachmentPurpose(
+    int id,
+    SettleoraBillAttachmentPurpose purpose,
+  ) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _attachmentDraftError = null;
+      _attachmentUploadFailure = null;
+      final index = _draftAttachments.indexWhere(
+        (attachment) => attachment.id == id,
+      );
+      if (index < 0) {
+        return;
+      }
+
+      _draftAttachments[index] = _draftAttachments[index].copyWith(
+        purpose: purpose,
+      );
+    });
+  }
+
   Future<void> _save() async {
     if (_isSaving) {
       return;
@@ -805,6 +829,7 @@ class _SettleoraPersonalBillCreateScreenState
                   isBusy: _isSaving || _isPickingAttachment,
                   onAdd: _addDraftAttachment,
                   onRemove: _removeDraftAttachment,
+                  onPurposeChanged: _changeDraftAttachmentPurpose,
                 ),
               ],
             ),
@@ -861,7 +886,20 @@ class _BillCreateDraftAttachment {
   final int id;
   final SettleoraPickedBillAttachmentFile file;
   final SettleoraBillAttachmentPurpose purpose;
+
+  _BillCreateDraftAttachment copyWith({
+    SettleoraBillAttachmentPurpose? purpose,
+  }) {
+    return _BillCreateDraftAttachment(
+      id: id,
+      file: file,
+      purpose: purpose ?? this.purpose,
+    );
+  }
 }
+
+typedef _BillCreateDraftAttachmentPurposeChanged =
+    void Function(int id, SettleoraBillAttachmentPurpose purpose);
 
 class _BillCreateDraftAttachmentSection extends StatelessWidget {
   const _BillCreateDraftAttachmentSection({
@@ -872,6 +910,7 @@ class _BillCreateDraftAttachmentSection extends StatelessWidget {
     required this.isBusy,
     required this.onAdd,
     required this.onRemove,
+    required this.onPurposeChanged,
   });
 
   final String keyPrefix;
@@ -881,6 +920,7 @@ class _BillCreateDraftAttachmentSection extends StatelessWidget {
   final bool isBusy;
   final VoidCallback onAdd;
   final ValueChanged<int> onRemove;
+  final _BillCreateDraftAttachmentPurposeChanged onPurposeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -944,6 +984,8 @@ class _BillCreateDraftAttachmentSection extends StatelessWidget {
                 index: index,
                 isBusy: isBusy,
                 onRemove: () => onRemove(attachments[index].id),
+                onPurposeChanged: (purpose) =>
+                    onPurposeChanged(attachments[index].id, purpose),
               ),
             ),
       ],
@@ -958,6 +1000,7 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
     required this.index,
     required this.isBusy,
     required this.onRemove,
+    required this.onPurposeChanged,
   });
 
   final String keyPrefix;
@@ -965,10 +1008,14 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
   final int index;
   final bool isBusy;
   final VoidCallback onRemove;
+  final ValueChanged<SettleoraBillAttachmentPurpose> onPurposeChanged;
 
   @override
   Widget build(BuildContext context) {
     final purposeLabel = _billAttachmentPurposeLabel(attachment.purpose);
+    final purposeChoices = _billAttachmentPurposeChoicesForContentType(
+      attachment.file.contentType,
+    );
 
     return Semantics(
       label:
@@ -1005,6 +1052,33 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
                     Text(
                       purposeLabel,
                       key: ValueKey('$keyPrefix-attachment-purpose-$index'),
+                    ),
+                    const SizedBox(height: 6),
+                    PopupMenuButton<SettleoraBillAttachmentPurpose>(
+                      key: ValueKey(
+                        '$keyPrefix-attachment-purpose-menu-$index',
+                      ),
+                      enabled: !isBusy,
+                      initialValue: attachment.purpose,
+                      onSelected: onPurposeChanged,
+                      itemBuilder: (context) => [
+                        for (final purpose in purposeChoices)
+                          PopupMenuItem<SettleoraBillAttachmentPurpose>(
+                            key: ValueKey(
+                              '$keyPrefix-attachment-purpose-choice-$index-${_billAttachmentPurposeKeySuffix(purpose)}',
+                            ),
+                            value: purpose,
+                            child: Text(_billAttachmentPurposeLabel(purpose)),
+                          ),
+                      ],
+                      child: Text(
+                        'Change purpose',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: isBusy
+                              ? Theme.of(context).disabledColor
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1673,6 +1747,30 @@ class _SettleoraGroupBillCreateScreenState
     });
   }
 
+  void _changeDraftAttachmentPurpose(
+    int id,
+    SettleoraBillAttachmentPurpose purpose,
+  ) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _attachmentDraftError = null;
+      _attachmentUploadFailure = null;
+      final index = _draftAttachments.indexWhere(
+        (attachment) => attachment.id == id,
+      );
+      if (index < 0) {
+        return;
+      }
+
+      _draftAttachments[index] = _draftAttachments[index].copyWith(
+        purpose: purpose,
+      );
+    });
+  }
+
   Future<void> _save() async {
     if (_isSaving) {
       return;
@@ -2037,6 +2135,7 @@ class _SettleoraGroupBillCreateScreenState
                       isBusy: _isSaving || _isPickingAttachment,
                       onAdd: _addDraftAttachment,
                       onRemove: _removeDraftAttachment,
+                      onPurposeChanged: _changeDraftAttachmentPurpose,
                     ),
                   ],
                 ),
@@ -4052,6 +4151,30 @@ String _billAttachmentPurposeLabel(SettleoraBillAttachmentPurpose purpose) {
       'Supporting attachment',
     _ => 'Attachment',
   };
+}
+
+String _billAttachmentPurposeKeySuffix(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => 'receipt',
+    SettleoraBillAttachmentPurposeValues.supportingAttachment => 'supporting',
+    _ => 'attachment',
+  };
+}
+
+List<SettleoraBillAttachmentPurpose>
+_billAttachmentPurposeChoicesForContentType(String contentType) {
+  final choices = <SettleoraBillAttachmentPurpose>[];
+  if (SettleoraBillAttachmentContentTypeValues.receiptValues.contains(
+    contentType,
+  )) {
+    choices.add(SettleoraBillAttachmentPurposeValues.receipt);
+  }
+  if (SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues
+      .contains(contentType)) {
+    choices.add(SettleoraBillAttachmentPurposeValues.supportingAttachment);
+  }
+
+  return choices;
 }
 
 String? _allocationOrderError(String? value) {

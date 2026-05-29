@@ -600,6 +600,124 @@ void main() {
   );
 
   testWidgets(
+    'create changes one duplicate personal draft attachment purpose locally',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: const [1, 2, 3],
+          ),
+          samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalCreateForm(tester);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('personal-bill-attachment-purpose-menu-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(
+          const ValueKey('personal-bill-attachment-purpose-choice-0-receipt'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey(
+            'personal-bill-attachment-purpose-choice-0-supporting',
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(
+          const ValueKey(
+            'personal-bill-attachment-purpose-choice-0-supporting',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('personal-bill-attachment-purpose-0')),
+            )
+            .data,
+        'Supporting attachment',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('personal-bill-attachment-purpose-1')),
+            )
+            .data,
+        'Receipt',
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('personal-bill-attachment-remove-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('Supporting attachment'), findsNothing);
+      expect(find.text('image/png - 3 bytes'), findsOneWidget);
+
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(attachmentRepository.uploads.single.filename, 'receipt.png');
+      expect(attachmentRepository.uploads.single.contentType, 'image/png');
+      expect(attachmentRepository.uploads.single.bytes, const [4, 5, 6]);
+      expect(
+        attachmentRepository.uploads.single.purpose,
+        SettleoraBillAttachmentPurposeValues.receipt,
+      );
+    },
+  );
+
+  testWidgets(
     'create without selected draft attachments does not call attachment upload',
     (tester) async {
       final repository = FakeBillRepository(
@@ -814,6 +932,13 @@ void main() {
         find.byKey(const ValueKey('personal-bill-attachment-remove-0')),
       );
       expect(removeButton.onPressed, isNull);
+      final purposeMenu = tester
+          .widget<PopupMenuButton<SettleoraBillAttachmentPurpose>>(
+            find.byKey(
+              const ValueKey('personal-bill-attachment-purpose-menu-0'),
+            ),
+          );
+      expect(purposeMenu.enabled, isFalse);
       expect(find.text('1 attachment selected'), findsOneWidget);
 
       attachCompleter.complete();
