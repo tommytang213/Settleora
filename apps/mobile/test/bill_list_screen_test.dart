@@ -274,7 +274,17 @@ void main() {
       expect(find.text('No attachments selected'), findsNothing);
       expect(find.byTooltip('Remove selected bill attachment'), findsOneWidget);
       expect(
-        find.bySemanticsLabel(RegExp('Selected bill attachment.*Receipt')),
+        find.bySemanticsLabel(
+          RegExp(
+            'Selected bill attachment 1.*Filename: local-receipt.png.*'
+            'Content type: image/png.*Size: 3 bytes.*'
+            'Selected purpose: Receipt',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip('Change selected draft attachment 1 purpose'),
         findsOneWidget,
       );
 
@@ -521,6 +531,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('empty-receipt.png'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('personal-bill-attachment-purpose-menu-0')),
+        findsNothing,
+      );
       expect(attachmentRepository.attachCalls, 0);
       expect(attachmentRepository.removeCalls, 0);
 
