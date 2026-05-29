@@ -777,8 +777,10 @@ class _SettleoraPersonalBillCreateScreenState
                     labelText: 'Currency',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) =>
-                      _requiredField(value, 'Enter a currency.'),
+                  validator: (value) => _currencyCodeField(
+                    value,
+                    requiredMessage: 'Enter a currency.',
+                  ),
                 ),
                 const SizedBox(height: 22),
                 Row(
@@ -1185,8 +1187,10 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
                 labelText: 'Amount',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter an item amount.'),
+              validator: (value) => _positiveMoneyAmountField(
+                value,
+                requiredMessage: 'Enter an item amount.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -1199,8 +1203,10 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
                 labelText: 'Currency',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter an item currency.'),
+              validator: (value) => _currencyCodeField(
+                value,
+                requiredMessage: 'Enter an item currency.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -2053,8 +2059,10 @@ class _SettleoraGroupBillCreateScreenState
                         labelText: 'Currency',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) =>
-                          _requiredField(value, 'Enter a currency.'),
+                      validator: (value) => _currencyCodeField(
+                        value,
+                        requiredMessage: 'Enter a currency.',
+                      ),
                     ),
                     const SizedBox(height: 22),
                     Row(
@@ -2358,8 +2366,10 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
                 labelText: 'Amount',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter an item amount.'),
+              validator: (value) => _positiveMoneyAmountField(
+                value,
+                requiredMessage: 'Enter an item amount.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -2372,8 +2382,10 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
                 labelText: 'Currency',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter an item currency.'),
+              validator: (value) => _currencyCodeField(
+                value,
+                requiredMessage: 'Enter an item currency.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -2597,8 +2609,10 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
                 labelText: 'Amount',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter a payer amount.'),
+              validator: (value) => _positiveMoneyAmountField(
+                value,
+                requiredMessage: 'Enter a payer amount.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -2611,8 +2625,10 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
                 labelText: 'Currency',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter a payer currency.'),
+              validator: (value) => _currencyCodeField(
+                value,
+                requiredMessage: 'Enter a payer currency.',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -4163,6 +4179,43 @@ String? _requiredField(String? value, String message) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
     return message;
+  }
+
+  return null;
+}
+
+String? _positiveMoneyAmountField(
+  String? value, {
+  required String requiredMessage,
+}) {
+  final requiredError = _requiredField(value, requiredMessage);
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  final trimmed = value!.trim();
+  final decimalShape = RegExp(r'^\d+(?:\.\d+)?$');
+  if (!decimalShape.hasMatch(trimmed)) {
+    return 'Enter a valid positive amount.';
+  }
+
+  final hasNonZeroDigit = trimmed.contains(RegExp(r'[1-9]'));
+  if (!hasNonZeroDigit) {
+    return 'Enter an amount greater than zero.';
+  }
+
+  return null;
+}
+
+String? _currencyCodeField(String? value, {required String requiredMessage}) {
+  final requiredError = _requiredField(value, requiredMessage);
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  final currency = value!.trim().toUpperCase();
+  if (!RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
+    return 'Use a 3-letter currency code such as USD.';
   }
 
   return null;
