@@ -1684,6 +1684,93 @@ void main() {
   );
 
   testWidgets(
+    'group bill create opens fresh draft attachments after cancel and success',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'cancelled-receipt.png',
+            contentType: 'image/png',
+          ),
+          samplePickedAttachmentFile(
+            filename: 'uploaded-receipt.png',
+            contentType: 'image/png',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('cancelled-receipt.png'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('cancelled-receipt.png'), findsNothing);
+
+      await _fillMinimalGroupCreateForm(tester);
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+      expect(find.text('uploaded-receipt.png'), findsOneWidget);
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(
+        attachmentRepository.uploads.single.filename,
+        'uploaded-receipt.png',
+      );
+      expect(find.text('Group bill'), findsWidgets);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('uploaded-receipt.png'), findsNothing);
+      expect(find.text('cancelled-receipt.png'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'group bill attachment upload failure after create is retryable without duplicate bill create',
     (tester) async {
       await useLargeSurface(tester);
