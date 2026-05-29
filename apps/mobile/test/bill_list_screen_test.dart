@@ -142,6 +142,99 @@ void main() {
     expect(repository.createCalls, 0);
   });
 
+  testWidgets(
+    'create validation rejects invalid money before create or upload',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalCreateForm(tester);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        'twelve',
+      );
+      await _tapSaveBill(tester);
+
+      expect(find.text('Enter a valid positive amount.'), findsOneWidget);
+      expect(repository.createCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('personal-bill-attachment-purpose-menu-0')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '0.00',
+      );
+      await _tapSaveBill(tester);
+
+      expect(find.text('Enter an amount greater than zero.'), findsOneWidget);
+      expect(repository.createCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('receipt.png'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '-1',
+      );
+      await _tapSaveBill(tester);
+
+      expect(find.text('Enter a valid positive amount.'), findsOneWidget);
+      expect(repository.createCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('receipt.png'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '7.50',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-currency')),
+        'USDD',
+      );
+      await _tapSaveBill(tester);
+
+      expect(
+        find.text('Use a 3-letter currency code such as USD.'),
+        findsOneWidget,
+      );
+      expect(repository.createCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('receipt.png'), findsOneWidget);
+    },
+  );
+
   testWidgets('create save sends expected personal bill draft strings', (
     tester,
   ) async {

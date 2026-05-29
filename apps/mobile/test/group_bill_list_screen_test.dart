@@ -1080,6 +1080,139 @@ void main() {
     expect(billRepository.createGroupCalls, 0);
   });
 
+  testWidgets(
+    'group bill create validation rejects invalid money before create or upload',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [
+                sampleMember(displayName: 'Taylor'),
+                sampleMember(
+                  userProfileId: _otherProfileId,
+                  displayName: 'Morgan',
+                ),
+              ],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-method-0-0')),
+        ' exact_amount ',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-basis-0-0')),
+        ' 7.00 ',
+      );
+      await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+      await tester.pumpAndSettle();
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-payer-member-0'),
+        'Morgan',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-amount-0')),
+        ' 12.00 ',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-currency-0')),
+        ' usd ',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-method-0')),
+        ' Cash ',
+      );
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-item-amount-0')),
+        'twelve',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(find.text('Enter a valid positive amount.'), findsOneWidget);
+      expect(billRepository.createGroupCalls, 0);
+      expect(billRepository.createPersonalCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('Trip Crew'), findsWidgets);
+      expect(find.text('Taylor'), findsWidgets);
+      expect(find.text('Morgan'), findsWidgets);
+      expect(find.text('group-receipt.png'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-item-amount-0')),
+        '12.00',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-amount-0')),
+        '0',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(find.text('Enter an amount greater than zero.'), findsOneWidget);
+      expect(billRepository.createGroupCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('group-receipt.png'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-amount-0')),
+        '-1',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(find.text('Enter a valid positive amount.'), findsOneWidget);
+      expect(billRepository.createGroupCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('group-receipt.png'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-payer-amount-0')),
+        '12.00',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-currency')),
+        'US1',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(
+        find.text('Use a 3-letter currency code such as USD.'),
+        findsOneWidget,
+      );
+      expect(billRepository.createGroupCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('group-receipt.png'), findsOneWidget);
+    },
+  );
+
   testWidgets('group bill create member menus use active members only', (
     tester,
   ) async {
