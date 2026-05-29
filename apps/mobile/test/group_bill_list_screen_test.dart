@@ -1261,6 +1261,274 @@ void main() {
   );
 
   testWidgets(
+    'group bill create renders selected draft attachment rows and metadata',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'C:\\Users\\secret\\receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+          samplePickedAttachmentFile(
+            filename: 'support.pdf',
+            contentType: 'application/pdf',
+            bytes: const [7, 8, 9, 10],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('0 attachments selected'), findsOneWidget);
+
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-supporting'),
+      );
+
+      expect(find.text('No attachments selected'), findsNothing);
+      expect(find.text('2 attachments selected'), findsOneWidget);
+      expect(
+        find.byKey(const Key('group-bill-attachments-section')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('group-bill-attachment-name-0')),
+        findsOneWidget,
+      );
+      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('support.pdf'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(find.text('image/png - 3 bytes'), findsOneWidget);
+      expect(find.text('application/pdf - 4 bytes'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('group-bill-attachment-remove-1')),
+        findsOneWidget,
+      );
+      expect(attachmentRepository.removeCalls, 0);
+    },
+  );
+
+  testWidgets('group bill create removing draft attachment keeps form state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFiles: [
+        samplePickedAttachmentFile(
+          filename: 'duplicate-name.png',
+          contentType: 'image/png',
+          bytes: const [1, 2, 3],
+        ),
+        samplePickedAttachmentFile(
+          filename: 'duplicate-name.png',
+          contentType: 'application/pdf',
+          bytes: const [4, 5, 6, 7],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-method-0-0')),
+      ' exact_amount ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-basis-0-0')),
+      ' 7.00 ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-split-order-0-0')),
+      '2',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-member-0'),
+      'Morgan',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-amount-0')),
+      ' 12.00 ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-currency-0')),
+      ' usd ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-method-0')),
+      ' Cash ',
+    );
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-receipt'),
+    );
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-supporting'),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 attachment selected'), findsOneWidget);
+    expect(find.text('duplicate-name.png'), findsOneWidget);
+    expect(find.text('Receipt'), findsNothing);
+    expect(find.text('Supporting attachment'), findsOneWidget);
+    expect(find.text('application/pdf - 4 bytes'), findsOneWidget);
+    expect(attachmentRepository.removeCalls, 0);
+
+    await _tapSaveGroupBill(tester);
+
+    final draft = billRepository.lastGroupCreateDraft;
+    expect(billRepository.createGroupCalls, 1);
+    expect(draft?.merchantName, '  Night Market  ');
+    expect(draft?.billDate, '  2026-05-23  ');
+    expect(draft?.currency, ' usd ');
+    expect(draft?.items.single.name, '  Noodles  ');
+    expect(draft?.items.single.note, ' shared bowl ');
+    expect(draft?.items.single.amount, ' 12.00 ');
+    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.splits.single.userProfileId, _profileId);
+    expect(draft?.items.single.splits.single.splitMethod, ' exact_amount ');
+    expect(draft?.items.single.splits.single.basisValue, ' 7.00 ');
+    expect(draft?.items.single.splits.single.allocationOrder, 2);
+    expect(draft?.payers.single.userProfileId, _otherProfileId);
+    expect(draft?.payers.single.amount, ' 12.00 ');
+    expect(draft?.payers.single.currency, ' usd ');
+    expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
+    expect(attachmentRepository.attachCalls, 1);
+    expect(attachmentRepository.removeCalls, 0);
+    expect(attachmentRepository.uploads.single.filename, 'duplicate-name.png');
+    expect(attachmentRepository.uploads.single.contentType, 'application/pdf');
+    expect(attachmentRepository.uploads.single.bytes, const [4, 5, 6, 7]);
+    expect(
+      attachmentRepository.uploads.single.purpose,
+      SettleoraBillAttachmentPurposeValues.supportingAttachment,
+    );
+  });
+
+  testWidgets(
+    'group bill create removing last draft attachment restores empty state',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'receipt.png',
+          contentType: 'image/png',
+          bytes: const [1, 2, 3],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 attachment selected'), findsNothing);
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('receipt.png'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+        findsNothing,
+      );
+      expect(attachmentRepository.removeCalls, 0);
+    },
+  );
+
+  testWidgets(
     'group bill create uploads selected draft attachments after create succeeds',
     (tester) async {
       await useLargeSurface(tester);
