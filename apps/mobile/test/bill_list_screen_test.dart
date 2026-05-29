@@ -815,6 +815,7 @@ void main() {
     'attachment upload failure after create is retryable without duplicate bill create',
     (tester) async {
       await useLargeSurface(tester);
+      final semantics = tester.ensureSemantics();
       final repository = FakeBillRepository(
         createdDetail: sampleBillDetail(id: _createdBillId),
       );
@@ -867,6 +868,15 @@ void main() {
         find.byKey(const Key('personal-bill-create-attachment-upload-failure')),
         findsOneWidget,
       );
+      final failureBanner = tester.widget<Semantics>(
+        find.byKey(const Key('personal-bill-create-attachment-upload-failure')),
+      );
+      expect(failureBanner.properties.liveRegion, isTrue);
+      expect(
+        failureBanner.properties.label,
+        contains('Bill created, but some attachments were not uploaded.'),
+      );
+      expect(failureBanner.properties.label, isNot(contains('create failed')));
       expect(
         find.textContaining(
           'Bill created, but some attachments were not uploaded.',
@@ -876,7 +886,11 @@ void main() {
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('support.pdf'), findsOneWidget);
       expect(find.text('receipt.png'), findsNothing);
-      expect(find.text('Retry attachment upload'), findsOneWidget);
+      expect(find.text('Retry remaining attachment uploads'), findsOneWidget);
+      expect(
+        find.byTooltip('Retry remaining attachment uploads'),
+        findsOneWidget,
+      );
 
       await _tapSaveBill(tester);
 
@@ -886,6 +900,7 @@ void main() {
       expect(find.text('Bill'), findsOneWidget);
       expect(find.text('Supporting attachment'), findsOneWidget);
       expect(find.text('1 attachment selected'), findsNothing);
+      semantics.dispose();
     },
   );
 
