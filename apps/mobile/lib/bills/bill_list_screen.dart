@@ -801,12 +801,9 @@ class _SettleoraPersonalBillCreateScreenState
                 ),
                 if (itemListError != null) ...[
                   const SizedBox(height: 6),
-                  Text(
-                    itemListError,
-                    key: const Key('personal-bill-item-list-error'),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+                  _CreateBillValidationMessage(
+                    message: itemListError,
+                    messageKey: const Key('personal-bill-item-list-error'),
                   ),
                 ],
                 const SizedBox(height: 10),
@@ -1237,22 +1234,54 @@ class _CreateBillFailureBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final message = '${failure.title}: ${failure.message}';
+
+    return Semantics(
       key: bannerKey,
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline),
-            const SizedBox(width: 10),
-            Expanded(child: Text('${failure.title}: ${failure.message}')),
-          ],
+      container: true,
+      liveRegion: true,
+      label: message,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.error),
+          borderRadius: BorderRadius.circular(8),
         ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message, semanticsLabel: message)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateBillValidationMessage extends StatelessWidget {
+  const _CreateBillValidationMessage({
+    required this.message,
+    required this.messageKey,
+  });
+
+  final String message;
+  final Key messageKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      key: messageKey,
+      container: true,
+      liveRegion: true,
+      label: message,
+      child: Text(
+        message,
+        semanticsLabel: message,
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
       ),
     );
   }
@@ -2141,12 +2170,9 @@ class _SettleoraGroupBillCreateScreenState
                     ),
                     if (itemListError != null) ...[
                       const SizedBox(height: 6),
-                      Text(
-                        itemListError,
-                        key: const Key('group-bill-item-list-error'),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                      _CreateBillValidationMessage(
+                        message: itemListError,
+                        messageKey: const Key('group-bill-item-list-error'),
                       ),
                     ],
                     const SizedBox(height: 10),
@@ -2167,12 +2193,9 @@ class _SettleoraGroupBillCreateScreenState
                       ),
                     if (splitTotalError != null) ...[
                       const SizedBox(height: 10),
-                      Text(
-                        splitTotalError,
-                        key: const Key('group-bill-split-total-error'),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                      _CreateBillValidationMessage(
+                        message: splitTotalError,
+                        messageKey: const Key('group-bill-split-total-error'),
                       ),
                     ],
                     const SizedBox(height: 10),
@@ -2223,12 +2246,9 @@ class _SettleoraGroupBillCreateScreenState
                         ),
                     if (payerTotalError != null) ...[
                       const SizedBox(height: 10),
-                      Text(
-                        payerTotalError,
-                        key: const Key('group-bill-payer-total-error'),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                      _CreateBillValidationMessage(
+                        message: payerTotalError,
+                        messageKey: const Key('group-bill-payer-total-error'),
                       ),
                     ],
                     const SizedBox(height: 22),
