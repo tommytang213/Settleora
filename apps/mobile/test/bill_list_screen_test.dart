@@ -385,6 +385,135 @@ void main() {
   );
 
   testWidgets(
+    'create rejects invalid draft attachment and preserves personal form state',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Brunch Spot',
+        ),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: SettleoraPickedBillAttachmentFile(
+          filename: 'empty-receipt.png',
+          contentType: 'image/png',
+          bytes: const [],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-merchant-name')),
+        'Brunch Spot',
+      );
+      await _fillMinimalCreateForm(tester);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+
+      expect(fileInput.pickCalls, 1);
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(
+        find.text('Choose a non-empty file before uploading an attachment.'),
+        findsOneWidget,
+      );
+      expect(find.text('empty-receipt.png'), findsNothing);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(attachmentRepository.removeCalls, 0);
+
+      await _tapSaveBill(tester);
+
+      final draft = repository.lastCreateDraft;
+      expect(repository.createCalls, 1);
+      expect(draft?.merchantName, 'Brunch Spot');
+      expect(draft?.billDate, '2026-05-23');
+      expect(draft?.items.single.name, 'Coffee');
+      expect(attachmentRepository.attachCalls, 0);
+      expect(attachmentRepository.removeCalls, 0);
+    },
+  );
+
+  testWidgets(
+    'create keeps duplicate filenames as separate personal draft attachments',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: const [1, 2, 3],
+          ),
+          samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalCreateForm(tester);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+
+      expect(find.text('2 attachments selected'), findsOneWidget);
+      expect(find.text('receipt.png'), findsNWidgets(2));
+
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(attachmentRepository.attachCalls, 2);
+      expect(attachmentRepository.uploads.map((upload) => upload.filename), [
+        'receipt.png',
+        'receipt.png',
+      ]);
+      expect(attachmentRepository.uploads[0].bytes, const [1, 2, 3]);
+      expect(attachmentRepository.uploads[1].bytes, const [4, 5, 6]);
+    },
+  );
+
+  testWidgets(
     'create without selected draft attachments does not call attachment upload',
     (tester) async {
       final repository = FakeBillRepository(
