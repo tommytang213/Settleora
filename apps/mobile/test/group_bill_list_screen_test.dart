@@ -1260,6 +1260,182 @@ void main() {
     },
   );
 
+  testWidgets(
+    'group bill create uploads selected draft attachments after create succeeds',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'C:\\Users\\secret\\receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+          samplePickedAttachmentFile(
+            filename: 'support.pdf',
+            contentType: 'application/pdf',
+            bytes: const [7, 8, 9],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-supporting'),
+      );
+
+      expect(find.text('2 attachments selected'), findsOneWidget);
+
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 2);
+      expect(attachmentRepository.uploadRoutes.map((route) => route.groupId), [
+        _groupId,
+        _groupId,
+      ]);
+      expect(attachmentRepository.uploadRoutes.map((route) => route.billId), [
+        _createdBillId,
+        _createdBillId,
+      ]);
+      expect(attachmentRepository.uploads[0].purpose, 'receipt');
+      expect(attachmentRepository.uploads[0].filename, 'receipt.png');
+      expect(attachmentRepository.uploads[0].contentType, 'image/png');
+      expect(attachmentRepository.uploads[0].bytes, const [4, 5, 6]);
+      expect(
+        attachmentRepository.uploads[1].purpose,
+        SettleoraBillAttachmentPurposeValues.supportingAttachment,
+      );
+      expect(attachmentRepository.uploads[1].filename, 'support.pdf');
+      expect(attachmentRepository.uploads[1].contentType, 'application/pdf');
+      expect(attachmentRepository.uploads[1].bytes, const [7, 8, 9]);
+      expect(find.text('Group bill'), findsWidgets);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(
+        find.byKey(const Key('group-bill-attachments-section')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'group bill attachment upload failure after create is retryable without duplicate bill create',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachFailuresByCall: const {
+          2: SettleoraBillAttachmentFailure(
+            kind: SettleoraBillAttachmentFailureKind.server,
+            message: 'Attachments are unavailable right now. Try again later.',
+          ),
+        },
+      );
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+          ),
+          samplePickedAttachmentFile(filename: 'support.pdf'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-supporting'),
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 2);
+      expect(
+        find.byKey(const Key('group-bill-create-attachment-upload-failure')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'Bill created, but some attachments were not uploaded.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('support.pdf'), findsOneWidget);
+      expect(find.text('receipt.png'), findsNothing);
+      expect(find.text('Retry attachment upload'), findsOneWidget);
+
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 3);
+      expect(attachmentRepository.uploads.last.filename, 'support.pdf');
+      expect(attachmentRepository.uploadRoutes.last.groupId, _groupId);
+      expect(attachmentRepository.uploadRoutes.last.billId, _createdBillId);
+      expect(find.text('Group bill'), findsWidgets);
+      expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(find.text('1 attachment selected'), findsNothing);
+    },
+  );
+
   testWidgets('group bill create failure shows bounded safe copy', (
     tester,
   ) async {
@@ -1387,6 +1563,20 @@ Future<void> _chooseDropdownValue(
   await tester.pumpAndSettle();
 }
 
+Future<void> _addGroupDraftAttachment(
+  WidgetTester tester,
+  Key purposeKey,
+) async {
+  await tester.ensureVisible(
+    find.byKey(const Key('group-bill-attachment-add')),
+  );
+  await tester.tap(find.byKey(const Key('group-bill-attachment-add')));
+  await tester.pump(const Duration(milliseconds: 300));
+  final purposeTile = tester.widget<ListTile>(find.byKey(purposeKey));
+  purposeTile.onTap?.call();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _tapSaveGroupBill(WidgetTester tester) async {
   await tester.ensureVisible(find.byKey(const Key('group-bill-save')));
   await tester.tap(find.byKey(const Key('group-bill-save')));
@@ -1490,6 +1680,7 @@ class FakeBillAttachmentRepository
     this.downloadFailure,
     this.downloadCompleter,
     this.attachFailure,
+    this.attachFailuresByCall = const {},
     this.attachCompleter,
     this.removeFailure,
     this.removeCompleter,
@@ -1503,6 +1694,7 @@ class FakeBillAttachmentRepository
   final SettleoraBillAttachmentFailure? downloadFailure;
   final Completer<void>? downloadCompleter;
   final SettleoraBillAttachmentFailure? attachFailure;
+  final Map<int, SettleoraBillAttachmentFailure> attachFailuresByCall;
   final Completer<void>? attachCompleter;
   final SettleoraBillAttachmentFailure? removeFailure;
   final Completer<void>? removeCompleter;
@@ -1512,6 +1704,8 @@ class FakeBillAttachmentRepository
   int downloadCalls = 0;
   SettleoraBillAttachmentRoute? lastRoute;
   SettleoraBillAttachmentUpload? lastUpload;
+  final List<SettleoraBillAttachmentRoute> uploadRoutes = [];
+  final List<SettleoraBillAttachmentUpload> uploads = [];
   String? lastRemovedFileId;
   String? lastDownloadedFileId;
 
@@ -1523,14 +1717,22 @@ class FakeBillAttachmentRepository
     attachCalls += 1;
     lastRoute = route;
     lastUpload = upload;
+    uploadRoutes.add(route);
+    uploads.add(upload);
     final failure = attachFailure;
     if (failure != null) {
       throw failure;
     }
+    final callFailure = attachFailuresByCall[attachCalls];
+    if (callFailure != null) {
+      throw callFailure;
+    }
     await attachCompleter?.future;
 
     final attachment = SettleoraBillAttachment(
-      fileId: _uploadedFileId,
+      fileId: attachCalls == 1
+          ? _uploadedFileId
+          : '$_uploadedFileId-$attachCalls',
       billId: route.billId,
       purpose: upload.purpose,
       contentType: upload.contentType,
@@ -1603,9 +1805,14 @@ class FakeBillAttachmentRepository
 }
 
 class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
-  FakeBillAttachmentFileInput({this.pickedFile, this.failure});
+  FakeBillAttachmentFileInput({
+    this.pickedFile,
+    this.pickedFiles = const [],
+    this.failure,
+  });
 
   final SettleoraPickedBillAttachmentFile? pickedFile;
+  final List<SettleoraPickedBillAttachmentFile> pickedFiles;
   final SettleoraBillAttachmentFileInputFailure? failure;
   int pickCalls = 0;
   Set<String>? lastAllowedContentTypes;
@@ -1619,6 +1826,10 @@ class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
     final failure = this.failure;
     if (failure != null) {
       throw failure;
+    }
+
+    if (pickCalls <= pickedFiles.length) {
+      return pickedFiles[pickCalls - 1];
     }
 
     return pickedFile;

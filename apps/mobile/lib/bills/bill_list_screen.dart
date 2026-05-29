@@ -363,7 +363,7 @@ class _SettleoraPersonalBillCreateScreenState
   final _billDateController = TextEditingController();
   final _currencyController = TextEditingController(text: 'USD');
   final List<_PersonalBillCreateItemControllers> _itemControllers = [];
-  final List<_PersonalBillDraftAttachment> _draftAttachments = [];
+  final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
   bool _isPickingAttachment = false;
   String? _itemListError;
@@ -447,7 +447,7 @@ class _SettleoraPersonalBillCreateScreenState
 
       setState(() {
         _draftAttachments.add(
-          _PersonalBillDraftAttachment(
+          _BillCreateDraftAttachment(
             id: _nextDraftAttachmentId,
             file: pickedFile,
             purpose: purpose,
@@ -635,7 +635,7 @@ class _SettleoraPersonalBillCreateScreenState
     });
 
     final route = SettleoraBillAttachmentRoute.personal(createdBill.id);
-    final pendingUploads = List<_PersonalBillDraftAttachment>.of(
+    final pendingUploads = List<_BillCreateDraftAttachment>.of(
       _draftAttachments,
     );
     final uploadedDraftIds = <int>{};
@@ -790,7 +790,8 @@ class _SettleoraPersonalBillCreateScreenState
                     ),
                   ),
                 const SizedBox(height: 10),
-                _PersonalBillDraftAttachmentSection(
+                _BillCreateDraftAttachmentSection(
+                  keyPrefix: 'personal-bill',
                   attachments: _draftAttachments,
                   errorText: _attachmentDraftError,
                   canAdd:
@@ -845,8 +846,8 @@ class _PersonalBillCreateItemControllers {
   }
 }
 
-class _PersonalBillDraftAttachment {
-  const _PersonalBillDraftAttachment({
+class _BillCreateDraftAttachment {
+  const _BillCreateDraftAttachment({
     required this.id,
     required this.file,
     required this.purpose,
@@ -857,8 +858,9 @@ class _PersonalBillDraftAttachment {
   final SettleoraBillAttachmentPurpose purpose;
 }
 
-class _PersonalBillDraftAttachmentSection extends StatelessWidget {
-  const _PersonalBillDraftAttachmentSection({
+class _BillCreateDraftAttachmentSection extends StatelessWidget {
+  const _BillCreateDraftAttachmentSection({
+    required this.keyPrefix,
     required this.attachments,
     required this.errorText,
     required this.canAdd,
@@ -867,7 +869,8 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
     required this.onRemove,
   });
 
-  final List<_PersonalBillDraftAttachment> attachments;
+  final String keyPrefix;
+  final List<_BillCreateDraftAttachment> attachments;
   final String? errorText;
   final bool canAdd;
   final bool isBusy;
@@ -879,7 +882,7 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
     final attachmentCount = attachments.length;
 
     return Column(
-      key: const Key('personal-bill-attachments-section'),
+      key: Key('$keyPrefix-attachments-section'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
@@ -891,7 +894,7 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
               ),
             ),
             TextButton.icon(
-              key: const Key('personal-bill-attachment-add'),
+              key: Key('$keyPrefix-attachment-add'),
               onPressed: canAdd && !isBusy ? onAdd : null,
               icon: isBusy
                   ? const SizedBox.square(
@@ -908,14 +911,14 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
           attachmentCount == 1
               ? '1 attachment selected'
               : '$attachmentCount attachments selected',
-          key: const Key('personal-bill-attachment-count'),
+          key: Key('$keyPrefix-attachment-count'),
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         if (errorText != null) ...[
           const SizedBox(height: 6),
           Text(
             errorText!,
-            key: const Key('personal-bill-attachment-error'),
+            key: Key('$keyPrefix-attachment-error'),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
@@ -930,7 +933,8 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
           for (var index = 0; index < attachments.length; index += 1)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _PersonalBillDraftAttachmentTile(
+              child: _BillCreateDraftAttachmentTile(
+                keyPrefix: keyPrefix,
                 attachment: attachments[index],
                 index: index,
                 isBusy: isBusy,
@@ -942,15 +946,17 @@ class _PersonalBillDraftAttachmentSection extends StatelessWidget {
   }
 }
 
-class _PersonalBillDraftAttachmentTile extends StatelessWidget {
-  const _PersonalBillDraftAttachmentTile({
+class _BillCreateDraftAttachmentTile extends StatelessWidget {
+  const _BillCreateDraftAttachmentTile({
+    required this.keyPrefix,
     required this.attachment,
     required this.index,
     required this.isBusy,
     required this.onRemove,
   });
 
-  final _PersonalBillDraftAttachment attachment;
+  final String keyPrefix;
+  final _BillCreateDraftAttachment attachment;
   final int index;
   final bool isBusy;
   final VoidCallback onRemove;
@@ -987,13 +993,13 @@ class _PersonalBillDraftAttachmentTile extends StatelessWidget {
                   children: [
                     Text(
                       attachment.file.filename,
-                      key: ValueKey('personal-bill-attachment-name-$index'),
+                      key: ValueKey('$keyPrefix-attachment-name-$index'),
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       purposeLabel,
-                      key: ValueKey('personal-bill-attachment-purpose-$index'),
+                      key: ValueKey('$keyPrefix-attachment-purpose-$index'),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1003,7 +1009,7 @@ class _PersonalBillDraftAttachmentTile extends StatelessWidget {
                 ),
               ),
               IconButton(
-                key: ValueKey('personal-bill-attachment-remove-$index'),
+                key: ValueKey('$keyPrefix-attachment-remove-$index'),
                 onPressed: isBusy ? null : onRemove,
                 tooltip: 'Remove selected bill attachment',
                 icon: const Icon(Icons.remove_circle_outline),
@@ -1151,14 +1157,20 @@ class _CreateBillFailureBanner extends StatelessWidget {
 }
 
 class _CreateBillAttachmentUploadFailureBanner extends StatelessWidget {
-  const _CreateBillAttachmentUploadFailureBanner({required this.failure});
+  const _CreateBillAttachmentUploadFailureBanner({
+    required this.failure,
+    this.bannerKey = const Key(
+      'personal-bill-create-attachment-upload-failure',
+    ),
+  });
 
   final SettleoraBillAttachmentFailure failure;
+  final Key bannerKey;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      key: const Key('personal-bill-create-attachment-upload-failure'),
+      key: bannerKey,
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.error),
         borderRadius: BorderRadius.circular(8),
@@ -1282,6 +1294,8 @@ class _SettleoraGroupBillListScreenState
           groupRepository: widget.groupRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
+          attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
         ),
       ),
     );
@@ -1393,12 +1407,16 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.attachmentRepository,
+    this.attachmentFileInput,
   });
 
   final SettleoraBillRepository billRepository;
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
+  final SettleoraBillAttachmentFileInput? attachmentFileInput;
 
   @override
   State<SettleoraGroupBillCreateScreen> createState() =>
@@ -1413,12 +1431,18 @@ class _SettleoraGroupBillCreateScreenState
   final _currencyController = TextEditingController(text: 'USD');
   final List<_GroupBillCreateItemControllers> _itemControllers = [];
   final List<_GroupBillCreatePayerControllers> _payerControllers = [];
+  final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isLoadingMembers = true;
   bool _isSaving = false;
+  bool _isPickingAttachment = false;
   List<SettleoraGroupMember> _members = const [];
   SettleoraGroupFailure? _memberFailure;
   SettleoraBillFailure? _failure;
+  SettleoraBillAttachmentFailure? _attachmentUploadFailure;
+  SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
   String? _itemListError;
+  String? _attachmentDraftError;
+  int _nextDraftAttachmentId = 0;
 
   @override
   void initState() {
@@ -1521,9 +1545,138 @@ class _SettleoraGroupBillCreateScreenState
     });
   }
 
+  Future<void> _addDraftAttachment() async {
+    final fileInput = widget.attachmentFileInput;
+    if (fileInput == null || _isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      final purpose = await _selectDraftAttachmentPurpose();
+      if (!mounted || purpose == null) {
+        return;
+      }
+
+      final pickedFile = await fileInput.pickAttachmentFile(
+        allowedContentTypes: billAttachmentUploadContentTypesForPurpose(
+          purpose,
+        ),
+      );
+      if (!mounted || pickedFile == null) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
+            id: _nextDraftAttachmentId,
+            file: pickedFile,
+            purpose: purpose,
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError =
+            'The attachment could not be selected. Try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
+  }
+
+  Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
+    return showModalBottomSheet<SettleoraBillAttachmentPurpose>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Add attachment as',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('group-bill-attachment-purpose-receipt'),
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Receipt'),
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(SettleoraBillAttachmentPurposeValues.receipt),
+              ),
+              ListTile(
+                key: const Key('group-bill-attachment-purpose-supporting'),
+                leading: const Icon(Icons.attach_file_outlined),
+                title: const Text('Supporting attachment'),
+                onTap: () => Navigator.of(context).pop(
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                key: const Key('group-bill-attachment-purpose-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _removeDraftAttachment(int id) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _attachmentDraftError = null;
+      _attachmentUploadFailure = null;
+      _draftAttachments.removeWhere((attachment) => attachment.id == id);
+    });
+  }
+
   Future<void> _save() async {
+    if (_isSaving) {
+      return;
+    }
+
+    final existingCreatedBill = _createdBillAwaitingAttachmentUpload;
+    if (existingCreatedBill != null) {
+      await _finishAttachmentUploads(existingCreatedBill);
+      return;
+    }
+
     setState(() {
       _failure = null;
+      _attachmentUploadFailure = null;
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
@@ -1585,7 +1738,15 @@ class _SettleoraGroupBillCreateScreenState
         return;
       }
 
-      Navigator.of(context).pop(createdBill);
+      if (_draftAttachments.isEmpty) {
+        Navigator.of(context).pop(createdBill);
+        return;
+      }
+
+      setState(() {
+        _createdBillAwaitingAttachmentUpload = createdBill;
+      });
+      await _finishAttachmentUploads(createdBill);
     } catch (error) {
       if (!mounted) {
         return;
@@ -1598,11 +1759,89 @@ class _SettleoraGroupBillCreateScreenState
     }
   }
 
+  Future<void> _finishAttachmentUploads(SettleoraBillDetail createdBill) async {
+    final attachmentRepository = widget.attachmentRepository;
+    if (attachmentRepository == null) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentUploadFailure = const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.unavailable,
+          message:
+              'The bill was created, but attachments cannot be uploaded right now.',
+        );
+        _createdBillAwaitingAttachmentUpload = createdBill;
+        _isSaving = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+      _attachmentUploadFailure = null;
+      _attachmentDraftError = null;
+    });
+
+    final route = SettleoraBillAttachmentRoute.group(
+      groupId: widget.groupId,
+      billId: createdBill.id,
+    );
+    final pendingUploads = List<_BillCreateDraftAttachment>.of(
+      _draftAttachments,
+    );
+    final uploadedDraftIds = <int>{};
+
+    try {
+      for (final attachment in pendingUploads) {
+        await attachmentRepository.attachAttachment(
+          route,
+          SettleoraBillAttachmentUpload(
+            bytes: attachment.file.bytes,
+            filename: attachment.file.filename,
+            contentType: attachment.file.contentType,
+            purpose: attachment.purpose,
+          ),
+        );
+        uploadedDraftIds.add(attachment.id);
+      }
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.clear();
+        _createdBillAwaitingAttachmentUpload = null;
+        _isSaving = false;
+      });
+      Navigator.of(context).pop(createdBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.removeWhere(
+          (attachment) => uploadedDraftIds.contains(attachment.id),
+        );
+        _attachmentUploadFailure = SettleoraBillAttachmentFailure.from(error);
+        _createdBillAwaitingAttachmentUpload = createdBill;
+        _isSaving = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
     final memberFailure = _memberFailure;
+    final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final saveLabel = _createdBillAwaitingAttachmentUpload == null
+        ? 'Save group bill'
+        : 'Retry attachment upload';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create group bill')),
@@ -1633,6 +1872,15 @@ class _SettleoraGroupBillCreateScreenState
                       _CreateBillFailureBanner(
                         failure: failure,
                         bannerKey: const Key('group-bill-create-failure'),
+                      ),
+                    ],
+                    if (attachmentUploadFailure != null) ...[
+                      const SizedBox(height: 16),
+                      _CreateBillAttachmentUploadFailureBanner(
+                        failure: attachmentUploadFailure,
+                        bannerKey: const Key(
+                          'group-bill-create-attachment-upload-failure',
+                        ),
                       ),
                     ],
                     const SizedBox(height: 18),
@@ -1768,6 +2016,18 @@ class _SettleoraGroupBillCreateScreenState
                             onRemove: () => _removePayer(index),
                           ),
                         ),
+                    const SizedBox(height: 22),
+                    _BillCreateDraftAttachmentSection(
+                      keyPrefix: 'group-bill',
+                      attachments: _draftAttachments,
+                      errorText: _attachmentDraftError,
+                      canAdd:
+                          widget.attachmentFileInput != null &&
+                          widget.attachmentRepository != null,
+                      isBusy: _isSaving || _isPickingAttachment,
+                      onAdd: _addDraftAttachment,
+                      onRemove: _removeDraftAttachment,
+                    ),
                   ],
                 ),
               ),
@@ -1788,7 +2048,7 @@ class _SettleoraGroupBillCreateScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.check),
-                  label: const Text('Save group bill'),
+                  label: Text(saveLabel),
                 ),
               ),
             )
