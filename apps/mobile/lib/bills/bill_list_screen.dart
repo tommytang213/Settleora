@@ -201,6 +201,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
       MaterialPageRoute(
         builder: (_) => SettleoraPersonalBillCreateScreen(
           repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
         ),
       ),
@@ -342,10 +343,12 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   const SettleoraPersonalBillCreateScreen({
     super.key,
     required this.repository,
+    this.attachmentRepository,
     this.attachmentFileInput,
   });
 
   final SettleoraBillRepository repository;
+  final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
 
   @override
@@ -366,6 +369,8 @@ class _SettleoraPersonalBillCreateScreenState
   String? _itemListError;
   String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
+  SettleoraBillAttachmentFailure? _attachmentUploadFailure;
+  SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
   int _nextDraftAttachmentId = 0;
 
   @override
@@ -527,13 +532,25 @@ class _SettleoraPersonalBillCreateScreenState
 
     setState(() {
       _attachmentDraftError = null;
+      _attachmentUploadFailure = null;
       _draftAttachments.removeWhere((attachment) => attachment.id == id);
     });
   }
 
   Future<void> _save() async {
+    if (_isSaving) {
+      return;
+    }
+
+    final existingCreatedBill = _createdBillAwaitingAttachmentUpload;
+    if (existingCreatedBill != null) {
+      await _finishAttachmentUploads(existingCreatedBill);
+      return;
+    }
+
     setState(() {
       _failure = null;
+      _attachmentUploadFailure = null;
       _itemListError = _itemControllers.isEmpty
           ? 'Add at least one item before saving.'
           : null;
@@ -570,7 +587,15 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
 
-      Navigator.of(context).pop(createdBill);
+      if (_draftAttachments.isEmpty) {
+        Navigator.of(context).pop(createdBill);
+        return;
+      }
+
+      setState(() {
+        _createdBillAwaitingAttachmentUpload = createdBill;
+      });
+      await _finishAttachmentUploads(createdBill);
     } catch (error) {
       if (!mounted) {
         return;
@@ -583,10 +608,85 @@ class _SettleoraPersonalBillCreateScreenState
     }
   }
 
+  Future<void> _finishAttachmentUploads(SettleoraBillDetail createdBill) async {
+    final attachmentRepository = widget.attachmentRepository;
+    if (attachmentRepository == null) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentUploadFailure = const SettleoraBillAttachmentFailure(
+          kind: SettleoraBillAttachmentFailureKind.unavailable,
+          message:
+              'The bill was created, but attachments cannot be uploaded right now.',
+        );
+        _createdBillAwaitingAttachmentUpload = createdBill;
+        _isSaving = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+      _attachmentUploadFailure = null;
+      _attachmentDraftError = null;
+    });
+
+    final route = SettleoraBillAttachmentRoute.personal(createdBill.id);
+    final pendingUploads = List<_PersonalBillDraftAttachment>.of(
+      _draftAttachments,
+    );
+    final uploadedDraftIds = <int>{};
+
+    try {
+      for (final attachment in pendingUploads) {
+        await attachmentRepository.attachAttachment(
+          route,
+          SettleoraBillAttachmentUpload(
+            bytes: attachment.file.bytes,
+            filename: attachment.file.filename,
+            contentType: attachment.file.contentType,
+            purpose: attachment.purpose,
+          ),
+        );
+        uploadedDraftIds.add(attachment.id);
+      }
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.clear();
+        _createdBillAwaitingAttachmentUpload = null;
+        _isSaving = false;
+      });
+      Navigator.of(context).pop(createdBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _draftAttachments.removeWhere(
+          (attachment) => uploadedDraftIds.contains(attachment.id),
+        );
+        _attachmentUploadFailure = SettleoraBillAttachmentFailure.from(error);
+        _createdBillAwaitingAttachmentUpload = createdBill;
+        _isSaving = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
+    final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final saveLabel = _createdBillAwaitingAttachmentUpload == null
+        ? 'Save bill'
+        : 'Retry attachment upload';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create bill')),
@@ -600,6 +700,12 @@ class _SettleoraPersonalBillCreateScreenState
               children: [
                 if (failure != null) ...[
                   _CreateBillFailureBanner(failure: failure),
+                  const SizedBox(height: 16),
+                ],
+                if (attachmentUploadFailure != null) ...[
+                  _CreateBillAttachmentUploadFailureBanner(
+                    failure: attachmentUploadFailure,
+                  ),
                   const SizedBox(height: 16),
                 ],
                 Text(
@@ -687,7 +793,9 @@ class _SettleoraPersonalBillCreateScreenState
                 _PersonalBillDraftAttachmentSection(
                   attachments: _draftAttachments,
                   errorText: _attachmentDraftError,
-                  canAdd: widget.attachmentFileInput != null,
+                  canAdd:
+                      widget.attachmentFileInput != null &&
+                      widget.attachmentRepository != null,
                   isBusy: _isSaving || _isPickingAttachment,
                   onAdd: _addDraftAttachment,
                   onRemove: _removeDraftAttachment,
@@ -709,7 +817,7 @@ class _SettleoraPersonalBillCreateScreenState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.check),
-            label: const Text('Save bill'),
+            label: Text(saveLabel),
           ),
         ),
       ),
@@ -1035,6 +1143,39 @@ class _CreateBillFailureBanner extends StatelessWidget {
             const Icon(Icons.info_outline),
             const SizedBox(width: 10),
             Expanded(child: Text('${failure.title}: ${failure.message}')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateBillAttachmentUploadFailureBanner extends StatelessWidget {
+  const _CreateBillAttachmentUploadFailureBanner({required this.failure});
+
+  final SettleoraBillAttachmentFailure failure;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const Key('personal-bill-create-attachment-upload-failure'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Bill created, but some attachments were not uploaded. '
+                '${failure.title}: ${failure.message}',
+              ),
+            ),
           ],
         ),
       ),
