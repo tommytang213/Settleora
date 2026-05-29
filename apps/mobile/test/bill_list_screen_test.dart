@@ -385,6 +385,92 @@ void main() {
   );
 
   testWidgets(
+    'create opens fresh draft attachments after cancel and successful upload',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Brunch Spot',
+          billDate: '2026-05-23',
+          totalAmount: '12.30',
+          totalCurrency: 'USD',
+        ),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFiles: [
+          samplePickedAttachmentFile(
+            filename: 'cancelled-receipt.png',
+            contentType: 'image/png',
+          ),
+          samplePickedAttachmentFile(
+            filename: 'uploaded-receipt.png',
+            contentType: 'image/png',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+      expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('cancelled-receipt.png'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('cancelled-receipt.png'), findsNothing);
+
+      await _fillMinimalCreateForm(tester);
+      await _addDraftAttachment(
+        tester,
+        const Key('personal-bill-attachment-purpose-receipt'),
+      );
+      expect(find.text('uploaded-receipt.png'), findsOneWidget);
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(
+        attachmentRepository.uploads.single.filename,
+        'uploaded-receipt.png',
+      );
+      expect(find.text('Bill'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 attachments selected'), findsOneWidget);
+      expect(find.text('No attachments selected'), findsOneWidget);
+      expect(find.text('uploaded-receipt.png'), findsNothing);
+      expect(find.text('cancelled-receipt.png'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'create rejects invalid draft attachment and preserves personal form state',
     (tester) async {
       await useLargeSurface(tester);
