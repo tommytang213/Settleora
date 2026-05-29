@@ -1271,6 +1271,10 @@ void main() {
       expect(billRepository.createGroupCalls, 0);
       expect(billRepository.createPersonalCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
+      expect(
+        find.text('Split amounts must add up to the item total before saving.'),
+        findsNothing,
+      );
       expect(find.text('Trip Crew'), findsWidgets);
       expect(find.text('Taylor'), findsWidgets);
       expect(find.text('Morgan'), findsWidgets);
@@ -1279,6 +1283,94 @@ void main() {
 
       await tester.enterText(
         find.byKey(const Key('group-bill-payer-amount-0')),
+        '12.00',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+    },
+  );
+
+  testWidgets(
+    'group bill create validation blocks split total mismatch before create or upload',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [
+                sampleMember(displayName: 'Taylor'),
+                sampleMember(
+                  userProfileId: _otherProfileId,
+                  displayName: 'Morgan',
+                ),
+              ],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: fileInput,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-method-0-0')),
+        ' exact_amount ',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-basis-0-0')),
+        '11.99',
+      );
+      await _addSingleGroupPayer(tester, amount: '12.00');
+      await _addGroupDraftAttachment(
+        tester,
+        const Key('group-bill-attachment-purpose-receipt'),
+      );
+
+      await _tapSaveGroupBill(tester);
+
+      expect(
+        find.text('Split amounts must add up to the item total before saving.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('group-bill-split-total-error')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Payer amounts must add up to the item total before saving.'),
+        findsNothing,
+      );
+      expect(billRepository.createGroupCalls, 0);
+      expect(billRepository.createPersonalCalls, 0);
+      expect(attachmentRepository.attachCalls, 0);
+      expect(find.text('Trip Crew'), findsWidgets);
+      expect(find.text('Taylor'), findsWidgets);
+      expect(find.text('Morgan'), findsWidgets);
+      expect(find.text('group-receipt.png'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('1 attachment selected'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-basis-0-0')),
         '12.00',
       );
       await _tapSaveGroupBill(tester);
@@ -1337,6 +1429,74 @@ void main() {
       expect(billRepository.lastGroupCreateDraft?.items.single.amount, '10');
       expect(
         billRepository.lastGroupCreateDraft?.payers.single.amount,
+        '10.00',
+      );
+    },
+  );
+
+  testWidgets(
+    'group bill create validation accepts equivalent decimal split total scale',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [
+                sampleMember(displayName: 'Taylor'),
+                sampleMember(
+                  userProfileId: _otherProfileId,
+                  displayName: 'Morgan',
+                ),
+              ],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await tester.enterText(
+        find.byKey(const Key('group-bill-item-amount-0')),
+        '10',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-method-0-0')),
+        'exact_amount',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-split-basis-0-0')),
+        '10.00',
+      );
+      await _addSingleGroupPayer(tester, amount: '10.0');
+      await _tapSaveGroupBill(tester);
+
+      expect(
+        find.text('Split amounts must add up to the item total before saving.'),
+        findsNothing,
+      );
+      expect(billRepository.createGroupCalls, 1);
+      expect(billRepository.lastGroupCreateDraft?.items.single.amount, '10');
+      expect(
+        billRepository
+            .lastGroupCreateDraft
+            ?.items
+            .single
+            .splits
+            .single
+            .basisValue,
         '10.00',
       );
     },
@@ -1430,7 +1590,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-split-basis-0-0')),
-      ' 7.00 ',
+      ' 12.00 ',
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-split-order-0-0')),
@@ -1470,7 +1630,7 @@ void main() {
     expect(draft?.items.single.currency, ' usd ');
     expect(draft?.items.single.splits.single.userProfileId, _profileId);
     expect(draft?.items.single.splits.single.splitMethod, ' exact_amount ');
-    expect(draft?.items.single.splits.single.basisValue, ' 7.00 ');
+    expect(draft?.items.single.splits.single.basisValue, ' 12.00 ');
     expect(draft?.items.single.splits.single.allocationOrder, 2);
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
@@ -1776,7 +1936,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-split-basis-0-0')),
-      ' 7.00 ',
+      ' 12.00 ',
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-split-order-0-0')),
@@ -1835,7 +1995,7 @@ void main() {
     expect(draft?.items.single.currency, ' usd ');
     expect(draft?.items.single.splits.single.userProfileId, _profileId);
     expect(draft?.items.single.splits.single.splitMethod, ' exact_amount ');
-    expect(draft?.items.single.splits.single.basisValue, ' 7.00 ');
+    expect(draft?.items.single.splits.single.basisValue, ' 12.00 ');
     expect(draft?.items.single.splits.single.allocationOrder, 2);
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
