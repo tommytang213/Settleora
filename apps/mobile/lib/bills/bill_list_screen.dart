@@ -1016,10 +1016,16 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
     final purposeChoices = _billAttachmentPurposeChoicesForContentType(
       attachment.file.contentType,
     );
+    final attachmentNumber = index + 1;
+    final fileSizeLabel = '${attachment.file.bytes.length} bytes';
+    final purposeControlLabel =
+        'Change selected draft attachment $attachmentNumber purpose';
 
     return Semantics(
+      container: true,
+      explicitChildNodes: true,
       label:
-          'Selected bill attachment. Purpose: $purposeLabel. Filename: ${attachment.file.filename}.',
+          'Selected bill attachment $attachmentNumber. Filename: ${attachment.file.filename}. Content type: ${attachment.file.contentType}. Size: $fileSizeLabel. Selected purpose: $purposeLabel.',
       child: DecoratedBox(
         decoration: BoxDecoration(
           border: Border.all(
@@ -1054,36 +1060,44 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
                       key: ValueKey('$keyPrefix-attachment-purpose-$index'),
                     ),
                     const SizedBox(height: 6),
-                    PopupMenuButton<SettleoraBillAttachmentPurpose>(
-                      key: ValueKey(
-                        '$keyPrefix-attachment-purpose-menu-$index',
-                      ),
+                    Semantics(
+                      container: true,
+                      button: true,
                       enabled: !isBusy,
-                      initialValue: attachment.purpose,
-                      onSelected: onPurposeChanged,
-                      itemBuilder: (context) => [
-                        for (final purpose in purposeChoices)
-                          PopupMenuItem<SettleoraBillAttachmentPurpose>(
-                            key: ValueKey(
-                              '$keyPrefix-attachment-purpose-choice-$index-${_billAttachmentPurposeKeySuffix(purpose)}',
+                      label: purposeControlLabel,
+                      value: purposeLabel,
+                      child: PopupMenuButton<SettleoraBillAttachmentPurpose>(
+                        key: ValueKey(
+                          '$keyPrefix-attachment-purpose-menu-$index',
+                        ),
+                        enabled: !isBusy,
+                        initialValue: attachment.purpose,
+                        onSelected: onPurposeChanged,
+                        tooltip: purposeControlLabel,
+                        itemBuilder: (context) => [
+                          for (final purpose in purposeChoices)
+                            PopupMenuItem<SettleoraBillAttachmentPurpose>(
+                              key: ValueKey(
+                                '$keyPrefix-attachment-purpose-choice-$index-${_billAttachmentPurposeKeySuffix(purpose)}',
+                              ),
+                              value: purpose,
+                              child: Text(_billAttachmentPurposeLabel(purpose)),
                             ),
-                            value: purpose,
-                            child: Text(_billAttachmentPurposeLabel(purpose)),
-                          ),
-                      ],
-                      child: Text(
-                        'Change purpose',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: isBusy
-                              ? Theme.of(context).disabledColor
-                              : Theme.of(context).colorScheme.primary,
+                        ],
+                        child: Text(
+                          'Change purpose',
+                          semanticsLabel: purposeControlLabel,
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: isBusy
+                                    ? Theme.of(context).disabledColor
+                                    : Theme.of(context).colorScheme.primary,
+                              ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      '${attachment.file.contentType} - ${attachment.file.bytes.length} bytes',
-                    ),
+                    Text('${attachment.file.contentType} - $fileSizeLabel'),
                   ],
                 ),
               ),

@@ -1263,6 +1263,7 @@ void main() {
   testWidgets(
     'group bill create renders selected draft attachment rows and metadata',
     (tester) async {
+      final semantics = tester.ensureSemantics();
       await useLargeSurface(tester);
       final attachmentRepository = FakeBillAttachmentRepository();
       final fileInput = FakeBillAttachmentFileInput(
@@ -1327,6 +1328,30 @@ void main() {
       expect(find.text('Supporting attachment'), findsOneWidget);
       expect(find.text('image/png - 3 bytes'), findsOneWidget);
       expect(find.text('application/pdf - 4 bytes'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Selected bill attachment 1.*Filename: receipt.png.*'
+            'Content type: image/png.*Size: 3 bytes.*'
+            'Selected purpose: Receipt',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            'Selected bill attachment 2.*Filename: support.pdf.*'
+            'Content type: application/pdf.*Size: 4 bytes.*'
+            'Selected purpose: Supporting attachment',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip('Change selected draft attachment 2 purpose'),
+        findsOneWidget,
+      );
       await tester.tap(
         find.byKey(const ValueKey('group-bill-attachment-purpose-menu-1')),
       );
@@ -1358,6 +1383,7 @@ void main() {
         findsOneWidget,
       );
       expect(attachmentRepository.removeCalls, 0);
+      semantics.dispose();
     },
   );
 
@@ -1412,6 +1438,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('image/png - 3 bytes'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('group-bill-attachment-purpose-menu-0')),
+      findsNothing,
+    );
     expect(attachmentRepository.attachCalls, 0);
     expect(attachmentRepository.removeCalls, 0);
 
