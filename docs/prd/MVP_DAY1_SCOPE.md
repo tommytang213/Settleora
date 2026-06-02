@@ -100,10 +100,13 @@ Required split capabilities:
 - Member exclusion per bill/item.
 - Multi-payer expenses.
 - Tax and service charge allocation.
+- One bill containing multiple tax-rate or tax-category groups, including item-level tax categories such as reduced 8% and standard 10% receipt lines.
+- Tax follows the item by default, including when that item is split among multiple participants, unless an explicit manual override is reviewed and accepted.
+- Receipt-level grouped tax totals must allocate only across matching items in the same tax group; a participant assigned only reduced-rate items must not silently receive standard-rate tax.
 - Manual adjustment line.
 - Centralized rounding adjustment policy.
 
-Resolved shares must be stored clearly so historical calculations remain stable.
+Resolved shares must be stored clearly so historical calculations remain stable. Multi-tax-rate bill architecture details are defined in [../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md](../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md).
 
 ### Receipt capture and OCR
 
@@ -113,6 +116,7 @@ Resolved shares must be stored clearly so historical calculations remain stable.
 - OCR review screen.
 - User correction of OCR fields.
 - Receipt item correction workflow.
+- OCR review must preserve and allow correction of item-level tax rate/category, tax-included versus tax-excluded interpretation, and receipt-level tax summaries before server-mode acceptance.
 - Merchant cleanup/normalization basics.
 - Duplicate receipt/expense warning.
 - OCR-derived server-mode data remains provisional until API validation.
