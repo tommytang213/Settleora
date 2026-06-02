@@ -74,7 +74,8 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Currency attached to every amount.
 - Centralized rounding policy.
 - Server-side authoritative financial calculations.
-- API/domain services own settlement, split, rounding, and status transitions.
+- API/domain services own settlement, split, rounding, tax treatment, receipt-total reconciliation, and status transitions.
+- Receipt total mismatch must become a reviewable validation state or explicit adjustment, not a silent mutation of item totals, tax groups, discounts, refunds, or participant shares.
 
 ### Shared groups
 
@@ -101,12 +102,17 @@ Required split capabilities:
 - Multi-payer expenses.
 - Tax and service charge allocation.
 - One bill containing multiple tax-rate or tax-category groups, including item-level tax categories such as reduced 8% and standard 10% receipt lines.
+- Mixed tax-included and tax-excluded item amounts in the same bill, including receipt labels such as `税込`, `税入`, `税抜`, and `稅前` where visible.
+- Item-level and bill-level discount treatment before tax or after tax, with unknown/manual state instead of global guessing.
 - Tax follows the item by default, including when that item is split among multiple participants, unless an explicit manual override is reviewed and accepted.
 - Receipt-level grouped tax totals must allocate only across matching items in the same tax group; a participant assigned only reduced-rate items must not silently receive standard-rate tax.
+- Merchant-side item returns, tax refunds, product refunds, and tax corrections linked to a bill must preserve the same tax group and split relationship as the original item or tax group.
 - Manual adjustment line.
 - Centralized rounding adjustment policy.
 
 Resolved shares must be stored clearly so historical calculations remain stable. Multi-tax-rate bill architecture details are defined in [../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md](../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md).
+
+Required Day 1 validation coverage includes mixed 8%/10% tax groups, tax-included lines, tax-excluded lines, mixed tax-included/tax-excluded bills, before-tax discounts, after-tax discounts, tax-group-limited refunds/returns, receipt-total mismatch review/error state, and deterministic rounding residual assignment.
 
 ### Receipt capture and OCR
 
@@ -116,7 +122,7 @@ Resolved shares must be stored clearly so historical calculations remain stable.
 - OCR review screen.
 - User correction of OCR fields.
 - Receipt item correction workflow.
-- OCR review must preserve and allow correction of item-level tax rate/category, tax-included versus tax-excluded interpretation, and receipt-level tax summaries before server-mode acceptance.
+- OCR review must preserve and allow correction of item-level tax rate/category, tax-included versus tax-excluded interpretation, discount tax treatment, returned/refunded lines, tax corrections, and receipt-level tax summaries before server-mode acceptance.
 - Merchant cleanup/normalization basics.
 - Duplicate receipt/expense warning.
 - OCR-derived server-mode data remains provisional until API validation.
