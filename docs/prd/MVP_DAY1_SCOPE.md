@@ -65,6 +65,7 @@ Payment details must not be globally visible by default.
 - The paid-by person re-confirms if payer role, paid amount, payer contribution, or their financial share changes.
 - Pending revision review uses server-generated baseline, changed-only markers, accessible marker labels, category summary, and viewer-specific financial-impact context. Clients render that context and must not decide affected-user state, authorization, payer confirmation truth, money impact, or financial truth.
 - Full item, split, adjustment, attachment/receipt/OCR review, note, and metadata highlighting remains limited until revision snapshots preserve those details.
+- Minimal temporary participants for real shared receipts where someone has not registered yet, with limited permissions and later account linking.
 
 Payment method on a bill is optional. It is a hint for statement reconciliation, not a mandatory input.
 
@@ -76,6 +77,8 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Server-side authoritative financial calculations.
 - API/domain services own settlement, split, rounding, tax treatment, receipt-total reconciliation, and status transitions.
 - Receipt total mismatch must become a reviewable validation state or explicit adjustment, not a silent mutation of item totals, tax groups, discounts, refunds, or participant shares.
+- Manual exchange-rate snapshot support for Day 1 travel bills where original currency differs from settlement/display currency; provider-based exchange rates remain Day 2+.
+- Manual exchange-rate edits are money-impacting when they change participant shares or settlement amounts.
 
 ### Shared groups
 
@@ -85,6 +88,7 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Member access controlled by API authorization.
 - Group bills and balances.
 - Group dashboard basics.
+- Minimal temporary/guest-like participants can be included in Day 1 bills where policy allows, without governance voting or account-level permissions until linked to a real account.
 - Users must not see expenses unrelated to them unless group policy and authorization permit it.
 
 ### Splitting
@@ -95,6 +99,8 @@ Required split capabilities:
 
 - Bill-level split.
 - Per-item split.
+- Quantity-level item claiming, such as one user claiming 1 of 3 units and another claiming 2 of 3 units.
+- Open/self-claim item workflow where the uploader can leave items unassigned or claimable because they do not know who ordered what.
 - Equal split.
 - Exact amount split.
 - Percentage/share split if feasible, or clear schema extension point if implemented immediately after Day 1.
@@ -104,15 +110,20 @@ Required split capabilities:
 - One bill containing multiple tax-rate or tax-category groups, including item-level tax categories such as reduced 8% and standard 10% receipt lines.
 - Mixed tax-included and tax-excluded item amounts in the same bill, including receipt labels such as `税込`, `税入`, `税抜`, and `稅前` where visible.
 - Item-level and bill-level discount treatment before tax or after tax, with unknown/manual state instead of global guessing.
-- Tax follows the item by default, including when that item is split among multiple participants, unless an explicit manual override is reviewed and accepted.
+- Tax follows the item by default, including when that item is split among multiple participants or claimed by quantity, unless an explicit manual override is reviewed and accepted.
 - Receipt-level grouped tax totals must allocate only across matching items in the same tax group; a participant assigned only reduced-rate items must not silently receive standard-rate tax.
 - Merchant-side item returns, tax refunds, product refunds, and tax corrections linked to a bill must preserve the same tax group and split relationship as the original item or tax group.
+- Safe default classification for coupons, points redemption, gift card payment, store credit, payment tender, change returned, voided lines, free items, returns, and unknown negative lines.
+- User-editable contribution treatment for points redemption, gift cards, store credit, refund credits, and other payment-like components; Day 3 may add smarter/customizable defaults, but Day 1 must be editable without Day 3.
+- Generic extra fee/financial component support for service charge, delivery fee, packaging fee, bag fee, seat charge, surcharge, and similar fee types without one hardcoded table per fee type.
+- Extra fee components can carry tax category, tax rate snapshot, tax-included/tax-excluded mode, allocation method, and source OCR line where relevant.
+- Combo/set/bundle line correction, allowing one receipt line to split into multiple logical items while preserving the original OCR source line.
 - Manual adjustment line.
 - Centralized rounding adjustment policy.
 
-Resolved shares must be stored clearly so historical calculations remain stable. Multi-tax-rate bill architecture details are defined in [../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md](../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md).
+Resolved shares must be stored clearly so historical calculations remain stable. Multi-tax-rate bill architecture details are defined in [../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md](../architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md). Day 1 receipt and bill edge-case details are defined in [../architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md](../architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md).
 
-Required Day 1 validation coverage includes mixed 8%/10% tax groups, tax-included lines, tax-excluded lines, mixed tax-included/tax-excluded bills, before-tax discounts, after-tax discounts, tax-group-limited refunds/returns, receipt-total mismatch review/error state, and deterministic rounding residual assignment.
+Required Day 1 validation coverage includes mixed 8%/10% tax groups, tax-included lines, tax-excluded lines, mixed tax-included/tax-excluded bills, before-tax discounts, after-tax discounts, tax-group-limited refunds/returns, quantity-level claiming, open/self-claim unresolved item handling, coupon/points/gift-card/default contribution behavior, tender/change exclusion, fee tax treatment, OCR line reclassification, manual FX snapshot, temporary participant inclusion without account permissions, receipt-total mismatch review/error state, and deterministic rounding residual assignment.
 
 ### Receipt capture and OCR
 
@@ -123,6 +134,8 @@ Required Day 1 validation coverage includes mixed 8%/10% tax groups, tax-include
 - User correction of OCR fields.
 - Receipt item correction workflow.
 - OCR review must preserve and allow correction of item-level tax rate/category, tax-included versus tax-excluded interpretation, discount tax treatment, returned/refunded lines, tax corrections, and receipt-level tax summaries before server-mode acceptance.
+- OCR review must let users merge/split OCR lines, reclassify lines as item/tax/fee/discount/coupon/points/tender/change/void/free/refund/tax-correction/manual-review, and link derived logical items back to the original OCR line.
+- OCR review must identify tender, cash, change, voided, free, zero-price, and unknown negative lines so they do not silently affect participant shares.
 - Merchant cleanup/normalization basics.
 - Duplicate receipt/expense warning.
 - OCR-derived server-mode data remains provisional until API validation.
@@ -186,6 +199,7 @@ Required events:
 - Bill updated.
 - Bill requires acknowledgement/approval.
 - Bill correction proposed, revised, withdrawn, accepted, rejected, or applied.
+- Item claim requested, claimed, conflicted, unresolved, or ready for owner review.
 - Settlement requested.
 - Settlement marked paid.
 - Settlement confirmed/disputed.
@@ -287,10 +301,12 @@ Traditional Chinese support is planned for Day 2.
 - Direct bank API sync.
 - Full PDF bank statement parsing.
 - AI reporting or AI categorization.
+- Provider-based FX automation.
 - Crypto rates.
 - Investment tracking.
 - Automatic dispute filing with banks.
 - Silent AI or import-driven financial record mutation.
 - Multiple competing active official correction proposals per bill in Day 1.
 - Silent bill-revision-driven settlement mutation.
+- Requiring every participant to have a registered account before a receipt can be captured.
 - Settleora Cloud runtime, managed provisioning, shared multi-tenant SaaS, federation, and cross-server live collaboration.
