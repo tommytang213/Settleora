@@ -99,6 +99,24 @@ If a receipt provides only grouped tax totals, such as an 8% taxable subtotal an
 
 A participant assigned only 8% items must not receive 10% tax allocation unless they also participate in a 10% item or an explicit manual override says so.
 
+## Tax refunds and product returns
+
+Merchant-side product returns, item refunds, tax refunds, or tax corrections linked to a bill must preserve the same tax-group relationship as the original item or tax group.
+
+Examples:
+
+```text
+Returned 8% item -> refund/credit affects the 8% tax group.
+Returned 10% item -> refund/credit affects the 10% tax group.
+Partial item refund -> refund/credit is allocated through the item's split and tax group unless manually overridden.
+```
+
+Before a bill is confirmed or finalized, a returned item or corrected tax amount can be represented through bill revision, item removal, quantity/amount correction, or an explicit credit adjustment linked to the original item/tax group.
+
+After confirmation, settlement, locked-period review, or finalization boundaries apply, refunds and tax returns must use explicit refund or adjustment workflow rather than silently rewriting history.
+
+Government tax returns, tax filing, and tax-compliance advice remain non-goals. Settleora records and allocates tax-related bill amounts; it does not decide legal tax treatment.
+
 ## OCR and review behavior
 
 OCR should attempt to detect:
@@ -108,6 +126,7 @@ OCR should attempt to detect:
 - tax-included versus tax-excluded wording;
 - taxable subtotals by rate;
 - tax total by rate;
+- returned/refunded lines or negative correction lines where present on receipts;
 - uncertain or conflicting tax classification.
 
 The review UI must let users correct tax category/rate assignments before saving or submitting a server-mode bill.
@@ -120,11 +139,11 @@ Tax allocation must use decimal-safe money and centralized rounding policy.
 
 Rounding residuals must be explicit and reproducible. The system must store or derive which participant/item/tax group received a residual minor unit where needed for audit and historical stability.
 
-Receipt totals should reconcile through explicit item amounts, grouped tax amounts, service charges, discounts, manual adjustments, and rounding residuals. The system must not silently hide mismatches.
+Receipt totals should reconcile through explicit item amounts, grouped tax amounts, service charges, discounts, manual adjustments, refunds/returns, tax corrections, and rounding residuals. The system must not silently hide mismatches.
 
 ## Edit and approval behavior
 
-Changing an item tax rate, tax category, tax inclusion mode, tax amount, tax group assignment, or tax-group allocation is money-impacting when it changes bill totals or participant shares.
+Changing an item tax rate, tax category, tax inclusion mode, tax amount, tax group assignment, tax refund/return linkage, or tax-group allocation is money-impacting when it changes bill totals or participant shares.
 
 Money-impacting tax changes must reset affected participants according to the bill revision and acceptance workflow, and must be auditable.
 
@@ -135,3 +154,4 @@ Money-impacting tax changes must reset affected participants according to the bi
 - Real-time tax-rate lookup services.
 - Treating one global bill tax rate as sufficient for Day 1 receipts.
 - Silent reassignment of tax across unrelated items or participants.
+- Silent rewriting of confirmed, settled, locked, or finalized tax/refund history.
