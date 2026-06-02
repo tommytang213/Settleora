@@ -21,13 +21,19 @@ Item 4: tax group B / standard 10%
 
 This is part of Day 1 financial correctness, not a Day 2 enhancement.
 
+Day 1 must also support mixed tax-included and tax-excluded receipt lines in the same bill. Japanese receipts may show item prices as tax-included (`税込`, `税入`) on some receipts or lines, and pre-tax/tax-excluded (`税抜`, `稅前`) on others. Settleora must preserve whether each item or tax group is tax-included, tax-excluded, exempt, unknown, or manually corrected before calculating authoritative totals.
+
+Day 1 must support discount-before-tax and discount-after-tax treatment because receipts do not consistently apply discounts at the same calculation stage. Discount tax treatment must be preserved or marked unknown/manual rather than guessed globally.
+
+Day 1 must reconcile receipt totals from items, grouped tax amounts, discounts, service charges, refunds/returns, tax corrections, manual adjustments, and rounding residuals. A mismatch must become reviewable state or an explicit adjustment, not a silent recalculation.
+
 ## Current implementation gap
 
 The current expense/bill schema and calculation foundation supports generic bill adjustment rows with types such as tax, service charge, discount, manual adjustment, and credit.
 
 That is not enough for multi-tax-rate receipts because a generic bill-level tax adjustment cannot preserve which items belong to which tax rate group, cannot allocate receipt-level tax summaries only across matching items, and cannot prove after review that a participant was charged only for the tax linked to their assigned items.
 
-Future schema/runtime work must add first-class item tax metadata and tax-group allocation before bill tax handling is considered Day 1-complete.
+The schema/runtime implementation for Day 1 must add first-class item tax metadata, tax-inclusion metadata, discount tax-treatment metadata, tax-group allocation, and receipt-total reconciliation before bill tax handling is considered Day 1-complete.
 
 ## Tax authority model
 
@@ -38,7 +44,9 @@ Clients may display previews and OCR suggestions, but clients must not be the so
 - tax rate assignment;
 - taxable subtotal calculation;
 - tax-included versus tax-excluded interpretation;
+- discount-before-tax versus discount-after-tax interpretation;
 - participant tax allocation;
+- receipt-total reconciliation;
 - rounding residual assignment;
 - final bill total or participant resolved shares.
 
@@ -53,6 +61,7 @@ tax_rate_snapshot nullable
 tax_rate_label nullable
 tax_category nullable
 tax_inclusion_mode
+discount_tax_treatment nullable
 tax_amount_snapshot nullable
 tax_group_key nullable
 ```
@@ -67,6 +76,16 @@ unknown
 manual
 ```
 
+Recommended `discount_tax_treatment` values:
+
+```text
+before_tax
+after_tax
+not_discounted
+unknown
+manual
+```
+
 A bill should support tax group summaries, either as dedicated rows or as structured adjustment records with explicit group linkage:
 
 ```text
@@ -77,11 +96,12 @@ taxable_subtotal_amount
 tax_amount
 currency
 tax_inclusion_mode
+discount_tax_treatment nullable
 source_kind
 rounding_residual_amount nullable
 ```
 
-The exact table and property names can differ, but the schema must preserve enough information to reconstruct which items used which tax group and how tax was allocated.
+The exact table and property names can differ, but the schema must preserve enough information to reconstruct which items used which tax group, whether the item amount was tax-included or tax-excluded, how discounts affected taxable subtotals, and how tax was allocated.
 
 ## Allocation rules
 
@@ -98,6 +118,18 @@ If an item is split among multiple participants, that item's tax allocation foll
 If a receipt provides only grouped tax totals, such as an 8% taxable subtotal and a 10% taxable subtotal, each grouped tax total must be allocated only among items assigned to that same tax group.
 
 A participant assigned only 8% items must not receive 10% tax allocation unless they also participate in a 10% item or an explicit manual override says so.
+
+## Discount and tax treatment
+
+Discount handling is Day 1 scope when it affects tax or participant shares.
+
+Required Day 1 behavior:
+
+- Preserve whether a discount is item-level or bill-level.
+- Preserve whether a discount applies before tax, after tax, is unknown, or was manually corrected.
+- Allocate discount effects only across the affected item or explicit bill-level allocation group.
+- Recalculate tax using centralized policy only after the tax-inclusion mode and discount tax treatment are known or explicitly marked manual.
+- If receipt data cannot prove the discount tax treatment, require manual review instead of silently assuming one behavior for the whole receipt.
 
 ## Tax refunds and product returns
 
@@ -123,15 +155,38 @@ OCR should attempt to detect:
 
 - item-level tax category or tax rate;
 - receipt-level tax summaries;
-- tax-included versus tax-excluded wording;
+- tax-included versus tax-excluded wording, including labels such as `税込`, `税入`, `税抜`, and `稅前` where visible;
+- item-level and bill-level discounts;
+- discount-before-tax versus discount-after-tax indicators where visible;
 - taxable subtotals by rate;
 - tax total by rate;
 - returned/refunded lines or negative correction lines where present on receipts;
 - uncertain or conflicting tax classification.
 
-The review UI must let users correct tax category/rate assignments before saving or submitting a server-mode bill.
+The review UI must let users correct tax category/rate assignments, tax-inclusion mode, discount tax treatment, returned/refunded lines, and grouped tax summaries before saving or submitting a server-mode bill.
 
-If OCR cannot determine a tax rate or category safely, the item or tax group should be marked for manual review instead of silently assuming one global tax rate.
+If OCR cannot determine a tax rate, tax-inclusion mode, discount tax treatment, refund linkage, or category safely, the item or tax group should be marked for manual review instead of silently assuming one global tax rate or one global tax-inclusion mode.
+
+## Receipt total reconciliation
+
+Receipt total reconciliation is Day 1 scope.
+
+The authoritative calculation must reconcile:
+
+```text
+item amounts
++ tax group amounts where tax is excluded
++ service charges
+- discounts
+- refunds / returns / credits
++/- manual adjustments
++/- rounding residuals
+= receipt grand total
+```
+
+For tax-included lines, the item amount already includes tax, but Settleora must still preserve or derive the tax component where the receipt provides enough information.
+
+If the submitted or OCR-derived bill cannot reconcile to the receipt grand total, the API should reject finalization or return a reviewable validation state with stable error codes. The app may allow a draft with mismatch, but it must not silently mutate item totals, tax groups, discounts, refunds, or participant shares to make totals appear balanced.
 
 ## Rounding and residuals
 
@@ -143,9 +198,27 @@ Receipt totals should reconcile through explicit item amounts, grouped tax amoun
 
 ## Edit and approval behavior
 
-Changing an item tax rate, tax category, tax inclusion mode, tax amount, tax group assignment, tax refund/return linkage, or tax-group allocation is money-impacting when it changes bill totals or participant shares.
+Changing an item tax rate, tax category, tax inclusion mode, discount tax treatment, tax amount, tax group assignment, tax refund/return linkage, or tax-group allocation is money-impacting when it changes bill totals or participant shares.
 
 Money-impacting tax changes must reset affected participants according to the bill revision and acceptance workflow, and must be auditable.
+
+## Required Day 1 validation cases
+
+Day 1 implementation must include automated validation coverage for at least:
+
+- one bill with 8% and 10% item tax groups;
+- tax-included item amounts;
+- tax-excluded item amounts;
+- mixed tax-included and tax-excluded lines in the same bill;
+- item-level discount before tax;
+- item-level discount after tax;
+- bill-level discount allocated across affected tax groups;
+- participant assigned only reduced-rate items receiving no standard-rate tax;
+- shared item tax following the item split;
+- returned/refunded 8% item affecting only the 8% tax group;
+- returned/refunded 10% item affecting only the 10% tax group;
+- receipt total mismatch producing review/error state rather than silent correction;
+- rounding residual assignment being deterministic and reproducible.
 
 ## Non-goals
 
@@ -153,5 +226,6 @@ Money-impacting tax changes must reset affected participants according to the bi
 - Automatic country-specific tax law interpretation.
 - Real-time tax-rate lookup services.
 - Treating one global bill tax rate as sufficient for Day 1 receipts.
+- Treating one global tax-included or tax-excluded mode as sufficient for Day 1 receipts.
 - Silent reassignment of tax across unrelated items or participants.
 - Silent rewriting of confirmed, settled, locked, or finalized tax/refund history.
