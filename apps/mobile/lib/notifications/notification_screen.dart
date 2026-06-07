@@ -216,6 +216,31 @@ class _SettleoraNotificationScreenState
     }
   }
 
+  Future<void> _markOpenedNotificationRead(
+    SettleoraNotificationRow notification,
+  ) async {
+    if (!notification.isUnread) {
+      return;
+    }
+
+    try {
+      await widget.repository.markNotificationRead(notification.id);
+      if (!mounted) {
+        return;
+      }
+
+      await _load(showBlockingLoading: false);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = _safeOpenReadFailure(error);
+      });
+    }
+  }
+
   Future<void> _openBillRevision(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null || _isMarkingAllRead) {
       return;
@@ -250,6 +275,11 @@ class _SettleoraNotificationScreenState
           ),
         ),
       );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(notification);
     } finally {
       if (mounted) {
         setState(() {
@@ -347,6 +377,11 @@ class _SettleoraNotificationScreenState
           ),
         ),
       );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(notification);
     } catch (error) {
       if (!mounted) {
         return;
@@ -402,6 +437,11 @@ class _SettleoraNotificationScreenState
           ),
         ),
       );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(notification);
     } catch (error) {
       if (!mounted) {
         return;
@@ -461,6 +501,11 @@ class _SettleoraNotificationScreenState
           ),
         ),
       );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(notification);
     } finally {
       if (mounted) {
         setState(() {
@@ -499,6 +544,11 @@ class _SettleoraNotificationScreenState
           ),
         ),
       );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(notification);
     } finally {
       if (mounted) {
         setState(() {
@@ -832,7 +882,8 @@ class _NotificationFilterCounts {
           SettleoraNotificationSubjectTypeValues.recurringBillOccurrence) {
         recurring += 1;
       }
-      if (isActionable(row)) {
+      if (row.status == SettleoraNotificationStatusValues.unread &&
+          isActionable(row)) {
         actionable += 1;
       }
     }
@@ -1146,6 +1197,15 @@ SettleoraNotificationFailure _notificationFailureFromBillOpen(Object error) {
   );
 }
 
+SettleoraNotificationFailure _safeOpenReadFailure(Object error) {
+  final failure = SettleoraNotificationFailure.from(error);
+  return SettleoraNotificationFailure(
+    kind: failure.kind,
+    message: 'Notification status could not be refreshed. Try again later.',
+    statusCode: failure.statusCode,
+  );
+}
+
 Map<String, String> _participantDisplayNamesFromMembers(
   Iterable<SettleoraGroupMember> members,
 ) {
@@ -1181,7 +1241,9 @@ bool _matchesFilter(
     _NotificationFilter.recurring =>
       notification.subjectType ==
           SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
-    _NotificationFilter.actionable => isActionable(notification),
+    _NotificationFilter.actionable =>
+      notification.status == SettleoraNotificationStatusValues.unread &&
+          isActionable(notification),
   };
 }
 
