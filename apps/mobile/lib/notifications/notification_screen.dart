@@ -266,6 +266,10 @@ class _SettleoraNotificationScreenState
         settleoraNotificationMetadataId(widget.currentUserProfileId) != null;
   }
 
+  bool _canOpenPersonalBill(SettleoraNotificationRow notification) {
+    return notification.hasPersonalBillTarget && widget.billRepository != null;
+  }
+
   bool _canOpenSettlement(SettleoraNotificationRow notification) {
     return notification.hasSettlementTarget &&
         widget.settlementRepository != null &&
@@ -281,6 +285,7 @@ class _SettleoraNotificationScreenState
     return (widget.billRevisionRepository != null &&
             notification.hasBillRevisionReviewTarget) ||
         _canOpenGroupBill(notification) ||
+        _canOpenPersonalBill(notification) ||
         _canOpenSettlement(notification) ||
         _canOpenRecurringBill(notification);
   }
@@ -348,6 +353,61 @@ class _SettleoraNotificationScreenState
       }
 
       final failure = _notificationFailureFromGroupOpen(error);
+      if (failure.kind == SettleoraNotificationFailureKind.sessionRequired ||
+          failure.kind == SettleoraNotificationFailureKind.sessionExpired) {
+        await _endSession(failure);
+        return;
+      }
+
+      setState(() {
+        _actionFailure = failure;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _openPersonalBill(SettleoraNotificationRow notification) async {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        !_canOpenPersonalBill(notification)) {
+      return;
+    }
+
+    final billRepository = widget.billRepository;
+    final billId = settleoraNotificationMetadataId(notification.expenseBillId);
+    if (billRepository == null || billId == null) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraBillDetailScreen(
+            repository: billRepository,
+            billId: billId,
+            attachmentRepository: widget.billAttachmentRepository,
+            attachmentFileInput: widget.billAttachmentFileInput,
+            receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+            revisionRepository: widget.billRevisionRepository,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final failure = _notificationFailureFromBillOpen(error);
       if (failure.kind == SettleoraNotificationFailureKind.sessionRequired ||
           failure.kind == SettleoraNotificationFailureKind.sessionExpired) {
         await _endSession(failure);
@@ -571,6 +631,9 @@ class _SettleoraNotificationScreenState
                           canOpenGroupBill: _canOpenGroupBill(
                             visibleNotifications[index],
                           ),
+                          canOpenPersonalBill: _canOpenPersonalBill(
+                            visibleNotifications[index],
+                          ),
                           canOpenSettlement: _canOpenSettlement(
                             visibleNotifications[index],
                           ),
@@ -585,6 +648,9 @@ class _SettleoraNotificationScreenState
                           ),
                           groupBillOpenButtonKey: ValueKey(
                             'notification-open-group-bill-$index',
+                          ),
+                          personalBillOpenButtonKey: ValueKey(
+                            'notification-open-personal-bill-$index',
                           ),
                           settlementOpenButtonKey: ValueKey(
                             'notification-open-settlement-$index',
@@ -602,6 +668,8 @@ class _SettleoraNotificationScreenState
                               _openBillRevision(visibleNotifications[index]),
                           onOpenGroupBill: () =>
                               _openGroupBill(visibleNotifications[index]),
+                          onOpenPersonalBill: () =>
+                              _openPersonalBill(visibleNotifications[index]),
                           onOpenSettlement: () =>
                               _openSettlement(visibleNotifications[index]),
                           onOpenRecurringBill: () =>
@@ -844,17 +912,20 @@ class _NotificationTile extends StatelessWidget {
     required this.notification,
     required this.canOpenBillRevision,
     required this.canOpenGroupBill,
+    required this.canOpenPersonalBill,
     required this.canOpenSettlement,
     required this.canOpenRecurringBill,
     required this.isActing,
     required this.revisionOpenButtonKey,
     required this.groupBillOpenButtonKey,
+    required this.personalBillOpenButtonKey,
     required this.settlementOpenButtonKey,
     required this.recurringOpenButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
     required this.onOpenBillRevision,
     required this.onOpenGroupBill,
+    required this.onOpenPersonalBill,
     required this.onOpenSettlement,
     required this.onOpenRecurringBill,
     required this.onMarkRead,
@@ -864,17 +935,20 @@ class _NotificationTile extends StatelessWidget {
   final SettleoraNotificationRow notification;
   final bool canOpenBillRevision;
   final bool canOpenGroupBill;
+  final bool canOpenPersonalBill;
   final bool canOpenSettlement;
   final bool canOpenRecurringBill;
   final bool isActing;
   final Key revisionOpenButtonKey;
   final Key groupBillOpenButtonKey;
+  final Key personalBillOpenButtonKey;
   final Key settlementOpenButtonKey;
   final Key recurringOpenButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
   final VoidCallback onOpenBillRevision;
   final VoidCallback onOpenGroupBill;
+  final VoidCallback onOpenPersonalBill;
   final VoidCallback onOpenSettlement;
   final VoidCallback onOpenRecurringBill;
   final VoidCallback onMarkRead;
@@ -943,6 +1017,14 @@ class _NotificationTile extends StatelessWidget {
                   key: groupBillOpenButtonKey,
                   onPressed: isActing ? null : onOpenGroupBill,
                   icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Open bill'),
+                ),
+              ] else if (canOpenPersonalBill) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: personalBillOpenButtonKey,
+                  onPressed: isActing ? null : onOpenPersonalBill,
+                  icon: const Icon(Icons.receipt_outlined),
                   label: const Text('Open bill'),
                 ),
               ] else if (canOpenSettlement) ...[
@@ -1017,6 +1099,39 @@ SettleoraNotificationFailure _notificationFailureFromGroupOpen(Object error) {
         SettleoraGroupFailureKind.network =>
           SettleoraNotificationFailureKind.network,
         SettleoraGroupFailureKind.server =>
+          SettleoraNotificationFailureKind.server,
+      },
+      message: error.message,
+      statusCode: error.statusCode,
+    );
+  }
+
+  return const SettleoraNotificationFailure(
+    kind: SettleoraNotificationFailureKind.network,
+    message:
+        'The bill could not be opened. Try again when the connection is back.',
+  );
+}
+
+SettleoraNotificationFailure _notificationFailureFromBillOpen(Object error) {
+  if (error is SettleoraBillFailure) {
+    return SettleoraNotificationFailure(
+      kind: switch (error.kind) {
+        SettleoraBillFailureKind.sessionRequired =>
+          SettleoraNotificationFailureKind.sessionRequired,
+        SettleoraBillFailureKind.sessionExpired =>
+          SettleoraNotificationFailureKind.sessionExpired,
+        SettleoraBillFailureKind.denied =>
+          SettleoraNotificationFailureKind.denied,
+        SettleoraBillFailureKind.unavailable =>
+          SettleoraNotificationFailureKind.unavailable,
+        SettleoraBillFailureKind.conflict =>
+          SettleoraNotificationFailureKind.conflict,
+        SettleoraBillFailureKind.validation =>
+          SettleoraNotificationFailureKind.validation,
+        SettleoraBillFailureKind.network =>
+          SettleoraNotificationFailureKind.network,
+        SettleoraBillFailureKind.server =>
           SettleoraNotificationFailureKind.server,
       },
       message: error.message,
