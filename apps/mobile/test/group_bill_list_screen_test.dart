@@ -844,6 +844,11 @@ void main() {
       find.byKey(const Key('group-bill-reject-reason-wrong_split')),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-reject-submit')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-reject-submit')));
+    await tester.pumpAndSettle();
 
     expect(repository.rejectGroupParticipantCalls, 1);
     expect(repository.lastParticipantGroupId, _groupId);
@@ -854,6 +859,139 @@ void main() {
       SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
     );
     expect(repository.getGroupCalls, 2);
+    expect(find.byKey(const Key('group-bill-reject-share')), findsNothing);
+  });
+
+  testWidgets('group bill reject submit requires a selected reason', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+      detail: sampleBillDetail(status: 'pending_confirmation'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-reject-share')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Choose a correction reason before sending this request.'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-reject-submit')),
+    );
+    _expectFilledButtonEnabled(
+      tester,
+      const Key('group-bill-reject-submit'),
+      isFalse,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('group-bill-reject-submit')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+
+    expect(repository.rejectGroupParticipantCalls, 0);
+
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-reject-cancel')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-reject-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(repository.rejectGroupParticipantCalls, 0);
+  });
+
+  testWidgets('group bill detail explains accepted and rejected next steps', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      groupBills: [
+        sampleBillSummary(
+          id: 'accepted-bill-id',
+          merchantName: 'Accepted Market',
+          status: 'confirmed',
+        ),
+        sampleBillSummary(
+          id: 'rejected-bill-id',
+          merchantName: 'Rejected Market',
+          status: 'rejected',
+        ),
+      ],
+      details: [
+        sampleBillDetail(
+          id: 'accepted-bill-id',
+          merchantName: 'Accepted Market',
+          status: 'confirmed',
+          participantStatus: SettleoraBillParticipantStatusValues.accepted,
+        ),
+        sampleBillDetail(
+          id: 'rejected-bill-id',
+          merchantName: 'Rejected Market',
+          status: 'rejected',
+          participantStatus: SettleoraBillParticipantStatusValues.rejected,
+          participantRejectionReasonCode:
+              SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Accepted Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('group-bill-next-step')), findsOneWidget);
+    expect(find.text('You accepted this share'), findsOneWidget);
+    expect(
+      find.text(
+        'No further acknowledgement is available in mobile. Settlement actions stay separate and server-authoritative.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
+    expect(find.byKey(const Key('group-bill-reject-share')), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rejected Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Correction requested'), findsOneWidget);
+    expect(
+      find.text(
+        'Reason: Wrong split. The creator can revise and resubmit the shared bill when server workflow allows it.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
     expect(find.byKey(const Key('group-bill-reject-share')), findsNothing);
   });
 
@@ -3669,6 +3807,11 @@ void _expectOutlinedButtonEnabled(
 
 void _expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
   final button = tester.widget<IconButton>(find.byKey(key));
+  expect(button.onPressed != null, matcher);
+}
+
+void _expectFilledButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
+  final button = tester.widget<FilledButton>(find.byKey(key));
   expect(button.onPressed != null, matcher);
 }
 

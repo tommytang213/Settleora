@@ -3706,37 +3706,70 @@ class _SettleoraGroupBillDetailScreenState
 
   Future<SettleoraBillParticipantRejectionReasonCode?>
   _selectRejectionReason() {
+    SettleoraBillParticipantRejectionReasonCode? selectedReason;
+
     return showModalBottomSheet<SettleoraBillParticipantRejectionReasonCode>(
       context: context,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Reject bill',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                for (final reason
-                    in SettleoraBillParticipantRejectionReasonCodeValues.values)
-                  ListTile(
-                    key: ValueKey('group-bill-reject-reason-$reason'),
-                    title: Text(
-                      settleoraBillParticipantRejectionReasonLabel(reason),
-                    ),
-                    onTap: () => Navigator.of(context).pop(reason),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Reject bill',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                const SizedBox(height: 8),
-                TextButton(
-                  key: const Key('group-bill-reject-cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Choose a correction reason before sending this request.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  for (final reason
+                      in SettleoraBillParticipantRejectionReasonCodeValues
+                          .values)
+                    ListTile(
+                      key: ValueKey('group-bill-reject-reason-$reason'),
+                      leading: Icon(
+                        selectedReason == reason
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                      ),
+                      title: Text(
+                        settleoraBillParticipantRejectionReasonLabel(reason),
+                      ),
+                      onTap: () {
+                        setSheetState(() {
+                          selectedReason = reason;
+                        });
+                      },
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        key: const Key('group-bill-reject-cancel'),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        key: const Key('group-bill-reject-submit'),
+                        onPressed: selectedReason == null
+                            ? null
+                            : () => Navigator.of(context).pop(selectedReason),
+                        icon: const Icon(Icons.close),
+                        label: const Text('Send rejection'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -3787,6 +3820,17 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillContext(groupName: widget.groupName),
                 const SizedBox(height: 20),
                 _BillDetailHeader(bill: bill),
+                if (_currentBillDetailParticipant(
+                      bill,
+                      widget.currentUserProfileId,
+                    ) !=
+                    null) ...[
+                  const SizedBox(height: 14),
+                  _GroupBillNextStepPanel(
+                    bill: bill,
+                    currentUserProfileId: widget.currentUserProfileId,
+                  ),
+                ],
                 if (_canAcknowledgeCurrentParticipant(
                   bill,
                   widget.currentUserProfileId,
@@ -4353,6 +4397,64 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
       ),
     );
   }
+}
+
+class _GroupBillNextStepPanel extends StatelessWidget {
+  const _GroupBillNextStepPanel({
+    required this.bill,
+    required this.currentUserProfileId,
+  });
+
+  final SettleoraBillDetail bill;
+  final String? currentUserProfileId;
+
+  @override
+  Widget build(BuildContext context) {
+    final guidance = _groupBillNextStepGuidance(bill, currentUserProfileId);
+
+    return DecoratedBox(
+      key: const Key('group-bill-next-step'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(guidance.icon),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    guidance.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(guidance.message),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillNextStepGuidance {
+  const _GroupBillNextStepGuidance({
+    required this.title,
+    required this.message,
+    required this.icon,
+  });
+
+  final String title;
+  final String message;
+  final IconData icon;
 }
 
 class _CreateRevisionFailureBanner extends StatelessWidget {
@@ -5269,6 +5371,93 @@ bool _canAcknowledgeCurrentParticipant(
             participant.status ==
                 SettleoraBillParticipantStatusValues.pendingAcceptance,
       );
+}
+
+_GroupBillNextStepGuidance _groupBillNextStepGuidance(
+  SettleoraBillDetail bill,
+  String? currentUserProfileId,
+) {
+  final currentParticipant = _currentBillDetailParticipant(
+    bill,
+    currentUserProfileId,
+  );
+
+  if (currentParticipant == null) {
+    return const _GroupBillNextStepGuidance(
+      title: 'Review only',
+      message:
+          'No share is assigned to the current signed-in profile in this mobile view.',
+      icon: Icons.visibility_outlined,
+    );
+  }
+
+  if (_canAcknowledgeCurrentParticipant(bill, currentUserProfileId)) {
+    return _GroupBillNextStepGuidance(
+      title: 'Your response is needed',
+      message:
+          'Review your assigned share of ${_money(currentParticipant.resolvedShareAmount, currentParticipant.resolvedShareCurrency)}. Accept it or request a correction with a reason.',
+      icon: Icons.priority_high_outlined,
+    );
+  }
+
+  if (currentParticipant.status ==
+      SettleoraBillParticipantStatusValues.accepted) {
+    return const _GroupBillNextStepGuidance(
+      title: 'You accepted this share',
+      message:
+          'No further acknowledgement is available in mobile. Settlement actions stay separate and server-authoritative.',
+      icon: Icons.check_circle_outline,
+    );
+  }
+
+  if (currentParticipant.status ==
+      SettleoraBillParticipantStatusValues.rejected) {
+    final reasonCode = currentParticipant.rejectionReasonCode;
+    final reason = reasonCode == null || reasonCode.trim().isEmpty
+        ? 'No reason was returned for this rejection.'
+        : 'Reason: ${settleoraBillParticipantRejectionReasonLabel(reasonCode)}.';
+
+    return _GroupBillNextStepGuidance(
+      title: 'Correction requested',
+      message:
+          '$reason The creator can revise and resubmit the shared bill when server workflow allows it.',
+      icon: Icons.report_problem_outlined,
+    );
+  }
+
+  if (bill.status != 'pending_confirmation') {
+    return _GroupBillNextStepGuidance(
+      title: 'No response available',
+      message:
+          'This bill is ${settleoraBillStatusLabel(bill.status).toLowerCase()}, so mobile cannot accept or reject this share.',
+      icon: Icons.info_outline,
+    );
+  }
+
+  return _GroupBillNextStepGuidance(
+    title: 'No response available',
+    message:
+        'Your share is ${settleoraBillParticipantStatusLabel(currentParticipant.status).toLowerCase()}, so there is no mobile acknowledgement action for it.',
+    icon: Icons.info_outline,
+  );
+}
+
+SettleoraBillParticipant? _currentBillDetailParticipant(
+  SettleoraBillDetail bill,
+  String? currentUserProfileId,
+) {
+  final trimmedProfileId = currentUserProfileId?.trim();
+  if (trimmedProfileId == null || trimmedProfileId.isEmpty) {
+    return null;
+  }
+
+  for (final participant in bill.participants) {
+    if (participant.userProfileId.trim() == trimmedProfileId) {
+      return participant;
+    }
+  }
+
+  return null;
 }
 
 void _assertCanCreateRevision(SettleoraBillDetail bill) {
