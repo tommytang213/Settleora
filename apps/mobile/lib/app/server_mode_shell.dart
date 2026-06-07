@@ -108,6 +108,7 @@ class _SettleoraAuthenticatedServerShellState
           currentUserProfileId: widget.currentUser.userProfileId,
           billRepository: widget.billRepository,
           groupRepository: widget.groupRepository,
+          settlementRepository: widget.settlementRepository,
           billAttachmentRepository: widget.billAttachmentRepository,
           billAttachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
