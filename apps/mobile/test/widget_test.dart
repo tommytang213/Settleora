@@ -490,6 +490,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await scrollToShellTile(tester, const Key('server-shell-sessions'));
     await tester.tap(find.byKey(const Key('server-shell-sessions')));
     await tester.pumpAndSettle();
 
@@ -539,6 +540,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
       await tester.tap(find.byKey(const Key('server-shell-sessions')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
@@ -1346,6 +1348,17 @@ Finder verticalScrollable() {
     (widget) =>
         widget is Scrollable && widget.axisDirection == AxisDirection.down,
   );
+}
+
+Future<void> scrollToShellTile(WidgetTester tester, Key key) async {
+  final tile = find.byKey(key);
+  await tester.dragUntilVisible(
+    tile,
+    verticalScrollable().first,
+    const Offset(0, -300),
+  );
+  await tester.ensureVisible(tile);
+  await tester.pumpAndSettle();
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {

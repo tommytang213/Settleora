@@ -313,8 +313,8 @@ void main() {
 
     expect(find.text('Recurring bills'), findsWidgets);
     expect(find.text('Rent'), findsWidgets);
-    expect(recurringRepository.listTemplateCalls, 1);
-    expect(recurringRepository.forecastCalls, 1);
+    expect(recurringRepository.listTemplateCalls, 2);
+    expect(recurringRepository.forecastCalls, 2);
   });
 }
 
