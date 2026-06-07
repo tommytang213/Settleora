@@ -1574,7 +1574,7 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraGroupFailure? _memberFailure;
   SettleoraBillFailure? _failure;
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
-  SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
+  SettleoraBillDetail? _createdBillAwaitingCompletion;
   String? _itemListError;
   String? _splitTotalError;
   String? _payerTotalError;
@@ -1840,9 +1840,13 @@ class _SettleoraGroupBillCreateScreenState
       return;
     }
 
-    final existingCreatedBill = _createdBillAwaitingAttachmentUpload;
+    final existingCreatedBill = _createdBillAwaitingCompletion;
     if (existingCreatedBill != null) {
-      await _finishAttachmentUploads(existingCreatedBill);
+      if (_draftAttachments.isEmpty) {
+        await _submitCreatedGroupBill(existingCreatedBill);
+      } else {
+        await _finishAttachmentUploads(existingCreatedBill);
+      }
       return;
     }
 
@@ -1938,14 +1942,15 @@ class _SettleoraGroupBillCreateScreenState
         return;
       }
 
+      setState(() {
+        _createdBillAwaitingCompletion = createdBill;
+      });
+
       if (_draftAttachments.isEmpty) {
-        Navigator.of(context).pop(createdBill);
+        await _submitCreatedGroupBill(createdBill);
         return;
       }
 
-      setState(() {
-        _createdBillAwaitingAttachmentUpload = createdBill;
-      });
       await _finishAttachmentUploads(createdBill);
     } catch (error) {
       if (!mounted) {
@@ -1972,7 +1977,7 @@ class _SettleoraGroupBillCreateScreenState
           message:
               'The bill was created, but attachments cannot be uploaded right now.',
         );
-        _createdBillAwaitingAttachmentUpload = createdBill;
+        _createdBillAwaitingCompletion = createdBill;
         _isSaving = false;
       });
       return;
@@ -2013,10 +2018,8 @@ class _SettleoraGroupBillCreateScreenState
 
       setState(() {
         _draftAttachments.clear();
-        _createdBillAwaitingAttachmentUpload = null;
-        _isSaving = false;
       });
-      Navigator.of(context).pop(createdBill);
+      await _submitCreatedGroupBill(createdBill);
     } catch (error) {
       if (!mounted) {
         return;
@@ -2027,7 +2030,46 @@ class _SettleoraGroupBillCreateScreenState
           (attachment) => uploadedDraftIds.contains(attachment.id),
         );
         _attachmentUploadFailure = SettleoraBillAttachmentFailure.from(error);
-        _createdBillAwaitingAttachmentUpload = createdBill;
+        _createdBillAwaitingCompletion = createdBill;
+        _isSaving = false;
+      });
+    }
+  }
+
+  Future<void> _submitCreatedGroupBill(SettleoraBillDetail createdBill) async {
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+      _attachmentUploadFailure = null;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      await widget.billRepository.submitGroupBill(
+        widget.groupId,
+        createdBill.id,
+      );
+      final submittedBill = await widget.billRepository.getGroupBill(
+        widget.groupId,
+        createdBill.id,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _createdBillAwaitingCompletion = null;
+        _isSaving = false;
+      });
+      Navigator.of(context).pop(submittedBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _createdBillAwaitingCompletion = createdBill;
         _isSaving = false;
       });
     }
@@ -2061,8 +2103,10 @@ class _SettleoraGroupBillCreateScreenState
     final itemListError = _itemListError;
     final splitTotalError = _splitTotalError;
     final payerTotalError = _payerTotalError;
-    final saveLabel = _createdBillAwaitingAttachmentUpload == null
-        ? 'Save group bill'
+    final saveLabel = _createdBillAwaitingCompletion == null
+        ? 'Submit group bill'
+        : _draftAttachments.isEmpty
+        ? 'Retry group bill submit'
         : 'Retry remaining attachment uploads';
 
     return Scaffold(
