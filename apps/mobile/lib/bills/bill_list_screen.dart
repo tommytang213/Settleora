@@ -3732,16 +3732,19 @@ class _SettleoraGroupBillDetailScreenState
                   for (final reason
                       in SettleoraBillParticipantRejectionReasonCodeValues
                           .values)
-                    RadioListTile<SettleoraBillParticipantRejectionReasonCode>(
+                    ListTile(
                       key: ValueKey('group-bill-reject-reason-$reason'),
-                      value: reason,
-                      groupValue: selectedReason,
+                      leading: Icon(
+                        selectedReason == reason
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                      ),
                       title: Text(
                         settleoraBillParticipantRejectionReasonLabel(reason),
                       ),
-                      onChanged: (value) {
+                      onTap: () {
                         setSheetState(() {
-                          selectedReason = value;
+                          selectedReason = reason;
                         });
                       },
                     ),
