@@ -1540,6 +1540,8 @@ class _SettleoraGroupBillListScreenState
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _ReadOnlyBillSummaryTile(
                           bill: _bills[index],
+                          currentUserProfileId: widget.currentUserProfileId,
+                          participantDisplayNames: _participantDisplayNames,
                           onTap: () => _openBill(_bills[index]),
                         ),
                       ),
@@ -3781,13 +3783,26 @@ class _BillSummaryTile extends StatelessWidget {
 }
 
 class _ReadOnlyBillSummaryTile extends StatelessWidget {
-  const _ReadOnlyBillSummaryTile({required this.bill, required this.onTap});
+  const _ReadOnlyBillSummaryTile({
+    required this.bill,
+    required this.onTap,
+    this.currentUserProfileId,
+    this.participantDisplayNames = const {},
+  });
 
   final SettleoraBillSummary bill;
   final VoidCallback onTap;
+  final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
 
   @override
   Widget build(BuildContext context) {
+    final participantSummary = _GroupBillListParticipantSummary(
+      bill: bill,
+      currentUserProfileId: currentUserProfileId,
+      participantDisplayNames: participantDisplayNames,
+    );
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
@@ -3823,6 +3838,21 @@ class _ReadOnlyBillSummaryTile extends StatelessWidget {
                         ? Icons.inventory_2_outlined
                         : Icons.check_circle_outline,
                   ),
+                  if (participantSummary.currentUserLabel != null)
+                    _SoftChip(
+                      label: participantSummary.currentUserLabel!,
+                      icon: participantSummary.currentUserIcon,
+                    ),
+                  if (participantSummary.participantCountLabel != null)
+                    _SoftChip(
+                      label: participantSummary.participantCountLabel!,
+                      icon: Icons.group_outlined,
+                    ),
+                  if (participantSummary.rejectedLabel != null)
+                    _SoftChip(
+                      label: participantSummary.rejectedLabel!,
+                      icon: Icons.report_problem_outlined,
+                    ),
                 ],
               ),
             ],
@@ -3831,6 +3861,119 @@ class _ReadOnlyBillSummaryTile extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right),
       ),
     );
+  }
+}
+
+class _GroupBillListParticipantSummary {
+  const _GroupBillListParticipantSummary({
+    required this.bill,
+    required this.currentUserProfileId,
+    required this.participantDisplayNames,
+  });
+
+  final SettleoraBillSummary bill;
+  final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
+
+  String? get currentUserLabel {
+    final participant = _currentParticipant();
+    if (participant == null) {
+      return null;
+    }
+
+    return switch (participant.status) {
+      SettleoraBillParticipantStatusValues.pendingAcceptance
+          when bill.status == 'pending_confirmation' =>
+        'Needs your response',
+      SettleoraBillParticipantStatusValues.accepted => 'You accepted',
+      SettleoraBillParticipantStatusValues.rejected => 'You rejected',
+      _ => null,
+    };
+  }
+
+  IconData get currentUserIcon {
+    final participant = _currentParticipant();
+    return switch (participant?.status) {
+      SettleoraBillParticipantStatusValues.pendingAcceptance =>
+        Icons.priority_high_outlined,
+      SettleoraBillParticipantStatusValues.accepted =>
+        Icons.check_circle_outline,
+      SettleoraBillParticipantStatusValues.rejected => Icons.cancel_outlined,
+      _ => Icons.person_outline,
+    };
+  }
+
+  String? get participantCountLabel {
+    if (bill.participants.isEmpty) {
+      return null;
+    }
+
+    final pending = _statusCount(
+      SettleoraBillParticipantStatusValues.pendingAcceptance,
+    );
+    final accepted = _statusCount(
+      SettleoraBillParticipantStatusValues.accepted,
+    );
+    final rejected = _statusCount(
+      SettleoraBillParticipantStatusValues.rejected,
+    );
+
+    return '$pending pending - $accepted accepted - $rejected rejected';
+  }
+
+  String? get rejectedLabel {
+    if (bill.participants.isEmpty) {
+      return null;
+    }
+
+    final labels = <String>[];
+    for (var index = 0; index < bill.participants.length; index += 1) {
+      final participant = bill.participants[index];
+      if (participant.status != SettleoraBillParticipantStatusValues.rejected) {
+        continue;
+      }
+
+      labels.add(
+        _participantDisplayLabel(
+          index: index,
+          participant: participant,
+          currentUserProfileId: currentUserProfileId,
+          participantDisplayNames: participantDisplayNames,
+          includeRejectionReason: false,
+        ),
+      );
+    }
+
+    if (labels.isEmpty) {
+      return null;
+    }
+
+    if (labels.length <= 2) {
+      return 'Rejected: ${labels.join(', ')}';
+    }
+
+    return '${labels.length} rejected participants';
+  }
+
+  SettleoraBillParticipant? _currentParticipant() {
+    final trimmed = currentUserProfileId?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+
+    for (final participant in bill.participants) {
+      if (participant.userProfileId.trim() == trimmed) {
+        return participant;
+      }
+    }
+
+    return null;
+  }
+
+  int _statusCount(SettleoraBillParticipantStatus status) {
+    return bill.participants
+        .where((participant) => participant.status == status)
+        .length;
   }
 }
 
@@ -4928,6 +5071,7 @@ SettleoraBillSummary _summaryFromCreatedDetail(SettleoraBillDetail bill) {
     payerCount: bill.payers.length,
     createdAtUtc: bill.createdAtUtc,
     updatedAtUtc: bill.updatedAtUtc,
+    participants: bill.participants,
     displayNameFallback: bill.displayNameFallback,
   );
 }
