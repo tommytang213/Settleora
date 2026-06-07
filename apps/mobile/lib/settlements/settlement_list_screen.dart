@@ -247,6 +247,47 @@ class _SettleoraSettlementDetailScreenState
     }
   }
 
+  Future<void> _confirmAndRunAction({
+    required String actionKey,
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required String successMessage,
+    required Future<void> Function() operation,
+  }) async {
+    if (_busyAction != null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    await _runAction(
+      actionKey: actionKey,
+      successMessage: successMessage,
+      operation: operation,
+    );
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(
       context,
@@ -295,9 +336,14 @@ class _SettleoraSettlementDetailScreenState
               children: [
                 _RequestHeader(
                   request: request,
+                  currentUserProfileId: widget.currentUserProfileId,
                   busyAction: _busyAction,
-                  onCancel: () => _runAction(
+                  onCancel: () => _confirmAndRunAction(
                     actionKey: 'request-cancel',
+                    title: 'Cancel settlement?',
+                    message:
+                        'This cancels the requested settlement if no payment has been recorded. The server will verify whether this account can cancel it.',
+                    confirmLabel: 'Cancel settlement',
                     successMessage: 'Settlement cancelled.',
                     operation: () async {
                       await widget.repository.cancelSettlementRequest(
@@ -305,8 +351,12 @@ class _SettleoraSettlementDetailScreenState
                       );
                     },
                   ),
-                  onDispute: () => _runAction(
+                  onDispute: () => _confirmAndRunAction(
                     actionKey: 'request-dispute',
+                    title: 'Dispute settlement?',
+                    message:
+                        'This flags the settlement for correction. This mobile seam does not support sending a reason yet.',
+                    confirmLabel: 'Dispute',
                     successMessage: 'Settlement disputed.',
                     operation: () async {
                       await widget.repository.disputeSettlementRequest(
@@ -314,6 +364,12 @@ class _SettleoraSettlementDetailScreenState
                       );
                     },
                   ),
+                ),
+                const SizedBox(height: 20),
+                _LifecycleSection(
+                  request: request,
+                  payments: _payments,
+                  currentUserProfileId: widget.currentUserProfileId,
                 ),
                 const SizedBox(height: 20),
                 _CounterpartyPaymentDetailsSection(
@@ -325,9 +381,14 @@ class _SettleoraSettlementDetailScreenState
                 const SizedBox(height: 20),
                 _PaymentsSection(
                   payments: _payments,
+                  currentUserProfileId: widget.currentUserProfileId,
                   busyAction: _busyAction,
-                  onConfirmPayment: (payment) => _runAction(
+                  onConfirmPayment: (payment) => _confirmAndRunAction(
                     actionKey: 'payment-confirm-${payment.id}',
+                    title: 'Confirm receipt?',
+                    message:
+                        'Confirm only if you received this payment. The server will update the settlement state and audit the action.',
+                    confirmLabel: 'Confirm receipt',
                     successMessage: 'Payment confirmed.',
                     operation: () async {
                       await widget.repository.confirmSettlementPayment(
@@ -335,8 +396,12 @@ class _SettleoraSettlementDetailScreenState
                       );
                     },
                   ),
-                  onCancelPayment: (payment) => _runAction(
+                  onCancelPayment: (payment) => _confirmAndRunAction(
                     actionKey: 'payment-cancel-${payment.id}',
+                    title: 'Cancel payment claim?',
+                    message:
+                        'This cancels your marked-paid claim for this settlement payment.',
+                    confirmLabel: 'Cancel claim',
                     successMessage: 'Payment cancelled.',
                     operation: () async {
                       await widget.repository.cancelSettlementPayment(
@@ -344,8 +409,12 @@ class _SettleoraSettlementDetailScreenState
                       );
                     },
                   ),
-                  onDisputePayment: (payment) => _runAction(
+                  onDisputePayment: (payment) => _confirmAndRunAction(
                     actionKey: 'payment-dispute-${payment.id}',
+                    title: 'Dispute payment?',
+                    message:
+                        'This flags the marked-paid claim for correction. This mobile seam does not support sending a reason yet.',
+                    confirmLabel: 'Dispute payment',
                     successMessage: 'Payment disputed.',
                     operation: () async {
                       await widget.repository.disputeSettlementPayment(
@@ -353,8 +422,12 @@ class _SettleoraSettlementDetailScreenState
                       );
                     },
                   ),
-                  onConfirmResidual: (payment, residual) => _runAction(
+                  onConfirmResidual: (payment, residual) => _confirmAndRunAction(
                     actionKey: 'residual-confirm-${residual.id}',
+                    title: 'Confirm residual?',
+                    message:
+                        'Confirm this remaining amount handling only if it matches what you agreed. The server will decide the resulting settlement state.',
+                    confirmLabel: 'Confirm residual',
                     successMessage: 'Residual confirmed.',
                     operation: () async {
                       await widget.repository.confirmSettlementPaymentResidual(
@@ -511,6 +584,7 @@ class _RequestSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _RequestTile(
+              index: index,
               request: requests[index],
               onTap: () => onTap(requests[index]),
             ),
@@ -521,8 +595,13 @@ class _RequestSection extends StatelessWidget {
 }
 
 class _RequestTile extends StatelessWidget {
-  const _RequestTile({required this.request, required this.onTap});
+  const _RequestTile({
+    required this.index,
+    required this.request,
+    required this.onTap,
+  });
 
+  final int index;
   final SettleoraSettlementRequest request;
   final VoidCallback onTap;
 
@@ -534,6 +613,7 @@ class _RequestTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
+        key: ValueKey('settlement-request-tile-$index'),
         onTap: onTap,
         leading: const Icon(Icons.request_quote_outlined),
         title: Text(_money(request.amount, request.currency)),
@@ -563,19 +643,23 @@ class _RequestTile extends StatelessWidget {
 class _RequestHeader extends StatelessWidget {
   const _RequestHeader({
     required this.request,
+    required this.currentUserProfileId,
     required this.busyAction,
     required this.onCancel,
     required this.onDispute,
   });
 
   final SettleoraSettlementRequest request;
+  final String currentUserProfileId;
   final String? busyAction;
   final VoidCallback onCancel;
   final VoidCallback onDispute;
 
   @override
   Widget build(BuildContext context) {
-    final hasActions = request.canCancel || request.canDispute;
+    final canCancel = request.canCancelFor(currentUserProfileId);
+    final canDispute = request.canDisputeFor(currentUserProfileId);
+    final hasActions = canCancel || canDispute;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -600,7 +684,7 @@ class _RequestHeader extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (request.canCancel)
+              if (canCancel)
                 OutlinedButton.icon(
                   key: const Key('settlement-request-cancel'),
                   onPressed: busyAction == null ? onCancel : null,
@@ -612,7 +696,7 @@ class _RequestHeader extends StatelessWidget {
                       : const Icon(Icons.close_outlined),
                   label: const Text('Cancel'),
                 ),
-              if (request.canDispute)
+              if (canDispute)
                 OutlinedButton.icon(
                   key: const Key('settlement-request-dispute'),
                   onPressed: busyAction == null ? onDispute : null,
@@ -630,6 +714,149 @@ class _RequestHeader extends StatelessWidget {
       ],
     );
   }
+}
+
+class _LifecycleSection extends StatelessWidget {
+  const _LifecycleSection({
+    required this.request,
+    required this.payments,
+    required this.currentUserProfileId,
+  });
+
+  final SettleoraSettlementRequest request;
+  final List<SettleoraSettlementPayment> payments;
+  final String currentUserProfileId;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = _lifecycleState(
+      request: request,
+      payments: payments,
+      currentUserProfileId: currentUserProfileId,
+    );
+
+    return _Section(
+      title: 'Next step',
+      children: [
+        _GuidancePanel(
+          icon: state.icon,
+          title: state.title,
+          message: state.message,
+          chips: state.chips,
+        ),
+      ],
+    );
+  }
+}
+
+class _LifecycleGuidance {
+  const _LifecycleGuidance({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.chips,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final List<String> chips;
+}
+
+_LifecycleGuidance _lifecycleState({
+  required SettleoraSettlementRequest request,
+  required List<SettleoraSettlementPayment> payments,
+  required String currentUserProfileId,
+}) {
+  final isDebtor = request.isDebtor(currentUserProfileId);
+  final isCreditor = request.isCreditor(currentUserProfileId);
+  final hasMarkedPaidPayment = payments.any(
+    (payment) =>
+        payment.status == SettleoraSettlementPaymentStatusValues.markedPaid,
+  );
+  final hasPendingResiduals = payments.any(
+    (payment) => payment.hasPendingResiduals,
+  );
+  final hasConfirmablePayment = payments.any(
+    (payment) => payment.canConfirmFor(currentUserProfileId),
+  );
+
+  return switch (request.status) {
+    SettleoraSettlementRequestStatusValues.requested =>
+      isDebtor
+          ? _LifecycleGuidance(
+              icon: Icons.north_east_outlined,
+              title: 'You are expected to pay',
+              message:
+                  'Use the counterparty payment details, then mark the settlement as paid. Mark-paid is supported by the API but is not wired into this mobile repository seam yet.',
+              chips: const ['Payment needed', 'Mark-paid unavailable here'],
+            )
+          : _LifecycleGuidance(
+              icon: Icons.schedule_outlined,
+              title: isCreditor ? 'Waiting for payer' : 'Requested',
+              message: isCreditor
+                  ? 'The payer needs to mark this settlement as paid before you can confirm receipt.'
+                  : 'A settlement participant needs to act before this can move forward.',
+              chips: const ['No payment recorded'],
+            ),
+    SettleoraSettlementRequestStatusValues.partiallyPaid => _LifecycleGuidance(
+      icon: hasPendingResiduals
+          ? Icons.rule_folder_outlined
+          : Icons.pending_actions_outlined,
+      title: hasPendingResiduals
+          ? 'Residual needs receiver review'
+          : isCreditor
+          ? 'Review payment claims'
+          : 'Waiting for receiver review',
+      message: hasPendingResiduals
+          ? 'Confirm the pending residual handling before confirming the payment.'
+          : isCreditor
+          ? 'Confirm receipt for valid marked-paid claims, or dispute a claim that needs correction.'
+          : 'The receiver needs to confirm or dispute the marked-paid claim.',
+      chips: [
+        if (hasPendingResiduals) 'Residual confirmation needed',
+        if (hasConfirmablePayment) 'Confirm receipt available',
+        if (hasMarkedPaidPayment && !hasConfirmablePayment)
+          'Receiver action needed',
+      ],
+    ),
+    SettleoraSettlementRequestStatusValues.markedPaid => _LifecycleGuidance(
+      icon: Icons.verified_outlined,
+      title: isCreditor ? 'Confirm receipt' : 'Waiting for confirmation',
+      message: isCreditor
+          ? 'Confirm receipt if the payment arrived, or dispute the claim if it does not match.'
+          : 'The payment has been marked paid and now needs receiver confirmation.',
+      chips: [if (hasConfirmablePayment) 'Confirm receipt available'],
+    ),
+    SettleoraSettlementRequestStatusValues.confirmed => const _LifecycleGuidance(
+      icon: Icons.check_circle_outline,
+      title: 'No action needed',
+      message:
+          'This settlement is confirmed and no lifecycle actions are available.',
+      chips: ['Confirmed'],
+    ),
+    SettleoraSettlementRequestStatusValues.disputed => const _LifecycleGuidance(
+      icon: Icons.report_problem_outlined,
+      title: 'Disputed',
+      message:
+          'This settlement needs correction outside the current mobile action seam before it can proceed.',
+      chips: ['Needs correction'],
+    ),
+    SettleoraSettlementRequestStatusValues.cancelled =>
+      const _LifecycleGuidance(
+        icon: Icons.cancel_outlined,
+        title: 'Cancelled',
+        message: 'This settlement was cancelled. No action is available.',
+        chips: ['Closed'],
+      ),
+    _ => _LifecycleGuidance(
+      icon: Icons.info_outline,
+      title: settleoraSettlementRequestStatusLabel(request.status),
+      message:
+          'This settlement status is visible, but no mobile action is available for it.',
+      chips: const ['No mobile action'],
+    ),
+  };
 }
 
 class _CounterpartyPaymentDetailsSection extends StatelessWidget {
@@ -751,6 +978,7 @@ class _RequestLinesSection extends StatelessWidget {
 class _PaymentsSection extends StatelessWidget {
   const _PaymentsSection({
     required this.payments,
+    required this.currentUserProfileId,
     required this.busyAction,
     required this.onConfirmPayment,
     required this.onCancelPayment,
@@ -759,6 +987,7 @@ class _PaymentsSection extends StatelessWidget {
   });
 
   final List<SettleoraSettlementPayment> payments;
+  final String currentUserProfileId;
   final String? busyAction;
   final void Function(SettleoraSettlementPayment payment) onConfirmPayment;
   final void Function(SettleoraSettlementPayment payment) onCancelPayment;
@@ -794,6 +1023,7 @@ class _PaymentsSection extends StatelessWidget {
             child: _PaymentTile(
               index: index,
               payment: payments[index],
+              currentUserProfileId: currentUserProfileId,
               busyAction: busyAction,
               onConfirmPayment: () => onConfirmPayment(payments[index]),
               onCancelPayment: () => onCancelPayment(payments[index]),
@@ -811,6 +1041,7 @@ class _PaymentTile extends StatelessWidget {
   const _PaymentTile({
     required this.index,
     required this.payment,
+    required this.currentUserProfileId,
     required this.busyAction,
     required this.onConfirmPayment,
     required this.onCancelPayment,
@@ -820,6 +1051,7 @@ class _PaymentTile extends StatelessWidget {
 
   final int index;
   final SettleoraSettlementPayment payment;
+  final String currentUserProfileId;
   final String? busyAction;
   final VoidCallback onConfirmPayment;
   final VoidCallback onCancelPayment;
@@ -829,11 +1061,20 @@ class _PaymentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPaymentActions =
-        payment.canConfirm || payment.canCancel || payment.canDispute;
+    final canConfirm = payment.canConfirmFor(currentUserProfileId);
+    final canCancel = payment.canCancelFor(currentUserProfileId);
+    final canDispute = payment.canDisputeFor(currentUserProfileId);
+    final hasPaymentActions = canConfirm || canCancel || canDispute;
+    final isReceiver = payment.isReceiver(currentUserProfileId);
+    final isPayer = payment.isPayer(currentUserProfileId);
     final pendingResiduals = payment.residuals
         .where((residual) => residual.canConfirm)
         .toList(growable: false);
+    final confirmBlockedByResidual =
+        isReceiver &&
+        payment.status == SettleoraSettlementPaymentStatusValues.markedPaid &&
+        pendingResiduals.isNotEmpty;
+    final canActOnPendingResiduals = isReceiver && pendingResiduals.isNotEmpty;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -863,16 +1104,36 @@ class _PaymentTile extends StatelessWidget {
               _ResidualList(
                 paymentIndex: index,
                 residuals: payment.residuals,
+                canConfirmResiduals: isReceiver,
                 busyAction: busyAction,
                 onConfirmResidual: onConfirmResidual,
               ),
-            if (hasPaymentActions || pendingResiduals.isNotEmpty) ...[
+            if (confirmBlockedByResidual) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Receipt confirmation is blocked until pending residuals are confirmed.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ] else if (isPayer &&
+                payment.status ==
+                    SettleoraSettlementPaymentStatusValues.markedPaid) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Waiting for the receiver to confirm this payment.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (hasPaymentActions || canActOnPendingResiduals) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  if (payment.canConfirm)
+                  if (canConfirm)
                     FilledButton.icon(
                       key: ValueKey('settlement-payment-confirm-$index'),
                       onPressed: busyAction == null ? onConfirmPayment : null,
@@ -884,7 +1145,7 @@ class _PaymentTile extends StatelessWidget {
                           : const Icon(Icons.check_outlined),
                       label: const Text('Confirm'),
                     ),
-                  if (payment.canCancel)
+                  if (canCancel)
                     OutlinedButton.icon(
                       key: ValueKey('settlement-payment-cancel-$index'),
                       onPressed: busyAction == null ? onCancelPayment : null,
@@ -896,7 +1157,7 @@ class _PaymentTile extends StatelessWidget {
                           : const Icon(Icons.close_outlined),
                       label: const Text('Cancel'),
                     ),
-                  if (payment.canDispute)
+                  if (canDispute)
                     OutlinedButton.icon(
                       key: ValueKey('settlement-payment-dispute-$index'),
                       onPressed: busyAction == null ? onDisputePayment : null,
@@ -922,12 +1183,14 @@ class _ResidualList extends StatelessWidget {
   const _ResidualList({
     required this.paymentIndex,
     required this.residuals,
+    required this.canConfirmResiduals,
     required this.busyAction,
     required this.onConfirmResidual,
   });
 
   final int paymentIndex;
   final List<SettleoraSettlementPaymentResidual> residuals;
+  final bool canConfirmResiduals;
   final String? busyAction;
   final void Function(SettleoraSettlementPaymentResidual residual)
   onConfirmResidual;
@@ -952,7 +1215,7 @@ class _ResidualList extends StatelessWidget {
                       '${_money(residuals[index].amount, residuals[index].currency)} - ${settleoraSettlementResidualStatusLabel(residuals[index].status)}',
                     ),
                   ),
-                  if (residuals[index].canConfirm)
+                  if (canConfirmResiduals && residuals[index].canConfirm)
                     TextButton.icon(
                       key: ValueKey(
                         'settlement-residual-confirm-$paymentIndex-$index',
@@ -995,6 +1258,69 @@ class _FailurePanel extends StatelessWidget {
         onPressed: onRetry,
         icon: const Icon(Icons.refresh),
         label: const Text('Retry'),
+      ),
+    );
+  }
+}
+
+class _GuidancePanel extends StatelessWidget {
+  const _GuidancePanel({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.chips,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final List<String> chips;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(message),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (chips.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final chip in chips)
+                    _SoftChip(label: chip, icon: Icons.info_outline),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

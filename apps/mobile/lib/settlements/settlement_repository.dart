@@ -184,6 +184,24 @@ class SettleoraSettlementRequest {
       status == SettleoraSettlementRequestStatusValues.partiallyPaid ||
       status == SettleoraSettlementRequestStatusValues.markedPaid;
 
+  bool isDebtor(String currentUserProfileId) =>
+      currentUserProfileId.trim() == debtorUserProfileId;
+
+  bool isCreditor(String currentUserProfileId) =>
+      currentUserProfileId.trim() == creditorUserProfileId;
+
+  bool isRequester(String currentUserProfileId) =>
+      currentUserProfileId.trim() == requestedByUserProfileId;
+
+  bool isParticipant(String currentUserProfileId) =>
+      isDebtor(currentUserProfileId) || isCreditor(currentUserProfileId);
+
+  bool canCancelFor(String currentUserProfileId) =>
+      canCancel && isRequester(currentUserProfileId);
+
+  bool canDisputeFor(String currentUserProfileId) =>
+      canDispute && isParticipant(currentUserProfileId);
+
   String? counterpartyFor(String currentUserProfileId) {
     final trimmed = currentUserProfileId.trim();
     if (trimmed.isEmpty) {
@@ -273,6 +291,21 @@ class SettleoraSettlementPayment {
 
   bool get canDispute =>
       status == SettleoraSettlementPaymentStatusValues.markedPaid;
+
+  bool isPayer(String currentUserProfileId) =>
+      currentUserProfileId.trim() == paidByUserProfileId;
+
+  bool isReceiver(String currentUserProfileId) =>
+      currentUserProfileId.trim() == receivedByUserProfileId;
+
+  bool canConfirmFor(String currentUserProfileId) =>
+      canConfirm && isReceiver(currentUserProfileId);
+
+  bool canCancelFor(String currentUserProfileId) =>
+      canCancel && isPayer(currentUserProfileId);
+
+  bool canDisputeFor(String currentUserProfileId) =>
+      canDispute && isReceiver(currentUserProfileId);
 }
 
 class SettleoraSettlementPaymentAllocation {
