@@ -501,6 +501,7 @@ class _SettleoraGroupDetailScreenState
         builder: (_) => SettleoraGroupBillListScreen(
           repository: widget.billRepository,
           groupRepository: widget.repository,
+          participantDisplayNames: _participantDisplayNamesByProfileId(),
           currentUserProfileId: widget.currentUserProfileId,
           attachmentRepository: widget.billAttachmentRepository,
           attachmentFileInput: widget.billAttachmentFileInput,
@@ -511,6 +512,15 @@ class _SettleoraGroupDetailScreenState
         ),
       ),
     );
+  }
+
+  Map<String, String> _participantDisplayNamesByProfileId() {
+    return {
+      for (final member in _members)
+        if (member.userProfileId.trim().isNotEmpty &&
+            member.safeDisplayName.trim().isNotEmpty)
+          member.userProfileId.trim(): member.safeDisplayName.trim(),
+    };
   }
 
   Future<bool> _confirmMemberRemoval(SettleoraGroupMember member) async {
