@@ -43,6 +43,13 @@ void main() {
     expect(find.text('Rent'), findsWidgets);
     expect(find.text('1200.00 USD'), findsWidgets);
     expect(find.text('Every month'), findsWidgets);
+    expect(find.text('Next occurrence: 2026-06-01.'), findsOneWidget);
+    expect(
+      find.text(
+        'Review the estimate, then generate a draft when you are ready.',
+      ),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('recurring-bill-generate-0')),
       findsOneWidget,
@@ -109,6 +116,13 @@ void main() {
     expect(repository.getTemplateCalls, 1);
     expect(find.text('Recurring bill'), findsWidgets);
     expect(find.text('Schedule'), findsOneWidget);
+    expect(
+      find.text(
+        'Watch the forecast for the next draft opportunity on 2026-06-01.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Due 3 days after each occurrence.'), findsOneWidget);
     expect(find.text('Payload'), findsOneWidget);
     expect(find.text('Version 1'), findsOneWidget);
   });
@@ -124,7 +138,19 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(repository.generateDraftCalls, 0);
+    expect(find.text('Generate draft?'), findsOneWidget);
+    expect(
+      find.textContaining('Estimated total: 1200.00 USD.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('recurring-bill-generate-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(repository.generateDraftCalls, 1);
     expect(repository.lastTemplateId, _templateId);
@@ -147,10 +173,113 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.byKey(const Key('recurring-bill-generate-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(repository.generateDraftCalls, 1);
     expect(find.text('Refresh recurring bills and try again.'), findsOneWidget);
+  });
+
+  testWidgets('draft generation blocks duplicate taps while confirming', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('Generate draft?'), findsOneWidget);
+    expect(repository.generateDraftCalls, 0);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('recurring-bill-generate-0')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const Key('recurring-bill-generate-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(repository.generateDraftCalls, 1);
+  });
+
+  testWidgets('inactive recurring bill state is read-only guidance', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: [
+        sampleTemplate(
+          status: SettleoraRecurringBillTemplateStatusValues.paused,
+          nextOccurrenceDate: null,
+          isGroupScoped: true,
+        ),
+      ],
+      forecast: [
+        sampleOccurrence(
+          status: SettleoraRecurringBillOccurrenceStatusValues.cancelled,
+          dueDate: null,
+          isGroupScoped: true,
+        ),
+      ],
+      detail: sampleDetail(
+        status: SettleoraRecurringBillTemplateStatusValues.paused,
+        nextOccurrenceDate: null,
+        isGroupScoped: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Paused; no new drafts will be generated until resumed.'),
+      findsOneWidget,
+    );
+    expect(find.text('Shared group bill'), findsOneWidget);
+    expect(
+      find.text('Occurrence: 2026-06-01. No due date was returned.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('This occurrence was cancelled and has no future action.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('recurring-bill-generate-0')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'This template is paused. Mobile can show it, but pause and resume actions are not available in this surface yet.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('No upcoming occurrence is available from the server.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('authenticated server shell opens recurring bills', (
@@ -736,25 +865,37 @@ SettleoraCurrentUser sampleCurrentUser() {
   );
 }
 
-SettleoraRecurringBillTemplateSummary sampleTemplate() {
+SettleoraRecurringBillTemplateSummary sampleTemplate({
+  String status = SettleoraRecurringBillTemplateStatusValues.active,
+  String? nextOccurrenceDate = '2026-06-01',
+  bool isGroupScoped = false,
+}) {
   return SettleoraRecurringBillTemplateSummary(
     id: _templateId,
     merchantName: 'Rent',
     description: 'Monthly apartment rent',
-    status: SettleoraRecurringBillTemplateStatusValues.active,
+    status: status,
     schedule: sampleSchedule(),
     forecastAmount: '1200.00',
     forecastCurrency: 'USD',
-    nextOccurrenceDate: '2026-06-01',
+    nextOccurrenceDate: nextOccurrenceDate,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
     archivedAtUtc: null,
-    isGroupScoped: false,
+    isGroupScoped: isGroupScoped,
   );
 }
 
-SettleoraRecurringBillTemplateDetail sampleDetail() {
-  final template = sampleTemplate();
+SettleoraRecurringBillTemplateDetail sampleDetail({
+  String status = SettleoraRecurringBillTemplateStatusValues.active,
+  String? nextOccurrenceDate = '2026-06-01',
+  bool isGroupScoped = false,
+}) {
+  final template = sampleTemplate(
+    status: status,
+    nextOccurrenceDate: nextOccurrenceDate,
+    isGroupScoped: isGroupScoped,
+  );
   return SettleoraRecurringBillTemplateDetail(
     id: template.id,
     merchantName: template.merchantName,
@@ -787,19 +928,21 @@ SettleoraRecurringBillForecastOccurrence sampleOccurrence({
   String status = SettleoraRecurringBillOccurrenceStatusValues.forecasted,
   bool draftGenerated = false,
   String? generatedBillId,
+  String? dueDate = '2026-06-04',
+  bool isGroupScoped = false,
 }) {
   return SettleoraRecurringBillForecastOccurrence(
     templateId: _templateId,
     occurrenceId: _occurrenceId,
     occurrenceDate: '2026-06-01',
-    dueDate: '2026-06-04',
+    dueDate: dueDate,
     status: status,
     draftGenerated: draftGenerated,
     generatedBillId: generatedBillId,
     forecastAmount: '1200.00',
     forecastCurrency: 'USD',
     merchantName: 'Rent',
-    isGroupScoped: false,
+    isGroupScoped: isGroupScoped,
   );
 }
 

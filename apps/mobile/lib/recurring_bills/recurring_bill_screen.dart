@@ -90,6 +90,17 @@ class _SettleoraRecurringBillScreenState
       _actionFailure = null;
     });
 
+    final confirmed = await _confirmDraftGeneration(occurrence);
+    if (!mounted) {
+      return;
+    }
+    if (!confirmed) {
+      setState(() {
+        _generatingKey = null;
+      });
+      return;
+    }
+
     try {
       final result = await widget.repository.generateDraft(
         templateId: occurrence.templateId,
@@ -118,6 +129,40 @@ class _SettleoraRecurringBillScreenState
         });
       }
     }
+  }
+
+  Future<bool> _confirmDraftGeneration(
+    SettleoraRecurringBillForecastOccurrence occurrence,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Generate draft?'),
+          content: Text(
+            'Settleora will ask the server to create a draft bill for '
+            '${occurrence.displayName} on ${occurrence.occurrenceDate}. '
+            'Estimated total: '
+            '${_money(occurrence.forecastAmount, occurrence.forecastCurrency)}.',
+          ),
+          actions: [
+            TextButton(
+              key: const Key('recurring-bill-generate-cancel'),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              key: const Key('recurring-bill-generate-confirm'),
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.note_add_outlined),
+              label: const Text('Generate draft'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed ?? false;
   }
 
   void _showSnackBar(String message) {
@@ -335,6 +380,10 @@ class _SettleoraRecurringBillDetailScreenState
                   title: 'Schedule',
                   children: [
                     _KeyValueText(
+                      label: 'Next step',
+                      value: _templateGuidance(template),
+                    ),
+                    _KeyValueText(
                       label: 'Frequency',
                       value: settleoraRecurringBillScheduleLabel(
                         template.schedule,
@@ -343,6 +392,10 @@ class _SettleoraRecurringBillDetailScreenState
                     _KeyValueText(
                       label: 'Start',
                       value: template.schedule.startDate,
+                    ),
+                    _KeyValueText(
+                      label: 'Due timing',
+                      value: _scheduleDueCopy(template.schedule),
                     ),
                     if (template.schedule.endDate != null)
                       _KeyValueText(
@@ -358,6 +411,12 @@ class _SettleoraRecurringBillDetailScreenState
                       _KeyValueText(
                         label: 'Next',
                         value: template.nextOccurrenceDate!,
+                      ),
+                    if (template.nextOccurrenceDate == null)
+                      const _KeyValueText(
+                        label: 'Next',
+                        value:
+                            'No upcoming occurrence is available from the server.',
                       ),
                   ],
                 ),
@@ -421,6 +480,12 @@ class _TemplateTile extends StatelessWidget {
             children: [
               Text(_money(template.forecastAmount, template.forecastCurrency)),
               const SizedBox(height: 4),
+              Text(_templateDueSummary(template)),
+              const SizedBox(height: 4),
+              Text(
+                template.isGroupScoped ? 'Shared group bill' : 'Personal bill',
+              ),
+              const SizedBox(height: 4),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -444,10 +509,6 @@ class _TemplateTile extends StatelessWidget {
                     ),
                 ],
               ),
-              if (template.nextOccurrenceDate != null) ...[
-                const SizedBox(height: 6),
-                Text('Next: ${template.nextOccurrenceDate}'),
-              ],
             ],
           ),
         ),
@@ -500,8 +561,15 @@ class _ForecastTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${occurrence.occurrenceDate} - ${_money(occurrence.forecastAmount, occurrence.forecastCurrency)}',
+                        _money(
+                          occurrence.forecastAmount,
+                          occurrence.forecastCurrency,
+                        ),
                       ),
+                      const SizedBox(height: 4),
+                      Text(_occurrenceDueSummary(occurrence)),
+                      const SizedBox(height: 4),
+                      Text(_occurrenceGuidance(occurrence)),
                     ],
                   ),
                 ),
@@ -553,6 +621,84 @@ class _ForecastTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _templateDueSummary(SettleoraRecurringBillTemplateSummary template) {
+  final next = template.nextOccurrenceDate;
+  final scope = template.isGroupScoped ? 'shared' : 'personal';
+  final status = template.status;
+  if (status == SettleoraRecurringBillTemplateStatusValues.archived) {
+    return 'Archived; no future generation is available here.';
+  }
+  if (status == SettleoraRecurringBillTemplateStatusValues.paused) {
+    return 'Paused; no new drafts will be generated until resumed.';
+  }
+  if (next == null) {
+    return 'No upcoming $scope schedule is available.';
+  }
+
+  return 'Next occurrence: $next.';
+}
+
+String _templateGuidance(SettleoraRecurringBillTemplateSummary template) {
+  final next = template.nextOccurrenceDate;
+  return switch (template.status) {
+    SettleoraRecurringBillTemplateStatusValues.active when next != null =>
+      'Watch the forecast for the next draft opportunity on $next.',
+    SettleoraRecurringBillTemplateStatusValues.active =>
+      'This template is active, but the server did not return a next occurrence.',
+    SettleoraRecurringBillTemplateStatusValues.paused =>
+      'This template is paused. Mobile can show it, but pause and resume actions are not available in this surface yet.',
+    SettleoraRecurringBillTemplateStatusValues.archived =>
+      'This template is archived. Mobile keeps it read-only and does not offer future generation.',
+    _ =>
+      'Mobile is showing the server-provided recurring bill state without local lifecycle changes.',
+  };
+}
+
+String _scheduleDueCopy(SettleoraRecurringBillSchedule schedule) {
+  final offset = schedule.dueOffsetDays;
+  if (offset == null) {
+    return 'No due offset is configured.';
+  }
+  if (offset == 0) {
+    return 'Due on the occurrence date.';
+  }
+  if (offset == 1) {
+    return 'Due 1 day after each occurrence.';
+  }
+
+  return 'Due $offset days after each occurrence.';
+}
+
+String _occurrenceDueSummary(
+  SettleoraRecurringBillForecastOccurrence occurrence,
+) {
+  final dueDate = occurrence.dueDate;
+  final occurrenceCopy = 'Occurrence: ${occurrence.occurrenceDate}.';
+  if (dueDate == null) {
+    return '$occurrenceCopy No due date was returned.';
+  }
+
+  return '$occurrenceCopy Due: $dueDate.';
+}
+
+String _occurrenceGuidance(
+  SettleoraRecurringBillForecastOccurrence occurrence,
+) {
+  if (occurrence.draftGenerated) {
+    return 'A draft already exists for this occurrence.';
+  }
+
+  return switch (occurrence.status) {
+    SettleoraRecurringBillOccurrenceStatusValues.forecasted =>
+      'Review the estimate, then generate a draft when you are ready.',
+    SettleoraRecurringBillOccurrenceStatusValues.skipped =>
+      'This occurrence was skipped and has no mobile action.',
+    SettleoraRecurringBillOccurrenceStatusValues.cancelled =>
+      'This occurrence was cancelled and has no future action.',
+    _ => 'This forecast is read-only in mobile for the current server state.',
+  };
 }
 
 class _TemplateHeader extends StatelessWidget {
