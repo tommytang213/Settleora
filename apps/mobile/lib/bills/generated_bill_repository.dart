@@ -30,6 +30,21 @@ abstract interface class SettleoraBillGeneratedClient {
     required String accessToken,
   });
 
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId, {
+    required String accessToken,
+  });
+
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    api.RejectBillParticipantRequest body, {
+    required String accessToken,
+  });
+
   Future<api.PersonalBillResponse> getPersonalBill(
     String billId, {
     required String accessToken,
@@ -92,6 +107,38 @@ class SettleoraPersonalBillGeneratedClient
     required String accessToken,
   }) {
     return _client.submitGroupBill(groupId, billId, accessToken: accessToken);
+  }
+
+  @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId, {
+    required String accessToken,
+  }) {
+    return _client.acceptGroupBillParticipant(
+      groupId,
+      billId,
+      userProfileId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    api.RejectBillParticipantRequest body, {
+    required String accessToken,
+  }) {
+    return _client.rejectGroupBillParticipant(
+      groupId,
+      billId,
+      userProfileId,
+      body,
+      accessToken: accessToken,
+    );
   }
 
   @override
@@ -230,6 +277,94 @@ class GeneratedSettleoraBillRepository implements SettleoraBillRepository {
         await _client.submitGroupBill(
           trimmedGroupId,
           trimmedBillId,
+          accessToken: accessToken,
+        );
+      } on SettleoraBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+  ) {
+    final trimmedGroupId = _requiredId(
+      groupId,
+      blankMessage: 'Choose a group before accepting a bill.',
+    );
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before accepting it.',
+    );
+    final trimmedUserProfileId = _requiredId(
+      userProfileId,
+      blankMessage: 'Choose a participant before accepting this bill.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        await _client.acceptGroupBillParticipant(
+          trimmedGroupId,
+          trimmedBillId,
+          trimmedUserProfileId,
+          accessToken: accessToken,
+        );
+      } on SettleoraBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    SettleoraBillParticipantRejectionReasonCode reasonCode,
+  ) {
+    final trimmedGroupId = _requiredId(
+      groupId,
+      blankMessage: 'Choose a group before rejecting a bill.',
+    );
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before rejecting it.',
+    );
+    final trimmedUserProfileId = _requiredId(
+      userProfileId,
+      blankMessage: 'Choose a participant before rejecting this bill.',
+    );
+    final trimmedReasonCode = _requiredText(
+      reasonCode,
+      blankMessage: 'Choose a reason before rejecting this bill.',
+    );
+    if (!SettleoraBillParticipantRejectionReasonCodeValues.values.contains(
+      trimmedReasonCode,
+    )) {
+      throw const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.validation,
+        message: 'Choose a supported reason before rejecting this bill.',
+      );
+    }
+
+    final body = api.RejectBillParticipantRequest(
+      reasonCode: trimmedReasonCode,
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        await _client.rejectGroupBillParticipant(
+          trimmedGroupId,
+          trimmedBillId,
+          trimmedUserProfileId,
+          body,
           accessToken: accessToken,
         );
       } on SettleoraBillFailure {

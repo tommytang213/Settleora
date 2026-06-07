@@ -160,6 +160,7 @@ class _SettleoraAuthenticatedServerShellState
         builder: (_) => SettleoraGroupListScreen(
           repository: widget.groupRepository,
           billRepository: widget.billRepository,
+          currentUserProfileId: widget.currentUser.userProfileId,
           billAttachmentRepository: widget.billAttachmentRepository,
           billAttachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,

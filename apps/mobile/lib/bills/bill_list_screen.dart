@@ -1337,6 +1337,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.currentUserProfileId,
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -1347,6 +1348,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -1411,6 +1413,7 @@ class _SettleoraGroupBillListScreenState
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
+          currentUserProfileId: widget.currentUserProfileId,
           billId: bill.id,
         ),
       ),
@@ -1457,6 +1460,7 @@ class _SettleoraGroupBillListScreenState
           revisionRepository: widget.revisionRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
+          currentUserProfileId: widget.currentUserProfileId,
           billId: createdBill.id,
           initialBill: createdBill,
         ),
@@ -3186,6 +3190,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     required this.billId,
+    this.currentUserProfileId,
     this.initialBill,
     this.attachmentRepository,
     this.attachmentFileInput,
@@ -3201,6 +3206,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
   final String billId;
+  final String? currentUserProfileId;
   final SettleoraBillDetail? initialBill;
 
   @override
@@ -3217,6 +3223,8 @@ class _SettleoraGroupBillDetailScreenState
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
   bool _isOpeningCreate = false;
+  bool _isAcknowledging = false;
+  SettleoraBillFailure? _acknowledgementFailure;
   int _attachmentReloadRevision = 0;
 
   @override
@@ -3253,6 +3261,7 @@ class _SettleoraGroupBillDetailScreenState
       _failure = null;
       _revisionFailure = null;
       _createFailure = null;
+      _acknowledgementFailure = null;
     });
 
     try {
@@ -3409,6 +3418,122 @@ class _SettleoraGroupBillDetailScreenState
     }
   }
 
+  Future<void> _acceptParticipantShare() async {
+    final userProfileId = widget.currentUserProfileId?.trim();
+    if (_isAcknowledging || userProfileId == null || userProfileId.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isAcknowledging = true;
+      _acknowledgementFailure = null;
+    });
+
+    try {
+      await widget.repository.acceptGroupBillParticipant(
+        widget.groupId,
+        widget.billId,
+        userProfileId,
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _acknowledgementFailure = SettleoraBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAcknowledging = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _rejectParticipantShare() async {
+    final userProfileId = widget.currentUserProfileId?.trim();
+    if (_isAcknowledging || userProfileId == null || userProfileId.isEmpty) {
+      return;
+    }
+
+    final reasonCode = await _selectRejectionReason();
+    if (!mounted || reasonCode == null) {
+      return;
+    }
+
+    setState(() {
+      _isAcknowledging = true;
+      _acknowledgementFailure = null;
+    });
+
+    try {
+      await widget.repository.rejectGroupBillParticipant(
+        widget.groupId,
+        widget.billId,
+        userProfileId,
+        reasonCode,
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _acknowledgementFailure = SettleoraBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAcknowledging = false;
+        });
+      }
+    }
+  }
+
+  Future<SettleoraBillParticipantRejectionReasonCode?>
+  _selectRejectionReason() {
+    return showModalBottomSheet<SettleoraBillParticipantRejectionReasonCode>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Reject bill',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                for (final reason
+                    in SettleoraBillParticipantRejectionReasonCodeValues.values)
+                  ListTile(
+                    key: ValueKey('group-bill-reject-reason-$reason'),
+                    title: Text(
+                      settleoraBillParticipantRejectionReasonLabel(reason),
+                    ),
+                    onTap: () => Navigator.of(context).pop(reason),
+                  ),
+                const SizedBox(height: 8),
+                TextButton(
+                  key: const Key('group-bill-reject-cancel'),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3452,6 +3577,18 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillContext(groupName: widget.groupName),
                 const SizedBox(height: 20),
                 _BillDetailHeader(bill: bill),
+                if (_canAcknowledgeCurrentParticipant(
+                  bill,
+                  widget.currentUserProfileId,
+                )) ...[
+                  const SizedBox(height: 14),
+                  _GroupBillAcknowledgementActions(
+                    isBusy: _isAcknowledging || _isLoading,
+                    failure: _acknowledgementFailure,
+                    onAccept: _acceptParticipantShare,
+                    onReject: _rejectParticipantShare,
+                  ),
+                ],
                 if (_pendingRevision != null) ...[
                   const SizedBox(height: 14),
                   _PendingRevisionBanner(
@@ -3780,6 +3917,86 @@ class _CreateRevisionAction extends StatelessWidget {
                     )
                   : const Icon(Icons.add),
               label: const Text('Propose change'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillAcknowledgementActions extends StatelessWidget {
+  const _GroupBillAcknowledgementActions({
+    required this.isBusy,
+    required this.failure,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final bool isBusy;
+  final SettleoraBillFailure? failure;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = this.failure;
+
+    return DecoratedBox(
+      key: const Key('group-bill-acknowledgement-actions'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.verified_user_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Your share needs review',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            if (failure != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                failure.message,
+                key: const Key('group-bill-acknowledgement-failure'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  key: const Key('group-bill-reject-share'),
+                  onPressed: isBusy ? null : onReject,
+                  icon: const Icon(Icons.close),
+                  label: const Text('Reject'),
+                ),
+                FilledButton.icon(
+                  key: const Key('group-bill-accept-share'),
+                  onPressed: isBusy ? null : onAccept,
+                  icon: isBusy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check),
+                  label: const Text('Accept'),
+                ),
+              ],
             ),
           ],
         ),
@@ -4517,6 +4734,24 @@ bool _canShowCreateRevisionAction(
   SettleoraBillRevisionRepository? repository,
 ) {
   return repository != null && bill.revisionCreationActions.canCreateRevision;
+}
+
+bool _canAcknowledgeCurrentParticipant(
+  SettleoraBillDetail bill,
+  String? currentUserProfileId,
+) {
+  final trimmedProfileId = currentUserProfileId?.trim();
+  if (trimmedProfileId == null || trimmedProfileId.isEmpty) {
+    return false;
+  }
+
+  return bill.status == 'pending_confirmation' &&
+      bill.participants.any(
+        (participant) =>
+            participant.userProfileId == trimmedProfileId &&
+            participant.status ==
+                SettleoraBillParticipantStatusValues.pendingAcceptance,
+      );
 }
 
 void _assertCanCreateRevision(SettleoraBillDetail bill) {

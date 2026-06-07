@@ -155,6 +155,134 @@ void main() {
     expect(repository.getGroupCalls, 2);
   });
 
+  testWidgets('group bill detail accepts current pending participant share', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+      details: [
+        sampleBillDetail(status: 'pending_confirmation'),
+        sampleBillDetail(
+          status: 'confirmed',
+          participantStatus: SettleoraBillParticipantStatusValues.accepted,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('group-bill-accept-share')), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-reject-share')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-bill-accept-share')));
+    await tester.pumpAndSettle();
+
+    expect(repository.acceptGroupParticipantCalls, 1);
+    expect(repository.lastParticipantGroupId, _groupId);
+    expect(repository.lastParticipantBillId, _billId);
+    expect(repository.lastParticipantUserProfileId, _profileId);
+    expect(repository.getGroupCalls, 2);
+    expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
+  });
+
+  testWidgets('group bill detail rejects current share with reason code', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+      details: [
+        sampleBillDetail(status: 'pending_confirmation'),
+        sampleBillDetail(
+          status: 'rejected',
+          participantStatus: SettleoraBillParticipantStatusValues.rejected,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-reject-share')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-reject-reason-wrong_split')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.rejectGroupParticipantCalls, 1);
+    expect(repository.lastParticipantGroupId, _groupId);
+    expect(repository.lastParticipantBillId, _billId);
+    expect(repository.lastParticipantUserProfileId, _profileId);
+    expect(
+      repository.lastRejectionReasonCode,
+      SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+    );
+    expect(repository.getGroupCalls, 2);
+    expect(find.byKey(const Key('group-bill-reject-share')), findsNothing);
+  });
+
+  testWidgets('group bill detail blocks duplicate participant action taps', (
+    tester,
+  ) async {
+    final completer = Completer<void>();
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+      detail: sampleBillDetail(status: 'pending_confirmation'),
+      participantCompleter: completer,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-accept-share')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-bill-accept-share')));
+    await tester.pump();
+
+    expect(repository.acceptGroupParticipantCalls, 1);
+
+    completer.complete();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('group bill detail loads attachments with group route', (
     tester,
   ) async {
@@ -3039,29 +3167,40 @@ class FakeBillRepository implements SettleoraBillRepository {
     List<SettleoraBillDetail>? details,
     List<SettleoraBillFailure>? listFailures,
     List<SettleoraBillFailure>? submitGroupFailures,
+    List<SettleoraBillFailure>? participantFailures,
     SettleoraBillDetail? createdGroupDetail,
     this.createGroupFailure,
     this.submitGroupCompleter,
+    this.participantCompleter,
   }) : details = details ?? [detail ?? sampleBillDetail()],
        listFailures = listFailures ?? [],
        submitGroupFailures = submitGroupFailures ?? [],
+       participantFailures = participantFailures ?? [],
        createdGroupDetail = createdGroupDetail ?? sampleBillDetail();
 
   final List<SettleoraBillSummary> groupBills;
   final List<SettleoraBillDetail> details;
   final List<SettleoraBillFailure> listFailures;
   final List<SettleoraBillFailure> submitGroupFailures;
+  final List<SettleoraBillFailure> participantFailures;
   final SettleoraBillDetail createdGroupDetail;
   final SettleoraBillFailure? createGroupFailure;
   final Completer<void>? submitGroupCompleter;
+  final Completer<void>? participantCompleter;
   int listGroupCalls = 0;
   int getGroupCalls = 0;
   int createPersonalCalls = 0;
   int createGroupCalls = 0;
   int submitGroupCalls = 0;
+  int acceptGroupParticipantCalls = 0;
+  int rejectGroupParticipantCalls = 0;
   String? lastGroupId;
   String? lastSubmitGroupId;
   String? lastSubmitBillId;
+  String? lastParticipantGroupId;
+  String? lastParticipantBillId;
+  String? lastParticipantUserProfileId;
+  SettleoraBillParticipantRejectionReasonCode? lastRejectionReasonCode;
   SettleoraGroupBillCreateDraft? lastGroupCreateDraft;
 
   SettleoraBillDetail _detailForCall(int callIndex) {
@@ -3101,6 +3240,40 @@ class FakeBillRepository implements SettleoraBillRepository {
     await submitGroupCompleter?.future;
     if (submitGroupFailures.isNotEmpty) {
       throw submitGroupFailures.removeAt(0);
+    }
+  }
+
+  @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+  ) async {
+    acceptGroupParticipantCalls += 1;
+    lastParticipantGroupId = groupId;
+    lastParticipantBillId = billId;
+    lastParticipantUserProfileId = userProfileId;
+    await participantCompleter?.future;
+    if (participantFailures.isNotEmpty) {
+      throw participantFailures.removeAt(0);
+    }
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    SettleoraBillParticipantRejectionReasonCode reasonCode,
+  ) async {
+    rejectGroupParticipantCalls += 1;
+    lastParticipantGroupId = groupId;
+    lastParticipantBillId = billId;
+    lastParticipantUserProfileId = userProfileId;
+    lastRejectionReasonCode = reasonCode;
+    await participantCompleter?.future;
+    if (participantFailures.isNotEmpty) {
+      throw participantFailures.removeAt(0);
     }
   }
 
@@ -3517,12 +3690,12 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   }
 }
 
-SettleoraBillSummary sampleBillSummary() {
+SettleoraBillSummary sampleBillSummary({String status = 'draft'}) {
   return SettleoraBillSummary(
     id: _billId,
     merchantName: 'Corner Market',
     billDate: '2026-05-17',
-    status: 'draft',
+    status: status,
     reconciliationStatus: 'unreconciled',
     totalAmount: '10.80',
     totalCurrency: 'USD',
@@ -3607,6 +3780,7 @@ SettleoraBillDetail sampleBillDetail({
   String id = _billId,
   String? merchantName = 'Corner Market',
   String status = 'draft',
+  String participantStatus = 'pending_acceptance',
 }) {
   return SettleoraBillDetail(
     id: id,
@@ -3632,10 +3806,10 @@ SettleoraBillDetail sampleBillDetail({
         sortOrder: 0,
       ),
     ],
-    participants: const [
+    participants: [
       SettleoraBillParticipant(
         userProfileId: _profileId,
-        status: 'pending_acceptance',
+        status: participantStatus,
         resolvedShareAmount: '10.80',
         resolvedShareCurrency: 'USD',
       ),

@@ -375,6 +375,25 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    SettleoraBillParticipantRejectionReasonCode reasonCode,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraBillDetail> getGroupBill(String groupId, String billId) {
     throw UnimplementedError();
   }

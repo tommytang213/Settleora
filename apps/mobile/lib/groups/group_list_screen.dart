@@ -13,6 +13,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billRepository,
+    this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -21,6 +22,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -125,6 +127,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           billAttachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
+          currentUserProfileId: widget.currentUserProfileId,
           groupId: group.id,
         ),
       ),
@@ -222,6 +225,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     required this.groupId,
+    this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -234,6 +238,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final String? currentUserProfileId;
   final String groupId;
 
   @override
@@ -496,6 +501,7 @@ class _SettleoraGroupDetailScreenState
         builder: (_) => SettleoraGroupBillListScreen(
           repository: widget.billRepository,
           groupRepository: widget.repository,
+          currentUserProfileId: widget.currentUserProfileId,
           attachmentRepository: widget.billAttachmentRepository,
           attachmentFileInput: widget.billAttachmentFileInput,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,

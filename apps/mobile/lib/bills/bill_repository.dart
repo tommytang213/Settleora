@@ -10,6 +10,36 @@ class SettleoraBillArchiveStateValues {
 typedef SettleoraBillStatus = String;
 typedef SettleoraBillReconciliationStatus = String;
 typedef SettleoraBillParticipantStatus = String;
+typedef SettleoraBillParticipantRejectionReasonCode = String;
+
+class SettleoraBillParticipantStatusValues {
+  const SettleoraBillParticipantStatusValues._();
+
+  static const pendingAcceptance = 'pending_acceptance';
+  static const accepted = 'accepted';
+  static const rejected = 'rejected';
+  static const settled = 'settled';
+}
+
+class SettleoraBillParticipantRejectionReasonCodeValues {
+  const SettleoraBillParticipantRejectionReasonCodeValues._();
+
+  static const wrongAmount = 'wrong_amount';
+  static const wrongItems = 'wrong_items';
+  static const wrongSplit = 'wrong_split';
+  static const duplicate = 'duplicate';
+  static const notMine = 'not_mine';
+  static const other = 'other';
+
+  static const values = <SettleoraBillParticipantRejectionReasonCode>[
+    wrongAmount,
+    wrongItems,
+    wrongSplit,
+    duplicate,
+    notMine,
+    other,
+  ];
+}
 
 enum SettleoraBillFailureKind {
   sessionRequired,
@@ -376,6 +406,19 @@ abstract class SettleoraBillRepository {
 
   Future<void> submitGroupBill(String groupId, String billId);
 
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+  );
+
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    SettleoraBillParticipantRejectionReasonCode reasonCode,
+  );
+
   Future<SettleoraBillDetail> getGroupBill(String groupId, String billId);
 }
 
@@ -408,6 +451,23 @@ String settleoraBillArchiveStateLabel(SettleoraBillArchiveState archiveState) {
     SettleoraBillArchiveStateValues.active => 'Active',
     SettleoraBillArchiveStateValues.archived => 'Archived',
     _ => _titleFromCode(archiveState),
+  };
+}
+
+String settleoraBillParticipantRejectionReasonLabel(
+  SettleoraBillParticipantRejectionReasonCode reasonCode,
+) {
+  return switch (reasonCode) {
+    SettleoraBillParticipantRejectionReasonCodeValues.wrongAmount =>
+      'Wrong amount',
+    SettleoraBillParticipantRejectionReasonCodeValues.wrongItems =>
+      'Wrong items',
+    SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit =>
+      'Wrong split',
+    SettleoraBillParticipantRejectionReasonCodeValues.duplicate => 'Duplicate',
+    SettleoraBillParticipantRejectionReasonCodeValues.notMine => 'Not mine',
+    SettleoraBillParticipantRejectionReasonCodeValues.other => 'Other',
+    _ => _titleFromCode(reasonCode),
   };
 }
 
