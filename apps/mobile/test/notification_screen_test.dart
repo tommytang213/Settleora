@@ -235,6 +235,218 @@ void main() {
     );
   });
 
+  testWidgets('group bill notifications show open bill action and navigate', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(
+      detail: sampleBillDetail(
+        participants: const [
+          SettleoraBillParticipant(
+            userProfileId: _profileId,
+            status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+            resolvedShareAmount: '5.40',
+            resolvedShareCurrency: 'USD',
+          ),
+          SettleoraBillParticipant(
+            userProfileId: _otherProfileId,
+            status: SettleoraBillParticipantStatusValues.accepted,
+            resolvedShareAmount: '5.40',
+            resolvedShareCurrency: 'USD',
+          ),
+        ],
+      ),
+    );
+    final groupRepository = FakeGroupRepository(
+      group: sampleGroup(name: 'Trip Crew'),
+      members: [
+        sampleMember(displayName: 'Taylor'),
+        sampleMember(userProfileId: _otherProfileId, displayName: 'Morgan'),
+      ],
+    );
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(groupId: ' $_groupId ', expenseBillId: ' $_billId '),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          currentUserProfileId: _profileId,
+          billRepository: billRepository,
+          groupRepository: groupRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-group-bill-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('notification-open-revision-0')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(groupRepository.getGroupCalls, 1);
+    expect(groupRepository.listMemberCalls, 1);
+    expect(billRepository.getGroupCalls, 1);
+    expect(billRepository.lastGroupId, _groupId);
+    expect(billRepository.lastBillId, _billId);
+    expect(find.text('Group bill'), findsWidgets);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.text('Taylor (you)'), findsWidgets);
+    expect(find.text('Morgan'), findsWidgets);
+  });
+
+  testWidgets('group bill open action tolerates member name failures', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(detail: sampleBillDetail());
+    final groupRepository = FakeGroupRepository(
+      group: sampleGroup(name: 'Trip Crew'),
+      memberFailure: const SettleoraGroupFailure(
+        kind: SettleoraGroupFailureKind.server,
+        message: 'Member names are unavailable.',
+      ),
+    );
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(groupId: _groupId, expenseBillId: _billId),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          currentUserProfileId: _profileId,
+          billRepository: billRepository,
+          groupRepository: groupRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(groupRepository.listMemberCalls, 1);
+    expect(find.text('Group bill'), findsWidgets);
+    expect(find.text('Participant 1 (you)'), findsWidgets);
+    expect(find.text('Member names are unavailable.'), findsNothing);
+  });
+
+  testWidgets('group bill open action hides without typed target or seams', (
+    tester,
+  ) async {
+    final cases = [
+      sampleNotification(groupId: ' ', expenseBillId: _billId),
+      sampleNotification(groupId: _groupId, expenseBillId: ' '),
+      sampleNotification(
+        eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+        groupId: _groupId,
+        expenseBillId: _billId,
+        expenseBillRevisionId: _revisionId,
+      ),
+    ];
+
+    for (final notification in cases) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: FakeNotificationRepository(
+              notifications: [notification],
+            ),
+            currentUserProfileId: _profileId,
+            billRepository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(),
+            billRevisionRepository: FakeBillRevisionRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-group-bill-0')),
+        findsNothing,
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: FakeNotificationRepository(
+            notifications: [
+              sampleNotification(groupId: _groupId, expenseBillId: _billId),
+            ],
+          ),
+          currentUserProfileId: _profileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-group-bill-0')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('group bill open failure stays bounded', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          actionUrl: '/api/v1/groups/$_groupId/bills/$_billId?token=secret',
+          groupId: _groupId,
+          expenseBillId: _billId,
+        ),
+      ],
+    );
+    final groupRepository = FakeGroupRepository(
+      groupFailure: const SettleoraGroupFailure(
+        kind: SettleoraGroupFailureKind.denied,
+        message: 'This bill is not available to this account.',
+        statusCode: 403,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          currentUserProfileId: _profileId,
+          billRepository: FakeBillRepository(),
+          groupRepository: groupRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(groupRepository.getGroupCalls, 1);
+    expect(
+      find.text('This bill is not available to this account.'),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains(_groupId)));
+    expect(visibleText(tester), isNot(contains(_billId)));
+    expect(visibleText(tester), isNot(contains('token=secret')));
+  });
+
   testWidgets('single notification read failure stays bounded', (tester) async {
     const hiddenValue = 'internal-notification-id';
     final repository = FakeNotificationRepository(
@@ -656,6 +868,14 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
+  FakeBillRepository({SettleoraBillDetail? detail})
+    : detail = detail ?? sampleBillDetail();
+
+  final SettleoraBillDetail detail;
+  int getGroupCalls = 0;
+  String? lastGroupId;
+  String? lastBillId;
+
   @override
   Future<SettleoraBillDetail> createPersonalBill(
     SettleoraPersonalBillCreateDraft draft,
@@ -696,8 +916,14 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
-  Future<SettleoraBillDetail> getGroupBill(String groupId, String billId) {
-    throw UnimplementedError();
+  Future<SettleoraBillDetail> getGroupBill(
+    String groupId,
+    String billId,
+  ) async {
+    getGroupCalls += 1;
+    lastGroupId = groupId;
+    lastBillId = billId;
+    return detail;
   }
 
   @override
@@ -797,6 +1023,20 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({
+    SettleoraGroup? group,
+    this.groupFailure,
+    this.members = const [],
+    this.memberFailure,
+  }) : group = group ?? sampleGroup();
+
+  final SettleoraGroup group;
+  final SettleoraGroupFailure? groupFailure;
+  final List<SettleoraGroupMember> members;
+  final SettleoraGroupFailure? memberFailure;
+  int getGroupCalls = 0;
+  int listMemberCalls = 0;
+
   @override
   Future<List<SettleoraGroup>> listGroups() async {
     return const [];
@@ -808,8 +1048,14 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<SettleoraGroup> getGroup(String groupId) {
-    throw UnimplementedError();
+  Future<SettleoraGroup> getGroup(String groupId) async {
+    getGroupCalls += 1;
+    final failure = groupFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return group;
   }
 
   @override
@@ -821,8 +1067,14 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) {
-    throw UnimplementedError();
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMemberCalls += 1;
+    final failure = memberFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return members;
   }
 
   @override
@@ -1038,6 +1290,80 @@ SettleoraNotificationRow sampleNotification({
   );
 }
 
+SettleoraBillDetail sampleBillDetail({
+  List<SettleoraBillParticipant>? participants,
+}) {
+  return SettleoraBillDetail(
+    id: _billId,
+    merchantName: 'Corner Market',
+    billDate: '2026-05-17',
+    status: 'pending_confirmation',
+    reconciliationStatus: 'unreconciled',
+    reconciliationNote: null,
+    revisionCreationActions: const SettleoraBillRevisionCreationActions(
+      canCreateRevision: false,
+    ),
+    totalAmount: '10.80',
+    totalCurrency: 'USD',
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    items: const [
+      SettleoraBillItem(
+        id: 'item-1',
+        name: 'Milk',
+        note: null,
+        amount: '10.00',
+        currency: 'USD',
+        sortOrder: 0,
+      ),
+    ],
+    participants:
+        participants ??
+        const [
+          SettleoraBillParticipant(
+            userProfileId: _profileId,
+            status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+            resolvedShareAmount: '10.80',
+            resolvedShareCurrency: 'USD',
+          ),
+        ],
+    payers: const [
+      SettleoraBillPayer(
+        userProfileId: _profileId,
+        amount: '10.80',
+        currency: 'USD',
+      ),
+    ],
+    adjustments: const [],
+    displayNameFallback: 'Group bill',
+  );
+}
+
+SettleoraGroup sampleGroup({String name = 'Trip Crew'}) {
+  return SettleoraGroup(
+    id: _groupId,
+    name: name,
+    currentUserRole: SettleoraGroupRoleValues.member,
+    currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+SettleoraGroupMember sampleMember({
+  String userProfileId = _profileId,
+  String displayName = 'Taylor',
+}) {
+  return SettleoraGroupMember(
+    userProfileId: userProfileId,
+    displayName: displayName,
+    role: SettleoraGroupRoleValues.member,
+    status: SettleoraGroupMembershipStatusValues.active,
+    joinedAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
 SettleoraNotificationRow _copyNotification(
   SettleoraNotificationRow row, {
   String? status,
@@ -1094,5 +1420,7 @@ const _notificationId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '44444444-4444-4444-4444-444444444444';
 const _profileId = '33333333-3333-3333-3333-333333333333';
+const _groupId = '55555555-5555-5555-5555-555555555555';
+const _otherProfileId = '66666666-6666-6666-6666-666666666666';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

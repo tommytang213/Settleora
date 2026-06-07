@@ -162,6 +162,13 @@ class SettleoraNotificationRow {
         _nonEmptyId(expenseBillRevisionId) != null;
   }
 
+  bool get hasGroupBillTarget {
+    return !hasBillRevisionReviewTarget &&
+        subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
+        _nonEmptyId(groupId) != null &&
+        _nonEmptyId(expenseBillId) != null;
+  }
+
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 
   String get displaySummary {

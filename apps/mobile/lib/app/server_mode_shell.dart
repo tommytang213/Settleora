@@ -105,6 +105,12 @@ class _SettleoraAuthenticatedServerShellState
       MaterialPageRoute<void>(
         builder: (_) => SettleoraNotificationScreen(
           repository: widget.notificationRepository,
+          currentUserProfileId: widget.currentUser.userProfileId,
+          billRepository: widget.billRepository,
+          groupRepository: widget.groupRepository,
+          billAttachmentRepository: widget.billAttachmentRepository,
+          billAttachmentFileInput: widget.billAttachmentFileInput,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
           onSessionEnded: widget.onSessionEnded,
         ),
