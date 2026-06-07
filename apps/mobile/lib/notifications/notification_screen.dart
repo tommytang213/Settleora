@@ -1,18 +1,36 @@
 import 'package:flutter/material.dart';
 
+import '../bills/bill_attachment_file_input.dart';
+import '../bills/bill_attachment_repository.dart';
+import '../bills/bill_list_screen.dart';
+import '../bills/bill_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_revision_review_screen.dart';
+import '../groups/group_repository.dart';
+import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'notification_repository.dart';
 
 class SettleoraNotificationScreen extends StatefulWidget {
   const SettleoraNotificationScreen({
     super.key,
     required this.repository,
+    this.currentUserProfileId,
+    this.billRepository,
+    this.groupRepository,
+    this.billAttachmentRepository,
+    this.billAttachmentFileInput,
+    this.receiptOcrReviewRepository,
     this.billRevisionRepository,
     this.onSessionEnded,
   });
 
   final SettleoraNotificationRepository repository;
+  final String? currentUserProfileId;
+  final SettleoraBillRepository? billRepository;
+  final SettleoraGroupRepository? groupRepository;
+  final SettleoraBillAttachmentRepository? billAttachmentRepository;
+  final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final Future<void> Function(String? noticeMessage)? onSessionEnded;
 
@@ -190,6 +208,10 @@ class _SettleoraNotificationScreenState
   }
 
   Future<void> _openBillRevision(SettleoraNotificationRow notification) async {
+    if (_actingNotificationId != null || _isMarkingAllRead) {
+      return;
+    }
+
     final billRevisionRepository = widget.billRevisionRepository;
     final billId = settleoraNotificationMetadataId(notification.expenseBillId);
     final revisionId = settleoraNotificationMetadataId(
@@ -203,16 +225,117 @@ class _SettleoraNotificationScreenState
       return;
     }
 
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraBillRevisionReviewScreen(
-          repository: billRevisionRepository,
-          billId: billId,
-          revisionId: revisionId,
-          billLabel: notification.displayTitle,
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraBillRevisionReviewScreen(
+            repository: billRevisionRepository,
+            billId: billId,
+            revisionId: revisionId,
+            billLabel: notification.displayTitle,
+          ),
         ),
-      ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
+  bool _canOpenGroupBill(SettleoraNotificationRow notification) {
+    return notification.hasGroupBillTarget &&
+        widget.billRepository != null &&
+        widget.groupRepository != null &&
+        settleoraNotificationMetadataId(widget.currentUserProfileId) != null;
+  }
+
+  Future<void> _openGroupBill(SettleoraNotificationRow notification) async {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        !_canOpenGroupBill(notification)) {
+      return;
+    }
+
+    final billRepository = widget.billRepository;
+    final groupRepository = widget.groupRepository;
+    final currentUserProfileId = settleoraNotificationMetadataId(
+      widget.currentUserProfileId,
     );
+    final groupId = settleoraNotificationMetadataId(notification.groupId);
+    final billId = settleoraNotificationMetadataId(notification.expenseBillId);
+    if (billRepository == null ||
+        groupRepository == null ||
+        currentUserProfileId == null ||
+        groupId == null ||
+        billId == null) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      final group = await groupRepository.getGroup(groupId);
+      var participantDisplayNames = const <String, String>{};
+      try {
+        final members = await groupRepository.listGroupMembers(groupId);
+        participantDisplayNames = _participantDisplayNamesFromMembers(members);
+      } catch (_) {
+        participantDisplayNames = const {};
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraGroupBillDetailScreen(
+            repository: billRepository,
+            attachmentRepository: widget.billAttachmentRepository,
+            attachmentFileInput: widget.billAttachmentFileInput,
+            receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+            revisionRepository: widget.billRevisionRepository,
+            groupId: groupId,
+            groupName: group.displayName,
+            billId: billId,
+            currentUserProfileId: currentUserProfileId,
+            participantDisplayNames: participantDisplayNames,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final failure = _notificationFailureFromGroupOpen(error);
+      if (failure.kind == SettleoraNotificationFailureKind.sessionRequired ||
+          failure.kind == SettleoraNotificationFailureKind.sessionExpired) {
+        await _endSession(failure);
+        return;
+      }
+
+      setState(() {
+        _actionFailure = failure;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
   }
 
   Future<void> _endSession(SettleoraNotificationFailure failure) async {
@@ -305,10 +428,16 @@ class _SettleoraNotificationScreenState
                           canOpenBillRevision:
                               widget.billRevisionRepository != null &&
                               _notifications[index].hasBillRevisionReviewTarget,
+                          canOpenGroupBill: _canOpenGroupBill(
+                            _notifications[index],
+                          ),
                           isActing:
                               _actingNotificationId == _notifications[index].id,
-                          openButtonKey: ValueKey(
+                          revisionOpenButtonKey: ValueKey(
                             'notification-open-revision-$index',
+                          ),
+                          groupBillOpenButtonKey: ValueKey(
+                            'notification-open-group-bill-$index',
                           ),
                           markReadButtonKey: ValueKey(
                             'notification-mark-read-$index',
@@ -318,6 +447,8 @@ class _SettleoraNotificationScreenState
                           ),
                           onOpenBillRevision: () =>
                               _openBillRevision(_notifications[index]),
+                          onOpenGroupBill: () =>
+                              _openGroupBill(_notifications[index]),
                           onMarkRead: () =>
                               _markNotificationRead(_notifications[index]),
                           onArchive: () =>
@@ -416,22 +547,28 @@ class _NotificationTile extends StatelessWidget {
   const _NotificationTile({
     required this.notification,
     required this.canOpenBillRevision,
+    required this.canOpenGroupBill,
     required this.isActing,
-    required this.openButtonKey,
+    required this.revisionOpenButtonKey,
+    required this.groupBillOpenButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
     required this.onOpenBillRevision,
+    required this.onOpenGroupBill,
     required this.onMarkRead,
     required this.onArchive,
   });
 
   final SettleoraNotificationRow notification;
   final bool canOpenBillRevision;
+  final bool canOpenGroupBill;
   final bool isActing;
-  final Key openButtonKey;
+  final Key revisionOpenButtonKey;
+  final Key groupBillOpenButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
   final VoidCallback onOpenBillRevision;
+  final VoidCallback onOpenGroupBill;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
 
@@ -487,10 +624,18 @@ class _NotificationTile extends StatelessWidget {
               if (canOpenBillRevision) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  key: openButtonKey,
-                  onPressed: onOpenBillRevision,
+                  key: revisionOpenButtonKey,
+                  onPressed: isActing ? null : onOpenBillRevision,
                   icon: const Icon(Icons.open_in_new_outlined),
                   label: const Text('Open'),
+                ),
+              ] else if (canOpenGroupBill) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: groupBillOpenButtonKey,
+                  onPressed: isActing ? null : onOpenGroupBill,
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Open bill'),
                 ),
               ],
             ],
@@ -527,6 +672,50 @@ class _NotificationTile extends StatelessWidget {
       ),
     );
   }
+}
+
+SettleoraNotificationFailure _notificationFailureFromGroupOpen(Object error) {
+  if (error is SettleoraGroupFailure) {
+    return SettleoraNotificationFailure(
+      kind: switch (error.kind) {
+        SettleoraGroupFailureKind.sessionRequired =>
+          SettleoraNotificationFailureKind.sessionRequired,
+        SettleoraGroupFailureKind.sessionExpired =>
+          SettleoraNotificationFailureKind.sessionExpired,
+        SettleoraGroupFailureKind.denied =>
+          SettleoraNotificationFailureKind.denied,
+        SettleoraGroupFailureKind.unavailable =>
+          SettleoraNotificationFailureKind.unavailable,
+        SettleoraGroupFailureKind.conflict =>
+          SettleoraNotificationFailureKind.conflict,
+        SettleoraGroupFailureKind.validation =>
+          SettleoraNotificationFailureKind.validation,
+        SettleoraGroupFailureKind.network =>
+          SettleoraNotificationFailureKind.network,
+        SettleoraGroupFailureKind.server =>
+          SettleoraNotificationFailureKind.server,
+      },
+      message: error.message,
+      statusCode: error.statusCode,
+    );
+  }
+
+  return const SettleoraNotificationFailure(
+    kind: SettleoraNotificationFailureKind.network,
+    message:
+        'The bill could not be opened. Try again when the connection is back.',
+  );
+}
+
+Map<String, String> _participantDisplayNamesFromMembers(
+  Iterable<SettleoraGroupMember> members,
+) {
+  return {
+    for (final member in members)
+      if (member.userProfileId.trim().isNotEmpty &&
+          member.safeDisplayName.trim().isNotEmpty)
+        member.userProfileId.trim(): member.safeDisplayName.trim(),
+  };
 }
 
 class _FailurePanel extends StatelessWidget {
