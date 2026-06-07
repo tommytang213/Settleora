@@ -134,6 +134,8 @@ class SettleoraNotificationRow {
     required this.expenseBillRevisionId,
     required this.settlementRequestId,
     required this.settlementPaymentId,
+    required this.recurringBillTemplateId,
+    required this.recurringBillOccurrenceId,
     required this.createdAtUtc,
     required this.readAtUtc,
     required this.archivedAtUtc,
@@ -151,6 +153,8 @@ class SettleoraNotificationRow {
   final String? expenseBillRevisionId;
   final String? settlementRequestId;
   final String? settlementPaymentId;
+  final String? recurringBillTemplateId;
+  final String? recurringBillOccurrenceId;
   final DateTime createdAtUtc;
   final DateTime? readAtUtc;
   final DateTime? archivedAtUtc;
@@ -180,6 +184,18 @@ class SettleoraNotificationRow {
                 SettleoraNotificationSubjectTypeValues.settlementPayment) &&
         _nonEmptyId(settlementRequestId) != null;
   }
+
+  bool get hasRecurringBillTarget {
+    return subjectType ==
+            SettleoraNotificationSubjectTypeValues.recurringBillOccurrence &&
+        _nonEmptyId(recurringBillTemplateId) != null;
+  }
+
+  bool get hasTypedOpenTarget =>
+      hasBillRevisionReviewTarget ||
+      hasGroupBillTarget ||
+      hasSettlementTarget ||
+      hasRecurringBillTarget;
 
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 

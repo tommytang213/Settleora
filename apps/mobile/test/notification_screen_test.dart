@@ -61,6 +61,112 @@ void main() {
     expect(repository.listCalls, 1);
   });
 
+  testWidgets('notification filters show counts and filtered empty state', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          safeSummary: 'Group bill ready.',
+          groupId: _groupId,
+          expenseBillId: _billId,
+        ),
+        sampleNotification(
+          eventType: 'settlement.request_created',
+          status: SettleoraNotificationStatusValues.read,
+          priority: SettleoraNotificationPriorityValues.urgent,
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementRequest,
+          safeSummary: 'Settlement ready.',
+          settlementRequestId: _settlementId,
+        ),
+        sampleNotification(
+          eventType: 'recurring_bill.draft_generated',
+          priority: SettleoraNotificationPriorityValues.normal,
+          subjectType:
+              SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+          safeSummary: 'Rent draft generated.',
+          recurringBillTemplateId: _recurringTemplateId,
+          recurringBillOccurrenceId: _recurringOccurrenceId,
+        ),
+        sampleNotification(
+          eventType: 'recurring_bill.draft_generated',
+          priority: SettleoraNotificationPriorityValues.normal,
+          subjectType:
+              SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+          safeSummary: 'Recurring metadata missing.',
+          recurringBillTemplateId: ' ',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          currentUserProfileId: _profileId,
+          billRepository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(),
+          settlementRepository: FakeSettlementRepository(),
+          recurringBillRepository: FakeRecurringBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('All (4)'), findsOneWidget);
+    expect(find.text('Unread (3)'), findsOneWidget);
+    expect(find.text('Attention (1)'), findsOneWidget);
+    expect(find.text('Urgent (1)'), findsOneWidget);
+    expect(find.text('Bills (1)'), findsOneWidget);
+    expect(find.text('Settlements (1)'), findsOneWidget);
+    expect(find.text('Recurring (2)'), findsOneWidget);
+    expect(find.text('Actionable (3)'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'urgent');
+
+    expect(find.text('Settlement ready.'), findsOneWidget);
+    expect(find.text('Group bill ready.'), findsNothing);
+
+    await tapNotificationFilter(tester, 'actionable');
+
+    expect(find.text('Group bill ready.'), findsOneWidget);
+    expect(find.text('Settlement ready.'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'urgent');
+    await tapNotificationFilter(tester, 'recurring');
+
+    expect(find.text('Rent draft generated.'), findsOneWidget);
+    expect(find.text('Recurring metadata missing.'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'bills');
+
+    expect(find.text('Group bill ready.'), findsOneWidget);
+  });
+
+  testWidgets('selected notification filter has distinct empty state', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          safeSummary: 'Only a bill.',
+          groupId: _groupId,
+          expenseBillId: _billId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tapNotificationFilter(tester, 'recurring');
+
+    expect(find.text('No matching notifications'), findsOneWidget);
+    expect(find.text('No notifications'), findsNothing);
+  });
+
   testWidgets('notification screen retries bounded load failures', (
     tester,
   ) async {
@@ -563,6 +669,116 @@ void main() {
     },
   );
 
+  testWidgets(
+    'recurring bill notifications show open recurring action and navigate',
+    (tester) async {
+      final recurringRepository = FakeRecurringBillRepository();
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+            eventType: 'recurring_bill.draft_generated',
+            actionUrl: '/api/v1/recurring/ignored',
+            recurringBillTemplateId: ' $_recurringTemplateId ',
+            recurringBillOccurrenceId: _recurringOccurrenceId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            recurringBillRepository: recurringRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-recurring-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Open recurring'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('notification-open-recurring-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(recurringRepository.getTemplateCalls, 1);
+      expect(recurringRepository.lastTemplateId, _recurringTemplateId);
+      expect(find.text('Recurring bill'), findsWidgets);
+      expect(find.text('Rent'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('/api/v1/recurring/ignored')));
+    },
+  );
+
+  testWidgets(
+    'recurring bill open action requires typed template ID and repository seam',
+    (tester) async {
+      final cases = [
+        sampleNotification(
+          subjectType:
+              SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+          eventType: 'recurring_bill.draft_generated',
+          actionUrl: '/api/v1/recurring/templates/$_recurringTemplateId',
+          recurringBillTemplateId: ' ',
+          recurringBillOccurrenceId: _recurringOccurrenceId,
+        ),
+        sampleNotification(
+          subjectType: SettleoraNotificationSubjectTypeValues.expenseBill,
+          eventType: 'recurring_bill.draft_generated',
+          recurringBillTemplateId: _recurringTemplateId,
+          recurringBillOccurrenceId: _recurringOccurrenceId,
+        ),
+      ];
+
+      for (final notification in cases) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettleoraNotificationScreen(
+              repository: FakeNotificationRepository(
+                notifications: [notification],
+              ),
+              recurringBillRepository: FakeRecurringBillRepository(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('notification-open-recurring-0')),
+          findsNothing,
+        );
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: FakeNotificationRepository(
+              notifications: [
+                sampleNotification(
+                  subjectType: SettleoraNotificationSubjectTypeValues
+                      .recurringBillOccurrence,
+                  eventType: 'recurring_bill.draft_generated',
+                  recurringBillTemplateId: _recurringTemplateId,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-recurring-0')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('single notification read failure stays bounded', (tester) async {
     const hiddenValue = 'internal-notification-id';
     final repository = FakeNotificationRepository(
@@ -679,6 +895,17 @@ void main() {
     expect(notificationRepository.summaryCalls, 1);
     expect(notificationRepository.listCalls, 1);
   });
+}
+
+Future<void> tapNotificationFilter(
+  WidgetTester tester,
+  String filterName,
+) async {
+  final finder = find.byKey(ValueKey('notification-filter-$filterName'));
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
 }
 
 class FakeNotificationRepository implements SettleoraNotificationRepository {
@@ -952,6 +1179,9 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 }
 
 class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
+  int getTemplateCalls = 0;
+  String? lastTemplateId;
+
   @override
   Future<List<SettleoraRecurringBillTemplateSummary>> listTemplates({
     SettleoraRecurringBillTemplateStatus? status,
@@ -974,8 +1204,12 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   }
 
   @override
-  Future<SettleoraRecurringBillTemplateDetail> getTemplate(String templateId) {
-    throw UnimplementedError();
+  Future<SettleoraRecurringBillTemplateDetail> getTemplate(
+    String templateId,
+  ) async {
+    getTemplateCalls += 1;
+    lastTemplateId = templateId;
+    return sampleRecurringBillTemplate(templateId);
   }
 
   @override
@@ -1396,6 +1630,7 @@ SettleoraNotificationSummary sampleSummary() {
 SettleoraNotificationRow sampleNotification({
   String eventType = 'bill.submitted',
   String status = SettleoraNotificationStatusValues.unread,
+  String priority = SettleoraNotificationPriorityValues.attention,
   String subjectType = SettleoraNotificationSubjectTypeValues.expenseBill,
   String? actionUrl,
   String? groupId,
@@ -1403,6 +1638,9 @@ SettleoraNotificationRow sampleNotification({
   String? expenseBillRevisionId,
   String? settlementRequestId,
   String? settlementPaymentId,
+  String? recurringBillTemplateId,
+  String? recurringBillOccurrenceId,
+  String safeSummary = 'Dinner bill is ready.',
   DateTime? readAtUtc,
   DateTime? archivedAtUtc,
 }) {
@@ -1410,18 +1648,45 @@ SettleoraNotificationRow sampleNotification({
     id: _notificationId,
     eventType: eventType,
     status: status,
-    priority: SettleoraNotificationPriorityValues.attention,
+    priority: priority,
     subjectType: subjectType,
-    safeSummary: 'Dinner bill is ready.',
+    safeSummary: safeSummary,
     actionUrl: actionUrl,
     groupId: groupId,
     expenseBillId: expenseBillId,
     expenseBillRevisionId: expenseBillRevisionId,
     settlementRequestId: settlementRequestId,
     settlementPaymentId: settlementPaymentId,
+    recurringBillTemplateId: recurringBillTemplateId,
+    recurringBillOccurrenceId: recurringBillOccurrenceId,
     createdAtUtc: _createdAtUtc,
     readAtUtc: readAtUtc,
     archivedAtUtc: archivedAtUtc,
+  );
+}
+
+SettleoraRecurringBillTemplateDetail sampleRecurringBillTemplate(String id) {
+  return SettleoraRecurringBillTemplateDetail(
+    id: id,
+    merchantName: 'Rent',
+    description: 'Monthly rent',
+    status: SettleoraRecurringBillTemplateStatusValues.active,
+    schedule: const SettleoraRecurringBillSchedule(
+      type: SettleoraRecurringBillScheduleTypeValues.monthly,
+      intervalCount: 1,
+      intervalDays: null,
+      startDate: '2026-05-01',
+      endDate: null,
+      dueOffsetDays: null,
+    ),
+    forecastAmount: '1200.00',
+    forecastCurrency: 'USD',
+    nextOccurrenceDate: '2026-06-01',
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    archivedAtUtc: null,
+    isGroupScoped: false,
+    payloadVersion: 1,
   );
 }
 
@@ -1536,6 +1801,8 @@ SettleoraNotificationRow _copyNotification(
     expenseBillRevisionId: row.expenseBillRevisionId,
     settlementRequestId: row.settlementRequestId,
     settlementPaymentId: row.settlementPaymentId,
+    recurringBillTemplateId: row.recurringBillTemplateId,
+    recurringBillOccurrenceId: row.recurringBillOccurrenceId,
     createdAtUtc: row.createdAtUtc,
     readAtUtc: readAtUtc ?? row.readAtUtc,
     archivedAtUtc: archivedAtUtc ?? row.archivedAtUtc,
@@ -1579,5 +1846,7 @@ const _groupId = '55555555-5555-5555-5555-555555555555';
 const _otherProfileId = '66666666-6666-6666-6666-666666666666';
 const _settlementId = '77777777-7777-7777-7777-777777777777';
 const _paymentId = '88888888-8888-8888-8888-888888888888';
+const _recurringTemplateId = '99999999-9999-9999-9999-999999999999';
+const _recurringOccurrenceId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);
