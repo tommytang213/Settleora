@@ -447,6 +447,122 @@ void main() {
     expect(visibleText(tester), isNot(contains('token=secret')));
   });
 
+  testWidgets(
+    'settlement notifications show open settlement action and navigate',
+    (tester) async {
+      final settlementRepository = FakeSettlementRepository();
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            eventType: 'settlement.request_created',
+            actionUrl: '/api/v1/settlements/ignored',
+            settlementRequestId: ' $_settlementId ',
+            settlementPaymentId: _paymentId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            currentUserProfileId: _profileId,
+            settlementRepository: settlementRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-settlement-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Open settlement'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('notification-open-settlement-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(settlementRepository.getRequestCalls, 1);
+      expect(settlementRepository.listPaymentsCalls, 1);
+      expect(settlementRepository.lastSettlementId, _settlementId);
+      expect(find.text('Settlement'), findsWidgets);
+      expect(
+        visibleText(tester),
+        isNot(contains('/api/v1/settlements/ignored')),
+      );
+    },
+  );
+
+  testWidgets(
+    'settlement payment notifications require request ID and profile seam',
+    (tester) async {
+      final cases = [
+        sampleNotification(
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementPayment,
+          eventType: 'settlement.payment_marked_paid',
+          settlementRequestId: ' ',
+          settlementPaymentId: _paymentId,
+        ),
+        sampleNotification(
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementPayment,
+          eventType: 'settlement.payment_marked_paid',
+          actionUrl: '/api/v1/settlement-payments/$_paymentId',
+          settlementRequestId: null,
+          settlementPaymentId: _paymentId,
+        ),
+      ];
+
+      for (final notification in cases) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettleoraNotificationScreen(
+              repository: FakeNotificationRepository(
+                notifications: [notification],
+              ),
+              currentUserProfileId: _profileId,
+              settlementRepository: FakeSettlementRepository(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('notification-open-settlement-0')),
+          findsNothing,
+        );
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: FakeNotificationRepository(
+              notifications: [
+                sampleNotification(
+                  subjectType:
+                      SettleoraNotificationSubjectTypeValues.settlementPayment,
+                  eventType: 'settlement.payment_marked_paid',
+                  settlementRequestId: _settlementId,
+                  settlementPaymentId: _paymentId,
+                ),
+              ],
+            ),
+            settlementRepository: FakeSettlementRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-settlement-0')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('single notification read failure stays bounded', (tester) async {
     const hiddenValue = 'internal-notification-id';
     final repository = FakeNotificationRepository(
@@ -555,6 +671,10 @@ void main() {
     expect(
       find.byKey(const ValueKey('notification-open-revision-0')),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('notification-open-settlement-0')),
+      findsNothing,
     );
     expect(notificationRepository.summaryCalls, 1);
     expect(notificationRepository.listCalls, 1);
@@ -946,6 +1066,10 @@ class FakeBillRepository implements SettleoraBillRepository {
 }
 
 class FakeSettlementRepository implements SettleoraSettlementRepository {
+  int getRequestCalls = 0;
+  int listPaymentsCalls = 0;
+  String? lastSettlementId;
+
   @override
   Future<SettleoraSettlementBalanceSnapshot> listBalances() async {
     return SettleoraSettlementBalanceSnapshot(
@@ -960,15 +1084,21 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   }
 
   @override
-  Future<SettleoraSettlementRequest> getSettlementRequest(String settlementId) {
-    throw UnimplementedError();
+  Future<SettleoraSettlementRequest> getSettlementRequest(
+    String settlementId,
+  ) async {
+    getRequestCalls += 1;
+    lastSettlementId = settlementId;
+    return sampleSettlementRequest();
   }
 
   @override
   Future<List<SettleoraSettlementPayment>> listSettlementPayments(
     String settlementId,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    listPaymentsCalls += 1;
+    lastSettlementId = settlementId;
+    return const [];
   }
 
   @override
@@ -1266,10 +1396,13 @@ SettleoraNotificationSummary sampleSummary() {
 SettleoraNotificationRow sampleNotification({
   String eventType = 'bill.submitted',
   String status = SettleoraNotificationStatusValues.unread,
+  String subjectType = SettleoraNotificationSubjectTypeValues.expenseBill,
   String? actionUrl,
   String? groupId,
   String? expenseBillId,
   String? expenseBillRevisionId,
+  String? settlementRequestId,
+  String? settlementPaymentId,
   DateTime? readAtUtc,
   DateTime? archivedAtUtc,
 }) {
@@ -1278,15 +1411,35 @@ SettleoraNotificationRow sampleNotification({
     eventType: eventType,
     status: status,
     priority: SettleoraNotificationPriorityValues.attention,
-    subjectType: SettleoraNotificationSubjectTypeValues.expenseBill,
+    subjectType: subjectType,
     safeSummary: 'Dinner bill is ready.',
     actionUrl: actionUrl,
     groupId: groupId,
     expenseBillId: expenseBillId,
     expenseBillRevisionId: expenseBillRevisionId,
+    settlementRequestId: settlementRequestId,
+    settlementPaymentId: settlementPaymentId,
     createdAtUtc: _createdAtUtc,
     readAtUtc: readAtUtc,
     archivedAtUtc: archivedAtUtc,
+  );
+}
+
+SettleoraSettlementRequest sampleSettlementRequest() {
+  return SettleoraSettlementRequest(
+    id: _settlementId,
+    sourceExpenseBillId: _billId,
+    groupId: null,
+    debtorUserProfileId: _profileId,
+    creditorUserProfileId: _otherProfileId,
+    amount: '10.00',
+    currency: 'USD',
+    status: SettleoraSettlementRequestStatusValues.requested,
+    requestedByUserProfileId: _otherProfileId,
+    requestedAtUtc: _createdAtUtc,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    lines: const [],
   );
 }
 
@@ -1381,6 +1534,8 @@ SettleoraNotificationRow _copyNotification(
     groupId: row.groupId,
     expenseBillId: row.expenseBillId,
     expenseBillRevisionId: row.expenseBillRevisionId,
+    settlementRequestId: row.settlementRequestId,
+    settlementPaymentId: row.settlementPaymentId,
     createdAtUtc: row.createdAtUtc,
     readAtUtc: readAtUtc ?? row.readAtUtc,
     archivedAtUtc: archivedAtUtc ?? row.archivedAtUtc,
@@ -1422,5 +1577,7 @@ const _revisionId = '44444444-4444-4444-4444-444444444444';
 const _profileId = '33333333-3333-3333-3333-333333333333';
 const _groupId = '55555555-5555-5555-5555-555555555555';
 const _otherProfileId = '66666666-6666-6666-6666-666666666666';
+const _settlementId = '77777777-7777-7777-7777-777777777777';
+const _paymentId = '88888888-8888-8888-8888-888888888888';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

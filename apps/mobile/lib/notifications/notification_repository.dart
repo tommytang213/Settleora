@@ -132,6 +132,8 @@ class SettleoraNotificationRow {
     required this.groupId,
     required this.expenseBillId,
     required this.expenseBillRevisionId,
+    required this.settlementRequestId,
+    required this.settlementPaymentId,
     required this.createdAtUtc,
     required this.readAtUtc,
     required this.archivedAtUtc,
@@ -147,6 +149,8 @@ class SettleoraNotificationRow {
   final String? groupId;
   final String? expenseBillId;
   final String? expenseBillRevisionId;
+  final String? settlementRequestId;
+  final String? settlementPaymentId;
   final DateTime createdAtUtc;
   final DateTime? readAtUtc;
   final DateTime? archivedAtUtc;
@@ -167,6 +171,14 @@ class SettleoraNotificationRow {
         subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
         _nonEmptyId(groupId) != null &&
         _nonEmptyId(expenseBillId) != null;
+  }
+
+  bool get hasSettlementTarget {
+    return (subjectType ==
+                SettleoraNotificationSubjectTypeValues.settlementRequest ||
+            subjectType ==
+                SettleoraNotificationSubjectTypeValues.settlementPayment) &&
+        _nonEmptyId(settlementRequestId) != null;
   }
 
   String get displayTitle => settleoraNotificationEventLabel(eventType);

@@ -270,6 +270,8 @@ SettleoraNotificationRow _mapRow(api.InAppNotificationResponse response) {
     groupId: response.groupId,
     expenseBillId: response.expenseBillId,
     expenseBillRevisionId: response.expenseBillRevisionId,
+    settlementRequestId: response.settlementRequestId,
+    settlementPaymentId: response.settlementPaymentId,
     createdAtUtc: response.createdAtUtc.toUtc(),
     readAtUtc: response.readAtUtc?.toUtc(),
     archivedAtUtc: response.archivedAtUtc?.toUtc(),

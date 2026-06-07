@@ -8,6 +8,8 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_revision_review_screen.dart';
 import '../groups/group_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../settlements/settlement_list_screen.dart';
+import '../settlements/settlement_repository.dart';
 import 'notification_repository.dart';
 
 class SettleoraNotificationScreen extends StatefulWidget {
@@ -17,6 +19,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
     this.currentUserProfileId,
     this.billRepository,
     this.groupRepository,
+    this.settlementRepository,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -28,6 +31,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
   final String? currentUserProfileId;
   final SettleoraBillRepository? billRepository;
   final SettleoraGroupRepository? groupRepository;
+  final SettleoraSettlementRepository? settlementRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -257,6 +261,12 @@ class _SettleoraNotificationScreenState
         settleoraNotificationMetadataId(widget.currentUserProfileId) != null;
   }
 
+  bool _canOpenSettlement(SettleoraNotificationRow notification) {
+    return notification.hasSettlementTarget &&
+        widget.settlementRepository != null &&
+        settleoraNotificationMetadataId(widget.currentUserProfileId) != null;
+  }
+
   Future<void> _openGroupBill(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
@@ -329,6 +339,50 @@ class _SettleoraNotificationScreenState
       setState(() {
         _actionFailure = failure;
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _openSettlement(SettleoraNotificationRow notification) async {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        !_canOpenSettlement(notification)) {
+      return;
+    }
+
+    final settlementRepository = widget.settlementRepository;
+    final currentUserProfileId = settleoraNotificationMetadataId(
+      widget.currentUserProfileId,
+    );
+    final settlementRequestId = settleoraNotificationMetadataId(
+      notification.settlementRequestId,
+    );
+    if (settlementRepository == null ||
+        currentUserProfileId == null ||
+        settlementRequestId == null) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraSettlementDetailScreen(
+            repository: settlementRepository,
+            settlementId: settlementRequestId,
+            currentUserProfileId: currentUserProfileId,
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -431,6 +485,9 @@ class _SettleoraNotificationScreenState
                           canOpenGroupBill: _canOpenGroupBill(
                             _notifications[index],
                           ),
+                          canOpenSettlement: _canOpenSettlement(
+                            _notifications[index],
+                          ),
                           isActing:
                               _actingNotificationId == _notifications[index].id,
                           revisionOpenButtonKey: ValueKey(
@@ -438,6 +495,9 @@ class _SettleoraNotificationScreenState
                           ),
                           groupBillOpenButtonKey: ValueKey(
                             'notification-open-group-bill-$index',
+                          ),
+                          settlementOpenButtonKey: ValueKey(
+                            'notification-open-settlement-$index',
                           ),
                           markReadButtonKey: ValueKey(
                             'notification-mark-read-$index',
@@ -449,6 +509,8 @@ class _SettleoraNotificationScreenState
                               _openBillRevision(_notifications[index]),
                           onOpenGroupBill: () =>
                               _openGroupBill(_notifications[index]),
+                          onOpenSettlement: () =>
+                              _openSettlement(_notifications[index]),
                           onMarkRead: () =>
                               _markNotificationRead(_notifications[index]),
                           onArchive: () =>
@@ -548,13 +610,16 @@ class _NotificationTile extends StatelessWidget {
     required this.notification,
     required this.canOpenBillRevision,
     required this.canOpenGroupBill,
+    required this.canOpenSettlement,
     required this.isActing,
     required this.revisionOpenButtonKey,
     required this.groupBillOpenButtonKey,
+    required this.settlementOpenButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
     required this.onOpenBillRevision,
     required this.onOpenGroupBill,
+    required this.onOpenSettlement,
     required this.onMarkRead,
     required this.onArchive,
   });
@@ -562,13 +627,16 @@ class _NotificationTile extends StatelessWidget {
   final SettleoraNotificationRow notification;
   final bool canOpenBillRevision;
   final bool canOpenGroupBill;
+  final bool canOpenSettlement;
   final bool isActing;
   final Key revisionOpenButtonKey;
   final Key groupBillOpenButtonKey;
+  final Key settlementOpenButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
   final VoidCallback onOpenBillRevision;
   final VoidCallback onOpenGroupBill;
+  final VoidCallback onOpenSettlement;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
 
@@ -636,6 +704,14 @@ class _NotificationTile extends StatelessWidget {
                   onPressed: isActing ? null : onOpenGroupBill,
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: const Text('Open bill'),
+                ),
+              ] else if (canOpenSettlement) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: settlementOpenButtonKey,
+                  onPressed: isActing ? null : onOpenSettlement,
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                  label: const Text('Open settlement'),
                 ),
               ],
             ],

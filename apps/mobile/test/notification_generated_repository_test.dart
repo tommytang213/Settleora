@@ -50,6 +50,8 @@ void main() {
       expect(notifications.single.groupId, isNull);
       expect(notifications.single.expenseBillId, _billId);
       expect(notifications.single.expenseBillRevisionId, _revisionId);
+      expect(notifications.single.settlementRequestId, _settlementRequestId);
+      expect(notifications.single.settlementPaymentId, _settlementPaymentId);
       expect(notifications.single.createdAtUtc.isUtc, isTrue);
       expect(client.lastStatus, 'unread');
       expect(client.lastLimit, 25);
@@ -341,8 +343,8 @@ api.InAppNotificationResponse sampleApiNotification({
     groupId: null,
     expenseBillId: _billId,
     expenseBillRevisionId: _revisionId,
-    settlementRequestId: null,
-    settlementPaymentId: null,
+    settlementRequestId: _settlementRequestId,
+    settlementPaymentId: _settlementPaymentId,
     recurringBillTemplateId: null,
     recurringBillOccurrenceId: null,
     createdAtUtc: _createdAtUtc,
@@ -356,6 +358,8 @@ api.InAppNotificationResponse sampleApiNotification({
 const _notificationId = '11111111-1111-1111-1111-111111111111';
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '44444444-4444-4444-4444-444444444444';
+const _settlementRequestId = '55555555-5555-5555-5555-555555555555';
+const _settlementPaymentId = '66666666-6666-6666-6666-666666666666';
 const _hiddenBody = {'detail': 'internal-detail'};
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);
