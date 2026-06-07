@@ -1366,6 +1366,7 @@ class _SettleoraGroupBillListScreenState
   bool _isLoading = true;
   List<SettleoraBillSummary> _bills = const [];
   late Map<String, String> _participantDisplayNames;
+  _GroupBillListFilter _selectedFilter = _GroupBillListFilter.all;
   SettleoraBillFailure? _failure;
 
   @override
@@ -1495,6 +1496,8 @@ class _SettleoraGroupBillListScreenState
 
   @override
   Widget build(BuildContext context) {
+    final visibleBills = _filteredBills();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Group bills'),
@@ -1525,6 +1528,15 @@ class _SettleoraGroupBillListScreenState
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
                   _GroupBillContext(groupName: widget.groupName),
+                  const SizedBox(height: 14),
+                  _GroupBillListFilterChips(
+                    selectedFilter: _selectedFilter,
+                    onSelected: (filter) {
+                      setState(() {
+                        _selectedFilter = filter;
+                      });
+                    },
+                  ),
                   if (_bills.isEmpty) ...[
                     const SizedBox(height: 56),
                     _StatePanel(
@@ -1533,16 +1545,23 @@ class _SettleoraGroupBillListScreenState
                       message:
                           'Bills visible in ${_safeGroupName(widget.groupName)} will appear here.',
                     ),
+                  ] else if (visibleBills.isEmpty) ...[
+                    const SizedBox(height: 56),
+                    _StatePanel(
+                      icon: Icons.filter_list_off_outlined,
+                      title: _selectedFilter.emptyTitle,
+                      message: _selectedFilter.emptyMessage,
+                    ),
                   ] else ...[
                     const SizedBox(height: 14),
-                    for (var index = 0; index < _bills.length; index += 1)
+                    for (var index = 0; index < visibleBills.length; index += 1)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _ReadOnlyBillSummaryTile(
-                          bill: _bills[index],
+                          bill: visibleBills[index],
                           currentUserProfileId: widget.currentUserProfileId,
                           participantDisplayNames: _participantDisplayNames,
-                          onTap: () => _openBill(_bills[index]),
+                          onTap: () => _openBill(visibleBills[index]),
                         ),
                       ),
                   ],
@@ -1557,6 +1576,146 @@ class _SettleoraGroupBillListScreenState
         onPressed: _isLoading ? null : _openCreateGroupBill,
         icon: const Icon(Icons.add),
         label: const Text('Create group bill'),
+      ),
+    );
+  }
+
+  List<SettleoraBillSummary> _filteredBills() {
+    return _bills
+        .where(
+          (bill) => _selectedFilter.matches(
+            bill: bill,
+            currentUserProfileId: widget.currentUserProfileId,
+          ),
+        )
+        .toList(growable: false);
+  }
+}
+
+enum _GroupBillListFilter {
+  all,
+  needsYourResponse,
+  youAccepted,
+  youRejected,
+  hasRejections,
+}
+
+extension _GroupBillListFilterText on _GroupBillListFilter {
+  String get label {
+    return switch (this) {
+      _GroupBillListFilter.all => 'All',
+      _GroupBillListFilter.needsYourResponse => 'Needs your response',
+      _GroupBillListFilter.youAccepted => 'You accepted',
+      _GroupBillListFilter.youRejected => 'You rejected',
+      _GroupBillListFilter.hasRejections => 'Has rejections',
+    };
+  }
+
+  String get emptyTitle {
+    return switch (this) {
+      _GroupBillListFilter.needsYourResponse => 'No response needed',
+      _ => 'No matching group bills',
+    };
+  }
+
+  String get emptyMessage {
+    return switch (this) {
+      _GroupBillListFilter.needsYourResponse =>
+        'No group bills need your response.',
+      _ => 'No group bills match this filter.',
+    };
+  }
+
+  bool matches({
+    required SettleoraBillSummary bill,
+    required String? currentUserProfileId,
+  }) {
+    return switch (this) {
+      _GroupBillListFilter.all => true,
+      _GroupBillListFilter.needsYourResponse =>
+        _currentParticipantHasStatus(
+              bill,
+              currentUserProfileId,
+              SettleoraBillParticipantStatusValues.pendingAcceptance,
+            ) &&
+            _billNeedsCurrentUserResponse(bill),
+      _GroupBillListFilter.youAccepted => _currentParticipantHasStatus(
+        bill,
+        currentUserProfileId,
+        SettleoraBillParticipantStatusValues.accepted,
+      ),
+      _GroupBillListFilter.youRejected => _currentParticipantHasStatus(
+        bill,
+        currentUserProfileId,
+        SettleoraBillParticipantStatusValues.rejected,
+      ),
+      _GroupBillListFilter.hasRejections => bill.participants.any(
+        (participant) =>
+            participant.status == SettleoraBillParticipantStatusValues.rejected,
+      ),
+    };
+  }
+}
+
+bool _billNeedsCurrentUserResponse(SettleoraBillSummary bill) {
+  return bill.status == 'pending_confirmation';
+}
+
+bool _currentParticipantHasStatus(
+  SettleoraBillSummary bill,
+  String? currentUserProfileId,
+  SettleoraBillParticipantStatus status,
+) {
+  final participant = _currentBillParticipant(bill, currentUserProfileId);
+  return participant?.status == status;
+}
+
+SettleoraBillParticipant? _currentBillParticipant(
+  SettleoraBillSummary bill,
+  String? currentUserProfileId,
+) {
+  final trimmed = currentUserProfileId?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  for (final participant in bill.participants) {
+    if (participant.userProfileId.trim() == trimmed) {
+      return participant;
+    }
+  }
+
+  return null;
+}
+
+class _GroupBillListFilterChips extends StatelessWidget {
+  const _GroupBillListFilterChips({
+    required this.selectedFilter,
+    required this.onSelected,
+  });
+
+  final _GroupBillListFilter selectedFilter;
+  final ValueChanged<_GroupBillListFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: const Key('group-bill-list-filters'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final filter in _GroupBillListFilter.values) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                key: ValueKey('group-bill-filter-${filter.name}'),
+                label: Text(filter.label),
+                selected: selectedFilter == filter,
+                onSelected: (_) => onSelected(filter),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -3883,7 +4042,7 @@ class _GroupBillListParticipantSummary {
 
     return switch (participant.status) {
       SettleoraBillParticipantStatusValues.pendingAcceptance
-          when bill.status == 'pending_confirmation' =>
+          when _billNeedsCurrentUserResponse(bill) =>
         'Needs your response',
       SettleoraBillParticipantStatusValues.accepted => 'You accepted',
       SettleoraBillParticipantStatusValues.rejected => 'You rejected',
@@ -3956,18 +4115,7 @@ class _GroupBillListParticipantSummary {
   }
 
   SettleoraBillParticipant? _currentParticipant() {
-    final trimmed = currentUserProfileId?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return null;
-    }
-
-    for (final participant in bill.participants) {
-      if (participant.userProfileId.trim() == trimmed) {
-        return participant;
-      }
-    }
-
-    return null;
+    return _currentBillParticipant(bill, currentUserProfileId);
   }
 
   int _statusCount(SettleoraBillParticipantStatus status) {
