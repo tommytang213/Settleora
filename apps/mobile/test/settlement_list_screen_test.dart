@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/settlements/settlement_list_screen.dart';
@@ -19,7 +21,7 @@ void main() {
       MaterialApp(
         home: SettleoraSettlementListScreen(
           repository: repository,
-          currentUserProfileId: _debtorUserProfileId,
+          currentUserProfileId: _creditorUserProfileId,
         ),
       ),
     );
@@ -32,29 +34,196 @@ void main() {
     expect(repository.listBalancesCalls, 1);
     expect(repository.listRequestsCalls, 1);
 
-    await tester.tap(find.text('10.00 USD'));
+    await tester.tap(find.byKey(const ValueKey('settlement-request-tile-0')));
     await tester.pumpAndSettle();
 
     expect(find.text('Counterparty Payment Details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
+    await scrollTo(tester, find.text('Payments'));
     expect(find.text('Payments'), findsOneWidget);
     expect(find.text('2.50 USD'), findsOneWidget);
+    expect(
+      find.text(
+        'Receipt confirmation is blocked until pending residuals are confirmed.',
+      ),
+      findsOneWidget,
+    );
     expect(repository.getRequestCalls, 1);
     expect(repository.listPaymentsCalls, 1);
     expect(repository.paymentDetailsCalls, 1);
-    expect(repository.lastPaymentDetailsUserProfileId, _creditorUserProfileId);
+    expect(repository.lastPaymentDetailsUserProfileId, _debtorUserProfileId);
 
     final residualConfirm = find.byKey(
       const ValueKey('settlement-residual-confirm-0-0'),
     );
-    await tester.ensureVisible(residualConfirm);
-    await tester.pumpAndSettle();
+    await scrollTo(tester, residualConfirm);
     await tester.tap(residualConfirm);
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm residual?'), findsOneWidget);
+
+    await tester.tap(find.text('Confirm residual'));
     await tester.pumpAndSettle();
 
     expect(repository.confirmResidualCalls, 1);
     expect(repository.lastResidualId, _residualId);
     expect(find.text('Residual confirmed.'), findsOneWidget);
+  });
+
+  testWidgets('requested settlement explains payer next step and seam gap', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(),
+      payments: const [],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    expect(find.text('Next step'), findsOneWidget);
+    expect(find.text('You are expected to pay'), findsOneWidget);
+    expect(find.text('Payment needed'), findsOneWidget);
+    expect(find.text('Mark-paid unavailable here'), findsOneWidget);
+    expect(find.byKey(const Key('settlement-payment-confirm-0')), findsNothing);
+  });
+
+  testWidgets('receiver confirms marked-paid payment after confirmation', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(
+        status: SettleoraSettlementRequestStatusValues.markedPaid,
+      ),
+      payments: [
+        samplePayment(
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    expect(find.text('Confirm receipt'), findsOneWidget);
+    final confirm = find.byKey(const ValueKey('settlement-payment-confirm-0'));
+    await scrollTo(tester, confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirm receipt?'), findsOneWidget);
+    await tester.tap(find.text('Confirm receipt'));
+    await tester.pumpAndSettle();
+
+    expect(repository.confirmPaymentCalls, 1);
+    expect(find.text('Payment confirmed.'), findsOneWidget);
+  });
+
+  testWidgets('payment action blocks duplicate taps while in flight', (
+    tester,
+  ) async {
+    final confirmCompleter = Completer<void>();
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(
+        status: SettleoraSettlementRequestStatusValues.markedPaid,
+      ),
+      payments: [
+        samplePayment(
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+      confirmPaymentCompleter: confirmCompleter,
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    final confirm = find.byKey(const ValueKey('settlement-payment-confirm-0'));
+    await scrollTo(tester, confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm receipt'));
+    await tester.pump();
+
+    expect(repository.confirmPaymentCalls, 1);
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+
+    await tester.tap(confirm);
+    await tester.pump();
+
+    expect(repository.confirmPaymentCalls, 1);
+    confirmCompleter.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('request dispute uses safe confirmation and no reason input', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(detail: sampleRequest());
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    await tester.tap(find.byKey(const Key('settlement-request-dispute')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dispute settlement?'), findsOneWidget);
+    expect(
+      find.text(
+        'This flags the settlement for correction. This mobile seam does not support sending a reason yet.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(TextField), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Dispute'));
+    await tester.pumpAndSettle();
+
+    expect(repository.disputeRequestCalls, 1);
+    expect(find.text('Settlement disputed.'), findsOneWidget);
+  });
+
+  testWidgets('confirmed settlement hides lifecycle actions', (tester) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(
+        status: SettleoraSettlementRequestStatusValues.confirmed,
+      ),
+      payments: [
+        samplePayment(
+          status: SettleoraSettlementPaymentStatusValues.confirmed,
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    expect(find.text('No action needed'), findsOneWidget);
+    expect(find.byKey(const Key('settlement-request-cancel')), findsNothing);
+    expect(find.byKey(const Key('settlement-request-dispute')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('settlement-payment-confirm-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('settlement-payment-dispute-0')),
+      findsNothing,
+    );
   });
 
   testWidgets('settlement list shows bounded session failure state', (
@@ -89,6 +258,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     SettleoraSettlementRequest? detail,
     this.payments = const [],
     this.paymentDetails,
+    this.confirmPaymentCompleter,
   }) : detail = detail ?? sampleRequest();
 
   final SettleoraSettlementFailure? failure;
@@ -97,6 +267,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   SettleoraSettlementRequest detail;
   List<SettleoraSettlementPayment> payments;
   final SettleoraSettlementCounterpartyPaymentDetails? paymentDetails;
+  final Completer<void>? confirmPaymentCompleter;
   int listBalancesCalls = 0;
   int listRequestsCalls = 0;
   int getRequestCalls = 0;
@@ -185,6 +356,10 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String paymentId,
   ) async {
     confirmPaymentCalls += 1;
+    final completer = confirmPaymentCompleter;
+    if (completer != null) {
+      await completer.future;
+    }
     final payment = samplePayment(
       status: SettleoraSettlementPaymentStatusValues.confirmed,
       residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
@@ -237,6 +412,32 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
       throw failure;
     }
   }
+}
+
+Future<void> pumpSettlementDetail(
+  WidgetTester tester, {
+  required FakeSettlementRepository repository,
+  required String currentUserProfileId,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: SettleoraSettlementDetailScreen(
+        repository: repository,
+        settlementId: _settlementId,
+        currentUserProfileId: currentUserProfileId,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    320,
+    scrollable: find.byType(Scrollable),
+  );
+  await tester.pumpAndSettle();
 }
 
 SettleoraSettlementBalance sampleBalance() {
