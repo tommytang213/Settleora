@@ -24,6 +24,12 @@ abstract interface class SettleoraBillGeneratedClient {
     required String accessToken,
   });
 
+  Future<void> submitGroupBill(
+    String groupId,
+    String billId, {
+    required String accessToken,
+  });
+
   Future<api.PersonalBillResponse> getPersonalBill(
     String billId, {
     required String accessToken,
@@ -77,6 +83,15 @@ class SettleoraPersonalBillGeneratedClient
     required String accessToken,
   }) {
     return _client.createGroupBill(groupId, body, accessToken: accessToken);
+  }
+
+  @override
+  Future<void> submitGroupBill(
+    String groupId,
+    String billId, {
+    required String accessToken,
+  }) {
+    return _client.submitGroupBill(groupId, billId, accessToken: accessToken);
   }
 
   @override
@@ -191,6 +206,32 @@ class GeneratedSettleoraBillRepository implements SettleoraBillRepository {
           accessToken: accessToken,
         );
         return _mapGroupDetail(response);
+      } on SettleoraBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<void> submitGroupBill(String groupId, String billId) {
+    final trimmedGroupId = _requiredId(
+      groupId,
+      blankMessage: 'Choose a group before submitting a bill.',
+    );
+    final trimmedBillId = _requiredId(
+      billId,
+      blankMessage: 'Choose a bill before submitting it.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        await _client.submitGroupBill(
+          trimmedGroupId,
+          trimmedBillId,
+          accessToken: accessToken,
+        );
       } on SettleoraBillFailure {
         rethrow;
       } catch (error) {

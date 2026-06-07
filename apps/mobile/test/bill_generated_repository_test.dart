@@ -770,6 +770,58 @@ void main() {
       expect(failure.toString(), isNot(contains('internal-detail')));
     });
 
+    test('submitGroupBill calls generated client with bounded IDs', () async {
+      final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
+      final client = FakeBillGeneratedClient();
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      await repository.submitGroupBill(' $_groupId ', ' $_billId ');
+
+      expect(client.submitGroupCalls, 1);
+      expect(client.lastGroupId, _groupId);
+      expect(client.lastBillId, _billId);
+      expect(client.accessTokens, ['redacted']);
+      expect(accessTokenProvider.calls, 1);
+    });
+
+    test('submitGroupBill validation runs before session lookup', () async {
+      final accessTokenProvider = FakeAccessTokenProvider('redacted');
+      final client = FakeBillGeneratedClient();
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      final failure = await captureBillFailure(() {
+        return repository.submitGroupBill(_groupId, ' ');
+      });
+
+      expect(failure.kind, SettleoraBillFailureKind.validation);
+      expect(accessTokenProvider.calls, 0);
+      expect(client.submitGroupCalls, 0);
+    });
+
+    test('submitGroupBill maps generated failures safely', () async {
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          failure: api.SettleoraApiException(409, 'Conflict', _hiddenBody),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final failure = await captureBillFailure(() {
+        return repository.submitGroupBill(_groupId, _billId);
+      });
+
+      expect(failure.kind, SettleoraBillFailureKind.conflict);
+      expect(failure.statusCode, 409);
+      expect(failure.message, isNot(contains('internal-detail')));
+      expect(failure.toString(), isNot(contains('internal-detail')));
+    });
+
     test('maps generated failures to bounded safe failures', () async {
       final repository = GeneratedSettleoraBillRepository(
         client: FakeBillGeneratedClient(
@@ -872,6 +924,7 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
   int getCalls = 0;
   int listGroupCalls = 0;
   int createGroupCalls = 0;
+  int submitGroupCalls = 0;
   int getGroupCalls = 0;
   api.CreatePersonalBillRequest? lastCreateBody;
   api.CreateGroupBillRequest? lastGroupCreateBody;
@@ -920,6 +973,19 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return createdGroupBill;
+  }
+
+  @override
+  Future<void> submitGroupBill(
+    String groupId,
+    String billId, {
+    required String accessToken,
+  }) async {
+    submitGroupCalls += 1;
+    lastGroupId = groupId;
+    lastBillId = billId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
   }
 
   @override

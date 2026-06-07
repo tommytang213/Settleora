@@ -374,6 +374,8 @@ abstract class SettleoraBillRepository {
     SettleoraGroupBillCreateDraft draft,
   );
 
+  Future<void> submitGroupBill(String groupId, String billId);
+
   Future<SettleoraBillDetail> getGroupBill(String groupId, String billId);
 }
 

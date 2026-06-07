@@ -3221,6 +3221,11 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
+  Future<void> submitGroupBill(String groupId, String billId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<SettleoraBillSummary>> listGroupBills(
     String groupId, {
     int limit = 50,
