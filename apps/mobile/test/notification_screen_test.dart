@@ -1343,7 +1343,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('server-shell-notifications')));
+    final notificationsTile = find.byKey(
+      const Key('server-shell-notifications'),
+    );
+    await tester.dragUntilVisible(
+      notificationsTile,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(notificationsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(notificationsTile);
     await tester.pumpAndSettle();
 
     expect(find.text('Notifications'), findsWidgets);
@@ -1356,7 +1366,7 @@ void main() {
       find.byKey(const ValueKey('notification-open-settlement-0')),
       findsNothing,
     );
-    expect(notificationRepository.summaryCalls, 1);
+    expect(notificationRepository.summaryCalls, 2);
     expect(notificationRepository.listCalls, 1);
   });
 }

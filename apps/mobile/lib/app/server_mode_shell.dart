@@ -72,6 +72,61 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
 class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
   bool _isSigningOut = false;
+  bool _isLoadingOverview = true;
+  _SettleoraDashboardOverview? _overview;
+  _SettleoraDashboardFailure? _overviewFailure;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_loadOverview);
+  }
+
+  Future<void> _loadOverview() async {
+    setState(() {
+      _isLoadingOverview = true;
+      _overviewFailure = null;
+    });
+
+    try {
+      final results = await Future.wait<Object>([
+        widget.billRepository.listPersonalBills(limit: 3),
+        widget.notificationRepository.getNotificationSummary(),
+        widget.settlementRepository.listBalances(),
+        widget.settlementRepository.listSettlementRequests(),
+        widget.recurringBillRepository.listTemplates(maxItems: 3),
+        widget.recurringBillRepository.listForecast(limit: 3),
+      ]);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _overview = _SettleoraDashboardOverview(
+          personalBills: results[0] as List<SettleoraBillSummary>,
+          notificationSummary: results[1] as SettleoraNotificationSummary,
+          settlementBalances: results[2] as SettleoraSettlementBalanceSnapshot,
+          settlementRequests: results[3] as List<SettleoraSettlementRequest>,
+          recurringTemplates:
+              results[4] as List<SettleoraRecurringBillTemplateSummary>,
+          recurringForecast:
+              results[5] as List<SettleoraRecurringBillForecastOccurrence>,
+        );
+        _isLoadingOverview = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _overviewFailure = _SettleoraDashboardFailure.from(error);
+        _overview = null;
+        _isLoadingOverview = false;
+      });
+    }
+  }
 
   Future<void> _openBills() async {
     await Navigator.of(context).push(
@@ -296,6 +351,8 @@ class _SettleoraAuthenticatedServerShellState
   Widget build(BuildContext context) {
     final currentUser = widget.currentUser;
     final defaultCurrency = currentUser.defaultCurrency;
+    final overview = _overview;
+    final overviewFailure = _overviewFailure;
 
     return Scaffold(
       appBar: AppBar(
@@ -327,75 +384,382 @@ class _SettleoraAuthenticatedServerShellState
                     ? 'Signed in'
                     : 'Signed in - $defaultCurrency',
               ),
+              trailing: IconButton(
+                key: const Key('server-shell-profile'),
+                tooltip: 'Profile',
+                onPressed: _openProfile,
+                icon: const Icon(Icons.account_circle_outlined),
+              ),
             ),
             const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-profile'),
-              onPressed: _openProfile,
-              icon: const Icon(Icons.account_circle_outlined),
-              label: const Text('Profile'),
-            ),
+            Text('Today', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-notifications'),
-              onPressed: _openNotifications,
-              icon: const Icon(Icons.notifications_outlined),
-              label: const Text('Notifications'),
-            ),
+            if (_isLoadingOverview)
+              const _DashboardLoadingCard()
+            else if (overviewFailure != null)
+              _DashboardErrorCard(
+                failure: overviewFailure,
+                onRetry: _loadOverview,
+              )
+            else if (overview != null)
+              _DashboardOverviewContent(
+                overview: overview,
+                onOpenBills: _openBills,
+                onOpenGroups: _openGroups,
+                onOpenSettlements: _openSettlements,
+                onOpenRecurringBills: _openRecurringBills,
+                onOpenNotifications: _openNotifications,
+              ),
+            const SizedBox(height: 16),
+            Text('More', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-bills'),
-              onPressed: _openBills,
-              icon: const Icon(Icons.list_alt_outlined),
-              label: const Text('Bills'),
+            _DashboardNavigationTile(
+              icon: Icons.account_circle_outlined,
+              title: 'Profile',
+              subtitle: 'Manage profile and payment details',
+              onTap: _openProfile,
             ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-recurring-bills'),
-              onPressed: _openRecurringBills,
-              icon: const Icon(Icons.event_repeat_outlined),
-              label: const Text('Recurring bills'),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-settlements'),
-              onPressed: _openSettlements,
-              icon: const Icon(Icons.handshake_outlined),
-              label: const Text('Settlements'),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const Key('server-shell-groups'),
-              onPressed: _openGroups,
-              icon: const Icon(Icons.groups_outlined),
-              label: const Text('Groups'),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
+            _DashboardNavigationTile(
               key: const Key('server-shell-receipt-reviews'),
-              onPressed: _openReceiptReviews,
-              icon: const Icon(Icons.receipt_long_outlined),
-              label: const Text('Receipt Reviews'),
+              icon: Icons.receipt_long_outlined,
+              title: 'Receipt Reviews',
+              subtitle: 'Review OCR data attached to bills',
+              onTap: _openReceiptReviews,
             ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
+            _DashboardNavigationTile(
               key: const Key('server-shell-sessions'),
-              onPressed: _openSessions,
-              icon: const Icon(Icons.devices_outlined),
-              label: const Text('Sessions'),
+              icon: Icons.devices_outlined,
+              title: 'Sessions',
+              subtitle: 'Review and revoke signed-in devices',
+              onTap: _openSessions,
             ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
+            _DashboardNavigationTile(
               key: const Key('server-shell-reports'),
-              onPressed: _openMonthlyReport,
-              icon: const Icon(Icons.summarize_outlined),
-              label: const Text('Monthly report'),
+              icon: Icons.summarize_outlined,
+              title: 'Monthly report',
+              subtitle: 'Open the current reporting surface',
+              onTap: _openMonthlyReport,
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _SettleoraDashboardOverview {
+  const _SettleoraDashboardOverview({
+    required this.personalBills,
+    required this.notificationSummary,
+    required this.settlementBalances,
+    required this.settlementRequests,
+    required this.recurringTemplates,
+    required this.recurringForecast,
+  });
+
+  final List<SettleoraBillSummary> personalBills;
+  final SettleoraNotificationSummary notificationSummary;
+  final SettleoraSettlementBalanceSnapshot settlementBalances;
+  final List<SettleoraSettlementRequest> settlementRequests;
+  final List<SettleoraRecurringBillTemplateSummary> recurringTemplates;
+  final List<SettleoraRecurringBillForecastOccurrence> recurringForecast;
+
+  int get activePersonalBillCount =>
+      personalBills.where((bill) => !bill.isArchived).length;
+
+  int get settlementActionCount {
+    return settlementRequests
+        .where(
+          (request) =>
+              request.status ==
+                  SettleoraSettlementRequestStatusValues.requested ||
+              request.status ==
+                  SettleoraSettlementRequestStatusValues.partiallyPaid ||
+              request.status ==
+                  SettleoraSettlementRequestStatusValues.markedPaid,
+        )
+        .length;
+  }
+
+  int get openBalanceCount => settlementBalances.balances
+      .where(
+        (balance) =>
+            _amountStringLooksNonZero(balance.remainingUnclaimedAmount),
+      )
+      .length;
+
+  int get activeRecurringTemplateCount => recurringTemplates
+      .where(
+        (template) =>
+            template.status ==
+            SettleoraRecurringBillTemplateStatusValues.active,
+      )
+      .length;
+
+  int get upcomingForecastCount => recurringForecast
+      .where((occurrence) => occurrence.canGenerateDraft)
+      .length;
+
+  bool get isEmpty =>
+      personalBills.isEmpty &&
+      notificationSummary.unreadCount == 0 &&
+      notificationSummary.attentionCount == 0 &&
+      notificationSummary.urgentCount == 0 &&
+      settlementBalances.balances.isEmpty &&
+      settlementRequests.isEmpty &&
+      recurringTemplates.isEmpty &&
+      recurringForecast.isEmpty;
+}
+
+class _SettleoraDashboardFailure {
+  const _SettleoraDashboardFailure({
+    required this.title,
+    required this.message,
+  });
+
+  factory _SettleoraDashboardFailure.from(Object error) {
+    if (error is SettleoraBillFailure) {
+      return _SettleoraDashboardFailure(
+        title: error.title,
+        message: error.message,
+      );
+    }
+    if (error is SettleoraNotificationFailure) {
+      return _SettleoraDashboardFailure(
+        title: error.title,
+        message: error.message,
+      );
+    }
+    if (error is SettleoraSettlementFailure) {
+      return _SettleoraDashboardFailure(
+        title: error.title,
+        message: error.message,
+      );
+    }
+    if (error is SettleoraRecurringBillFailure) {
+      return _SettleoraDashboardFailure(
+        title: error.title,
+        message: error.message,
+      );
+    }
+
+    return const _SettleoraDashboardFailure(
+      title: 'Overview unavailable',
+      message: 'Open a section below, or retry when the server is reachable.',
+    );
+  }
+
+  final String title;
+  final String message;
+}
+
+class _DashboardLoadingCard extends StatelessWidget {
+  const _DashboardLoadingCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Loading dashboard overview'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardErrorCard extends StatelessWidget {
+  const _DashboardErrorCard({required this.failure, required this.onRetry});
+
+  final _SettleoraDashboardFailure failure;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(failure.title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(failure.message),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('dashboard-overview-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardOverviewContent extends StatelessWidget {
+  const _DashboardOverviewContent({
+    required this.overview,
+    required this.onOpenBills,
+    required this.onOpenGroups,
+    required this.onOpenSettlements,
+    required this.onOpenRecurringBills,
+    required this.onOpenNotifications,
+  });
+
+  final _SettleoraDashboardOverview overview;
+  final VoidCallback onOpenBills;
+  final VoidCallback onOpenGroups;
+  final VoidCallback onOpenSettlements;
+  final VoidCallback onOpenRecurringBills;
+  final VoidCallback onOpenNotifications;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (overview.isEmpty) ...[
+          const _DashboardEmptyCard(),
+          const SizedBox(height: 8),
+        ],
+        _DashboardNavigationTile(
+          key: const Key('server-shell-bills'),
+          icon: Icons.list_alt_outlined,
+          title: 'Personal bills',
+          subtitle: overview.activePersonalBillCount == 0
+              ? 'Open bills to create or review personal records'
+              : '${overview.activePersonalBillCount} recent active bill${_plural(overview.activePersonalBillCount)}',
+          detail: overview.personalBills.isEmpty
+              ? null
+              : 'Latest: ${overview.personalBills.first.displayName}',
+          onTap: onOpenBills,
+        ),
+        _DashboardNavigationTile(
+          key: const Key('server-shell-groups'),
+          icon: Icons.groups_outlined,
+          title: 'Shared bills',
+          subtitle: 'Open groups to review shared bill activity',
+          detail:
+              'No global shared-bill count is exposed by this mobile seam yet.',
+          onTap: onOpenGroups,
+        ),
+        _DashboardNavigationTile(
+          key: const Key('server-shell-settlements'),
+          icon: Icons.handshake_outlined,
+          title: 'Settlements',
+          subtitle: overview.settlementActionCount == 0
+              ? 'Open settlements to review balances and requests'
+              : '${overview.settlementActionCount} request${_plural(overview.settlementActionCount)} may need review',
+          detail: overview.openBalanceCount == 0
+              ? null
+              : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
+          onTap: onOpenSettlements,
+        ),
+        _DashboardNavigationTile(
+          key: const Key('server-shell-recurring-bills'),
+          icon: Icons.event_repeat_outlined,
+          title: 'Recurring bills',
+          subtitle: overview.upcomingForecastCount == 0
+              ? 'Open recurring bills to review templates and forecast'
+              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
+          detail: overview.activeRecurringTemplateCount == 0
+              ? null
+              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
+          onTap: onOpenRecurringBills,
+        ),
+        _DashboardNavigationTile(
+          key: const Key('server-shell-notifications'),
+          icon: Icons.notifications_outlined,
+          title: 'Notifications',
+          subtitle: overview.notificationSummary.unreadCount == 0
+              ? 'Open notifications for recent activity'
+              : '${overview.notificationSummary.unreadCount} unread notification${_plural(overview.notificationSummary.unreadCount)}',
+          detail:
+              overview.notificationSummary.attentionCount == 0 &&
+                  overview.notificationSummary.urgentCount == 0
+              ? null
+              : '${overview.notificationSummary.attentionCount} attention, ${overview.notificationSummary.urgentCount} urgent',
+          onTap: onOpenNotifications,
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardEmptyCard extends StatelessWidget {
+  const _DashboardEmptyCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.inbox_outlined),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No overview items yet. Open a section below to create or review Day 1 records.',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardNavigationTile extends StatelessWidget {
+  const _DashboardNavigationTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? detail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = this.detail;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(detail == null ? subtitle : '$subtitle\n$detail'),
+        isThreeLine: detail != null,
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+String _plural(int count) => count == 1 ? '' : 's';
+
+bool _amountStringLooksNonZero(String value) {
+  final normalized = value.trim().replaceAll('-', '').replaceAll('.', '');
+  return normalized.runes.any((codeUnit) => codeUnit >= 49 && codeUnit <= 57);
 }
 
 class SettleoraSessionListScreen extends StatefulWidget {

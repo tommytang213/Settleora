@@ -3041,7 +3041,7 @@ void main() {
 
     expect(find.text('Bills'), findsWidgets);
     expect(find.text('Corner Market'), findsOneWidget);
-    expect(billRepository.listCalls, 1);
+    expect(billRepository.listCalls, 2);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
@@ -3088,8 +3088,8 @@ void main() {
 
     expect(find.text('Settlements'), findsOneWidget);
     expect(find.text('No balances'), findsOneWidget);
-    expect(settlementRepository.listBalancesCalls, 1);
-    expect(settlementRepository.listRequestsCalls, 1);
+    expect(settlementRepository.listBalancesCalls, 2);
+    expect(settlementRepository.listRequestsCalls, 2);
   });
 }
 
