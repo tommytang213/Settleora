@@ -122,7 +122,7 @@ void main() {
     expect(find.text('Bills (1)'), findsOneWidget);
     expect(find.text('Settlements (1)'), findsOneWidget);
     expect(find.text('Recurring (2)'), findsOneWidget);
-    expect(find.text('Actionable (3)'), findsOneWidget);
+    expect(find.text('Actionable (2)'), findsOneWidget);
 
     await tapNotificationFilter(tester, 'urgent');
 
@@ -132,7 +132,7 @@ void main() {
     await tapNotificationFilter(tester, 'actionable');
 
     expect(find.text('Group bill ready.'), findsOneWidget);
-    expect(find.text('Settlement ready.'), findsOneWidget);
+    expect(find.text('Settlement ready.'), findsNothing);
 
     await tapNotificationFilter(tester, 'urgent');
     await tapNotificationFilter(tester, 'recurring');
@@ -723,6 +723,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(groupRepository.getGroupCalls, 1);
+    expect(repository.markReadCalls, 0);
     expect(
       find.text('This bill is not available to this account.'),
       findsOneWidget,
@@ -958,6 +959,290 @@ void main() {
     },
   );
 
+  testWidgets(
+    'opening a personal bill notification marks read and updates filters',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [sampleNotification(expenseBillId: _billId)],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            billRepository: FakeBillRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unread (1)'), findsOneWidget);
+      expect(find.text('Actionable (1)'), findsOneWidget);
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-personal-bill-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(repository.lastNotificationId, _notificationId);
+      expect(repository.summaryCalls, 2);
+      expect(repository.listCalls, 2);
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Unread: 0'), findsOneWidget);
+      expect(find.text('Read'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'opening a group bill notification marks read and updates filters',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(groupId: _groupId, expenseBillId: _billId),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            currentUserProfileId: _profileId,
+            billRepository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-group-bill-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Actionable (0)'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'opening a settlement notification marks read and updates filters',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            eventType: 'settlement.request_created',
+            settlementRequestId: _settlementId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            currentUserProfileId: _profileId,
+            settlementRepository: FakeSettlementRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-settlement-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Actionable (0)'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'opening a recurring notification marks read and updates filters',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+            eventType: 'recurring_bill.draft_generated',
+            recurringBillTemplateId: _recurringTemplateId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            recurringBillRepository: FakeRecurringBillRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-recurring-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Actionable (0)'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'opening a bill revision notification marks read and updates filters',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            eventType:
+                SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+            expenseBillId: _billId,
+            expenseBillRevisionId: _revisionId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            billRevisionRepository: FakeBillRevisionRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-revision-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Actionable (0)'), findsOneWidget);
+    },
+  );
+
+  testWidgets('already-read notifications open without marking read again', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          status: SettleoraNotificationStatusValues.read,
+          readAtUtc: _updatedAtUtc,
+          expenseBillId: _billId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await openNotificationAndReturn(
+      tester,
+      const ValueKey('notification-open-personal-bill-0'),
+    );
+
+    expect(repository.markReadCalls, 0);
+    expect(repository.summaryCalls, 1);
+    expect(repository.listCalls, 1);
+  });
+
+  testWidgets(
+    'mark-read failure after open stays bounded and clears acting state',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        markReadFailure: const SettleoraNotificationFailure(
+          kind: SettleoraNotificationFailureKind.server,
+          message:
+              'internal notification $_notificationId bill $_billId token=secret',
+        ),
+        notifications: [
+          sampleNotification(
+            actionUrl: '/api/v1/bills/$_billId?token=secret',
+            expenseBillId: _billId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            billRepository: FakeBillRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await openNotificationAndReturn(
+        tester,
+        const ValueKey('notification-open-personal-bill-0'),
+      );
+
+      expect(repository.markReadCalls, 1);
+      expect(
+        find.text(
+          'Notification status could not be refreshed. Try again later.',
+        ),
+        findsOneWidget,
+      );
+      expect(visibleText(tester), isNot(contains(_notificationId)));
+      expect(visibleText(tester), isNot(contains(_billId)));
+      expect(visibleText(tester), isNot(contains('token=secret')));
+
+      final openButton = tester.widget<OutlinedButton>(
+        find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      );
+      expect(openButton.onPressed, isNotNull);
+    },
+  );
+
+  testWidgets('hidden open actions do not mark read', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          actionUrl: '/api/v1/bills/$_billId?token=secret',
+          expenseBillId: null,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      findsNothing,
+    );
+    expect(repository.markReadCalls, 0);
+  });
+
   testWidgets('single notification read failure stays bounded', (tester) async {
     const hiddenValue = 'internal-notification-id';
     final repository = FakeNotificationRepository(
@@ -1084,6 +1369,16 @@ Future<void> tapNotificationFilter(
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
+Future<void> openNotificationAndReturn(
+  WidgetTester tester,
+  Key openButtonKey,
+) async {
+  await tester.tap(find.byKey(openButtonKey));
+  await tester.pumpAndSettle();
+  await tester.pageBack();
   await tester.pumpAndSettle();
 }
 
