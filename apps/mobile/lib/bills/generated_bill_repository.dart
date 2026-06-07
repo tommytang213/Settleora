@@ -801,6 +801,9 @@ SettleoraBillSummary _mapGroupSummary(
     payerCount: response.payers.length,
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
+    participants: response.participants
+        .map(_mapGroupParticipant)
+        .toList(growable: false),
     displayNameFallback: 'Group bill',
   );
 }

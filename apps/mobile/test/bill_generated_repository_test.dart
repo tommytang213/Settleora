@@ -358,6 +358,11 @@ void main() {
       expect(bills, hasLength(2));
       expect(bills.first.displayName, 'Noodle House');
       expect(bills.first.archiveState, SettleoraBillArchiveStateValues.active);
+      expect(bills.first.participants, hasLength(1));
+      expect(
+        bills.first.participants.single.status,
+        SettleoraBillParticipantStatusValues.pendingAcceptance,
+      );
       expect(bills.last.displayName, 'Group bill');
       expect(bills.last.archiveState, SettleoraBillArchiveStateValues.archived);
       expect(detail.displayName, 'Corner Market');

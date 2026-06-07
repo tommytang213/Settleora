@@ -107,6 +107,7 @@ class SettleoraBillSummary {
     required this.payerCount,
     required this.createdAtUtc,
     required this.updatedAtUtc,
+    this.participants = const [],
     this.displayNameFallback = 'Personal bill',
   });
 
@@ -123,6 +124,7 @@ class SettleoraBillSummary {
   final int payerCount;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
+  final List<SettleoraBillParticipant> participants;
   final String displayNameFallback;
 
   bool get isArchived =>

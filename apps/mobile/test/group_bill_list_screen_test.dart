@@ -281,6 +281,129 @@ void main() {
     },
   );
 
+  testWidgets(
+    'group bill list shows current user action state and participant summary',
+    (tester) async {
+      final repository = FakeBillRepository(
+        groupBills: [
+          sampleBillSummary(
+            status: 'pending_confirmation',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+              SettleoraBillParticipant(
+                userProfileId: _otherProfileId,
+                status: SettleoraBillParticipantStatusValues.accepted,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+              SettleoraBillParticipant(
+                userProfileId: 'rejected-profile-id',
+                status: SettleoraBillParticipantStatusValues.rejected,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+        ],
+      );
+      final groupRepository = FakeGroupRepository(
+        members: [
+          sampleMember(displayName: 'Taylor'),
+          sampleMember(userProfileId: _otherProfileId, displayName: 'Morgan'),
+          sampleMember(
+            userProfileId: 'rejected-profile-id',
+            displayName: 'Casey',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: groupRepository,
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pending confirmation'), findsOneWidget);
+      expect(find.text('Needs your response'), findsOneWidget);
+      expect(find.text('1 pending - 1 accepted - 1 rejected'), findsOneWidget);
+      expect(find.text('Rejected: Casey'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'group bill list shows accepted and rejected current user states',
+    (tester) async {
+      final repository = FakeBillRepository(
+        groupBills: [
+          sampleBillSummary(
+            id: 'accepted-bill-id',
+            merchantName: 'Accepted Market',
+            status: 'pending_confirmation',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.accepted,
+                resolvedShareAmount: '5.40',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+          sampleBillSummary(
+            id: 'rejected-bill-id',
+            merchantName: 'Rejected Market',
+            status: 'rejected',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.rejected,
+                resolvedShareAmount: '5.40',
+                resolvedShareCurrency: 'USD',
+              ),
+              SettleoraBillParticipant(
+                userProfileId: 'unknown-profile-id',
+                status: SettleoraBillParticipantStatusValues.rejected,
+                resolvedShareAmount: '5.40',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('You accepted'), findsOneWidget);
+      expect(find.text('You rejected'), findsOneWidget);
+      expect(
+        find.text('Rejected: Participant 1 (you), Participant 2'),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('group bill detail accepts current pending participant share', (
     tester,
   ) async {
@@ -3816,10 +3939,15 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   }
 }
 
-SettleoraBillSummary sampleBillSummary({String status = 'draft'}) {
+SettleoraBillSummary sampleBillSummary({
+  String id = _billId,
+  String? merchantName = 'Corner Market',
+  String status = 'draft',
+  List<SettleoraBillParticipant> participants = const [],
+}) {
   return SettleoraBillSummary(
-    id: _billId,
-    merchantName: 'Corner Market',
+    id: id,
+    merchantName: merchantName,
     billDate: '2026-05-17',
     status: status,
     reconciliationStatus: 'unreconciled',
@@ -3827,10 +3955,11 @@ SettleoraBillSummary sampleBillSummary({String status = 'draft'}) {
     totalCurrency: 'USD',
     archiveState: SettleoraBillArchiveStateValues.active,
     itemCount: 1,
-    participantCount: 1,
+    participantCount: participants.isEmpty ? 1 : participants.length,
     payerCount: 1,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
+    participants: participants,
     displayNameFallback: 'Group bill',
   );
 }
