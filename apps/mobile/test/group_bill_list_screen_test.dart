@@ -218,6 +218,69 @@ void main() {
     },
   );
 
+  testWidgets(
+    'group bill detail uses group member display names with participant fallback',
+    (tester) async {
+      final repository = FakeBillRepository(
+        groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+        detail: sampleBillDetail(
+          status: 'pending_confirmation',
+          participants: const [
+            SettleoraBillParticipant(
+              userProfileId: _profileId,
+              status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+              resolvedShareAmount: '3.60',
+              resolvedShareCurrency: 'USD',
+            ),
+            SettleoraBillParticipant(
+              userProfileId: _otherProfileId,
+              status: SettleoraBillParticipantStatusValues.accepted,
+              resolvedShareAmount: '3.60',
+              resolvedShareCurrency: 'USD',
+            ),
+            SettleoraBillParticipant(
+              userProfileId: 'unknown-profile-id',
+              status: SettleoraBillParticipantStatusValues.rejected,
+              resolvedShareAmount: '3.60',
+              resolvedShareCurrency: 'USD',
+              rejectionReasonCode:
+                  SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+            ),
+          ],
+        ),
+      );
+      final groupRepository = FakeGroupRepository(
+        members: [
+          sampleMember(displayName: 'Taylor'),
+          sampleMember(userProfileId: _otherProfileId, displayName: 'Morgan'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: groupRepository,
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+
+      expect(groupRepository.listMemberCalls, 1);
+      expect(find.text('Taylor (you)'), findsWidgets);
+      expect(find.text('Morgan'), findsWidgets);
+      expect(find.text('Participant 3 (Wrong split)'), findsWidgets);
+      expect(find.text('Participant 1 (you)'), findsNothing);
+      expect(find.text('Participant 2'), findsNothing);
+    },
+  );
+
   testWidgets('group bill detail accepts current pending participant share', (
     tester,
   ) async {

@@ -1338,6 +1338,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     this.currentUserProfileId,
+    this.participantDisplayNames = const {},
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -1349,6 +1350,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
   final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -1363,11 +1365,15 @@ class _SettleoraGroupBillListScreenState
     extends State<SettleoraGroupBillListScreen> {
   bool _isLoading = true;
   List<SettleoraBillSummary> _bills = const [];
+  late Map<String, String> _participantDisplayNames;
   SettleoraBillFailure? _failure;
 
   @override
   void initState() {
     super.initState();
+    _participantDisplayNames = _normalizeParticipantDisplayNames(
+      widget.participantDisplayNames,
+    );
     Future<void>.microtask(_load);
   }
 
@@ -1382,12 +1388,14 @@ class _SettleoraGroupBillListScreenState
         widget.groupId,
         limit: 50,
       );
+      final participantDisplayNames = await _loadParticipantDisplayNames();
       if (!mounted) {
         return;
       }
 
       setState(() {
         _bills = bills;
+        _participantDisplayNames = participantDisplayNames;
         _isLoading = false;
       });
     } catch (error) {
@@ -1414,6 +1422,7 @@ class _SettleoraGroupBillListScreenState
           groupId: widget.groupId,
           groupName: widget.groupName,
           currentUserProfileId: widget.currentUserProfileId,
+          participantDisplayNames: _participantDisplayNames,
           billId: bill.id,
         ),
       ),
@@ -1461,6 +1470,7 @@ class _SettleoraGroupBillListScreenState
           groupId: widget.groupId,
           groupName: widget.groupName,
           currentUserProfileId: widget.currentUserProfileId,
+          participantDisplayNames: _participantDisplayNames,
           billId: createdBill.id,
           initialBill: createdBill,
         ),
@@ -1469,6 +1479,17 @@ class _SettleoraGroupBillListScreenState
 
     if (mounted) {
       await _load();
+    }
+  }
+
+  Future<Map<String, String>> _loadParticipantDisplayNames() async {
+    try {
+      final members = await widget.groupRepository.listGroupMembers(
+        widget.groupId,
+      );
+      return _participantDisplayNamesFromMembers(members);
+    } catch (_) {
+      return _participantDisplayNames;
     }
   }
 
@@ -3191,6 +3212,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     required this.groupName,
     required this.billId,
     this.currentUserProfileId,
+    this.participantDisplayNames = const {},
     this.initialBill,
     this.attachmentRepository,
     this.attachmentFileInput,
@@ -3207,6 +3229,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final String groupName;
   final String billId;
   final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
   final SettleoraBillDetail? initialBill;
 
   @override
@@ -3217,6 +3240,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
 class _SettleoraGroupBillDetailScreenState
     extends State<SettleoraGroupBillDetailScreen> {
   late bool _isLoading;
+  late Map<String, String> _participantDisplayNames;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
@@ -3230,6 +3254,9 @@ class _SettleoraGroupBillDetailScreenState
   @override
   void initState() {
     super.initState();
+    _participantDisplayNames = _normalizeParticipantDisplayNames(
+      widget.participantDisplayNames,
+    );
     final initialBill = widget.initialBill;
     _bill = initialBill;
     _isLoading = initialBill == null;
@@ -3619,11 +3646,16 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillParticipantStatusSummary(
                   participants: bill.participants,
                   currentUserProfileId: widget.currentUserProfileId,
+                  participantDisplayNames: _participantDisplayNames,
                 ),
                 const SizedBox(height: 20),
                 _BillItems(items: bill.items),
                 const SizedBox(height: 20),
-                _BillParticipants(participants: bill.participants),
+                _BillParticipants(
+                  participants: bill.participants,
+                  currentUserProfileId: widget.currentUserProfileId,
+                  participantDisplayNames: _participantDisplayNames,
+                ),
                 const SizedBox(height: 20),
                 _BillPayers(payers: bill.payers),
                 const SizedBox(height: 20),
@@ -4170,9 +4202,15 @@ class _BillItems extends StatelessWidget {
 }
 
 class _BillParticipants extends StatelessWidget {
-  const _BillParticipants({required this.participants});
+  const _BillParticipants({
+    required this.participants,
+    this.currentUserProfileId,
+    this.participantDisplayNames = const {},
+  });
 
   final List<SettleoraBillParticipant> participants;
+  final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
 
   @override
   Widget build(BuildContext context) {
@@ -4190,7 +4228,12 @@ class _BillParticipants extends StatelessWidget {
       children: [
         for (var index = 0; index < participants.length; index += 1)
           _KeyValueText(
-            label: 'Participant ${index + 1}',
+            label: _participantDisplayLabel(
+              index: index,
+              participant: participants[index],
+              currentUserProfileId: currentUserProfileId,
+              participantDisplayNames: participantDisplayNames,
+            ),
             value:
                 '${_money(participants[index].resolvedShareAmount, participants[index].resolvedShareCurrency)} - ${settleoraBillParticipantStatusLabel(participants[index].status)}',
           ),
@@ -4203,10 +4246,12 @@ class _GroupBillParticipantStatusSummary extends StatelessWidget {
   const _GroupBillParticipantStatusSummary({
     required this.participants,
     required this.currentUserProfileId,
+    this.participantDisplayNames = const {},
   });
 
   final List<SettleoraBillParticipant> participants;
   final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
 
   @override
   Widget build(BuildContext context) {
@@ -4296,19 +4341,60 @@ class _GroupBillParticipantStatusSummary extends StatelessWidget {
   }
 
   String _participantLabel(int index, SettleoraBillParticipant participant) {
-    final isCurrent = participant.userProfileId == currentUserProfileId?.trim();
-    final baseLabel = isCurrent
-        ? 'Participant ${index + 1} (you)'
-        : 'Participant ${index + 1}';
-    final reasonCode = participant.rejectionReasonCode;
-    if (participant.status != SettleoraBillParticipantStatusValues.rejected ||
-        reasonCode == null ||
-        reasonCode.trim().isEmpty) {
-      return baseLabel;
-    }
-
-    return '$baseLabel (${settleoraBillParticipantRejectionReasonLabel(reasonCode)})';
+    return _participantDisplayLabel(
+      index: index,
+      participant: participant,
+      currentUserProfileId: currentUserProfileId,
+      participantDisplayNames: participantDisplayNames,
+    );
   }
+}
+
+String _participantDisplayLabel({
+  required int index,
+  required SettleoraBillParticipant participant,
+  String? currentUserProfileId,
+  Map<String, String> participantDisplayNames = const {},
+  bool includeRejectionReason = true,
+}) {
+  final participantProfileId = participant.userProfileId.trim();
+  final knownName = participantDisplayNames[participantProfileId]?.trim();
+  final fallbackLabel = 'Participant ${index + 1}';
+  final isCurrent =
+      participantProfileId.isNotEmpty &&
+      participantProfileId == currentUserProfileId?.trim();
+  final baseLabel = knownName == null || knownName.isEmpty
+      ? fallbackLabel
+      : knownName;
+  final currentLabel = isCurrent ? '$baseLabel (you)' : baseLabel;
+  final reasonCode = participant.rejectionReasonCode;
+  if (!includeRejectionReason ||
+      participant.status != SettleoraBillParticipantStatusValues.rejected ||
+      reasonCode == null ||
+      reasonCode.trim().isEmpty) {
+    return currentLabel;
+  }
+
+  return '$currentLabel (${settleoraBillParticipantRejectionReasonLabel(reasonCode)})';
+}
+
+Map<String, String> _participantDisplayNamesFromMembers(
+  Iterable<SettleoraGroupMember> members,
+) {
+  return {
+    for (final member in members)
+      if (member.userProfileId.trim().isNotEmpty &&
+          member.safeDisplayName.trim().isNotEmpty)
+        member.userProfileId.trim(): member.safeDisplayName.trim(),
+  };
+}
+
+Map<String, String> _normalizeParticipantDisplayNames(Map<String, String> raw) {
+  return {
+    for (final entry in raw.entries)
+      if (entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+        entry.key.trim(): entry.value.trim(),
+  };
 }
 
 class _BillPayers extends StatelessWidget {
