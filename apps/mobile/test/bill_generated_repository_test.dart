@@ -822,6 +822,83 @@ void main() {
       expect(failure.toString(), isNot(contains('internal-detail')));
     });
 
+    test(
+      'acceptGroupBillParticipant calls generated client with bounded IDs',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        await repository.acceptGroupBillParticipant(
+          ' $_groupId ',
+          ' $_billId ',
+          ' $_userProfileId ',
+        );
+
+        expect(client.acceptGroupParticipantCalls, 1);
+        expect(client.lastGroupId, _groupId);
+        expect(client.lastBillId, _billId);
+        expect(client.lastUserProfileId, _userProfileId);
+        expect(client.accessTokens, ['redacted']);
+        expect(accessTokenProvider.calls, 1);
+      },
+    );
+
+    test('rejectGroupBillParticipant sends bounded rejection reason', () async {
+      final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
+      final client = FakeBillGeneratedClient();
+      final repository = GeneratedSettleoraBillRepository(
+        client: client,
+        accessTokenProvider: accessTokenProvider,
+      );
+
+      await repository.rejectGroupBillParticipant(
+        ' $_groupId ',
+        ' $_billId ',
+        ' $_userProfileId ',
+        SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+      );
+
+      expect(client.rejectGroupParticipantCalls, 1);
+      expect(client.lastGroupId, _groupId);
+      expect(client.lastBillId, _billId);
+      expect(client.lastUserProfileId, _userProfileId);
+      expect(
+        client.lastRejectParticipantBody?.reasonCode,
+        api.ExpenseBillParticipantRejectionReasonCodeValues.wrongSplit,
+      );
+      expect(client.accessTokens, ['redacted']);
+      expect(accessTokenProvider.calls, 1);
+    });
+
+    test(
+      'rejectGroupBillParticipant validates reason before session lookup',
+      () async {
+        final accessTokenProvider = FakeAccessTokenProvider('redacted');
+        final client = FakeBillGeneratedClient();
+        final repository = GeneratedSettleoraBillRepository(
+          client: client,
+          accessTokenProvider: accessTokenProvider,
+        );
+
+        final failure = await captureBillFailure(() {
+          return repository.rejectGroupBillParticipant(
+            _groupId,
+            _billId,
+            _userProfileId,
+            'unsupported',
+          );
+        });
+
+        expect(failure.kind, SettleoraBillFailureKind.validation);
+        expect(accessTokenProvider.calls, 0);
+        expect(client.rejectGroupParticipantCalls, 0);
+      },
+    );
+
     test('maps generated failures to bounded safe failures', () async {
       final repository = GeneratedSettleoraBillRepository(
         client: FakeBillGeneratedClient(
@@ -925,11 +1002,15 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
   int listGroupCalls = 0;
   int createGroupCalls = 0;
   int submitGroupCalls = 0;
+  int acceptGroupParticipantCalls = 0;
+  int rejectGroupParticipantCalls = 0;
   int getGroupCalls = 0;
   api.CreatePersonalBillRequest? lastCreateBody;
   api.CreateGroupBillRequest? lastGroupCreateBody;
+  api.RejectBillParticipantRequest? lastRejectParticipantBody;
   String? lastBillId;
   String? lastGroupId;
+  String? lastUserProfileId;
 
   @override
   Future<api.PersonalBillListResponse> listPersonalBills({
@@ -984,6 +1065,38 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
     submitGroupCalls += 1;
     lastGroupId = groupId;
     lastBillId = billId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+  }
+
+  @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId, {
+    required String accessToken,
+  }) async {
+    acceptGroupParticipantCalls += 1;
+    lastGroupId = groupId;
+    lastBillId = billId;
+    lastUserProfileId = userProfileId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    api.RejectBillParticipantRequest body, {
+    required String accessToken,
+  }) async {
+    rejectGroupParticipantCalls += 1;
+    lastGroupId = groupId;
+    lastBillId = billId;
+    lastUserProfileId = userProfileId;
+    lastRejectParticipantBody = body;
     accessTokens.add(accessToken);
     _throwIfNeeded();
   }
