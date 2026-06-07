@@ -3616,6 +3616,11 @@ class _SettleoraGroupBillDetailScreenState
                   _CreateRevisionFailureBanner(failure: _createFailure!),
                 ],
                 const SizedBox(height: 20),
+                _GroupBillParticipantStatusSummary(
+                  participants: bill.participants,
+                  currentUserProfileId: widget.currentUserProfileId,
+                ),
+                const SizedBox(height: 20),
                 _BillItems(items: bill.items),
                 const SizedBox(height: 20),
                 _BillParticipants(participants: bill.participants),
@@ -4187,10 +4192,122 @@ class _BillParticipants extends StatelessWidget {
           _KeyValueText(
             label: 'Participant ${index + 1}',
             value:
-                '${_money(participants[index].resolvedShareAmount, participants[index].resolvedShareCurrency)} - ${settleoraBillStatusLabel(participants[index].status)}',
+                '${_money(participants[index].resolvedShareAmount, participants[index].resolvedShareCurrency)} - ${settleoraBillParticipantStatusLabel(participants[index].status)}',
           ),
       ],
     );
+  }
+}
+
+class _GroupBillParticipantStatusSummary extends StatelessWidget {
+  const _GroupBillParticipantStatusSummary({
+    required this.participants,
+    required this.currentUserProfileId,
+  });
+
+  final List<SettleoraBillParticipant> participants;
+  final String? currentUserProfileId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (participants.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final currentParticipant = _currentParticipant();
+
+    return _Section(
+      title: 'Participant status',
+      children: [
+        if (currentParticipant != null)
+          _KeyValueText(
+            key: const Key('group-bill-current-participant-status'),
+            label: 'Your status',
+            value: _participantStatusValue(currentParticipant),
+          ),
+        _KeyValueText(
+          key: const Key('group-bill-pending-participants'),
+          label: 'Pending acceptance',
+          value: _participantsForStatus(
+            SettleoraBillParticipantStatusValues.pendingAcceptance,
+          ),
+        ),
+        _KeyValueText(
+          key: const Key('group-bill-accepted-participants'),
+          label: 'Accepted',
+          value: _participantsForStatus(
+            SettleoraBillParticipantStatusValues.accepted,
+          ),
+        ),
+        _KeyValueText(
+          key: const Key('group-bill-rejected-participants'),
+          label: 'Rejected',
+          value: _participantsForStatus(
+            SettleoraBillParticipantStatusValues.rejected,
+          ),
+        ),
+      ],
+    );
+  }
+
+  SettleoraBillParticipant? _currentParticipant() {
+    final trimmed = currentUserProfileId?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+
+    for (final participant in participants) {
+      if (participant.userProfileId == trimmed) {
+        return participant;
+      }
+    }
+
+    return null;
+  }
+
+  String _participantsForStatus(SettleoraBillParticipantStatus status) {
+    final matching = <String>[];
+    for (var index = 0; index < participants.length; index += 1) {
+      final participant = participants[index];
+      if (participant.status != status) {
+        continue;
+      }
+
+      matching.add(_participantLabel(index, participant));
+    }
+
+    if (matching.isEmpty) {
+      return 'None';
+    }
+
+    return matching.join(', ');
+  }
+
+  String _participantStatusValue(SettleoraBillParticipant participant) {
+    final statusLabel = settleoraBillParticipantStatusLabel(participant.status);
+    final reasonCode = participant.rejectionReasonCode;
+    if (participant.status != SettleoraBillParticipantStatusValues.rejected ||
+        reasonCode == null ||
+        reasonCode.trim().isEmpty) {
+      return statusLabel;
+    }
+
+    return '$statusLabel - ${settleoraBillParticipantRejectionReasonLabel(reasonCode)}';
+  }
+
+  String _participantLabel(int index, SettleoraBillParticipant participant) {
+    final isCurrent = participant.userProfileId == currentUserProfileId?.trim();
+    final baseLabel = isCurrent
+        ? 'Participant ${index + 1} (you)'
+        : 'Participant ${index + 1}';
+    final reasonCode = participant.rejectionReasonCode;
+    if (participant.status != SettleoraBillParticipantStatusValues.rejected ||
+        reasonCode == null ||
+        reasonCode.trim().isEmpty) {
+      return baseLabel;
+    }
+
+    return '$baseLabel (${settleoraBillParticipantRejectionReasonLabel(reasonCode)})';
   }
 }
 
@@ -4447,7 +4564,7 @@ class _Section extends StatelessWidget {
 }
 
 class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
+  const _KeyValueText({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

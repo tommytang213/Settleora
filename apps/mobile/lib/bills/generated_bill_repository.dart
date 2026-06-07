@@ -896,6 +896,7 @@ SettleoraBillParticipant _mapPersonalParticipant(
     status: response.status,
     resolvedShareAmount: response.resolvedShareAmount,
     resolvedShareCurrency: response.resolvedShareCurrency,
+    rejectionReasonCode: response.rejectionReasonCode,
   );
 }
 
@@ -907,6 +908,7 @@ SettleoraBillParticipant _mapGroupParticipant(
     status: response.status,
     resolvedShareAmount: response.resolvedShareAmount,
     resolvedShareCurrency: response.resolvedShareCurrency,
+    rejectionReasonCode: response.rejectionReasonCode,
   );
 }
 

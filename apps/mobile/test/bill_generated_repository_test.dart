@@ -53,7 +53,13 @@ void main() {
     });
 
     test('maps generated detail responses into bill detail models', () async {
-      final client = FakeBillGeneratedClient(detailBill: sampleApiBill());
+      final client = FakeBillGeneratedClient(
+        detailBill: sampleApiBill(
+          participantStatus: api.ExpenseBillParticipantStatusValues.rejected,
+          participantRejectionReasonCode:
+              api.ExpenseBillParticipantRejectionReasonCodeValues.wrongSplit,
+        ),
+      );
       final repository = GeneratedSettleoraBillRepository(
         client: client,
         accessTokenProvider: FakeAccessTokenProvider('redacted'),
@@ -67,6 +73,10 @@ void main() {
       expect(detail.revisionCreationActions.canCreateRevision, isTrue);
       expect(detail.items.single.name, 'Milk');
       expect(detail.participants.single.resolvedShareAmount, '10.80');
+      expect(
+        detail.participants.single.rejectionReasonCode,
+        SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+      );
       expect(detail.payers.single.amount, '10.80');
       expect(detail.adjustments.single.type, 'tax');
       expect(client.getCalls, 1);
@@ -328,7 +338,11 @@ void main() {
         archivedGroupBills: [
           sampleApiGroupBill(id: _archivedBillId, merchantName: null),
         ],
-        groupDetailBill: sampleApiGroupBill(),
+        groupDetailBill: sampleApiGroupBill(
+          participantStatus: api.ExpenseBillParticipantStatusValues.rejected,
+          participantRejectionReasonCode:
+              api.ExpenseBillParticipantRejectionReasonCodeValues.wrongSplit,
+        ),
       );
       final repository = GeneratedSettleoraBillRepository(
         client: client,
@@ -350,6 +364,10 @@ void main() {
       expect(detail.revisionCreationActions.canCreateRevision, isFalse);
       expect(detail.items.single.name, 'Milk');
       expect(detail.participants.single.resolvedShareAmount, '10.80');
+      expect(
+        detail.participants.single.rejectionReasonCode,
+        SettleoraBillParticipantRejectionReasonCodeValues.wrongSplit,
+      );
       expect(client.listGroupCalls, 2);
       expect(client.getGroupCalls, 1);
       expect(client.archiveStates, [
@@ -1158,6 +1176,9 @@ class FakeBillGeneratedClient implements SettleoraBillGeneratedClient {
 api.PersonalBillResponse sampleApiBill({
   String id = _billId,
   String? merchantName = 'Corner Market',
+  api.ExpenseBillParticipantStatus participantStatus =
+      api.ExpenseBillParticipantStatusValues.pendingAcceptance,
+  api.ExpenseBillParticipantRejectionReasonCode? participantRejectionReasonCode,
 }) {
   return api.PersonalBillResponse(
     id: id,
@@ -1189,13 +1210,13 @@ api.PersonalBillResponse sampleApiBill({
         splits: const [],
       ),
     ],
-    participants: const [
+    participants: [
       api.PersonalBillParticipantResponse(
         userProfileId: _userProfileId,
-        status: api.ExpenseBillParticipantStatusValues.pendingAcceptance,
+        status: participantStatus,
         resolvedShareAmount: '10.80',
         resolvedShareCurrency: 'USD',
-        rejectionReasonCode: null,
+        rejectionReasonCode: participantRejectionReasonCode,
       ),
     ],
     payers: const [
@@ -1227,6 +1248,9 @@ api.GroupBillResponse sampleApiGroupBill({
   String id = _billId,
   String groupId = _groupId,
   String? merchantName = 'Corner Market',
+  api.ExpenseBillParticipantStatus participantStatus =
+      api.ExpenseBillParticipantStatusValues.pendingAcceptance,
+  api.ExpenseBillParticipantRejectionReasonCode? participantRejectionReasonCode,
 }) {
   return api.GroupBillResponse(
     id: id,
@@ -1259,13 +1283,13 @@ api.GroupBillResponse sampleApiGroupBill({
         splits: const [],
       ),
     ],
-    participants: const [
+    participants: [
       api.GroupBillParticipantResponse(
         userProfileId: _userProfileId,
-        status: api.ExpenseBillParticipantStatusValues.pendingAcceptance,
+        status: participantStatus,
         resolvedShareAmount: '10.80',
         resolvedShareCurrency: 'USD',
-        rejectionReasonCode: null,
+        rejectionReasonCode: participantRejectionReasonCode,
       ),
     ],
     payers: const [

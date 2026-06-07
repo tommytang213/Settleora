@@ -215,12 +215,14 @@ class SettleoraBillParticipant {
     required this.status,
     required this.resolvedShareAmount,
     required this.resolvedShareCurrency,
+    this.rejectionReasonCode,
   });
 
   final String userProfileId;
   final SettleoraBillParticipantStatus status;
   final String resolvedShareAmount;
   final String resolvedShareCurrency;
+  final SettleoraBillParticipantRejectionReasonCode? rejectionReasonCode;
 }
 
 class SettleoraBillPayer {
@@ -451,6 +453,19 @@ String settleoraBillArchiveStateLabel(SettleoraBillArchiveState archiveState) {
     SettleoraBillArchiveStateValues.active => 'Active',
     SettleoraBillArchiveStateValues.archived => 'Archived',
     _ => _titleFromCode(archiveState),
+  };
+}
+
+String settleoraBillParticipantStatusLabel(
+  SettleoraBillParticipantStatus status,
+) {
+  return switch (status) {
+    SettleoraBillParticipantStatusValues.pendingAcceptance =>
+      'Pending acceptance',
+    SettleoraBillParticipantStatusValues.accepted => 'Accepted',
+    SettleoraBillParticipantStatusValues.rejected => 'Rejected',
+    SettleoraBillParticipantStatusValues.settled => 'Settled',
+    _ => _titleFromCode(status),
   };
 }
 
