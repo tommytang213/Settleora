@@ -177,6 +177,14 @@ class SettleoraNotificationRow {
         _nonEmptyId(expenseBillId) != null;
   }
 
+  bool get hasPersonalBillTarget {
+    return !hasBillRevisionReviewTarget &&
+        !hasGroupBillTarget &&
+        subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
+        _nonEmptyId(expenseBillId) != null &&
+        _nonEmptyId(groupId) == null;
+  }
+
   bool get hasSettlementTarget {
     return (subjectType ==
                 SettleoraNotificationSubjectTypeValues.settlementRequest ||
@@ -194,6 +202,7 @@ class SettleoraNotificationRow {
   bool get hasTypedOpenTarget =>
       hasBillRevisionReviewTarget ||
       hasGroupBillTarget ||
+      hasPersonalBillTarget ||
       hasSettlementTarget ||
       hasRecurringBillTarget;
 

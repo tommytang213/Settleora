@@ -6,6 +6,8 @@ import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/bills/bill_attachment_file_input.dart';
+import 'package:mobile/bills/bill_attachment_repository.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
@@ -339,6 +341,183 @@ void main() {
       find.byKey(const ValueKey('notification-open-revision-0')),
       findsNothing,
     );
+  });
+
+  test('notification row detects typed personal bill targets', () {
+    expect(
+      sampleNotification(expenseBillId: ' $_billId ').hasPersonalBillTarget,
+      isTrue,
+    );
+    expect(
+      sampleNotification(expenseBillId: ' $_billId ').hasTypedOpenTarget,
+      isTrue,
+    );
+    expect(sampleNotification(expenseBillId: ' ').hasPersonalBillTarget, false);
+    expect(
+      sampleNotification(
+        groupId: _groupId,
+        expenseBillId: _billId,
+      ).hasPersonalBillTarget,
+      false,
+    );
+    expect(
+      sampleNotification(
+        eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+        expenseBillId: _billId,
+        expenseBillRevisionId: _revisionId,
+      ).hasPersonalBillTarget,
+      false,
+    );
+    expect(
+      sampleNotification(
+        actionUrl: '/api/v1/bills/$_billId',
+        expenseBillId: null,
+      ).hasPersonalBillTarget,
+      false,
+    );
+  });
+
+  testWidgets(
+    'personal bill notifications show open bill action and navigate',
+    (tester) async {
+      final billRepository = FakeBillRepository(
+        detail: sampleBillDetail(displayNameFallback: 'Personal bill'),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final fileInput = FakeBillAttachmentFileInput();
+      final ocrRepository = FakeReceiptOcrReviewRepository();
+      final revisionRepository = FakeBillRevisionRepository();
+      final repository = FakeNotificationRepository(
+        notifications: [sampleNotification(expenseBillId: ' $_billId ')],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            billRepository: billRepository,
+            billAttachmentRepository: attachmentRepository,
+            billAttachmentFileInput: fileInput,
+            receiptOcrReviewRepository: ocrRepository,
+            billRevisionRepository: revisionRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-personal-bill-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Open bill'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('notification-open-group-bill-0')),
+        findsNothing,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(billRepository.getPersonalCalls, 1);
+      expect(billRepository.lastBillId, _billId);
+      expect(attachmentRepository.listCalls, 1);
+      expect(attachmentRepository.lastRoute?.billId, _billId);
+      expect(attachmentRepository.lastRoute?.groupId, isNull);
+      expect(find.text('Corner Market'), findsWidgets);
+    },
+  );
+
+  testWidgets('personal bill open action hides without typed target or seam', (
+    tester,
+  ) async {
+    final cases = [
+      sampleNotification(expenseBillId: ' '),
+      sampleNotification(groupId: _groupId, expenseBillId: _billId),
+      sampleNotification(
+        eventType: SettleoraNotificationEventTypeValues.billRevisionSubmitted,
+        expenseBillId: _billId,
+        expenseBillRevisionId: _revisionId,
+      ),
+      sampleNotification(
+        actionUrl: '/api/v1/bills/$_billId?token=secret',
+        expenseBillId: null,
+      ),
+    ];
+
+    for (final notification in cases) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: FakeNotificationRepository(
+              notifications: [notification],
+            ),
+            billRepository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: _profileId,
+            billRevisionRepository: FakeBillRevisionRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('notification-open-personal-bill-0')),
+        findsNothing,
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: FakeNotificationRepository(
+            notifications: [sampleNotification(expenseBillId: _billId)],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('actionable filter includes openable personal bill targets', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          safeSummary: 'Personal bill ready.',
+          expenseBillId: _billId,
+        ),
+        sampleNotification(
+          safeSummary: 'Blank bill metadata.',
+          expenseBillId: ' ',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills (2)'), findsOneWidget);
+    expect(find.text('Actionable (1)'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'actionable');
+
+    expect(find.text('Personal bill ready.'), findsOneWidget);
+    expect(find.text('Blank bill metadata.'), findsNothing);
   });
 
   testWidgets('group bill notifications show open bill action and navigate', (
@@ -1222,10 +1401,12 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
-  FakeBillRepository({SettleoraBillDetail? detail})
+  FakeBillRepository({SettleoraBillDetail? detail, this.personalFailure})
     : detail = detail ?? sampleBillDetail();
 
   final SettleoraBillDetail detail;
+  final SettleoraBillFailure? personalFailure;
+  int getPersonalCalls = 0;
   int getGroupCalls = 0;
   String? lastGroupId;
   String? lastBillId;
@@ -1281,8 +1462,15 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
-  Future<SettleoraBillDetail> getPersonalBill(String billId) {
-    throw UnimplementedError();
+  Future<SettleoraBillDetail> getPersonalBill(String billId) async {
+    getPersonalCalls += 1;
+    lastBillId = billId;
+    final failure = personalFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return detail;
   }
 
   @override
@@ -1296,6 +1484,54 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
     return const [];
+  }
+}
+
+class FakeBillAttachmentRepository
+    implements SettleoraBillAttachmentRepository {
+  int listCalls = 0;
+  SettleoraBillAttachmentRoute? lastRoute;
+
+  @override
+  Future<List<SettleoraBillAttachment>> listAttachments(
+    SettleoraBillAttachmentRoute route,
+  ) async {
+    listCalls += 1;
+    lastRoute = route;
+    return const [];
+  }
+
+  @override
+  Future<SettleoraBillAttachment> attachAttachment(
+    SettleoraBillAttachmentRoute route,
+    SettleoraBillAttachmentUpload upload,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraBillAttachmentContent> downloadAttachmentContent(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> removeAttachment(
+    SettleoraBillAttachmentRoute route,
+    String fileId,
+  ) {
+    throw UnimplementedError();
+  }
+}
+
+class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
+  @override
+  Future<SettleoraPickedBillAttachmentFile?> pickAttachmentFile({
+    required Set<String> allowedContentTypes,
+  }) async {
+    return null;
   }
 }
 
@@ -1710,6 +1946,7 @@ SettleoraSettlementRequest sampleSettlementRequest() {
 
 SettleoraBillDetail sampleBillDetail({
   List<SettleoraBillParticipant>? participants,
+  String displayNameFallback = 'Group bill',
 }) {
   return SettleoraBillDetail(
     id: _billId,
@@ -1753,7 +1990,7 @@ SettleoraBillDetail sampleBillDetail({
       ),
     ],
     adjustments: const [],
-    displayNameFallback: 'Group bill',
+    displayNameFallback: displayNameFallback,
   );
 }
 
