@@ -1497,6 +1497,7 @@ class _SettleoraGroupBillListScreenState
   @override
   Widget build(BuildContext context) {
     final visibleBills = _filteredBills();
+    final filterCounts = _filterCounts();
 
     return Scaffold(
       appBar: AppBar(
@@ -1531,6 +1532,7 @@ class _SettleoraGroupBillListScreenState
                   const SizedBox(height: 14),
                   _GroupBillListFilterChips(
                     selectedFilter: _selectedFilter,
+                    counts: filterCounts,
                     onSelected: (filter) {
                       setState(() {
                         _selectedFilter = filter;
@@ -1590,6 +1592,20 @@ class _SettleoraGroupBillListScreenState
         )
         .toList(growable: false);
   }
+
+  Map<_GroupBillListFilter, int> _filterCounts() {
+    return {
+      for (final filter in _GroupBillListFilter.values)
+        filter: _bills
+            .where(
+              (bill) => filter.matches(
+                bill: bill,
+                currentUserProfileId: widget.currentUserProfileId,
+              ),
+            )
+            .length,
+    };
+  }
 }
 
 enum _GroupBillListFilter {
@@ -1609,6 +1625,10 @@ extension _GroupBillListFilterText on _GroupBillListFilter {
       _GroupBillListFilter.youRejected => 'You rejected',
       _GroupBillListFilter.hasRejections => 'Has rejections',
     };
+  }
+
+  String labelWithCount(int count) {
+    return '$label ($count)';
   }
 
   String get emptyTitle {
@@ -1691,10 +1711,12 @@ SettleoraBillParticipant? _currentBillParticipant(
 class _GroupBillListFilterChips extends StatelessWidget {
   const _GroupBillListFilterChips({
     required this.selectedFilter,
+    required this.counts,
     required this.onSelected,
   });
 
   final _GroupBillListFilter selectedFilter;
+  final Map<_GroupBillListFilter, int> counts;
   final ValueChanged<_GroupBillListFilter> onSelected;
 
   @override
@@ -1709,7 +1731,7 @@ class _GroupBillListFilterChips extends StatelessWidget {
               padding: const EdgeInsets.only(right: 8),
               child: FilterChip(
                 key: ValueKey('group-bill-filter-${filter.name}'),
-                label: Text(filter.label),
+                label: Text(filter.labelWithCount(counts[filter] ?? 0)),
                 selected: selectedFilter == filter,
                 onSelected: (_) => onSelected(filter),
               ),

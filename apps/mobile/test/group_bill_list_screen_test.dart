@@ -35,11 +35,11 @@ void main() {
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
     expect(find.text('Create group bill'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-list-filters')), findsOneWidget);
-    expect(find.text('All'), findsOneWidget);
-    expect(find.text('Needs your response'), findsOneWidget);
-    expect(find.text('You accepted'), findsOneWidget);
-    expect(find.text('You rejected'), findsOneWidget);
-    expect(find.text('Has rejections'), findsOneWidget);
+    expect(find.text('All (0)'), findsOneWidget);
+    expect(find.text('Needs your response (0)'), findsOneWidget);
+    expect(find.text('You accepted (0)'), findsOneWidget);
+    expect(find.text('You rejected (0)'), findsOneWidget);
+    expect(find.text('Has rejections (0)'), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(repository.listGroupCalls, 1);
@@ -410,38 +410,41 @@ void main() {
     },
   );
 
-  testWidgets('group bill filters render and keep all bills by default', (
-    tester,
-  ) async {
-    await useLargeSurface(tester);
-    final repository = FakeBillRepository(groupBills: filteredBillSummaries());
+  testWidgets(
+    'group bill filters render counts and keep all bills by default',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        groupBills: filteredBillSummaries(),
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettleoraGroupBillListScreen(
-          repository: repository,
-          groupRepository: FakeGroupRepository(),
-          currentUserProfileId: _profileId,
-          groupId: _groupId,
-          groupName: 'Trip Crew',
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('group-bill-list-filters')), findsOneWidget);
-    expect(find.text('All'), findsOneWidget);
-    expect(find.text('Needs your response'), findsWidgets);
-    expect(find.text('You accepted'), findsWidgets);
-    expect(find.text('You rejected'), findsWidgets);
-    expect(find.text('Has rejections'), findsOneWidget);
-    expect(find.text('Needs Current'), findsOneWidget);
-    expect(find.text('Pending Other'), findsOneWidget);
-    expect(find.text('Accepted Current'), findsOneWidget);
-    expect(find.text('Rejected Current'), findsOneWidget);
-    expect(find.text('Rejected Other'), findsOneWidget);
-    expect(find.text('No Participant Rows'), findsOneWidget);
-  });
+      expect(find.byKey(const Key('group-bill-list-filters')), findsOneWidget);
+      expect(find.text('All (6)'), findsOneWidget);
+      expect(find.text('Needs your response (1)'), findsOneWidget);
+      expect(find.text('You accepted (2)'), findsOneWidget);
+      expect(find.text('You rejected (1)'), findsOneWidget);
+      expect(find.text('Has rejections (2)'), findsOneWidget);
+      expect(find.text('Needs Current'), findsOneWidget);
+      expect(find.text('Pending Other'), findsOneWidget);
+      expect(find.text('Accepted Current'), findsOneWidget);
+      expect(find.text('Rejected Current'), findsOneWidget);
+      expect(find.text('Rejected Other'), findsOneWidget);
+      expect(find.text('No Participant Rows'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'needs your response filter shows only current user pending bills',
@@ -463,6 +466,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+
+      expect(find.text('Needs your response (1)'), findsOneWidget);
 
       await _selectGroupBillFilter(
         tester,
@@ -496,6 +501,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    expect(find.text('You accepted (2)'), findsOneWidget);
 
     await _selectGroupBillFilter(
       tester,
@@ -536,6 +543,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Has rejections (2)'), findsOneWidget);
+
     await _selectGroupBillFilter(
       tester,
       const ValueKey('group-bill-filter-hasRejections'),
@@ -568,6 +577,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.text('All (6)'), findsOneWidget);
+      expect(find.text('Needs your response (0)'), findsOneWidget);
+      expect(find.text('You accepted (0)'), findsOneWidget);
+      expect(find.text('You rejected (0)'), findsOneWidget);
+      expect(find.text('Has rejections (2)'), findsOneWidget);
+
       await _selectGroupBillFilter(
         tester,
         const ValueKey('group-bill-filter-needsYourResponse'),
@@ -577,6 +592,145 @@ void main() {
       expect(find.text('No group bills need your response.'), findsOneWidget);
       expect(find.text('Needs Current'), findsNothing);
       expect(find.text('Pending Other'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'group bill filter counts use current user rows and bill status',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        groupBills: [
+          sampleBillSummary(
+            id: 'pending-current-confirmation-bill-id',
+            merchantName: 'Pending Current Confirmation',
+            status: 'pending_confirmation',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+          sampleBillSummary(
+            id: 'pending-current-draft-bill-id',
+            merchantName: 'Pending Current Draft',
+            status: 'draft',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+          sampleBillSummary(
+            id: 'accepted-current-bill-id',
+            merchantName: 'Accepted Current',
+            status: 'confirmed',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.accepted,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+              SettleoraBillParticipant(
+                userProfileId: _otherProfileId,
+                status: SettleoraBillParticipantStatusValues.rejected,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+          sampleBillSummary(
+            id: 'rejected-current-bill-id',
+            merchantName: 'Rejected Current',
+            status: 'rejected',
+            participants: const [
+              SettleoraBillParticipant(
+                userProfileId: _profileId,
+                status: SettleoraBillParticipantStatusValues.rejected,
+                resolvedShareAmount: '3.60',
+                resolvedShareCurrency: 'USD',
+              ),
+            ],
+          ),
+          sampleBillSummary(
+            id: 'missing-participants-bill-id',
+            merchantName: 'No Participant Rows',
+            status: 'pending_confirmation',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('All (5)'), findsOneWidget);
+      expect(find.text('Needs your response (1)'), findsOneWidget);
+      expect(find.text('You accepted (1)'), findsOneWidget);
+      expect(find.text('You rejected (1)'), findsOneWidget);
+      expect(find.text('Has rejections (2)'), findsOneWidget);
+
+      await _selectGroupBillFilter(
+        tester,
+        const ValueKey('group-bill-filter-needsYourResponse'),
+      );
+
+      expect(find.text('Pending Current Confirmation'), findsOneWidget);
+      expect(find.text('Pending Current Draft'), findsNothing);
+      expect(find.text('No Participant Rows'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'blank current user id produces zero current-user-specific counts',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        groupBills: filteredBillSummaries(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: '   ',
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('All (6)'), findsOneWidget);
+      expect(find.text('Needs your response (0)'), findsOneWidget);
+      expect(find.text('You accepted (0)'), findsOneWidget);
+      expect(find.text('You rejected (0)'), findsOneWidget);
+      expect(find.text('Has rejections (2)'), findsOneWidget);
+
+      await _selectGroupBillFilter(
+        tester,
+        const ValueKey('group-bill-filter-youAccepted'),
+      );
+
+      expect(find.text('No matching group bills'), findsOneWidget);
+      expect(find.text('No group bills match this filter.'), findsOneWidget);
     },
   );
 
