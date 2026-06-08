@@ -1523,6 +1523,138 @@ void main() {
     expect(find.text('River'), findsOneWidget);
   });
 
+  testWidgets('group bill create review checklist tracks local form state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: const [4, 5, 6],
+      ),
+    );
+    final memberRepository = FakeGroupRepository(
+      members: [
+        sampleGroupMember(userProfileId: 'member-alex-id', displayName: 'Alex'),
+        sampleGroupMember(
+          userProfileId: 'member-taylor-id',
+          displayName: 'Taylor',
+        ),
+      ],
+    );
+
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: memberRepository,
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: fileInput,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('group-bill-create-review-checklist')),
+      findsOneWidget,
+    );
+    expect(find.text('Review before submit'), findsOneWidget);
+    expect(
+      find.text(
+        'Local form checklist only. The server still validates final bill accounting.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('1 split row'), findsOneWidget);
+    expect(find.text('0 payer rows'), findsOneWidget);
+    expect(find.text('0 attachments'), findsOneWidget);
+    expect(find.text('2 active members'), findsOneWidget);
+    expect(find.text('Selected members: none yet'), findsOneWidget);
+    expect(find.text('1 split row without a selected member.'), findsOneWidget);
+    expect(find.text('No payer rows yet.'), findsOneWidget);
+    expect(find.text('No attachments selected.'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('member-alex-id')));
+    expect(visibleText(tester), isNot(contains('member-taylor-id')));
+
+    await tester.tap(find.byKey(const Key('group-bill-add-item')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 item rows'), findsOneWidget);
+    expect(find.text('2 split rows'), findsOneWidget);
+    expect(
+      find.text('2 split rows without a selected member.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('group-bill-item-remove-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('1 split row'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('group-bill-item-add-split-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 split rows'), findsOneWidget);
+    expect(
+      find.text('2 split rows without a selected member.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('group-bill-split-remove-0-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 split row'), findsOneWidget);
+    expect(find.text('1 split row without a selected member.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 payer row'), findsOneWidget);
+    expect(find.text('1 payer row without a selected member.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('group-bill-split-member-0-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Taylor'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selected members: Taylor'), findsOneWidget);
+    expect(find.text('All split rows have selected members.'), findsOneWidget);
+    expect(find.text('1 split row without a selected member.'), findsNothing);
+    expect(visibleText(tester), isNot(contains('member-taylor-id')));
+
+    await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alex'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selected members: Alex, Taylor'), findsOneWidget);
+    expect(find.text('All payer rows have selected members.'), findsOneWidget);
+    expect(find.text('1 payer row without a selected member.'), findsNothing);
+    expect(visibleText(tester), isNot(contains('member-alex-id')));
+
+    await _addGroupDraftAttachment(
+      tester,
+      const Key('group-bill-attachment-purpose-receipt'),
+    );
+
+    expect(find.text('1 attachment'), findsOneWidget);
+    expect(
+      find.text('Attachments are selected for upload after draft creation.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('0 attachments'), findsOneWidget);
+    expect(find.text('No attachments selected.'), findsOneWidget);
+  });
+
   testWidgets(
     'group bill member picker empty state keeps validation blocking',
     (tester) async {
@@ -3481,6 +3613,8 @@ Future<void> _pumpGroupBillCreate(
   WidgetTester tester, {
   required FakeBillRepository repository,
   required FakeGroupRepository groupRepository,
+  FakeBillAttachmentRepository? attachmentRepository,
+  FakeBillAttachmentFileInput? attachmentFileInput,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -3489,6 +3623,8 @@ Future<void> _pumpGroupBillCreate(
         groupRepository: groupRepository,
         groupId: _groupId,
         groupName: 'Trip',
+        attachmentRepository: attachmentRepository,
+        attachmentFileInput: attachmentFileInput,
       ),
     ),
   );
@@ -3522,6 +3658,20 @@ Future<void> _tapSaveGroupBill(WidgetTester tester) async {
 
 Future<void> _addDraftAttachment(WidgetTester tester, Key purposeKey) async {
   await tester.tap(find.byKey(const Key('personal-bill-attachment-add')));
+  await tester.pump(const Duration(milliseconds: 300));
+  final purposeTile = tester.widget<ListTile>(find.byKey(purposeKey));
+  purposeTile.onTap?.call();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _addGroupDraftAttachment(
+  WidgetTester tester,
+  Key purposeKey,
+) async {
+  final addButton = find.byKey(const Key('group-bill-attachment-add'));
+  await tester.ensureVisible(addButton);
+  await tester.pumpAndSettle();
+  await tester.tap(addButton);
   await tester.pump(const Duration(milliseconds: 300));
   final purposeTile = tester.widget<ListTile>(find.byKey(purposeKey));
   purposeTile.onTap?.call();
