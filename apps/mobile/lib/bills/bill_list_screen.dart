@@ -2151,6 +2151,14 @@ class _SettleoraGroupBillCreateScreenState
     });
   }
 
+  void _notifyDraftChanged() {
+    if (!mounted || _isSaving) {
+      return;
+    }
+
+    setState(() {});
+  }
+
   Future<void> _addDraftAttachment() async {
     final fileInput = widget.attachmentFileInput;
     if (fileInput == null || _isSaving || _isPickingAttachment) {
@@ -2696,6 +2704,7 @@ class _SettleoraGroupBillCreateScreenState
                           members: _members,
                           isSaving: _isSaving,
                           onRemove: () => _removeItem(index),
+                          onDraftChanged: _notifyDraftChanged,
                         ),
                       ),
                     if (splitTotalError != null) ...[
@@ -2749,6 +2758,7 @@ class _SettleoraGroupBillCreateScreenState
                             members: _members,
                             isSaving: _isSaving,
                             onRemove: () => _removePayer(index),
+                            onDraftChanged: _notifyDraftChanged,
                           ),
                         ),
                     if (payerTotalError != null) ...[
@@ -2770,6 +2780,13 @@ class _SettleoraGroupBillCreateScreenState
                       onAdd: _addDraftAttachment,
                       onRemove: _removeDraftAttachment,
                       onPurposeChanged: _changeDraftAttachmentPurpose,
+                    ),
+                    const SizedBox(height: 22),
+                    _GroupBillCreateReviewChecklist(
+                      members: _members,
+                      itemControllers: _itemControllers,
+                      payerControllers: _payerControllers,
+                      attachmentCount: _draftAttachments.length,
                     ),
                   ],
                 ),
@@ -2801,6 +2818,207 @@ class _SettleoraGroupBillCreateScreenState
           : null,
     );
   }
+}
+
+class _GroupBillCreateReviewChecklist extends StatelessWidget {
+  const _GroupBillCreateReviewChecklist({
+    required this.members,
+    required this.itemControllers,
+    required this.payerControllers,
+    required this.attachmentCount,
+  });
+
+  final List<SettleoraGroupMember> members;
+  final List<_GroupBillCreateItemControllers> itemControllers;
+  final List<_GroupBillCreatePayerControllers> payerControllers;
+  final int attachmentCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final splitCount = itemControllers.fold<int>(
+      0,
+      (count, item) => count + item.splits.length,
+    );
+    final missingSplitMembers = itemControllers
+        .expand((item) => item.splits)
+        .where((split) => (split.userProfileId ?? '').trim().isEmpty)
+        .length;
+    final missingPayerMembers = payerControllers
+        .where((payer) => (payer.userProfileId ?? '').trim().isEmpty)
+        .length;
+    final selectedMemberNames = _selectedGroupBillCreateMemberNames(
+      members: members,
+      itemControllers: itemControllers,
+      payerControllers: payerControllers,
+    );
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Semantics(
+      container: true,
+      label: 'Group bill create local review checklist',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            key: const Key('group-bill-create-review-checklist'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.fact_check_outlined,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Review before submit',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Local form checklist only. The server still validates final bill accounting.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ReviewChecklistChip(
+                    label: _pluralCount(itemControllers.length, 'item row'),
+                  ),
+                  _ReviewChecklistChip(
+                    label: _pluralCount(splitCount, 'split row'),
+                  ),
+                  _ReviewChecklistChip(
+                    label: _pluralCount(payerControllers.length, 'payer row'),
+                  ),
+                  _ReviewChecklistChip(
+                    label: _pluralCount(attachmentCount, 'attachment'),
+                  ),
+                  _ReviewChecklistChip(
+                    label: _pluralCount(members.length, 'active member'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (selectedMemberNames.isEmpty)
+                Text(
+                  'Selected members: none yet',
+                  key: const Key('group-bill-create-review-members'),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                )
+              else
+                Text(
+                  'Selected members: ${selectedMemberNames.join(', ')}',
+                  key: const Key('group-bill-create-review-members'),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              const SizedBox(height: 10),
+              _ReviewChecklistHint(
+                text: missingSplitMembers == 0
+                    ? 'All split rows have selected members.'
+                    : '${_pluralCount(missingSplitMembers, 'split row')} without a selected member.',
+                isReady: missingSplitMembers == 0,
+              ),
+              _ReviewChecklistHint(
+                text: payerControllers.isEmpty
+                    ? 'No payer rows yet.'
+                    : missingPayerMembers == 0
+                    ? 'All payer rows have selected members.'
+                    : '${_pluralCount(missingPayerMembers, 'payer row')} without a selected member.',
+                isReady:
+                    payerControllers.isNotEmpty && missingPayerMembers == 0,
+              ),
+              _ReviewChecklistHint(
+                text: attachmentCount == 0
+                    ? 'No attachments selected.'
+                    : 'Attachments are selected for upload after draft creation.',
+                isReady: attachmentCount > 0,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewChecklistChip extends StatelessWidget {
+  const _ReviewChecklistChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+}
+
+class _ReviewChecklistHint extends StatelessWidget {
+  const _ReviewChecklistHint({required this.text, required this.isReady});
+
+  final String text;
+  final bool isReady;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            isReady ? Icons.check_circle_outline : Icons.info_outline,
+            size: 18,
+            color: isReady ? colorScheme.primary : colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<String> _selectedGroupBillCreateMemberNames({
+  required List<SettleoraGroupMember> members,
+  required List<_GroupBillCreateItemControllers> itemControllers,
+  required List<_GroupBillCreatePayerControllers> payerControllers,
+}) {
+  final selectedIds = <String>{
+    for (final item in itemControllers)
+      for (final split in item.splits)
+        if ((split.userProfileId ?? '').trim().isNotEmpty)
+          split.userProfileId!.trim(),
+    for (final payer in payerControllers)
+      if ((payer.userProfileId ?? '').trim().isNotEmpty)
+        payer.userProfileId!.trim(),
+  };
+
+  return [
+    for (final member in members)
+      if (selectedIds.contains(member.userProfileId)) member.safeDisplayName,
+  ];
 }
 
 class _GroupBillCreateItemControllers {
@@ -2884,6 +3102,7 @@ class _GroupBillCreateItemCard extends StatefulWidget {
     required this.members,
     required this.isSaving,
     required this.onRemove,
+    required this.onDraftChanged,
   });
 
   final int index;
@@ -2891,6 +3110,7 @@ class _GroupBillCreateItemCard extends StatefulWidget {
   final List<SettleoraGroupMember> members;
   final bool isSaving;
   final VoidCallback onRemove;
+  final VoidCallback onDraftChanged;
 
   @override
   State<_GroupBillCreateItemCard> createState() =>
@@ -2905,6 +3125,7 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
       _splitListError = null;
       widget.controllers.addSplit();
     });
+    widget.onDraftChanged();
   }
 
   void _removeSplit(int index) {
@@ -2914,6 +3135,7 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
           ? 'Add at least one split before saving.'
           : null;
     });
+    widget.onDraftChanged();
   }
 
   @override
@@ -3042,6 +3264,7 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
                   members: widget.members,
                   isSaving: widget.isSaving,
                   onRemove: () => _removeSplit(splitIndex),
+                  onDraftChanged: widget.onDraftChanged,
                 ),
               ),
           ],
@@ -3059,6 +3282,7 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
     required this.members,
     required this.isSaving,
     required this.onRemove,
+    required this.onDraftChanged,
   });
 
   final int itemIndex;
@@ -3067,6 +3291,7 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
   final List<SettleoraGroupMember> members;
   final bool isSaving;
   final VoidCallback onRemove;
+  final VoidCallback onDraftChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -3112,7 +3337,10 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
               value: controllers.userProfileId,
               enabled: !isSaving,
               requiredMessage: 'Choose a member for every split.',
-              onChanged: (value) => controllers.userProfileId = value,
+              onChanged: (value) {
+                controllers.userProfileId = value;
+                onDraftChanged();
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -3172,6 +3400,7 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
     required this.members,
     required this.isSaving,
     required this.onRemove,
+    required this.onDraftChanged,
   });
 
   final int index;
@@ -3179,6 +3408,7 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
   final List<SettleoraGroupMember> members;
   final bool isSaving;
   final VoidCallback onRemove;
+  final VoidCallback onDraftChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -3220,7 +3450,10 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
               value: controllers.userProfileId,
               enabled: !isSaving,
               requiredMessage: 'Choose a member for every payer.',
-              onChanged: (value) => controllers.userProfileId = value,
+              onChanged: (value) {
+                controllers.userProfileId = value;
+                onDraftChanged();
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
