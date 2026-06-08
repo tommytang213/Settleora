@@ -4035,12 +4035,15 @@ class SettleoraBillDetailScreen extends StatefulWidget {
 }
 
 class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
+  final _detailSearchController = TextEditingController();
+
   late bool _isLoading;
   SettleoraBillDetail? _bill;
   SettleoraBillFailure? _failure;
   SettleoraBillRevision? _pendingRevision;
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
+  _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   int _attachmentReloadRevision = 0;
 
@@ -4055,6 +4058,12 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     } else {
       Future<void>.microtask(_loadPendingRevisionForInitialBill);
     }
+  }
+
+  @override
+  void dispose() {
+    _detailSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPendingRevisionForInitialBill() async {
@@ -4260,6 +4269,11 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                 onRetry: _load,
               );
             }
+            final detailDiscovery = _BillDetailDiscoverySnapshot.fromBill(
+              bill,
+              searchQuery: _detailSearchController.text,
+              selectedFilter: _selectedDetailFilter,
+            );
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -4292,13 +4306,47 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                   _CreateRevisionFailureBanner(failure: _createFailure!),
                 ],
                 const SizedBox(height: 20),
-                _BillItems(items: bill.items),
+                _BillDetailDiscoveryControls(
+                  searchController: _detailSearchController,
+                  selectedFilter: _selectedDetailFilter,
+                  loadedCount: detailDiscovery.loadedCount,
+                  visibleCount: detailDiscovery.visibleCount,
+                  onSearchChanged: (_) => setState(() {}),
+                  onFilterSelected: (filter) {
+                    setState(() {
+                      _selectedDetailFilter = filter;
+                    });
+                  },
+                  onClear: () {
+                    setState(() {
+                      _detailSearchController.clear();
+                      _selectedDetailFilter = _BillDetailFilter.all;
+                    });
+                  },
+                ),
                 const SizedBox(height: 20),
-                _BillParticipants(participants: bill.participants),
-                const SizedBox(height: 20),
-                _BillPayers(payers: bill.payers),
-                const SizedBox(height: 20),
-                _BillAdjustments(adjustments: bill.adjustments),
+                if (detailDiscovery.showFilteredEmpty)
+                  const _BillDetailFilteredEmpty()
+                else ...[
+                  if (detailDiscovery.shouldShowItems) ...[
+                    _BillItems(items: detailDiscovery.items),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowParticipants) ...[
+                    _BillParticipants(
+                      participants: detailDiscovery.participants,
+                      participantDisplayIndexes:
+                          detailDiscovery.participantDisplayIndexes,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowPayers) ...[
+                    _BillPayers(payers: detailDiscovery.payers),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowAdjustments)
+                    _BillAdjustments(adjustments: detailDiscovery.adjustments),
+                ],
                 if (widget.attachmentRepository != null) ...[
                   const SizedBox(height: 20),
                   BillAttachmentSection(
@@ -4355,6 +4403,8 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
 
 class _SettleoraGroupBillDetailScreenState
     extends State<SettleoraGroupBillDetailScreen> {
+  final _detailSearchController = TextEditingController();
+
   late bool _isLoading;
   late Map<String, String> _participantDisplayNames;
   SettleoraBillDetail? _bill;
@@ -4362,6 +4412,7 @@ class _SettleoraGroupBillDetailScreenState
   SettleoraBillRevision? _pendingRevision;
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
+  _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   bool _isAcknowledging = false;
   SettleoraBillFailure? _acknowledgementFailure;
@@ -4381,6 +4432,12 @@ class _SettleoraGroupBillDetailScreenState
     } else {
       Future<void>.microtask(_loadPendingRevisionForInitialBill);
     }
+  }
+
+  @override
+  void dispose() {
+    _detailSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPendingRevisionForInitialBill() async {
@@ -4746,6 +4803,13 @@ class _SettleoraGroupBillDetailScreenState
                 onRetry: _load,
               );
             }
+            final detailDiscovery = _BillDetailDiscoverySnapshot.fromBill(
+              bill,
+              searchQuery: _detailSearchController.text,
+              selectedFilter: _selectedDetailFilter,
+              currentUserProfileId: widget.currentUserProfileId,
+              participantDisplayNames: _participantDisplayNames,
+            );
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -4809,17 +4873,49 @@ class _SettleoraGroupBillDetailScreenState
                   participantDisplayNames: _participantDisplayNames,
                 ),
                 const SizedBox(height: 20),
-                _BillItems(items: bill.items),
-                const SizedBox(height: 20),
-                _BillParticipants(
-                  participants: bill.participants,
-                  currentUserProfileId: widget.currentUserProfileId,
-                  participantDisplayNames: _participantDisplayNames,
+                _BillDetailDiscoveryControls(
+                  searchController: _detailSearchController,
+                  selectedFilter: _selectedDetailFilter,
+                  loadedCount: detailDiscovery.loadedCount,
+                  visibleCount: detailDiscovery.visibleCount,
+                  onSearchChanged: (_) => setState(() {}),
+                  onFilterSelected: (filter) {
+                    setState(() {
+                      _selectedDetailFilter = filter;
+                    });
+                  },
+                  onClear: () {
+                    setState(() {
+                      _detailSearchController.clear();
+                      _selectedDetailFilter = _BillDetailFilter.all;
+                    });
+                  },
                 ),
                 const SizedBox(height: 20),
-                _BillPayers(payers: bill.payers),
-                const SizedBox(height: 20),
-                _BillAdjustments(adjustments: bill.adjustments),
+                if (detailDiscovery.showFilteredEmpty)
+                  const _BillDetailFilteredEmpty()
+                else ...[
+                  if (detailDiscovery.shouldShowItems) ...[
+                    _BillItems(items: detailDiscovery.items),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowParticipants) ...[
+                    _BillParticipants(
+                      participants: detailDiscovery.participants,
+                      currentUserProfileId: widget.currentUserProfileId,
+                      participantDisplayNames: _participantDisplayNames,
+                      participantDisplayIndexes:
+                          detailDiscovery.participantDisplayIndexes,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowPayers) ...[
+                    _BillPayers(payers: detailDiscovery.payers),
+                    const SizedBox(height: 20),
+                  ],
+                  if (detailDiscovery.shouldShowAdjustments)
+                    _BillAdjustments(adjustments: detailDiscovery.adjustments),
+                ],
                 if (widget.attachmentRepository != null) ...[
                   const SizedBox(height: 20),
                   BillAttachmentSection(
@@ -5497,6 +5593,256 @@ class _GroupBillContext extends StatelessWidget {
   }
 }
 
+enum _BillDetailFilter {
+  all('All'),
+  items('Items'),
+  participants('Participants'),
+  payers('Payers'),
+  adjustments('Adjustments'),
+  needsResponse('Needs response'),
+  rejected('Rejected');
+
+  const _BillDetailFilter(this.label);
+
+  final String label;
+}
+
+class _BillDetailDiscoverySnapshot {
+  const _BillDetailDiscoverySnapshot({
+    required this.items,
+    required this.participants,
+    required this.payers,
+    required this.adjustments,
+    required this.loadedCount,
+    required this.visibleCount,
+    required this.selectedFilter,
+    required this.hasQuery,
+    required this.participantDisplayIndexes,
+  });
+
+  factory _BillDetailDiscoverySnapshot.fromBill(
+    SettleoraBillDetail bill, {
+    required String searchQuery,
+    required _BillDetailFilter selectedFilter,
+    String? currentUserProfileId,
+    Map<String, String> participantDisplayNames = const {},
+  }) {
+    final query = searchQuery.trim().toLowerCase();
+    final hasQuery = query.isNotEmpty;
+    final includeItems =
+        selectedFilter == _BillDetailFilter.all ||
+        selectedFilter == _BillDetailFilter.items;
+    final includeParticipants =
+        selectedFilter == _BillDetailFilter.all ||
+        selectedFilter == _BillDetailFilter.participants ||
+        selectedFilter == _BillDetailFilter.needsResponse ||
+        selectedFilter == _BillDetailFilter.rejected;
+    final includePayers =
+        selectedFilter == _BillDetailFilter.all ||
+        selectedFilter == _BillDetailFilter.payers;
+    final includeAdjustments =
+        selectedFilter == _BillDetailFilter.all ||
+        selectedFilter == _BillDetailFilter.adjustments;
+
+    final items = includeItems
+        ? bill.items
+              .where((item) => !hasQuery || _billDetailItemMatches(item, query))
+              .toList(growable: false)
+        : const <SettleoraBillItem>[];
+    final participants = includeParticipants
+        ? [
+            for (var index = 0; index < bill.participants.length; index += 1)
+              if (_participantMatchesDetailFilter(
+                    bill.participants[index],
+                    selectedFilter,
+                  ) &&
+                  (!hasQuery ||
+                      _billDetailParticipantMatches(
+                        bill.participants[index],
+                        query,
+                        index: index,
+                        currentUserProfileId: currentUserProfileId,
+                        participantDisplayNames: participantDisplayNames,
+                      )))
+                bill.participants[index],
+          ]
+        : const <SettleoraBillParticipant>[];
+    final participantDisplayIndexes = {
+      for (var index = 0; index < bill.participants.length; index += 1)
+        if (bill.participants[index].userProfileId.trim().isNotEmpty)
+          bill.participants[index].userProfileId.trim(): index,
+    };
+    final payers = includePayers
+        ? [
+            for (var index = 0; index < bill.payers.length; index += 1)
+              if (!hasQuery ||
+                  _billDetailPayerMatches(bill.payers[index], query, index))
+                bill.payers[index],
+          ]
+        : const <SettleoraBillPayer>[];
+    final adjustments = includeAdjustments
+        ? bill.adjustments
+              .where(
+                (adjustment) =>
+                    !hasQuery ||
+                    _billDetailAdjustmentMatches(adjustment, query),
+              )
+              .toList(growable: false)
+        : const <SettleoraBillAdjustment>[];
+
+    return _BillDetailDiscoverySnapshot(
+      items: items,
+      participants: participants,
+      payers: payers,
+      adjustments: adjustments,
+      loadedCount:
+          bill.items.length +
+          bill.participants.length +
+          bill.payers.length +
+          bill.adjustments.length,
+      visibleCount:
+          items.length +
+          participants.length +
+          payers.length +
+          adjustments.length,
+      selectedFilter: selectedFilter,
+      hasQuery: hasQuery,
+      participantDisplayIndexes: participantDisplayIndexes,
+    );
+  }
+
+  final List<SettleoraBillItem> items;
+  final List<SettleoraBillParticipant> participants;
+  final List<SettleoraBillPayer> payers;
+  final List<SettleoraBillAdjustment> adjustments;
+  final int loadedCount;
+  final int visibleCount;
+  final _BillDetailFilter selectedFilter;
+  final bool hasQuery;
+  final Map<String, int> participantDisplayIndexes;
+
+  bool get hasActiveFilter =>
+      hasQuery || selectedFilter != _BillDetailFilter.all;
+
+  bool get showFilteredEmpty =>
+      loadedCount > 0 && hasActiveFilter && visibleCount == 0;
+
+  bool get shouldShowItems =>
+      selectedFilter == _BillDetailFilter.all ||
+      selectedFilter == _BillDetailFilter.items;
+
+  bool get shouldShowParticipants =>
+      selectedFilter == _BillDetailFilter.all ||
+      selectedFilter == _BillDetailFilter.participants ||
+      selectedFilter == _BillDetailFilter.needsResponse ||
+      selectedFilter == _BillDetailFilter.rejected;
+
+  bool get shouldShowPayers =>
+      selectedFilter == _BillDetailFilter.all ||
+      selectedFilter == _BillDetailFilter.payers;
+
+  bool get shouldShowAdjustments =>
+      selectedFilter == _BillDetailFilter.all ||
+      selectedFilter == _BillDetailFilter.adjustments;
+}
+
+class _BillDetailDiscoveryControls extends StatelessWidget {
+  const _BillDetailDiscoveryControls({
+    required this.searchController,
+    required this.selectedFilter,
+    required this.loadedCount,
+    required this.visibleCount,
+    required this.onSearchChanged,
+    required this.onFilterSelected,
+    required this.onClear,
+  });
+
+  final TextEditingController searchController;
+  final _BillDetailFilter selectedFilter;
+  final int loadedCount;
+  final int visibleCount;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<_BillDetailFilter> onFilterSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFilters =
+        searchController.text.trim().isNotEmpty ||
+        selectedFilter != _BillDetailFilter.all;
+
+    return _Section(
+      title: 'Find rows',
+      children: [
+        TextField(
+          key: const Key('bill-detail-search'),
+          controller: searchController,
+          onChanged: onSearchChanged,
+          textInputAction: TextInputAction.search,
+          decoration: const InputDecoration(
+            labelText: 'Search detail rows',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final filter in _BillDetailFilter.values)
+              FilterChip(
+                key: ValueKey('bill-detail-filter-${filter.name}'),
+                label: Text(filter.label),
+                selected: selectedFilter == filter,
+                onSelected: (_) => onFilterSelected(filter),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$visibleCount of $loadedCount loaded detail rows visible.',
+                key: const Key('bill-detail-visible-count'),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            TextButton.icon(
+              key: const Key('bill-detail-clear-filters'),
+              onPressed: hasFilters ? onClear : null,
+              icon: const Icon(Icons.clear),
+              label: const Text('Clear'),
+            ),
+          ],
+        ),
+        if (hasFilters) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Filtered rows are hidden locally only. Clear filters to review every loaded row before responding.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _BillDetailFilteredEmpty extends StatelessWidget {
+  const _BillDetailFilteredEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.search_off,
+      title: 'No matching detail rows',
+      message: 'No loaded bill rows match these local filters.',
+      compact: true,
+    );
+  }
+}
+
 class _BillDetailHeader extends StatelessWidget {
   const _BillDetailHeader({required this.bill});
 
@@ -5568,11 +5914,13 @@ class _BillParticipants extends StatelessWidget {
     required this.participants,
     this.currentUserProfileId,
     this.participantDisplayNames = const {},
+    this.participantDisplayIndexes = const {},
   });
 
   final List<SettleoraBillParticipant> participants;
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
+  final Map<String, int> participantDisplayIndexes;
 
   @override
   Widget build(BuildContext context) {
@@ -5591,7 +5939,10 @@ class _BillParticipants extends StatelessWidget {
         for (var index = 0; index < participants.length; index += 1)
           _KeyValueText(
             label: _participantDisplayLabel(
-              index: index,
+              index:
+                  participantDisplayIndexes[participants[index].userProfileId
+                      .trim()] ??
+                  index,
               participant: participants[index],
               currentUserProfileId: currentUserProfileId,
               participantDisplayNames: participantDisplayNames,
@@ -5738,6 +6089,98 @@ String _participantDisplayLabel({
   }
 
   return '$currentLabel (${settleoraBillParticipantRejectionReasonLabel(reasonCode)})';
+}
+
+bool _participantMatchesDetailFilter(
+  SettleoraBillParticipant participant,
+  _BillDetailFilter selectedFilter,
+) {
+  return switch (selectedFilter) {
+    _BillDetailFilter.needsResponse =>
+      participant.status ==
+          SettleoraBillParticipantStatusValues.pendingAcceptance,
+    _BillDetailFilter.rejected =>
+      participant.status == SettleoraBillParticipantStatusValues.rejected,
+    _ => true,
+  };
+}
+
+bool _billDetailItemMatches(SettleoraBillItem item, String query) {
+  return _matchesQuery(query, [
+    item.name,
+    item.note,
+    item.amount,
+    item.currency,
+    _money(item.amount, item.currency),
+  ]);
+}
+
+bool _billDetailParticipantMatches(
+  SettleoraBillParticipant participant,
+  String query, {
+  required int index,
+  String? currentUserProfileId,
+  Map<String, String> participantDisplayNames = const {},
+}) {
+  final label = _participantDisplayLabel(
+    index: index,
+    participant: participant,
+    currentUserProfileId: currentUserProfileId,
+    participantDisplayNames: participantDisplayNames,
+  );
+
+  return _matchesQuery(query, [
+    label,
+    participant.resolvedShareAmount,
+    participant.resolvedShareCurrency,
+    _money(participant.resolvedShareAmount, participant.resolvedShareCurrency),
+    settleoraBillParticipantStatusLabel(participant.status),
+    if (participant.rejectionReasonCode != null)
+      settleoraBillParticipantRejectionReasonLabel(
+        participant.rejectionReasonCode!,
+      ),
+  ]);
+}
+
+bool _billDetailPayerMatches(
+  SettleoraBillPayer payer,
+  String query,
+  int index,
+) {
+  return _matchesQuery(query, [
+    'Payer ${index + 1}',
+    payer.amount,
+    payer.currency,
+    _money(payer.amount, payer.currency),
+  ]);
+}
+
+bool _billDetailAdjustmentMatches(
+  SettleoraBillAdjustment adjustment,
+  String query,
+) {
+  return _matchesQuery(query, [
+    _titleFromCode(adjustment.type),
+    _titleFromCode(adjustment.direction),
+    adjustment.amount,
+    adjustment.currency,
+    _money(adjustment.amount, adjustment.currency),
+    adjustment.reasonNote,
+  ]);
+}
+
+bool _matchesQuery(String query, Iterable<String?> values) {
+  for (final value in values) {
+    if (value == null) {
+      continue;
+    }
+
+    if (value.toLowerCase().contains(query)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 Map<String, String> _participantDisplayNamesFromMembers(

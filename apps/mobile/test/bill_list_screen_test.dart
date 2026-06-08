@@ -1980,10 +1980,222 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.getCalls, 1);
-    expect(find.text('Items'), findsOneWidget);
+    expect(find.text('Items'), findsWidgets);
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Participants'), findsOneWidget);
     expect(find.byKey(const Key('bill-detail-propose-change')), findsNothing);
+  });
+
+  testWidgets('bill detail search filters loaded rows and shows count', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      detail: sampleBillDetail(
+        items: const [
+          SettleoraBillItem(
+            id: 'item-1',
+            name: 'Milk',
+            note: null,
+            amount: '10.00',
+            currency: 'USD',
+            sortOrder: 0,
+          ),
+          SettleoraBillItem(
+            id: 'item-2',
+            name: 'Coffee beans',
+            note: 'Morning receipt line',
+            amount: '16.50',
+            currency: 'USD',
+            sortOrder: 1,
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-detail-search')), findsOneWidget);
+    expect(find.text('5 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('Milk'), findsOneWidget);
+    expect(find.text('Coffee beans'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('bill-detail-search')),
+      'coffee',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('Coffee beans'), findsOneWidget);
+    expect(find.text('Milk'), findsNothing);
+    expect(find.text('Participants'), findsOneWidget);
+    expect(find.text('No participants'), findsOneWidget);
+  });
+
+  testWidgets('bill detail combines search with filter chips', (tester) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      detail: sampleBillDetail(
+        participants: const [
+          SettleoraBillParticipant(
+            userProfileId: _userProfileId,
+            status: SettleoraBillParticipantStatusValues.pendingAcceptance,
+            resolvedShareAmount: '10.80',
+            resolvedShareCurrency: 'USD',
+          ),
+          SettleoraBillParticipant(
+            userProfileId: 'accepted-user-id',
+            status: SettleoraBillParticipantStatusValues.accepted,
+            resolvedShareAmount: '5.25',
+            resolvedShareCurrency: 'USD',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('bill-detail-filter-participants')),
+    );
+    await tester.enterText(find.byKey(const Key('bill-detail-search')), '5.25');
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('Participant 2'), findsOneWidget);
+    expect(find.text('Participant 1'), findsNothing);
+    expect(find.text('Milk'), findsNothing);
+    expect(find.text('Payer 1'), findsNothing);
+  });
+
+  testWidgets('bill detail clear resets search and chip filters', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      detail: sampleBillDetail(
+        adjustments: const [
+          SettleoraBillAdjustment(
+            id: 'adjustment-1',
+            type: 'tax',
+            direction: 'charge',
+            amount: '0.80',
+            currency: 'USD',
+            reasonNote: null,
+            sortOrder: 0,
+          ),
+          SettleoraBillAdjustment(
+            id: 'adjustment-2',
+            type: 'service_charge',
+            direction: 'charge',
+            amount: '1.20',
+            currency: 'USD',
+            reasonNote: 'Weekend service',
+            sortOrder: 1,
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('bill-detail-filter-adjustments')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('bill-detail-search')),
+      'weekend',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('Service Charge'), findsOneWidget);
+    expect(find.text('Milk'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('bill-detail-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('5 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('Milk'), findsOneWidget);
+    expect(find.text('Participants'), findsWidgets);
+    expect(find.text('Payers'), findsWidgets);
+    expect(find.text('Service Charge'), findsOneWidget);
+  });
+
+  testWidgets('bill detail distinguishes filtered empty from true empty', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      detail: sampleBillDetail(items: const []),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Corner Market'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No items'), findsOneWidget);
+    expect(find.text('No matching detail rows'), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('bill-detail-search')), 'zzzz');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching detail rows'), findsOneWidget);
+    expect(
+      find.text('No loaded bill rows match these local filters.'),
+      findsOneWidget,
+    );
+    expect(find.text('No items'), findsNothing);
   });
 
   testWidgets('personal bill detail loads and renders attachment metadata', (
@@ -3586,6 +3798,7 @@ void main() {
   });
 
   testWidgets('authenticated server shell opens bills', (tester) async {
+    await useLargeSurface(tester);
     final store = MemorySyncQueueStore();
     final controller = SettleoraBillSyncController(
       queueStore: store,
@@ -3628,7 +3841,12 @@ void main() {
     expect(find.text('Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 2);
 
-    await tester.tap(find.text('Corner Market'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Corner Market'),
+        matching: find.byType(ListTile),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(attachmentRepository.listCalls, 1);
@@ -4652,6 +4870,42 @@ SettleoraBillDetail sampleBillDetail({
   String totalAmount = '10.80',
   String totalCurrency = 'USD',
   bool canCreateRevision = false,
+  List<SettleoraBillItem> items = const [
+    SettleoraBillItem(
+      id: 'item-1',
+      name: 'Milk',
+      note: null,
+      amount: '10.00',
+      currency: 'USD',
+      sortOrder: 0,
+    ),
+  ],
+  List<SettleoraBillParticipant> participants = const [
+    SettleoraBillParticipant(
+      userProfileId: _userProfileId,
+      status: 'pending_acceptance',
+      resolvedShareAmount: '10.80',
+      resolvedShareCurrency: 'USD',
+    ),
+  ],
+  List<SettleoraBillPayer> payers = const [
+    SettleoraBillPayer(
+      userProfileId: _userProfileId,
+      amount: '10.80',
+      currency: 'USD',
+    ),
+  ],
+  List<SettleoraBillAdjustment> adjustments = const [
+    SettleoraBillAdjustment(
+      id: 'adjustment-1',
+      type: 'tax',
+      direction: 'charge',
+      amount: '0.80',
+      currency: 'USD',
+      reasonNote: null,
+      sortOrder: 0,
+    ),
+  ],
 }) {
   return SettleoraBillDetail(
     id: id,
@@ -4667,42 +4921,10 @@ SettleoraBillDetail sampleBillDetail({
     totalCurrency: totalCurrency,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _createdAtUtc,
-    items: const [
-      SettleoraBillItem(
-        id: 'item-1',
-        name: 'Milk',
-        note: null,
-        amount: '10.00',
-        currency: 'USD',
-        sortOrder: 0,
-      ),
-    ],
-    participants: const [
-      SettleoraBillParticipant(
-        userProfileId: _userProfileId,
-        status: 'pending_acceptance',
-        resolvedShareAmount: '10.80',
-        resolvedShareCurrency: 'USD',
-      ),
-    ],
-    payers: const [
-      SettleoraBillPayer(
-        userProfileId: _userProfileId,
-        amount: '10.80',
-        currency: 'USD',
-      ),
-    ],
-    adjustments: const [
-      SettleoraBillAdjustment(
-        id: 'adjustment-1',
-        type: 'tax',
-        direction: 'charge',
-        amount: '0.80',
-        currency: 'USD',
-        reasonNote: null,
-        sortOrder: 0,
-      ),
-    ],
+    items: items,
+    participants: participants,
+    payers: payers,
+    adjustments: adjustments,
   );
 }
 
