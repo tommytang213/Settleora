@@ -344,12 +344,16 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
 class _SettleoraGroupDetailScreenState
     extends State<SettleoraGroupDetailScreen> {
   final _memberProfileIdController = TextEditingController();
+  final _memberSearchController = TextEditingController();
 
   bool _isLoading = true;
   bool _isSavingGroup = false;
   bool _isAddingMember = false;
   String? _busyMemberProfileId;
   SettleoraGroupRole _memberRole = SettleoraGroupRoleValues.member;
+  String _memberSearchQuery = '';
+  SettleoraGroupRole? _selectedMemberRole;
+  SettleoraGroupMembershipStatus? _selectedMemberStatus;
   SettleoraGroup? _group;
   List<SettleoraGroupMember> _members = const [];
   SettleoraGroupFailure? _loadFailure;
@@ -364,6 +368,7 @@ class _SettleoraGroupDetailScreenState
   @override
   void dispose() {
     _memberProfileIdController.dispose();
+    _memberSearchController.dispose();
     super.dispose();
   }
 
@@ -618,6 +623,61 @@ class _SettleoraGroupDetailScreenState
     };
   }
 
+  void _updateMemberSearchQuery(String value) {
+    setState(() {
+      _memberSearchQuery = value;
+    });
+  }
+
+  void _toggleMemberRoleFilter(SettleoraGroupRole role) {
+    setState(() {
+      _selectedMemberRole = _selectedMemberRole == role ? null : role;
+    });
+  }
+
+  void _toggleMemberStatusFilter(SettleoraGroupMembershipStatus status) {
+    setState(() {
+      _selectedMemberStatus = _selectedMemberStatus == status ? null : status;
+    });
+  }
+
+  void _clearMemberFilters() {
+    _memberSearchController.clear();
+    setState(() {
+      _memberSearchQuery = '';
+      _selectedMemberRole = null;
+      _selectedMemberStatus = null;
+    });
+  }
+
+  bool get _hasActiveMemberDiscoveryFilter {
+    return _memberSearchQuery.trim().isNotEmpty ||
+        _selectedMemberRole != null ||
+        _selectedMemberStatus != null;
+  }
+
+  List<SettleoraGroupMember> get _filteredMembers {
+    final query = _memberSearchQuery.trim().toLowerCase();
+
+    return [
+      for (final member in _members)
+        if ((_selectedMemberRole == null ||
+                member.role == _selectedMemberRole) &&
+            (_selectedMemberStatus == null ||
+                member.status == _selectedMemberStatus) &&
+            (query.isEmpty || _memberMatchesQuery(member, query)))
+          member,
+    ];
+  }
+
+  bool _memberMatchesQuery(SettleoraGroupMember member, String query) {
+    return member.safeDisplayName.toLowerCase().contains(query) ||
+        settleoraGroupRoleLabel(member.role).toLowerCase().contains(query) ||
+        settleoraGroupMembershipStatusLabel(
+          member.status,
+        ).toLowerCase().contains(query);
+  }
+
   Future<bool> _confirmMemberRemoval(SettleoraGroupMember member) async {
     final result = await showDialog<bool>(
       context: context,
@@ -652,6 +712,7 @@ class _SettleoraGroupDetailScreenState
   Widget build(BuildContext context) {
     final group = _group;
     final actionFailure = _actionFailure;
+    final filteredMembers = _filteredMembers;
 
     return Scaffold(
       appBar: AppBar(
@@ -788,21 +849,53 @@ class _SettleoraGroupDetailScreenState
                           message: 'No active members are visible.',
                           compact: true,
                         )
-                      else
-                        for (var index = 0; index < _members.length; index += 1)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _MemberTile(
-                              member: _members[index],
-                              isBusy:
-                                  _busyMemberProfileId ==
-                                  _members[index].userProfileId,
-                              menuKey: ValueKey('group-member-actions-$index'),
-                              onUpdateRole: (role) =>
-                                  _updateMemberRole(_members[index], role),
-                              onRemove: () => _removeMember(_members[index]),
+                      else ...[
+                        _MemberDiscoveryControls(
+                          members: _members,
+                          visibleCount: filteredMembers.length,
+                          searchController: _memberSearchController,
+                          selectedRole: _selectedMemberRole,
+                          selectedStatus: _selectedMemberStatus,
+                          hasActiveFilter: _hasActiveMemberDiscoveryFilter,
+                          onSearchChanged: _updateMemberSearchQuery,
+                          onRoleSelected: _toggleMemberRoleFilter,
+                          onStatusSelected: _toggleMemberStatusFilter,
+                          onClear: _clearMemberFilters,
+                        ),
+                        const SizedBox(height: 14),
+                        if (filteredMembers.isEmpty)
+                          const _StatePanel(
+                            icon: Icons.person_search_outlined,
+                            title: 'No matching members',
+                            message:
+                                'No loaded members match the current search or filters.',
+                            compact: true,
+                          )
+                        else
+                          for (
+                            var index = 0;
+                            index < filteredMembers.length;
+                            index += 1
+                          )
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _MemberTile(
+                                member: filteredMembers[index],
+                                isBusy:
+                                    _busyMemberProfileId ==
+                                    filteredMembers[index].userProfileId,
+                                menuKey: ValueKey(
+                                  'group-member-actions-${filteredMembers[index].userProfileId}',
+                                ),
+                                onUpdateRole: (role) => _updateMemberRole(
+                                  filteredMembers[index],
+                                  role,
+                                ),
+                                onRemove: () =>
+                                    _removeMember(filteredMembers[index]),
+                              ),
                             ),
-                          ),
+                      ],
                     ],
                   ),
                 ],
@@ -811,6 +904,112 @@ class _SettleoraGroupDetailScreenState
           },
         ),
       ),
+    );
+  }
+}
+
+class _MemberDiscoveryControls extends StatelessWidget {
+  const _MemberDiscoveryControls({
+    required this.members,
+    required this.visibleCount,
+    required this.searchController,
+    required this.selectedRole,
+    required this.selectedStatus,
+    required this.hasActiveFilter,
+    required this.onSearchChanged,
+    required this.onRoleSelected,
+    required this.onStatusSelected,
+    required this.onClear,
+  });
+
+  final List<SettleoraGroupMember> members;
+  final int visibleCount;
+  final TextEditingController searchController;
+  final SettleoraGroupRole? selectedRole;
+  final SettleoraGroupMembershipStatus? selectedStatus;
+  final bool hasActiveFilter;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<SettleoraGroupRole> onRoleSelected;
+  final ValueChanged<SettleoraGroupMembershipStatus> onStatusSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = _orderedMemberRoles(members);
+    final statuses = _orderedMemberStatuses(members);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('group-member-search'),
+          controller: searchController,
+          onChanged: onSearchChanged,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: 'Search members',
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: searchController.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    key: const Key('group-member-search-clear'),
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      searchController.clear();
+                      onSearchChanged('');
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Showing $visibleCount of ${members.length} members',
+                key: const Key('group-member-visible-count'),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (hasActiveFilter)
+              TextButton.icon(
+                key: const Key('group-member-clear-filters'),
+                onPressed: onClear,
+                icon: const Icon(Icons.filter_alt_off_outlined),
+                label: const Text('Clear'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            for (final role in roles)
+              ChoiceChip(
+                key: ValueKey('group-member-role-filter-$role'),
+                label: Text(
+                  '${settleoraGroupRoleLabel(role)} (${_memberRoleCount(members, role)})',
+                ),
+                selected: selectedRole == role,
+                onSelected: (_) => onRoleSelected(role),
+              ),
+            for (final status in statuses)
+              ChoiceChip(
+                key: ValueKey('group-member-status-filter-$status'),
+                label: Text(
+                  '${settleoraGroupMembershipStatusLabel(status)} (${_memberStatusCount(members, status)})',
+                ),
+                selected: selectedStatus == status,
+                onSelected: (_) => onStatusSelected(status),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1323,6 +1522,50 @@ int _statusCount(
   SettleoraGroupMembershipStatus status,
 ) {
   return groups.where((group) => group.currentUserStatus == status).length;
+}
+
+List<SettleoraGroupRole> _orderedMemberRoles(
+  List<SettleoraGroupMember> members,
+) {
+  final loadedRoles = {
+    for (final member in members)
+      if (member.role.trim().isNotEmpty) member.role,
+  };
+
+  return [
+    for (final role in SettleoraGroupRoleValues.values)
+      if (loadedRoles.remove(role)) role,
+    ...loadedRoles.toList()..sort(),
+  ];
+}
+
+List<SettleoraGroupMembershipStatus> _orderedMemberStatuses(
+  List<SettleoraGroupMember> members,
+) {
+  final loadedStatuses = {
+    for (final member in members)
+      if (member.status.trim().isNotEmpty) member.status,
+  };
+
+  return [
+    for (final status in SettleoraGroupMembershipStatusValues.values)
+      if (loadedStatuses.remove(status)) status,
+    ...loadedStatuses.toList()..sort(),
+  ];
+}
+
+int _memberRoleCount(
+  List<SettleoraGroupMember> members,
+  SettleoraGroupRole role,
+) {
+  return members.where((member) => member.role == role).length;
+}
+
+int _memberStatusCount(
+  List<SettleoraGroupMember> members,
+  SettleoraGroupMembershipStatus status,
+) {
+  return members.where((member) => member.status == status).length;
 }
 
 IconData _failureIcon(SettleoraGroupFailureKind kind) {
