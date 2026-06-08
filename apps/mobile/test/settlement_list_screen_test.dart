@@ -75,7 +75,7 @@ void main() {
   });
 
   testWidgets(
-    'settlement list search filters requests by currency and status',
+    'settlement list search filters requests by safe visible values',
     (tester) async {
       final repository = FakeSettlementRepository(
         requests: [
@@ -104,7 +104,7 @@ void main() {
 
       await tester.enterText(
         find.byKey(const Key('settlement-list-search')),
-        'confirmed eur',
+        'incoming confirmed eur 25.00',
       );
       await tester.pumpAndSettle();
 
@@ -114,6 +114,60 @@ void main() {
       expect(find.text('No matching settlements'), findsNothing);
     },
   );
+
+  testWidgets('settlement list search does not match raw identifiers', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      requests: [
+        sampleRequest(
+          groupId: _groupId,
+          requestedByUserProfileId: _requesterUserProfileId,
+          sourceBillRevisionId: _sourceBillRevisionId,
+          sourceCandidateKey: _sourceCandidateKey,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _creditorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('10.00 USD'), findsOneWidget);
+
+    final rawIdentifiers = <String>[
+      _settlementId,
+      _billId,
+      _groupId,
+      _debtorUserProfileId,
+      _creditorUserProfileId,
+      _requesterUserProfileId,
+      _lineId,
+      _sourceBillRevisionId,
+      _sourceCandidateKey,
+    ];
+
+    for (final rawIdentifier in rawIdentifiers) {
+      await tester.enterText(
+        find.byKey(const Key('settlement-list-search')),
+        rawIdentifier,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('10.00 USD'),
+        findsNothing,
+        reason: 'Raw identifier matched list search: $rawIdentifier',
+      );
+      expect(find.text('No matching settlements'), findsOneWidget);
+    }
+  });
 
   testWidgets('settlement list filter chips combine with search', (
     tester,
@@ -968,6 +1022,8 @@ SettleoraSettlementRequest sampleRequest({
   String requestedByUserProfileId = _creditorUserProfileId,
   String lineStatus = 'open',
   String? sourceCandidateKey = 'candidate-key',
+  String lineId = _lineId,
+  String? sourceBillRevisionId,
 }) {
   return SettleoraSettlementRequest(
     id: id,
@@ -984,9 +1040,9 @@ SettleoraSettlementRequest sampleRequest({
     updatedAtUtc: _updatedAtUtc,
     lines: [
       SettleoraSettlementRequestLine(
-        id: _lineId,
+        id: lineId,
         sourceExpenseBillId: sourceExpenseBillId,
-        sourceBillRevisionId: null,
+        sourceBillRevisionId: sourceBillRevisionId,
         sourceCandidateKey: sourceCandidateKey,
         exactAmount: amount,
         currency: currency,
@@ -1115,11 +1171,15 @@ const _secondPaymentId = '22222222-2222-2222-2222-222222222223';
 const _residualId = '33333333-3333-3333-3333-333333333333';
 const _secondResidualId = '33333333-3333-3333-3333-333333333334';
 const _billId = '44444444-4444-4444-4444-444444444444';
+const _groupId = '44444444-4444-4444-4444-444444444445';
 const _lineId = '55555555-5555-5555-5555-555555555555';
 const _secondLineId = '55555555-5555-5555-5555-555555555556';
+const _sourceBillRevisionId = '55555555-5555-5555-5555-555555555557';
+const _sourceCandidateKey = 'candidate-key-for-search-privacy';
 const _allocationId = '66666666-6666-6666-6666-666666666666';
 const _debtorUserProfileId = '77777777-7777-7777-7777-777777777777';
 const _creditorUserProfileId = '88888888-8888-8888-8888-888888888888';
+const _requesterUserProfileId = '99999999-9999-9999-9999-999999999999';
 final _generatedAtUtc = DateTime.utc(2026, 5, 17, 9);
 final _requestedAtUtc = DateTime.utc(2026, 5, 17, 10);
 final _claimedAtUtc = DateTime.utc(2026, 5, 17, 10, 30);
