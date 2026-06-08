@@ -280,6 +280,331 @@ void main() {
     expect(billRepository.listGroupCalls, 1);
   });
 
+  testWidgets('group detail member search filters by safe display name', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Taylor'), findsOneWidget);
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('Casey'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('group-member-search')), 'mor');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('Taylor'), findsNothing);
+    expect(find.text('Casey'), findsNothing);
+    expect(visibleText(tester), isNot(contains(_profileId)));
+  });
+
+  testWidgets('group detail member role chip counts and filters', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Owner (1)'), findsOneWidget);
+    expect(find.text('Member (2)'), findsOneWidget);
+
+    final ownerFilter = find.byKey(
+      const ValueKey(
+        'group-member-role-filter-${SettleoraGroupRoleValues.owner}',
+      ),
+    );
+    await tester.ensureVisible(ownerFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(ownerFilter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
+    expect(find.text('Taylor'), findsOneWidget);
+    expect(find.text('Morgan'), findsNothing);
+    expect(find.text('Casey'), findsNothing);
+  });
+
+  testWidgets('group detail member status chip counts and filters', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Active (2)'), findsOneWidget);
+    expect(find.text('Removed (1)'), findsOneWidget);
+
+    final removedFilter = find.byKey(
+      const ValueKey(
+        'group-member-status-filter-${SettleoraGroupMembershipStatusValues.removed}',
+      ),
+    );
+    await tester.ensureVisible(removedFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(removedFilter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
+    expect(find.text('Casey'), findsOneWidget);
+    expect(find.text('Taylor'), findsNothing);
+    expect(find.text('Morgan'), findsNothing);
+  });
+
+  testWidgets('group detail combines member search role and status filters', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final memberFilter = find.byKey(
+      const ValueKey(
+        'group-member-role-filter-${SettleoraGroupRoleValues.member}',
+      ),
+    );
+    await tester.ensureVisible(memberFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(memberFilter);
+    await tester.pumpAndSettle();
+    final activeFilter = find.byKey(
+      const ValueKey(
+        'group-member-status-filter-${SettleoraGroupMembershipStatusValues.active}',
+      ),
+    );
+    await tester.ensureVisible(activeFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(activeFilter);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('group-member-search')), 'mor');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('Taylor'), findsNothing);
+    expect(find.text('Casey'), findsNothing);
+  });
+
+  testWidgets('group detail member clear resets search and filters', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final removedFilter = find.byKey(
+      const ValueKey(
+        'group-member-status-filter-${SettleoraGroupMembershipStatusValues.removed}',
+      ),
+    );
+    await tester.ensureVisible(removedFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(removedFilter);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-member-search')),
+      'casey',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
+    expect(find.text('Casey'), findsOneWidget);
+
+    final clearFilters = find.byKey(const Key('group-member-clear-filters'));
+    await tester.ensureVisible(clearFilters);
+    await tester.pumpAndSettle();
+    await tester.tap(clearFilters);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 3 of 3 members'), findsOneWidget);
+    expect(find.text('Taylor'), findsOneWidget);
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('Casey'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('group-member-search')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
+  testWidgets('group detail separates filtered-empty from true-empty members', (
+    tester,
+  ) async {
+    final emptyRepository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: emptyRepository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No members'), findsOneWidget);
+    expect(find.byKey(const Key('group-member-search')), findsNothing);
+
+    final filteredRepository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          key: UniqueKey(),
+          repository: filteredRepository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ownerFilter = find.byKey(
+      const ValueKey(
+        'group-member-role-filter-${SettleoraGroupRoleValues.owner}',
+      ),
+    );
+    await tester.ensureVisible(ownerFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(ownerFilter);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-member-search')),
+      'casey',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching members'), findsOneWidget);
+    expect(
+      find.text('No loaded members match the current search or filters.'),
+      findsOneWidget,
+    );
+    expect(find.text('No members'), findsNothing);
+  });
+
+  testWidgets('group detail filtered actions target the visible member', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(
+      group: sampleGroup(),
+      members: sampleMemberDiscoveryRows(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupDetailScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('group-member-search')), 'mor');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Make Owner'));
+    await tester.pumpAndSettle();
+
+    expect(repository.updateMemberCalls, 1);
+    expect(repository.lastUpdatedUserProfileId, _otherProfileId);
+    expect(repository.lastMemberUpdate?.role, SettleoraGroupRoleValues.owner);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-member-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.removeMemberCalls, 1);
+    expect(repository.lastRemovedUserProfileId, _otherProfileId);
+  });
+
   testWidgets('group detail edits group and manages members', (tester) async {
     final repository = FakeGroupRepository(
       group: sampleGroup(),
@@ -322,11 +647,13 @@ void main() {
     expect(find.text('Morgan'), findsOneWidget);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('group-member-actions-0')),
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
     );
     await tester.drag(find.byType(ListView), const Offset(0, -96));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
+    await tester.tap(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Make Owner'));
     await tester.pumpAndSettle();
@@ -335,11 +662,13 @@ void main() {
     expect(repository.lastMemberUpdate?.role, SettleoraGroupRoleValues.owner);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('group-member-actions-0')),
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
     );
     await tester.drag(find.byType(ListView), const Offset(0, -96));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('group-member-actions-0')));
+    await tester.tap(
+      find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Remove').last);
     await tester.pumpAndSettle();
@@ -443,6 +772,7 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   int updateMemberCalls = 0;
   int removeMemberCalls = 0;
   String? lastGroupId;
+  String? lastUpdatedUserProfileId;
   String? lastRemovedUserProfileId;
   SettleoraGroupSaveRequest? lastGroupSave;
   SettleoraGroupMemberAddRequest? lastMemberAdd;
@@ -532,6 +862,7 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   ) async {
     updateMemberCalls += 1;
     lastGroupId = groupId;
+    lastUpdatedUserProfileId = userProfileId;
     lastMemberUpdate = update;
     _throwActionIfNeeded();
     final updated = sampleMember(
@@ -1006,6 +1337,22 @@ List<SettleoraGroup> sampleGroupDiscoveryRows() {
   ];
 }
 
+List<SettleoraGroupMember> sampleMemberDiscoveryRows() {
+  return [
+    sampleMember(
+      userProfileId: _profileId,
+      displayName: 'Taylor',
+      role: SettleoraGroupRoleValues.owner,
+    ),
+    sampleMember(userProfileId: _otherProfileId, displayName: 'Morgan'),
+    sampleMember(
+      userProfileId: '77777777-7777-7777-7777-777777777777',
+      displayName: 'Casey',
+      status: SettleoraGroupMembershipStatusValues.removed,
+    ),
+  ];
+}
+
 SettleoraGroup sampleGroup({
   String id = _groupId,
   String name = 'Trip Crew',
@@ -1026,12 +1373,13 @@ SettleoraGroupMember sampleMember({
   String userProfileId = _profileId,
   String displayName = 'Taylor',
   String role = SettleoraGroupRoleValues.member,
+  String status = SettleoraGroupMembershipStatusValues.active,
 }) {
   return SettleoraGroupMember(
     userProfileId: userProfileId,
     displayName: displayName,
     role: role,
-    status: SettleoraGroupMembershipStatusValues.active,
+    status: status,
     joinedAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
