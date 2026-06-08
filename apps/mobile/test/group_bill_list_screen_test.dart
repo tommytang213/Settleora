@@ -3454,8 +3454,7 @@ void main() {
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('cancelled-receipt.png'), findsOneWidget);
 
-      await tester.pageBack();
-      await tester.pumpAndSettle();
+      await _discardGroupBillCreateDraft(tester);
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
 
@@ -3985,6 +3984,13 @@ Future<void> _addGroupDraftAttachment(
 Future<void> _tapSaveGroupBill(WidgetTester tester) async {
   await tester.ensureVisible(find.byKey(const Key('group-bill-save')));
   await tester.tap(find.byKey(const Key('group-bill-save')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _discardGroupBillCreateDraft(WidgetTester tester) async {
+  await tester.pageBack();
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('group-bill-exit-discard')));
   await tester.pumpAndSettle();
 }
 

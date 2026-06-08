@@ -172,6 +172,119 @@ void main() {
     expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
   });
 
+  testWidgets('personal bill create exits without prompt when unchanged', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-exit-guard-dialog')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+  });
+
+  testWidgets('personal bill create prompts before discarding edited draft', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Brunch Spot',
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-exit-guard-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('Discard draft?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('personal-bill-exit-keep-editing')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      findsOneWidget,
+    );
+    expect(find.text('Brunch Spot'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-exit-discard')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+    expect(find.text('Brunch Spot'), findsNothing);
+  });
+
+  testWidgets('personal bill create prompts after draft attachment selection', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await _addDraftAttachment(
+      tester,
+      const Key('personal-bill-attachment-purpose-receipt'),
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-exit-guard-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('personal-bill-exit-discard')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+  });
+
   testWidgets('personal bill create review checklist tracks local form state', (
     tester,
   ) async {
@@ -731,8 +844,7 @@ void main() {
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('cancelled-receipt.png'), findsOneWidget);
 
-      await tester.pageBack();
-      await tester.pumpAndSettle();
+      await _discardPersonalBillCreateDraft(tester);
       await tester.tap(find.byKey(const Key('bill-list-create')));
       await tester.pumpAndSettle();
 
@@ -1487,8 +1599,7 @@ void main() {
     expect(store.state.items, isEmpty);
     expect(syncRepository.submitCalls, 0);
 
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    await _discardPersonalBillCreateDraft(tester);
 
     expect(find.text('Existing Market'), findsOneWidget);
     expect(repository.listCalls, 1);
@@ -1522,6 +1633,91 @@ void main() {
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
   });
+
+  testWidgets('group bill create exits without prompt when unchanged', (
+    tester,
+  ) async {
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('group-bill-exit-guard-dialog')), findsNothing);
+    expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
+  });
+
+  testWidgets(
+    'group bill create prompts before discarding row and member edits',
+    (tester) async {
+      await useLargeSurface(tester);
+      await _pumpGroupBillCreate(
+        tester,
+        repository: FakeBillRepository(),
+        groupRepository: FakeGroupRepository(
+          members: [
+            sampleGroupMember(
+              userProfileId: 'member-alex-id',
+              displayName: 'Alex',
+            ),
+            sampleGroupMember(
+              userProfileId: 'member-taylor-id',
+              displayName: 'Taylor',
+            ),
+          ],
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-item-name-0')),
+        'Eggs',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-split-member-0-0')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Taylor'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+      await tester.pumpAndSettle();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('group-bill-exit-guard-dialog')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('group-bill-exit-keep-editing')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('group-bill-item-name-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Eggs'), findsOneWidget);
+      expect(find.text('Taylor'), findsOneWidget);
+      expect(find.text('1 payer row'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-exit-discard')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
+      expect(find.text('Eggs'), findsNothing);
+    },
+  );
 
   testWidgets('group bill split member picker searches and selects safely', (
     tester,
@@ -3949,6 +4145,13 @@ Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
 Future<void> _tapSaveBill(WidgetTester tester) async {
   final saveButton = find.byKey(const Key('personal-bill-save'));
   await tester.tap(saveButton);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _discardPersonalBillCreateDraft(WidgetTester tester) async {
+  await tester.pageBack();
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('personal-bill-exit-discard')));
   await tester.pumpAndSettle();
 }
 
