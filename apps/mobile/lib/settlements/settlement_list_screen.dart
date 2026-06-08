@@ -19,15 +19,38 @@ class SettleoraSettlementListScreen extends StatefulWidget {
 
 class _SettleoraSettlementListScreenState
     extends State<SettleoraSettlementListScreen> {
+  late final TextEditingController _searchController;
   bool _isLoading = true;
   SettleoraSettlementBalanceSnapshot? _balanceSnapshot;
   List<SettleoraSettlementRequest> _requests = const [];
+  _SettlementRequestFilter _filter = _SettlementRequestFilter.all;
+  String _searchQuery = '';
   SettleoraSettlementFailure? _failure;
 
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
+    _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_handleSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    final nextQuery = _searchController.text.trim();
+    if (nextQuery == _searchQuery) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = nextQuery;
+    });
   }
 
   Future<void> _load() async {
@@ -72,6 +95,24 @@ class _SettleoraSettlementListScreenState
     );
   }
 
+  void _selectFilter(_SettlementRequestFilter filter) {
+    if (filter == _filter) {
+      return;
+    }
+
+    setState(() {
+      _filter = filter;
+    });
+  }
+
+  void _clearDiscoveryState() {
+    setState(() {
+      _filter = _SettlementRequestFilter.all;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -99,14 +140,34 @@ class _SettleoraSettlementListScreenState
             }
 
             final balanceSnapshot = _balanceSnapshot;
+            final visibleRequests = _filterRequests(_requests);
+            final hasActiveDiscovery =
+                _filter != _SettlementRequestFilter.all ||
+                _searchQuery.isNotEmpty;
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
+                  _SettlementDiscoveryControls(
+                    controller: _searchController,
+                    selectedFilter: _filter,
+                    counts: _SettlementRequestFilterCounts.from(
+                      requests: _requests,
+                      currentUserProfileId: widget.currentUserProfileId,
+                    ),
+                    hasActiveDiscovery: hasActiveDiscovery,
+                    onFilterSelected: _selectFilter,
+                    onClear: _clearDiscoveryState,
+                  ),
+                  const SizedBox(height: 20),
                   _BalanceSection(snapshot: balanceSnapshot),
                   const SizedBox(height: 20),
-                  _RequestSection(requests: _requests, onTap: _openRequest),
+                  _RequestSection(
+                    requests: visibleRequests,
+                    hasActiveDiscovery: hasActiveDiscovery,
+                    onTap: _openRequest,
+                  ),
                 ],
               ),
             );
@@ -115,6 +176,103 @@ class _SettleoraSettlementListScreenState
       ),
     );
   }
+
+  List<SettleoraSettlementRequest> _filterRequests(
+    List<SettleoraSettlementRequest> requests,
+  ) {
+    final queryTerms = _searchQuery
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+    return requests
+        .where((request) {
+          if (!_filter.matches(request, widget.currentUserProfileId)) {
+            return false;
+          }
+
+          if (queryTerms.isEmpty) {
+            return true;
+          }
+
+          final searchText = _requestSearchText(
+            request: request,
+            currentUserProfileId: widget.currentUserProfileId,
+          );
+          return queryTerms.every(searchText.contains);
+        })
+        .toList(growable: false);
+  }
+}
+
+enum _SettlementRequestFilter {
+  all(label: 'All'),
+  needsAction(label: 'Needs action'),
+  incoming(label: 'Incoming'),
+  outgoing(label: 'Outgoing'),
+  open(label: 'Open'),
+  confirmed(label: 'Confirmed'),
+  disputed(label: 'Disputed');
+
+  const _SettlementRequestFilter({required this.label});
+
+  final String label;
+
+  String get key {
+    return switch (this) {
+      _SettlementRequestFilter.all => 'all',
+      _SettlementRequestFilter.needsAction => 'needs-action',
+      _SettlementRequestFilter.incoming => 'incoming',
+      _SettlementRequestFilter.outgoing => 'outgoing',
+      _SettlementRequestFilter.open => 'open',
+      _SettlementRequestFilter.confirmed => 'confirmed',
+      _SettlementRequestFilter.disputed => 'disputed',
+    };
+  }
+
+  bool matches(
+    SettleoraSettlementRequest request,
+    String currentUserProfileId,
+  ) {
+    return switch (this) {
+      _SettlementRequestFilter.all => true,
+      _SettlementRequestFilter.needsAction => _requestNeedsAction(
+        request,
+        currentUserProfileId,
+      ),
+      _SettlementRequestFilter.incoming => request.isCreditor(
+        currentUserProfileId,
+      ),
+      _SettlementRequestFilter.outgoing => request.isDebtor(
+        currentUserProfileId,
+      ),
+      _SettlementRequestFilter.open => _isOpenRequest(request),
+      _SettlementRequestFilter.confirmed =>
+        request.status == SettleoraSettlementRequestStatusValues.confirmed,
+      _SettlementRequestFilter.disputed =>
+        request.status == SettleoraSettlementRequestStatusValues.disputed,
+    };
+  }
+}
+
+class _SettlementRequestFilterCounts {
+  const _SettlementRequestFilterCounts(this._counts);
+
+  factory _SettlementRequestFilterCounts.from({
+    required List<SettleoraSettlementRequest> requests,
+    required String currentUserProfileId,
+  }) {
+    return _SettlementRequestFilterCounts({
+      for (final filter in _SettlementRequestFilter.values)
+        filter: requests
+            .where((request) => filter.matches(request, currentUserProfileId))
+            .length,
+    });
+  }
+
+  final Map<_SettlementRequestFilter, int> _counts;
+
+  int count(_SettlementRequestFilter filter) => _counts[filter] ?? 0;
 }
 
 class SettleoraSettlementDetailScreen extends StatefulWidget {
@@ -477,6 +635,75 @@ class _SettleoraSettlementDetailScreenState
   }
 }
 
+class _SettlementDiscoveryControls extends StatelessWidget {
+  const _SettlementDiscoveryControls({
+    required this.controller,
+    required this.selectedFilter,
+    required this.counts,
+    required this.hasActiveDiscovery,
+    required this.onFilterSelected,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final _SettlementRequestFilter selectedFilter;
+  final _SettlementRequestFilterCounts counts;
+  final bool hasActiveDiscovery;
+  final void Function(_SettlementRequestFilter filter) onFilterSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'Find settlements',
+      trailing: hasActiveDiscovery
+          ? TextButton.icon(
+              key: const Key('settlement-list-clear-filters'),
+              onPressed: onClear,
+              icon: const Icon(Icons.close_outlined),
+              label: const Text('Clear'),
+            )
+          : null,
+      children: [
+        TextField(
+          key: const Key('settlement-list-search'),
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Search settlements',
+            prefixIcon: Icon(Icons.search_outlined),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final filter in _SettlementRequestFilter.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    key: Key('settlement-list-filter-${filter.key}'),
+                    selected: selectedFilter == filter,
+                    onSelected: (_) => onFilterSelected(filter),
+                    label: Text('${filter.label} (${counts.count(filter)})'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Balances remain unfiltered totals.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _BalanceSection extends StatelessWidget {
   const _BalanceSection({required this.snapshot});
 
@@ -587,14 +814,33 @@ class _BalanceTile extends StatelessWidget {
 }
 
 class _RequestSection extends StatelessWidget {
-  const _RequestSection({required this.requests, required this.onTap});
+  const _RequestSection({
+    required this.requests,
+    required this.hasActiveDiscovery,
+    required this.onTap,
+  });
 
   final List<SettleoraSettlementRequest> requests;
+  final bool hasActiveDiscovery;
   final void Function(SettleoraSettlementRequest request) onTap;
 
   @override
   Widget build(BuildContext context) {
     if (requests.isEmpty) {
+      if (hasActiveDiscovery) {
+        return const _Section(
+          title: 'Requests',
+          children: [
+            _StatePanel(
+              icon: Icons.search_off_outlined,
+              title: 'No matching settlements',
+              message: 'No settlements match this search and filter.',
+              compact: true,
+            ),
+          ],
+        );
+      }
+
       return const _Section(
         title: 'Requests',
         children: [
@@ -1688,6 +1934,66 @@ IconData _failureIcon(SettleoraSettlementFailureKind kind) {
     SettleoraSettlementFailureKind.network => Icons.cloud_off_outlined,
     SettleoraSettlementFailureKind.server => Icons.error_outline,
   };
+}
+
+bool _isOpenRequest(SettleoraSettlementRequest request) {
+  return request.status == SettleoraSettlementRequestStatusValues.requested ||
+      request.status == SettleoraSettlementRequestStatusValues.partiallyPaid ||
+      request.status == SettleoraSettlementRequestStatusValues.markedPaid;
+}
+
+bool _requestNeedsAction(
+  SettleoraSettlementRequest request,
+  String currentUserProfileId,
+) {
+  if (request.status == SettleoraSettlementRequestStatusValues.requested) {
+    return request.isDebtor(currentUserProfileId);
+  }
+
+  if (request.status == SettleoraSettlementRequestStatusValues.partiallyPaid ||
+      request.status == SettleoraSettlementRequestStatusValues.markedPaid) {
+    return request.isCreditor(currentUserProfileId);
+  }
+
+  return false;
+}
+
+String _requestSearchText({
+  required SettleoraSettlementRequest request,
+  required String currentUserProfileId,
+}) {
+  final isIncoming = request.isCreditor(currentUserProfileId);
+  final isOutgoing = request.isDebtor(currentUserProfileId);
+  final tokens = <String>[
+    request.id,
+    request.sourceExpenseBillId,
+    if (_hasText(request.groupId)) request.groupId!.trim(),
+    request.debtorUserProfileId,
+    request.creditorUserProfileId,
+    request.requestedByUserProfileId,
+    request.amount,
+    request.currency,
+    _money(request.amount, request.currency),
+    request.status,
+    settleoraSettlementRequestStatusLabel(request.status),
+    if (isIncoming) ...['incoming', 'receive', 'creditor'],
+    if (isOutgoing) ...['outgoing', 'pay', 'debtor'],
+    for (final line in request.lines) ...[
+      line.id,
+      line.sourceExpenseBillId,
+      if (_hasText(line.sourceBillRevisionId))
+        line.sourceBillRevisionId!.trim(),
+      if (_hasText(line.sourceCandidateKey)) line.sourceCandidateKey!.trim(),
+      line.exactAmount,
+      line.currency,
+      _money(line.exactAmount, line.currency),
+      line.status,
+      settleoraSettlementRequestLineStatusLabel(line.status),
+      line.allocationOrder.toString(),
+    ],
+  ];
+
+  return tokens.join(' ').toLowerCase();
 }
 
 String _money(String amount, String currency) {

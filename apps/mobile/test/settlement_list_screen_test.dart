@@ -34,6 +34,10 @@ void main() {
     expect(repository.listBalancesCalls, 1);
     expect(repository.listRequestsCalls, 1);
 
+    await scrollTo(
+      tester,
+      find.byKey(const ValueKey('settlement-request-tile-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('settlement-request-tile-0')));
     await tester.pumpAndSettle();
 
@@ -67,6 +71,202 @@ void main() {
     expect(repository.confirmResidualCalls, 1);
     expect(repository.lastResidualId, _residualId);
     expect(find.text('Residual confirmed.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'settlement list search filters requests by currency and status',
+    (tester) async {
+      final repository = FakeSettlementRepository(
+        requests: [
+          sampleRequest(),
+          sampleRequest(
+            id: _secondSettlementId,
+            amount: '25.00',
+            currency: 'EUR',
+            status: SettleoraSettlementRequestStatusValues.confirmed,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraSettlementListScreen(
+            repository: repository,
+            currentUserProfileId: _creditorUserProfileId,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('25.00 EUR'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('settlement-list-search')),
+        'confirmed eur',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('10.00 USD'), findsNothing);
+      await scrollListBy(tester, -260);
+      expect(find.text('25.00 EUR'), findsOneWidget);
+      expect(find.text('No matching settlements'), findsNothing);
+    },
+  );
+
+  testWidgets('settlement list filter chips combine with search', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      requests: [
+        sampleRequest(amount: '10.00', currency: 'USD'),
+        sampleRequest(
+          id: _secondSettlementId,
+          amount: '25.00',
+          currency: 'EUR',
+          status: SettleoraSettlementRequestStatusValues.confirmed,
+        ),
+        sampleRequest(
+          id: _thirdSettlementId,
+          amount: '30.00',
+          currency: 'HKD',
+          status: SettleoraSettlementRequestStatusValues.disputed,
+          debtorUserProfileId: _creditorUserProfileId,
+          creditorUserProfileId: _debtorUserProfileId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _creditorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Incoming (2)'), findsOneWidget);
+    expect(find.text('Outgoing (1)'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('settlement-list-search')),
+      'outgoing hkd',
+    );
+    await scrollFilterChipsBy(tester, -700);
+    await tester.tap(find.byKey(const Key('settlement-list-filter-disputed')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('10.00 USD'), findsNothing);
+    expect(find.text('25.00 EUR'), findsNothing);
+    await scrollListBy(tester, -260);
+    expect(find.text('30.00 HKD'), findsOneWidget);
+  });
+
+  testWidgets('settlement list clear filters restores loaded requests', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      requests: [
+        sampleRequest(),
+        sampleRequest(
+          id: _secondSettlementId,
+          amount: '25.00',
+          currency: 'EUR',
+          status: SettleoraSettlementRequestStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _creditorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('settlement-list-search')),
+      'eur',
+    );
+    await scrollFilterChipsBy(tester, -520);
+    await tester.tap(find.byKey(const Key('settlement-list-filter-confirmed')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('10.00 USD'), findsNothing);
+    expect(find.text('25.00 EUR'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settlement-list-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('10.00 USD'), findsOneWidget);
+    expect(find.text('25.00 EUR'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('settlement-list-search')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
+  testWidgets('settlement list shows compact empty state for no matches', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(requests: [sampleRequest()]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _creditorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('settlement-list-search')),
+      'not-a-visible-settlement',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching settlements'), findsOneWidget);
+    expect(
+      find.text('No settlements match this search and filter.'),
+      findsOneWidget,
+    );
+    expect(find.text('No settlement requests'), findsNothing);
+  });
+
+  testWidgets('settlement list search controller is disposed safely', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(requests: [sampleRequest()]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _creditorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('settlement-list-search')),
+      'usd',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('debtor marks requested settlement paid after confirmation', (
@@ -357,6 +557,11 @@ void main() {
     expect(find.text('Sign in required'), findsOneWidget);
     expect(find.text('Sign in before loading settlements.'), findsOneWidget);
     expect(find.textContaining(_settlementId), findsNothing);
+    expect(find.byKey(const Key('settlement-list-search')), findsNothing);
+    expect(
+      find.byKey(const Key('settlement-list-clear-filters')),
+      findsNothing,
+    );
   });
 }
 
@@ -581,8 +786,21 @@ Future<void> scrollTo(WidgetTester tester, Finder finder) async {
   await tester.scrollUntilVisible(
     finder,
     320,
-    scrollable: find.byType(Scrollable),
+    scrollable: find.byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    ),
   );
+  await tester.pumpAndSettle();
+}
+
+Future<void> scrollListBy(WidgetTester tester, double dy) async {
+  await tester.drag(find.byType(ListView), Offset(0, dy));
+  await tester.pumpAndSettle();
+}
+
+Future<void> scrollFilterChipsBy(WidgetTester tester, double dx) async {
+  await tester.drag(find.byType(SingleChildScrollView), Offset(dx, 0));
   await tester.pumpAndSettle();
 }
 
@@ -607,31 +825,41 @@ SettleoraSettlementBalance sampleBalance() {
 }
 
 SettleoraSettlementRequest sampleRequest({
+  String id = _settlementId,
+  String sourceExpenseBillId = _billId,
+  String? groupId,
+  String debtorUserProfileId = _debtorUserProfileId,
+  String creditorUserProfileId = _creditorUserProfileId,
+  String amount = '10.00',
+  String currency = 'USD',
   String status = SettleoraSettlementRequestStatusValues.requested,
+  String requestedByUserProfileId = _creditorUserProfileId,
+  String lineStatus = 'open',
+  String? sourceCandidateKey = 'candidate-key',
 }) {
   return SettleoraSettlementRequest(
-    id: _settlementId,
-    sourceExpenseBillId: _billId,
-    groupId: null,
-    debtorUserProfileId: _debtorUserProfileId,
-    creditorUserProfileId: _creditorUserProfileId,
-    amount: '10.00',
-    currency: 'USD',
+    id: id,
+    sourceExpenseBillId: sourceExpenseBillId,
+    groupId: groupId,
+    debtorUserProfileId: debtorUserProfileId,
+    creditorUserProfileId: creditorUserProfileId,
+    amount: amount,
+    currency: currency,
     status: status,
-    requestedByUserProfileId: _creditorUserProfileId,
+    requestedByUserProfileId: requestedByUserProfileId,
     requestedAtUtc: _requestedAtUtc,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
     lines: [
       SettleoraSettlementRequestLine(
         id: _lineId,
-        sourceExpenseBillId: _billId,
+        sourceExpenseBillId: sourceExpenseBillId,
         sourceBillRevisionId: null,
-        sourceCandidateKey: 'candidate-key',
-        exactAmount: '10.00',
-        currency: 'USD',
+        sourceCandidateKey: sourceCandidateKey,
+        exactAmount: amount,
+        currency: currency,
         allocationOrder: 0,
-        status: 'open',
+        status: lineStatus,
         createdAtUtc: _createdAtUtc,
         updatedAtUtc: _updatedAtUtc,
       ),
@@ -701,6 +929,8 @@ SettleoraSettlementCounterpartyPaymentDetails samplePaymentDetails() {
 }
 
 const _settlementId = '11111111-1111-1111-1111-111111111111';
+const _secondSettlementId = '11111111-1111-1111-1111-111111111112';
+const _thirdSettlementId = '11111111-1111-1111-1111-111111111113';
 const _paymentId = '22222222-2222-2222-2222-222222222222';
 const _residualId = '33333333-3333-3333-3333-333333333333';
 const _billId = '44444444-4444-4444-4444-444444444444';
