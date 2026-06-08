@@ -446,6 +446,66 @@ void main() {
     },
   );
 
+  testWidgets('group bill search combines with chips and clears together', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(groupBills: filteredBillSummaries());
+    final groupRepository = FakeGroupRepository(
+      members: [
+        sampleMember(displayName: 'Taylor'),
+        sampleMember(userProfileId: _otherProfileId, displayName: 'Morgan'),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: groupRepository,
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('group-bill-list-search')), findsOneWidget);
+    expect(find.text('Needs Current'), findsOneWidget);
+    expect(find.text('Pending Other'), findsOneWidget);
+    expect(find.text('Accepted Current'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-list-search')),
+      'Morgan',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Needs Current'), findsOneWidget);
+    expect(find.text('Pending Other'), findsOneWidget);
+    expect(find.text('Rejected Other'), findsOneWidget);
+    expect(find.text('Accepted Current'), findsNothing);
+
+    await _selectGroupBillFilter(
+      tester,
+      const ValueKey('group-bill-filter-youRejected'),
+    );
+
+    expect(find.text('No matching group bills'), findsOneWidget);
+    expect(
+      find.text('No group bills match this search and filter.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Needs Current'), findsOneWidget);
+    expect(find.text('Accepted Current'), findsOneWidget);
+    expect(find.text('No matching group bills'), findsNothing);
+  });
+
   testWidgets(
     'needs your response filter shows only current user pending bills',
     (tester) async {
