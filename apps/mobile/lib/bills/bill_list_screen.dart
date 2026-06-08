@@ -44,6 +44,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   String? _busyBillId;
   List<SettleoraBillSummary> _bills = const [];
   _PersonalBillListFilter _selectedFilter = _PersonalBillListFilter.all;
+  _SyncQueueFilter _selectedSyncQueueFilter = _SyncQueueFilter.all;
   SettleoraBillFailure? _failure;
   SettleoraBillSyncSnapshot? _syncSnapshot;
   String? _syncNotice;
@@ -302,7 +303,13 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                     _SyncStatusPanel(
                       snapshot: snapshot,
                       isSyncing: _isSyncing,
+                      selectedFilter: _selectedSyncQueueFilter,
                       onSync: () => _flushQueue(),
+                      onFilterSelected: (filter) {
+                        setState(() {
+                          _selectedSyncQueueFilter = filter;
+                        });
+                      },
                     ),
                   if (syncNotice != null) ...[
                     const SizedBox(height: 10),
@@ -5139,50 +5146,272 @@ class _SyncStatusPanel extends StatelessWidget {
   const _SyncStatusPanel({
     required this.snapshot,
     required this.isSyncing,
+    required this.selectedFilter,
     required this.onSync,
+    required this.onFilterSelected,
   });
 
   final SettleoraBillSyncSnapshot snapshot;
   final bool isSyncing;
+  final _SyncQueueFilter selectedFilter;
   final VoidCallback onSync;
+  final ValueChanged<_SyncQueueFilter> onFilterSelected;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      key: const Key('bill-sync-status-panel'),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(
-              snapshot.conflictCount > 0
-                  ? Icons.sync_problem_outlined
-                  : Icons.sync_outlined,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  snapshot.conflictCount > 0
+                      ? Icons.sync_problem_outlined
+                      : Icons.sync_outlined,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sync queue',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${snapshot.queuedCount + snapshot.syncingCount} pending, ${snapshot.failedCount} retry later, ${snapshot.conflictCount} needs review, ${snapshot.syncedCount} synced',
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton.icon(
+                  key: const Key('bill-sync-panel-sync'),
+                  onPressed: isSyncing ? null : onSync,
+                  icon: isSyncing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_outlined),
+                  label: const Text('Sync'),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Queue: ${snapshot.queuedCount} queued, ${snapshot.failedCount} failed, ${snapshot.conflictCount} needs review, ${snapshot.syncedCount} synced',
+            if (snapshot.hasAnyItems) ...[
+              const SizedBox(height: 12),
+              _SyncQueueDetailsSection(
+                snapshot: snapshot,
+                selectedFilter: selectedFilter,
+                onFilterSelected: onFilterSelected,
               ),
-            ),
-            TextButton.icon(
-              onPressed: isSyncing ? null : onSync,
-              icon: isSyncing
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.sync_outlined),
-              label: const Text('Sync'),
-            ),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+enum _SyncQueueFilter { all, pending, failed, conflict, synced }
+
+extension _SyncQueueFilterText on _SyncQueueFilter {
+  String get label {
+    return switch (this) {
+      _SyncQueueFilter.all => 'All',
+      _SyncQueueFilter.pending => 'Pending',
+      _SyncQueueFilter.failed => 'Failed',
+      _SyncQueueFilter.conflict => 'Needs review',
+      _SyncQueueFilter.synced => 'Synced',
+    };
+  }
+
+  String labelWithCount(Iterable<SettleoraSyncQueueItem> items) {
+    final count = items.where(matches).length;
+    return '$label ($count)';
+  }
+
+  bool matches(SettleoraSyncQueueItem item) {
+    return switch (this) {
+      _SyncQueueFilter.all => true,
+      _SyncQueueFilter.pending =>
+        item.state == SettleoraSyncQueueItemStateValues.queued ||
+            item.state == SettleoraSyncQueueItemStateValues.syncing,
+      _SyncQueueFilter.failed =>
+        item.state == SettleoraSyncQueueItemStateValues.failed,
+      _SyncQueueFilter.conflict =>
+        item.state == SettleoraSyncQueueItemStateValues.conflict,
+      _SyncQueueFilter.synced =>
+        item.state == SettleoraSyncQueueItemStateValues.synced,
+    };
+  }
+}
+
+class _SyncQueueDetailsSection extends StatelessWidget {
+  const _SyncQueueDetailsSection({
+    required this.snapshot,
+    required this.selectedFilter,
+    required this.onFilterSelected,
+  });
+
+  static const int _maxVisibleItems = 8;
+
+  final SettleoraBillSyncSnapshot snapshot;
+  final _SyncQueueFilter selectedFilter;
+  final ValueChanged<_SyncQueueFilter> onFilterSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [...snapshot.items]
+      ..sort((left, right) {
+        final updatedCompare = right.updatedAtUtc.compareTo(left.updatedAtUtc);
+        if (updatedCompare != 0) {
+          return updatedCompare;
+        }
+
+        return right.createdAtUtc.compareTo(left.createdAtUtc);
+      });
+    final filteredItems = items
+        .where(selectedFilter.matches)
+        .take(_maxVisibleItems)
+        .toList(growable: false);
+    final matchingCount = items.where(selectedFilter.matches).length;
+
+    return Column(
+      key: const Key('bill-sync-queue-details'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final filter in _SyncQueueFilter.values)
+              ChoiceChip(
+                key: ValueKey('bill-sync-filter-${filter.name}'),
+                selected: selectedFilter == filter,
+                label: Text(filter.labelWithCount(items)),
+                onSelected: (_) => onFilterSelected(filter),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (filteredItems.isEmpty)
+          Text('No ${selectedFilter.label.toLowerCase()} queue items.')
+        else
+          for (var index = 0; index < filteredItems.length; index += 1) ...[
+            if (index > 0) const SizedBox(height: 8),
+            _SyncQueueItemTile(item: filteredItems[index]),
+          ],
+        if (matchingCount > filteredItems.length) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Showing ${filteredItems.length} of $matchingCount queue items.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SyncQueueItemTile extends StatelessWidget {
+  const _SyncQueueItemTile({required this.item});
+
+  final SettleoraSyncQueueItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeMessage = item.safeMessage?.trim();
+    final safeErrorCode = item.safeErrorCode?.trim();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(_syncIcon(item.state), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Bill action',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                _SoftChip(
+                  label: settleoraBillSyncStateLabel(item),
+                  icon: _syncIcon(item.state),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _SoftChip(
+                  label: settleoraBillSyncOperationLabel(item),
+                  icon: Icons.receipt_long_outlined,
+                ),
+                _SoftChip(
+                  label: _syncAttemptLabel(item.attemptCount),
+                  icon: Icons.repeat_outlined,
+                ),
+                if (item.lastAttemptAtUtc != null)
+                  _SoftChip(
+                    label:
+                        'Last attempt ${_formatUtcMinute(item.lastAttemptAtUtc!)}',
+                    icon: Icons.schedule_outlined,
+                  ),
+              ],
+            ),
+            if (safeErrorCode != null && safeErrorCode.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Error code: $safeErrorCode'),
+            ],
+            if (safeMessage != null && safeMessage.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(safeMessage),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _syncAttemptLabel(int attemptCount) {
+  if (attemptCount == 1) {
+    return '1 attempt';
+  }
+
+  return '$attemptCount attempts';
+}
+
+String _formatUtcMinute(DateTime value) {
+  final utc = value.toUtc();
+  return '${utc.year.toString().padLeft(4, '0')}-'
+      '${utc.month.toString().padLeft(2, '0')}-'
+      '${utc.day.toString().padLeft(2, '0')} '
+      '${utc.hour.toString().padLeft(2, '0')}:'
+      '${utc.minute.toString().padLeft(2, '0')} UTC';
 }
 
 class _SyncNotice extends StatelessWidget {

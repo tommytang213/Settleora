@@ -1437,6 +1437,104 @@ void main() {
     expect(store.state.items.single.attemptCount, 0);
   });
 
+  testWidgets('bill list shows safe sync queue details and filters', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final queuedItem = sampleArchiveQueueItem();
+    final conflictItem =
+        SettleoraSyncQueueItem.billRestore(
+          resourceId: 'hidden-bill-id-2',
+          now: _createdAtUtc.add(const Duration(minutes: 1)),
+          idGenerator: () => 'queue-conflict',
+        ).copyWith(
+          state: SettleoraSyncQueueItemStateValues.conflict,
+          updatedAtUtc: _attemptedAtUtc.add(const Duration(minutes: 2)),
+          lastAttemptAtUtc: _attemptedAtUtc.add(const Duration(minutes: 2)),
+          attemptCount: 2,
+          safeErrorCode: 'version_conflict',
+          safeMessage: 'This change needs review.',
+        );
+    final syncedItem =
+        SettleoraSyncQueueItem.billArchive(
+          resourceId: 'hidden-bill-id-3',
+          now: _createdAtUtc.add(const Duration(minutes: 2)),
+          idGenerator: () => 'queue-synced',
+        ).copyWith(
+          state: SettleoraSyncQueueItemStateValues.synced,
+          updatedAtUtc: _attemptedAtUtc.add(const Duration(minutes: 3)),
+          lastAttemptAtUtc: _attemptedAtUtc.add(const Duration(minutes: 3)),
+          attemptCount: 1,
+        );
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [queuedItem, conflictItem, syncedItem],
+      ),
+    );
+    final syncRepository = FakeSyncRepository([
+      const SettleoraSyncFailure(
+        kind: SettleoraSyncFailureKind.retryable,
+        message: 'Server unavailable. Try again later.',
+        safeErrorCode: 'server_unavailable',
+      ),
+    ]);
+    final controller = SettleoraBillSyncController(
+      queueStore: store,
+      queueProcessor: SettleoraSyncQueueProcessor(
+        queueStore: store,
+        repository: syncRepository,
+        now: () => _attemptedAtUtc,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(bills: [sampleBillSummary()]),
+          syncController: controller,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-sync-status-panel')), findsOneWidget);
+    expect(
+      find.text('0 pending, 1 retry later, 1 needs review, 1 synced'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('bill-sync-queue-details')), findsOneWidget);
+    expect(find.text('All (3)'), findsOneWidget);
+    expect(find.text('Pending (0)'), findsOneWidget);
+    expect(find.text('Failed (1)'), findsOneWidget);
+    expect(find.text('Needs review (1)'), findsOneWidget);
+    expect(find.text('Synced (1)'), findsOneWidget);
+    expect(find.text('Bill action'), findsNWidgets(3));
+    expect(find.text('Archive'), findsNWidgets(2));
+    expect(find.text('Restore'), findsOneWidget);
+    expect(find.text('Retry later'), findsOneWidget);
+    expect(find.text('Error code: server_unavailable'), findsOneWidget);
+    expect(find.text('Server unavailable. Try again later.'), findsWidgets);
+    expect(find.text('Error code: version_conflict'), findsOneWidget);
+    expect(find.text('This change needs review.'), findsOneWidget);
+    expect(find.text('Last attempt 2026-05-17 11:00 UTC'), findsOneWidget);
+    expect(find.text(_billId), findsNothing);
+    expect(find.text('hidden-bill-id-2'), findsNothing);
+    expect(find.text('queue-1'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('bill-sync-filter-failed')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bill action'), findsOneWidget);
+    expect(find.text('Retry later'), findsOneWidget);
+    expect(find.text('Error code: version_conflict'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('bill-sync-filter-pending')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No pending queue items.'), findsOneWidget);
+    expect(find.text('Bill action'), findsNothing);
+  });
+
   testWidgets('bill detail opens from active bill summaries', (tester) async {
     final controller = SettleoraBillSyncController(
       queueStore: MemorySyncQueueStore(),
