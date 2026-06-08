@@ -3098,9 +3098,16 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            _MemberDropdownField(
+            _MemberPickerField(
               key: ValueKey('group-bill-split-member-$itemIndex-$splitIndex'),
               label: 'Member',
+              pickerTitle: 'Choose split member',
+              searchKey: ValueKey(
+                'group-bill-split-member-search-$itemIndex-$splitIndex',
+              ),
+              clearSearchKey: ValueKey(
+                'group-bill-split-member-clear-search-$itemIndex-$splitIndex',
+              ),
               members: members,
               value: controllers.userProfileId,
               enabled: !isSaving,
@@ -3201,9 +3208,14 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            _MemberDropdownField(
+            _MemberPickerField(
               key: ValueKey('group-bill-payer-member-$index'),
               label: 'Member',
+              pickerTitle: 'Choose payer member',
+              searchKey: ValueKey('group-bill-payer-member-search-$index'),
+              clearSearchKey: ValueKey(
+                'group-bill-payer-member-clear-search-$index',
+              ),
               members: members,
               value: controllers.userProfileId,
               enabled: !isSaving,
@@ -3260,10 +3272,13 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
   }
 }
 
-class _MemberDropdownField extends StatelessWidget {
-  const _MemberDropdownField({
+class _MemberPickerField extends StatelessWidget {
+  const _MemberPickerField({
     super.key,
     required this.label,
+    required this.pickerTitle,
+    required this.searchKey,
+    required this.clearSearchKey,
     required this.members,
     required this.value,
     required this.enabled,
@@ -3272,6 +3287,9 @@ class _MemberDropdownField extends StatelessWidget {
   });
 
   final String label;
+  final String pickerTitle;
+  final Key searchKey;
+  final Key clearSearchKey;
   final List<SettleoraGroupMember> members;
   final String? value;
   final bool enabled;
@@ -3280,31 +3298,281 @@ class _MemberDropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
+    return FormField<String>(
       initialValue: value,
-      isExpanded: true,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
-      items: [
-        for (final member in members)
-          DropdownMenuItem<String>(
-            value: member.userProfileId,
-            child: Text(member.safeDisplayName),
-          ),
-      ],
-      onChanged: enabled ? onChanged : null,
-      validator: (value) {
-        final trimmed = value?.trim();
+      validator: (fieldValue) {
+        final trimmed = fieldValue?.trim();
         if (trimmed == null || trimmed.isEmpty) {
           return requiredMessage;
         }
 
         return null;
       },
+      builder: (field) {
+        final selectedMember = _memberForValue(members, field.value);
+        final selectedText = selectedMember?.safeDisplayName;
+        final helperText = members.isEmpty
+            ? 'No active group members loaded.'
+            : 'Showing ${members.length} of ${members.length} members';
+
+        return InkWell(
+          onTap: enabled
+              ? () async {
+                  final selected = await showModalBottomSheet<String>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (context) => _MemberPickerSheet(
+                      title: pickerTitle,
+                      members: members,
+                      selectedValue: field.value,
+                      searchKey: searchKey,
+                      clearSearchKey: clearSearchKey,
+                    ),
+                  );
+                  if (selected == null) {
+                    return;
+                  }
+
+                  field.didChange(selected);
+                  onChanged(selected);
+                }
+              : null,
+          borderRadius: BorderRadius.circular(4),
+          child: InputDecorator(
+            isEmpty: selectedText == null,
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+              enabled: enabled,
+              errorText: field.errorText,
+              helperText: helperText,
+              suffixIcon: const Icon(Icons.expand_more),
+            ),
+            child: Text(
+              selectedText ?? 'Choose member',
+              style: selectedText == null
+                  ? TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    )
+                  : null,
+            ),
+          ),
+        );
+      },
     );
   }
+}
+
+class _MemberPickerSheet extends StatefulWidget {
+  const _MemberPickerSheet({
+    required this.title,
+    required this.members,
+    required this.selectedValue,
+    required this.searchKey,
+    required this.clearSearchKey,
+  });
+
+  final String title;
+  final List<SettleoraGroupMember> members;
+  final String? selectedValue;
+  final Key searchKey;
+  final Key clearSearchKey;
+
+  @override
+  State<_MemberPickerSheet> createState() => _MemberPickerSheetState();
+}
+
+class _MemberPickerSheetState extends State<_MemberPickerSheet> {
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _query = '';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.trim().toLowerCase();
+    final filteredMembers = [
+      for (final member in widget.members)
+        if (query.isEmpty || _memberMatchesQuery(member, query)) member,
+    ];
+    final hasSearch = query.isNotEmpty;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.82,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: widget.searchKey,
+                controller: _searchController,
+                enabled: widget.members.isNotEmpty,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  labelText: 'Search members',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: hasSearch
+                      ? IconButton(
+                          key: widget.clearSearchKey,
+                          tooltip: 'Clear search',
+                          onPressed: _clearSearch,
+                          icon: const Icon(Icons.clear),
+                        )
+                      : null,
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _query = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Showing ${filteredMembers.length} of ${widget.members.length} members',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (widget.members.isEmpty)
+                const _MemberPickerEmptyState(
+                  title: 'No active members',
+                  body: 'No active group members are loaded for this bill.',
+                )
+              else if (filteredMembers.isEmpty)
+                const _MemberPickerEmptyState(
+                  title: 'No matching members',
+                  body: 'No loaded active members match this search.',
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: filteredMembers.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final member = filteredMembers[index];
+                      final isSelected =
+                          member.userProfileId == widget.selectedValue;
+                      return ListTile(
+                        key: ValueKey(
+                          'group-bill-member-picker-${member.userProfileId}',
+                        ),
+                        title: Text(member.safeDisplayName),
+                        subtitle: Text(
+                          '${settleoraGroupRoleLabel(member.role)} - '
+                          '${settleoraGroupMembershipStatusLabel(member.status)}',
+                        ),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle)
+                            : null,
+                        onTap: () =>
+                            Navigator.of(context).pop(member.userProfileId),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberPickerEmptyState extends StatelessWidget {
+  const _MemberPickerEmptyState({required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          Icon(
+            Icons.group_off_outlined,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 8),
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+SettleoraGroupMember? _memberForValue(
+  List<SettleoraGroupMember> members,
+  String? value,
+) {
+  if (value == null) {
+    return null;
+  }
+
+  for (final member in members) {
+    if (member.userProfileId == value) {
+      return member;
+    }
+  }
+
+  return null;
+}
+
+bool _memberMatchesQuery(SettleoraGroupMember member, String query) {
+  return member.safeDisplayName.toLowerCase().contains(query) ||
+      settleoraGroupRoleLabel(member.role).toLowerCase().contains(query) ||
+      settleoraGroupMembershipStatusLabel(
+        member.status,
+      ).toLowerCase().contains(query);
 }
 
 class _GroupMemberFailurePanel extends StatelessWidget {
