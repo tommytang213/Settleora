@@ -380,6 +380,7 @@ void main() {
   testWidgets(
     'personal bill notifications show open bill action and navigate',
     (tester) async {
+      await useLargeSurface(tester);
       final billRepository = FakeBillRepository(
         detail: sampleBillDetail(displayNameFallback: 'Personal bill'),
       );
@@ -2388,6 +2389,11 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Future<void> useLargeSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(900, 1600));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
 const _notificationId = '11111111-1111-1111-1111-111111111111';

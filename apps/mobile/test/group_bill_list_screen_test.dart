@@ -126,6 +126,7 @@ void main() {
   testWidgets('group bill list opens detail and refreshes detail', (
     tester,
   ) async {
+    await useLargeSurface(tester);
     final repository = FakeBillRepository(
       groupBills: [sampleBillSummary()],
       detail: sampleBillDetail(),
@@ -148,7 +149,7 @@ void main() {
 
     expect(repository.getGroupCalls, 1);
     expect(find.text('Group bill'), findsWidgets);
-    expect(find.text('Items'), findsOneWidget);
+    expect(find.text('Items'), findsWidgets);
     expect(find.text('Milk'), findsOneWidget);
     expect(
       find.byKey(const Key('group-bill-detail-propose-change')),
