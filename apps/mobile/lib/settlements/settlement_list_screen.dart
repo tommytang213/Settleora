@@ -2340,12 +2340,6 @@ String _requestSearchText({
   final isIncoming = request.isCreditor(currentUserProfileId);
   final isOutgoing = request.isDebtor(currentUserProfileId);
   final tokens = <String>[
-    request.id,
-    request.sourceExpenseBillId,
-    if (_hasText(request.groupId)) request.groupId!.trim(),
-    request.debtorUserProfileId,
-    request.creditorUserProfileId,
-    request.requestedByUserProfileId,
     request.amount,
     request.currency,
     _money(request.amount, request.currency),
@@ -2353,22 +2347,27 @@ String _requestSearchText({
     settleoraSettlementRequestStatusLabel(request.status),
     if (isIncoming) ...['incoming', 'receive', 'creditor'],
     if (isOutgoing) ...['outgoing', 'pay', 'debtor'],
-    for (final line in request.lines) ...[
-      line.id,
-      line.sourceExpenseBillId,
-      if (_hasText(line.sourceBillRevisionId))
-        line.sourceBillRevisionId!.trim(),
-      if (_hasText(line.sourceCandidateKey)) line.sourceCandidateKey!.trim(),
-      line.exactAmount,
-      line.currency,
-      _money(line.exactAmount, line.currency),
-      line.status,
-      settleoraSettlementRequestLineStatusLabel(line.status),
-      line.allocationOrder.toString(),
-    ],
+    '${request.lines.length} ${request.lines.length == 1 ? 'line' : 'lines'}',
+    for (final (index, line) in request.lines.indexed)
+      ..._requestLineSearchTokens(line, index),
   ];
 
   return tokens.join(' ').toLowerCase();
+}
+
+List<String> _requestLineSearchTokens(
+  SettleoraSettlementRequestLine line,
+  int index,
+) {
+  final displayOrder = index + 1;
+  return [
+    line.exactAmount,
+    line.currency,
+    _money(line.exactAmount, line.currency),
+    line.status,
+    settleoraSettlementRequestLineStatusLabel(line.status),
+    'line $displayOrder',
+  ];
 }
 
 List<String> _searchTerms(String query) {
