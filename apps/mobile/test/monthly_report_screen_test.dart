@@ -49,8 +49,22 @@ void main() {
     expect(find.text('3'), findsOneWidget);
     expect(find.text('Total by currency'), findsOneWidget);
     expect(find.text('123.4500 USD'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Your share by currency'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
     expect(find.text('Your share by currency'), findsOneWidget);
     expect(find.text('41.1500 USD'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('You paid by currency'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
     expect(find.text('You paid by currency'), findsOneWidget);
     expect(find.text('90.00 USD'), findsOneWidget);
 
@@ -111,6 +125,215 @@ void main() {
     );
 
     expect(find.text('Unreconciled: 0'), findsOneWidget);
+  });
+
+  testWidgets('monthly report search filters loaded aggregate rows', (
+    tester,
+  ) async {
+    final repository = FakeMonthlyReportRepository(
+      report: sampleReport(
+        totalByCurrency: const [
+          SettleoraMonthlyReportCurrencyTotal(
+            currency: 'USD',
+            amount: '123.4500',
+          ),
+          SettleoraMonthlyReportCurrencyTotal(currency: 'EUR', amount: '50.00'),
+        ],
+        actorShareByCurrency: const [
+          SettleoraMonthlyReportCurrencyTotal(
+            currency: 'USD',
+            amount: '41.1500',
+          ),
+        ],
+        actorPaidByCurrency: const [
+          SettleoraMonthlyReportCurrencyTotal(currency: 'JPY', amount: '9000'),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('monthly-report-search')),
+      'eur',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 matching report rows'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('50.00 EUR'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('50.00 EUR'), findsOneWidget);
+    expect(find.text('123.4500 USD'), findsNothing);
+    expect(find.text('9000 JPY'), findsNothing);
+    expect(find.text('Bills'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('monthly report section chips filter loaded report buckets', (
+    tester,
+  ) async {
+    final repository = FakeMonthlyReportRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('monthly-report-filter-requests')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 matching report rows'), findsOneWidget);
+    expect(find.text('123.4500 USD'), findsNothing);
+    expect(find.text('Unreconciled: 1'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.text('Partially paid: 1'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Partially paid: 1'), findsOneWidget);
+  });
+
+  testWidgets('monthly report combines search and filters safely', (
+    tester,
+  ) async {
+    final repository = FakeMonthlyReportRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('monthly-report-filter-reconciliation')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('monthly-report-search')),
+      'future',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 matching report rows'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Future Status: 2'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Future Status: 2'), findsOneWidget);
+    expect(find.text('Partially paid: 1'), findsNothing);
+  });
+
+  testWidgets('monthly report clear control resets discovery state', (
+    tester,
+  ) async {
+    final repository = FakeMonthlyReportRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('monthly-report-filter-payments')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('monthly-report-search')),
+      'confirmed',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 matching report rows'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('monthly-report-clear-discovery')));
+    await tester.pumpAndSettle();
+
+    final searchField = tester.widget<TextField>(
+      find.byKey(const Key('monthly-report-search')),
+    );
+    expect(searchField.controller?.text, isEmpty);
+    expect(
+      find.byKey(const Key('monthly-report-clear-discovery')),
+      findsNothing,
+    );
+    expect(find.text('123.4500 USD'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Unreconciled: 1'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Unreconciled: 1'), findsOneWidget);
+  });
+
+  testWidgets('monthly report distinguishes filtered empty from true empty', (
+    tester,
+  ) async {
+    final repository = FakeMonthlyReportRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No monthly report activity'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('monthly-report-search')),
+      'does-not-match-report',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('No matching report rows'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('No matching report rows'), findsOneWidget);
+    expect(find.text('No monthly report activity'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('monthly-report-clear-discovery')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching report rows'), findsNothing);
+    expect(find.text('123.4500 USD'), findsOneWidget);
   });
 
   testWidgets('monthly report screen navigates previous and next months', (

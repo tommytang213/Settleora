@@ -27,7 +27,11 @@ class SettleoraMonthlyReportScreen extends StatefulWidget {
 
 class _SettleoraMonthlyReportScreenState
     extends State<SettleoraMonthlyReportScreen> {
+  final _searchController = TextEditingController();
   late String _month;
+  String _searchQuery = '';
+  _MonthlyReportDiscoveryFilter _discoveryFilter =
+      _MonthlyReportDiscoveryFilter.all;
   bool _isLoading = true;
   SettleoraMonthlyReport? _report;
   SettleoraMonthlyReportFailure? _failure;
@@ -35,8 +39,54 @@ class _SettleoraMonthlyReportScreenState
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_handleSearchChanged);
     _month = _initialMonth();
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_handleSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    final query = _searchController.text.trim();
+    if (query == _searchQuery) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = query;
+    });
+  }
+
+  void _selectDiscoveryFilter(_MonthlyReportDiscoveryFilter filter) {
+    if (filter == _discoveryFilter) {
+      return;
+    }
+
+    setState(() {
+      _discoveryFilter = filter;
+    });
+  }
+
+  void _clearDiscovery() {
+    if (!_hasActiveDiscovery) {
+      return;
+    }
+
+    setState(() {
+      _discoveryFilter = _MonthlyReportDiscoveryFilter.all;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+  }
+
+  bool get _hasActiveDiscovery {
+    return _searchQuery.isNotEmpty ||
+        _discoveryFilter != _MonthlyReportDiscoveryFilter.all;
   }
 
   String _initialMonth() {
@@ -151,6 +201,12 @@ class _SettleoraMonthlyReportScreenState
               );
             }
 
+            final discovery = _MonthlyReportDiscoveryState.from(
+              report: report,
+              searchQuery: _searchQuery,
+              filter: _discoveryFilter,
+            );
+
             return RefreshIndicator(
               onRefresh: () => _load(showBlockingLoading: false),
               child: ListView(
@@ -174,45 +230,64 @@ class _SettleoraMonthlyReportScreenState
                     const SizedBox(height: 14),
                     const _ZeroStatePanel(),
                   ],
+                  if (report.hasReportActivity) ...[
+                    const SizedBox(height: 14),
+                    _DiscoveryPanel(
+                      searchController: _searchController,
+                      selectedFilter: _discoveryFilter,
+                      counts: _MonthlyReportDiscoveryFilterCounts.from(report),
+                      hasActiveDiscovery: _hasActiveDiscovery,
+                      onFilterSelected: _selectDiscoveryFilter,
+                      onClear: _clearDiscovery,
+                    ),
+                    if (_hasActiveDiscovery) ...[
+                      const SizedBox(height: 10),
+                      _FilteredSummaryPanel(discovery: discovery),
+                    ],
+                  ],
+                  if (discovery.isFilteredEmpty) ...[
+                    const SizedBox(height: 14),
+                    const _FilteredEmptyPanel(),
+                  ],
                   const SizedBox(height: 18),
                   _CurrencySection(
                     title: 'Total by currency',
                     emptyLabel: 'No totals',
-                    rows: report.totalByCurrency,
+                    rows: discovery.totalByCurrency,
                     keyPrefix: 'monthly-report-total',
                   ),
                   const SizedBox(height: 18),
                   _CurrencySection(
                     title: 'Your share by currency',
                     emptyLabel: 'No share totals',
-                    rows: report.actorShareByCurrency,
+                    rows: discovery.actorShareByCurrency,
                     keyPrefix: 'monthly-report-actor-share',
                   ),
                   const SizedBox(height: 18),
                   _CurrencySection(
                     title: 'You paid by currency',
                     emptyLabel: 'No paid totals',
-                    rows: report.actorPaidByCurrency,
+                    rows: discovery.actorPaidByCurrency,
                     keyPrefix: 'monthly-report-actor-paid',
                   ),
                   const SizedBox(height: 18),
                   _StatusSection(
                     title: 'Reconciliation',
-                    rows: report.reconciliationCounts,
+                    rows: discovery.reconciliationCounts,
                     keyPrefix: 'monthly-report-reconciliation',
                     labelBuilder: settleoraReportReconciliationStatusLabel,
                   ),
                   const SizedBox(height: 18),
                   _StatusSection(
                     title: 'Settlement requests',
-                    rows: report.settlementRequestCounts,
+                    rows: discovery.settlementRequestCounts,
                     keyPrefix: 'monthly-report-settlement-request',
                     labelBuilder: settleoraReportSettlementRequestStatusLabel,
                   ),
                   const SizedBox(height: 18),
                   _StatusSection(
                     title: 'Settlement payments',
-                    rows: report.settlementPaymentCounts,
+                    rows: discovery.settlementPaymentCounts,
                     keyPrefix: 'monthly-report-settlement-payment',
                     labelBuilder: settleoraReportSettlementPaymentStatusLabel,
                   ),
@@ -307,6 +382,267 @@ class _SummaryPanel extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+enum _MonthlyReportDiscoveryFilter {
+  all(label: 'All'),
+  currency(label: 'Currency totals'),
+  reconciliation(label: 'Reconciliation'),
+  settlementRequests(label: 'Requests'),
+  settlementPayments(label: 'Payments');
+
+  const _MonthlyReportDiscoveryFilter({required this.label});
+
+  final String label;
+
+  String get keySuffix {
+    return switch (this) {
+      _MonthlyReportDiscoveryFilter.all => 'all',
+      _MonthlyReportDiscoveryFilter.currency => 'currency',
+      _MonthlyReportDiscoveryFilter.reconciliation => 'reconciliation',
+      _MonthlyReportDiscoveryFilter.settlementRequests => 'requests',
+      _MonthlyReportDiscoveryFilter.settlementPayments => 'payments',
+    };
+  }
+}
+
+class _MonthlyReportDiscoveryFilterCounts {
+  const _MonthlyReportDiscoveryFilterCounts(this._counts);
+
+  factory _MonthlyReportDiscoveryFilterCounts.from(
+    SettleoraMonthlyReport report,
+  ) {
+    final currencyCount =
+        report.totalByCurrency.length +
+        report.actorShareByCurrency.length +
+        report.actorPaidByCurrency.length;
+    return _MonthlyReportDiscoveryFilterCounts({
+      _MonthlyReportDiscoveryFilter.all:
+          currencyCount +
+          report.reconciliationCounts.length +
+          report.settlementRequestCounts.length +
+          report.settlementPaymentCounts.length,
+      _MonthlyReportDiscoveryFilter.currency: currencyCount,
+      _MonthlyReportDiscoveryFilter.reconciliation:
+          report.reconciliationCounts.length,
+      _MonthlyReportDiscoveryFilter.settlementRequests:
+          report.settlementRequestCounts.length,
+      _MonthlyReportDiscoveryFilter.settlementPayments:
+          report.settlementPaymentCounts.length,
+    });
+  }
+
+  final Map<_MonthlyReportDiscoveryFilter, int> _counts;
+
+  int count(_MonthlyReportDiscoveryFilter filter) => _counts[filter] ?? 0;
+}
+
+class _MonthlyReportDiscoveryState {
+  const _MonthlyReportDiscoveryState({
+    required this.totalByCurrency,
+    required this.actorShareByCurrency,
+    required this.actorPaidByCurrency,
+    required this.reconciliationCounts,
+    required this.settlementRequestCounts,
+    required this.settlementPaymentCounts,
+    required this.hasActiveDiscovery,
+  });
+
+  factory _MonthlyReportDiscoveryState.from({
+    required SettleoraMonthlyReport report,
+    required String searchQuery,
+    required _MonthlyReportDiscoveryFilter filter,
+  }) {
+    final query = _normalizeDiscoveryText(searchQuery);
+    final hasSearch = query.isNotEmpty;
+    final hasActiveDiscovery =
+        hasSearch || filter != _MonthlyReportDiscoveryFilter.all;
+
+    List<SettleoraMonthlyReportCurrencyTotal> currencyRows(
+      List<SettleoraMonthlyReportCurrencyTotal> rows,
+      String section,
+    ) {
+      if (filter != _MonthlyReportDiscoveryFilter.all &&
+          filter != _MonthlyReportDiscoveryFilter.currency) {
+        return const [];
+      }
+
+      if (!hasSearch) {
+        return rows;
+      }
+
+      return rows
+          .where((row) {
+            return _normalizeDiscoveryText(
+              '$section ${row.currency} ${row.amount}',
+            ).contains(query);
+          })
+          .toList(growable: false);
+    }
+
+    List<SettleoraMonthlyReportStatusCount> statusRows(
+      List<SettleoraMonthlyReportStatusCount> rows, {
+      required _MonthlyReportDiscoveryFilter sectionFilter,
+      required String section,
+      required String Function(String status) labelBuilder,
+    }) {
+      if (filter != _MonthlyReportDiscoveryFilter.all &&
+          filter != sectionFilter) {
+        return const [];
+      }
+
+      if (!hasSearch) {
+        return rows;
+      }
+
+      return rows
+          .where((row) {
+            final label = labelBuilder(row.status);
+            return _normalizeDiscoveryText(
+              '$section $label ${row.status} ${row.count}',
+            ).contains(query);
+          })
+          .toList(growable: false);
+    }
+
+    return _MonthlyReportDiscoveryState(
+      totalByCurrency: currencyRows(report.totalByCurrency, 'total currency'),
+      actorShareByCurrency: currencyRows(
+        report.actorShareByCurrency,
+        'your share currency',
+      ),
+      actorPaidByCurrency: currencyRows(
+        report.actorPaidByCurrency,
+        'you paid currency',
+      ),
+      reconciliationCounts: statusRows(
+        report.reconciliationCounts,
+        sectionFilter: _MonthlyReportDiscoveryFilter.reconciliation,
+        section: 'reconciliation',
+        labelBuilder: settleoraReportReconciliationStatusLabel,
+      ),
+      settlementRequestCounts: statusRows(
+        report.settlementRequestCounts,
+        sectionFilter: _MonthlyReportDiscoveryFilter.settlementRequests,
+        section: 'settlement requests',
+        labelBuilder: settleoraReportSettlementRequestStatusLabel,
+      ),
+      settlementPaymentCounts: statusRows(
+        report.settlementPaymentCounts,
+        sectionFilter: _MonthlyReportDiscoveryFilter.settlementPayments,
+        section: 'settlement payments',
+        labelBuilder: settleoraReportSettlementPaymentStatusLabel,
+      ),
+      hasActiveDiscovery: hasActiveDiscovery,
+    );
+  }
+
+  final List<SettleoraMonthlyReportCurrencyTotal> totalByCurrency;
+  final List<SettleoraMonthlyReportCurrencyTotal> actorShareByCurrency;
+  final List<SettleoraMonthlyReportCurrencyTotal> actorPaidByCurrency;
+  final List<SettleoraMonthlyReportStatusCount> reconciliationCounts;
+  final List<SettleoraMonthlyReportStatusCount> settlementRequestCounts;
+  final List<SettleoraMonthlyReportStatusCount> settlementPaymentCounts;
+  final bool hasActiveDiscovery;
+
+  int get visibleRowCount {
+    return totalByCurrency.length +
+        actorShareByCurrency.length +
+        actorPaidByCurrency.length +
+        reconciliationCounts.length +
+        settlementRequestCounts.length +
+        settlementPaymentCounts.length;
+  }
+
+  bool get isFilteredEmpty => hasActiveDiscovery && visibleRowCount == 0;
+}
+
+class _DiscoveryPanel extends StatelessWidget {
+  const _DiscoveryPanel({
+    required this.searchController,
+    required this.selectedFilter,
+    required this.counts,
+    required this.hasActiveDiscovery,
+    required this.onFilterSelected,
+    required this.onClear,
+  });
+
+  final TextEditingController searchController;
+  final _MonthlyReportDiscoveryFilter selectedFilter;
+  final _MonthlyReportDiscoveryFilterCounts counts;
+  final bool hasActiveDiscovery;
+  final ValueChanged<_MonthlyReportDiscoveryFilter> onFilterSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'Find report details',
+      children: [
+        TextField(
+          key: const Key('monthly-report-search'),
+          controller: searchController,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: 'Search report',
+            prefixIcon: const Icon(Icons.search),
+            border: const OutlineInputBorder(),
+            suffixIcon: searchController.text.isEmpty
+                ? null
+                : IconButton(
+                    key: const Key('monthly-report-clear-search'),
+                    tooltip: 'Clear search',
+                    onPressed: searchController.clear,
+                    icon: const Icon(Icons.clear),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            for (final filter in _MonthlyReportDiscoveryFilter.values)
+              FilterChip(
+                key: ValueKey('monthly-report-filter-${filter.keySuffix}'),
+                selected: selectedFilter == filter,
+                onSelected: (_) => onFilterSelected(filter),
+                label: Text('${filter.label} (${counts.count(filter)})'),
+              ),
+          ],
+        ),
+        if (hasActiveDiscovery) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('monthly-report-clear-discovery'),
+              onPressed: onClear,
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('Clear filters'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FilteredSummaryPanel extends StatelessWidget {
+  const _FilteredSummaryPanel({required this.discovery});
+
+  final _MonthlyReportDiscoveryState discovery;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.filter_alt_outlined,
+      title: '${discovery.visibleRowCount} matching report rows',
+      message:
+          'Report totals and bill count remain the server-returned monthly summary.',
+      compact: true,
     );
   }
 }
@@ -500,6 +836,20 @@ class _ZeroStatePanel extends StatelessWidget {
   }
 }
 
+class _FilteredEmptyPanel extends StatelessWidget {
+  const _FilteredEmptyPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.search_off_outlined,
+      title: 'No matching report rows',
+      message: 'Clear search or filters to show the loaded monthly report.',
+      compact: true,
+    );
+  }
+}
+
 class _LoadingPanel extends StatelessWidget {
   const _LoadingPanel();
 
@@ -661,4 +1011,8 @@ String _addMonths(String month, int offset) {
 
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
+}
+
+String _normalizeDiscoveryText(String value) {
+  return value.trim().toLowerCase();
 }
