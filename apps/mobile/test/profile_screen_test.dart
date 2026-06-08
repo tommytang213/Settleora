@@ -72,12 +72,54 @@ void main() {
     expect(find.byKey(const Key('profile-summary')), findsOneWidget);
     expect(find.text('Taylor'), findsWidgets);
     expect(find.text('Signed in - USD'), findsOneWidget);
+    expect(find.byKey(const Key('profile-payment-summary')), findsOneWidget);
+    expect(find.text('Payment details on file'), findsOneWidget);
     expect(find.text('Bank transfer'), findsWidgets);
-    expect(find.text('pay.example/taylor'), findsOneWidget);
+    expect(find.text('pay.example/taylor'), findsWidgets);
+    expect(find.text('Settlement counterparties'), findsWidgets);
+    expect(
+      find.text('Visible only to settlement counterparties by default.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Server authorization still controls who can read these details.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('QR available'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_profileId)));
     expect(visibleText(tester), isNot(contains(_paymentProfileId)));
     expect(visibleText(tester), isNot(contains(_qrFileId)));
+  });
+
+  testWidgets('profile screen shows empty payment details state', (
+    tester,
+  ) async {
+    final repository = FakeProfileRepository(
+      paymentDetails: emptyPaymentDetails(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-payment-summary')), findsOneWidget);
+    expect(find.text('No payment details yet'), findsOneWidget);
+    expect(find.text('Not set'), findsNWidgets(3));
+    expect(find.text('Settlement counterparties'), findsWidgets);
+    expect(
+      find.text(
+        'Add a method or handle so settlement counterparties know how to pay you.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('profile screen updates profile and payment details', (
@@ -121,11 +163,15 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('profile-payment-method')),
-      'FPS',
+      '  FPS  ',
     );
     await tester.enterText(
       find.byKey(const Key('profile-payment-handle')),
-      'fps-id',
+      '  fps-id  ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-payment-note')),
+      '  Thanks for settling.  ',
     );
     await tester.ensureVisible(find.byKey(const Key('profile-payment-save')));
     await tester.pumpAndSettle();
@@ -135,14 +181,20 @@ void main() {
     expect(repository.paymentUpdateCalls, 1);
     expect(repository.lastPaymentUpdate?.preferredMethodLabel, 'FPS');
     expect(repository.lastPaymentUpdate?.paymentHandle, 'fps-id');
+    expect(repository.lastPaymentUpdate?.paymentNote, 'Thanks for settling.');
     expect(
       repository.lastPaymentUpdate?.visibility,
       SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly,
     );
     expect(find.text('Payment details updated.'), findsOneWidget);
+    expect(find.text('FPS'), findsWidgets);
+    expect(find.text('fps-id'), findsWidgets);
+    expect(find.text('Thanks for settling.'), findsWidgets);
   });
 
-  testWidgets('profile screen shows bounded validation errors', (tester) async {
+  testWidgets('profile screen shows safe repository validation errors', (
+    tester,
+  ) async {
     const hiddenValue = 'secret-payment-handle';
     final repository = FakeProfileRepository(
       profileUpdateFailure: const SettleoraProfileFailure(
@@ -195,6 +247,92 @@ void main() {
       findsOneWidget,
     );
     expect(visibleText(tester), isNot(contains(hiddenValue)));
+  });
+
+  testWidgets('profile screen validates overlong payment input locally', (
+    tester,
+  ) async {
+    final repository = FakeProfileRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('profile-payment-save')),
+      find.byType(ListView),
+      const Offset(0, -320),
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-payment-handle')),
+      'x' * 321,
+    );
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('profile-payment-save')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('profile-payment-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Payment handle must be 320 characters or fewer.'),
+      findsOneWidget,
+    );
+    expect(repository.paymentUpdateCalls, 0);
+  });
+
+  testWidgets('profile payment cancel restores existing values', (
+    tester,
+  ) async {
+    final repository = FakeProfileRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('profile-payment-cancel')),
+      find.byType(ListView),
+      const Offset(0, -320),
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-payment-method')),
+      'PayMe',
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-payment-handle')),
+      'discard-me',
+    );
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('profile-payment-cancel')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('profile-payment-cancel')));
+    await tester.pumpAndSettle();
+
+    final methodField = tester.widget<TextField>(
+      find.byKey(const Key('profile-payment-method')),
+    );
+    final handleField = tester.widget<TextField>(
+      find.byKey(const Key('profile-payment-handle')),
+    );
+
+    expect(methodField.controller?.text, 'Bank transfer');
+    expect(handleField.controller?.text, 'pay.example/taylor');
+    expect(repository.paymentUpdateCalls, 0);
+    expect(visibleText(tester), isNot(contains('discard-me')));
   });
 
   testWidgets('profile screen handles expired sessions safely', (tester) async {
@@ -790,6 +928,21 @@ SettleoraSelfPaymentDetails samplePaymentDetails() {
     ),
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+SettleoraSelfPaymentDetails emptyPaymentDetails() {
+  return SettleoraSelfPaymentDetails(
+    isConfigured: false,
+    id: null,
+    preferredMethodLabel: null,
+    paymentHandle: null,
+    paymentNote: null,
+    visibility:
+        SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly,
+    qrFile: null,
+    createdAtUtc: null,
+    updatedAtUtc: null,
   );
 }
 

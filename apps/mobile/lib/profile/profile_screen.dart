@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/auth_session_repository.dart';
 import 'profile_repository.dart';
+
+const _paymentMethodMaxLength = 120;
+const _paymentHandleMaxLength = 320;
+const _paymentNoteMaxLength = 1000;
 
 class SettleoraProfileScreen extends StatefulWidget {
   const SettleoraProfileScreen({
@@ -132,6 +137,22 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
       return;
     }
 
+    final preferredMethodLabel = _trimToNull(_paymentMethodController.text);
+    final paymentHandle = _trimToNull(_paymentHandleController.text);
+    final paymentNote = _trimToNull(_paymentNoteController.text);
+    final validationFailure = _validatePaymentDetails(
+      preferredMethodLabel: preferredMethodLabel,
+      paymentHandle: paymentHandle,
+      paymentNote: paymentNote,
+      visibility: _paymentVisibility,
+    );
+    if (validationFailure != null) {
+      setState(() {
+        _paymentSaveFailure = validationFailure;
+      });
+      return;
+    }
+
     setState(() {
       _isSavingPaymentDetails = true;
       _paymentSaveFailure = null;
@@ -140,9 +161,9 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
     try {
       final updated = await widget.repository.updateSelfPaymentDetails(
         SettleoraSelfPaymentDetailsUpdate(
-          preferredMethodLabel: _paymentMethodController.text,
-          paymentHandle: _paymentHandleController.text,
-          paymentNote: _paymentNoteController.text,
+          preferredMethodLabel: preferredMethodLabel,
+          paymentHandle: paymentHandle,
+          paymentNote: paymentNote,
           visibility: _paymentVisibility,
         ),
       );
@@ -169,6 +190,18 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
         });
       }
     }
+  }
+
+  void _cancelPaymentDetailsEdit() {
+    final paymentDetails = _paymentDetails;
+    if (paymentDetails == null) {
+      return;
+    }
+
+    setState(() {
+      _applyPaymentDetails(paymentDetails);
+      _paymentSaveFailure = null;
+    });
   }
 
   void _applyProfile(SettleoraSelfProfile profile) {
@@ -313,11 +346,14 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                   _Section(
                     title: 'Payment Details',
                     children: [
+                      _PaymentDetailsSummary(details: paymentDetails),
+                      const SizedBox(height: 14),
                       TextField(
                         key: const Key('profile-payment-method'),
                         controller: _paymentMethodController,
                         textInputAction: TextInputAction.next,
-                        maxLength: 120,
+                        maxLength: _paymentMethodMaxLength,
+                        maxLengthEnforcement: MaxLengthEnforcement.none,
                         decoration: const InputDecoration(
                           labelText: 'Payment method',
                           hintText: 'Bank transfer',
@@ -329,7 +365,8 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         key: const Key('profile-payment-handle'),
                         controller: _paymentHandleController,
                         textInputAction: TextInputAction.next,
-                        maxLength: 320,
+                        maxLength: _paymentHandleMaxLength,
+                        maxLengthEnforcement: MaxLengthEnforcement.none,
                         decoration: const InputDecoration(
                           labelText: 'Payment handle',
                           border: OutlineInputBorder(),
@@ -340,7 +377,8 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         key: const Key('profile-payment-note'),
                         controller: _paymentNoteController,
                         maxLines: 3,
-                        maxLength: 1000,
+                        maxLength: _paymentNoteMaxLength,
+                        maxLengthEnforcement: MaxLengthEnforcement.none,
                         decoration: const InputDecoration(
                           labelText: 'Payment note',
                           border: OutlineInputBorder(),
@@ -391,20 +429,34 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         _InlineFailure(failure: _paymentSaveFailure!),
                       ],
                       const SizedBox(height: 12),
-                      FilledButton.icon(
-                        key: const Key('profile-payment-save'),
-                        onPressed: _isSavingPaymentDetails
-                            ? null
-                            : _savePaymentDetails,
-                        icon: _isSavingPaymentDetails
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save_outlined),
-                        label: const Text('Save Payment Details'),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          FilledButton.icon(
+                            key: const Key('profile-payment-save'),
+                            onPressed: _isSavingPaymentDetails
+                                ? null
+                                : _savePaymentDetails,
+                            icon: _isSavingPaymentDetails
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_outlined),
+                            label: const Text('Save Payment Details'),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            key: const Key('profile-payment-cancel'),
+                            onPressed: _isSavingPaymentDetails
+                                ? null
+                                : _cancelPaymentDetailsEdit,
+                            icon: const Icon(Icons.close),
+                            label: const Text('Cancel'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -413,6 +465,145 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _PaymentDetailsSummary extends StatelessWidget {
+  const _PaymentDetailsSummary({required this.details});
+
+  final SettleoraSelfPaymentDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    final method = _trimToNull(details.preferredMethodLabel);
+    final handle = _trimToNull(details.paymentHandle);
+    final note = _trimToNull(details.paymentNote);
+    final hasTextDetails = method != null || handle != null || note != null;
+    final visibility =
+        SettleoraPaymentDetailsVisibilityValues.values.contains(
+          details.visibility,
+        )
+        ? details.visibility
+        : SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly;
+
+    return Semantics(
+      container: true,
+      label: 'Payment details summary',
+      child: DecoratedBox(
+        key: const Key('profile-payment-summary'),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.payments_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          hasTextDetails
+                              ? 'Payment details on file'
+                              : 'No payment details yet',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          hasTextDetails
+                              ? _visibilityPrivacyCopy(visibility)
+                              : 'Add a method or handle so settlement counterparties know how to pay you.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _PaymentSummaryRow(
+                label: 'Method',
+                value: method ?? 'Not set',
+                isEmpty: method == null,
+              ),
+              _PaymentSummaryRow(
+                label: 'Handle',
+                value: handle ?? 'Not set',
+                isEmpty: handle == null,
+              ),
+              if (note != null)
+                _PaymentSummaryRow(label: 'Note', value: note)
+              else
+                const _PaymentSummaryRow(
+                  label: 'Note',
+                  value: 'Not set',
+                  isEmpty: true,
+                ),
+              _PaymentSummaryRow(
+                label: 'Visibility',
+                value: settleoraPaymentDetailsVisibilityLabel(visibility),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Server authorization still controls who can read these details.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentSummaryRow extends StatelessWidget {
+  const _PaymentSummaryRow({
+    required this.label,
+    required this.value,
+    this.isEmpty = false,
+  });
+
+  final String label;
+  final String value;
+  final bool isEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+      color: isEmpty
+          ? Theme.of(context).colorScheme.onSurfaceVariant
+          : Theme.of(context).colorScheme.onSurface,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 78,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: valueStyle)),
+        ],
       ),
     );
   }
@@ -602,4 +793,63 @@ String _formatSize(int sizeBytes) {
 
   final kib = sizeBytes / 1024;
   return '${kib.toStringAsFixed(kib >= 10 ? 0 : 1)} KB';
+}
+
+SettleoraProfileFailure? _validatePaymentDetails({
+  required String? preferredMethodLabel,
+  required String? paymentHandle,
+  required String? paymentNote,
+  required SettleoraPaymentDetailsVisibility visibility,
+}) {
+  if (preferredMethodLabel != null &&
+      preferredMethodLabel.length > _paymentMethodMaxLength) {
+    return const SettleoraProfileFailure(
+      kind: SettleoraProfileFailureKind.validation,
+      message: 'Payment method must be 120 characters or fewer.',
+    );
+  }
+
+  if (paymentHandle != null && paymentHandle.length > _paymentHandleMaxLength) {
+    return const SettleoraProfileFailure(
+      kind: SettleoraProfileFailureKind.validation,
+      message: 'Payment handle must be 320 characters or fewer.',
+    );
+  }
+
+  if (paymentNote != null && paymentNote.length > _paymentNoteMaxLength) {
+    return const SettleoraProfileFailure(
+      kind: SettleoraProfileFailureKind.validation,
+      message: 'Payment note must be 1000 characters or fewer.',
+    );
+  }
+
+  if (!SettleoraPaymentDetailsVisibilityValues.values.contains(visibility)) {
+    return const SettleoraProfileFailure(
+      kind: SettleoraProfileFailureKind.validation,
+      message: 'Choose a supported payment visibility.',
+    );
+  }
+
+  return null;
+}
+
+String? _trimToNull(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+String _visibilityPrivacyCopy(SettleoraPaymentDetailsVisibility visibility) {
+  return switch (visibility) {
+    SettleoraPaymentDetailsVisibilityValues.private =>
+      'Only you can see these details unless the server allows otherwise.',
+    SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly =>
+      'Visible only to settlement counterparties by default.',
+    SettleoraPaymentDetailsVisibilityValues.groupMembersWhenShared =>
+      'Visible to group members only where shared context allows it.',
+    _ => 'Visible only where server authorization allows it.',
+  };
 }
