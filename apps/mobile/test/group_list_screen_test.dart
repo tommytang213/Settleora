@@ -35,6 +35,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No groups'), findsOneWidget);
+    expect(find.byKey(const Key('group-list-search')), findsNothing);
     expect(repository.listCalls, 1);
 
     await tester.tap(find.byKey(const Key('group-list-create')));
@@ -47,6 +48,180 @@ void main() {
     expect(repository.lastGroupSave?.name, 'House');
     expect(find.text('House'), findsOneWidget);
     expect(find.text('Group created.'), findsOneWidget);
+  });
+
+  testWidgets('group list search filters visible groups', (tester) async {
+    final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.text('Archive Team'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('group-list-search')), 'club');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 groups'), findsOneWidget);
+    expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.text('Trip Crew'), findsNothing);
+    expect(find.text('Archive Team'), findsNothing);
+  });
+
+  testWidgets('group list chip counts and role filtering use loaded fields', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Owner (2)'), findsOneWidget);
+    expect(find.text('Member (1)'), findsOneWidget);
+    expect(find.text('Active (2)'), findsOneWidget);
+    expect(find.text('Removed (1)'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'group-list-role-filter-${SettleoraGroupRoleValues.member}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 groups'), findsOneWidget);
+    expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.text('Trip Crew'), findsNothing);
+    expect(find.text('Archive Team'), findsNothing);
+  });
+
+  testWidgets('group list combines search and chip filters', (tester) async {
+    final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'group-list-status-filter-${SettleoraGroupMembershipStatusValues.active}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-list-search')),
+      'dinner',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 groups'), findsOneWidget);
+    expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.text('Trip Crew'), findsNothing);
+    expect(find.text('Archive Team'), findsNothing);
+  });
+
+  testWidgets('group list clear resets search and filters', (tester) async {
+    final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'group-list-status-filter-${SettleoraGroupMembershipStatusValues.removed}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-list-search')),
+      'archive',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 1 of 3 groups'), findsOneWidget);
+    expect(find.text('Archive Team'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-list-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 3 of 3 groups'), findsOneWidget);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.text('Archive Team'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('group-list-search')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
+  testWidgets('group list shows filtered empty state separately', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'group-list-role-filter-${SettleoraGroupRoleValues.member}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('group-list-search')), 'trip');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching groups'), findsOneWidget);
+    expect(
+      find.text('No loaded groups match the current search or filters.'),
+      findsOneWidget,
+    );
+    expect(find.text('No groups'), findsNothing);
   });
 
   testWidgets('group list opens detail and loads members', (tester) async {
@@ -815,12 +990,33 @@ SettleoraBillSyncController sampleSyncController() {
   );
 }
 
-SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
+List<SettleoraGroup> sampleGroupDiscoveryRows() {
+  return [
+    sampleGroup(id: _groupId, name: 'Trip Crew'),
+    sampleGroup(
+      id: '55555555-5555-5555-5555-555555555555',
+      name: 'Dinner Club',
+      role: SettleoraGroupRoleValues.member,
+    ),
+    sampleGroup(
+      id: '66666666-6666-6666-6666-666666666666',
+      name: 'Archive Team',
+      status: SettleoraGroupMembershipStatusValues.removed,
+    ),
+  ];
+}
+
+SettleoraGroup sampleGroup({
+  String id = _groupId,
+  String name = 'Trip Crew',
+  String role = SettleoraGroupRoleValues.owner,
+  String status = SettleoraGroupMembershipStatusValues.active,
+}) {
   return SettleoraGroup(
     id: id,
     name: name,
-    currentUserRole: SettleoraGroupRoleValues.owner,
-    currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+    currentUserRole: role,
+    currentUserStatus: status,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );

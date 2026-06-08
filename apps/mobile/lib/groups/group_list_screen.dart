@@ -34,9 +34,14 @@ class SettleoraGroupListScreen extends StatefulWidget {
 }
 
 class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
+  final _searchController = TextEditingController();
+
   bool _isLoading = true;
   bool _isCreating = false;
   List<SettleoraGroup> _groups = const [];
+  String _searchQuery = '';
+  SettleoraGroupRole? _selectedRole;
+  SettleoraGroupMembershipStatus? _selectedStatus;
   SettleoraGroupFailure? _failure;
   SettleoraGroupFailure? _actionFailure;
 
@@ -44,6 +49,12 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   void initState() {
     super.initState();
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -73,6 +84,62 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _updateSearchQuery(String value) {
+    setState(() {
+      _searchQuery = value;
+    });
+  }
+
+  void _toggleRoleFilter(SettleoraGroupRole role) {
+    setState(() {
+      _selectedRole = _selectedRole == role ? null : role;
+    });
+  }
+
+  void _toggleStatusFilter(SettleoraGroupMembershipStatus status) {
+    setState(() {
+      _selectedStatus = _selectedStatus == status ? null : status;
+    });
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _selectedRole = null;
+      _selectedStatus = null;
+    });
+  }
+
+  bool get _hasActiveDiscoveryFilter {
+    return _searchQuery.trim().isNotEmpty ||
+        _selectedRole != null ||
+        _selectedStatus != null;
+  }
+
+  List<SettleoraGroup> get _filteredGroups {
+    final query = _searchQuery.trim().toLowerCase();
+
+    return [
+      for (final group in _groups)
+        if ((_selectedRole == null || group.currentUserRole == _selectedRole) &&
+            (_selectedStatus == null ||
+                group.currentUserStatus == _selectedStatus) &&
+            (query.isEmpty || _groupMatchesQuery(group, query)))
+          group,
+    ];
+  }
+
+  bool _groupMatchesQuery(SettleoraGroup group, String query) {
+    return group.displayName.toLowerCase().contains(query) ||
+        settleoraGroupRoleLabel(
+          group.currentUserRole,
+        ).toLowerCase().contains(query) ||
+        settleoraGroupMembershipStatusLabel(
+          group.currentUserStatus,
+        ).toLowerCase().contains(query);
   }
 
   Future<void> _createGroup() async {
@@ -147,6 +214,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   @override
   Widget build(BuildContext context) {
     final actionFailure = _actionFailure;
+    final filteredGroups = _filteredGroups;
 
     return Scaffold(
       appBar: AppBar(
@@ -200,15 +268,42 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                       message:
                           'Groups visible to this account will appear here.',
                     ),
-                  ] else
-                    for (var index = 0; index < _groups.length; index += 1)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _GroupSummaryTile(
-                          group: _groups[index],
-                          onTap: () => _openGroup(_groups[index]),
+                  ] else ...[
+                    _GroupDiscoveryControls(
+                      groups: _groups,
+                      visibleCount: filteredGroups.length,
+                      searchController: _searchController,
+                      selectedRole: _selectedRole,
+                      selectedStatus: _selectedStatus,
+                      hasActiveFilter: _hasActiveDiscoveryFilter,
+                      onSearchChanged: _updateSearchQuery,
+                      onRoleSelected: _toggleRoleFilter,
+                      onStatusSelected: _toggleStatusFilter,
+                      onClear: _clearFilters,
+                    ),
+                    const SizedBox(height: 14),
+                    if (filteredGroups.isEmpty)
+                      const _StatePanel(
+                        icon: Icons.filter_alt_off_outlined,
+                        title: 'No matching groups',
+                        message:
+                            'No loaded groups match the current search or filters.',
+                        compact: true,
+                      )
+                    else
+                      for (
+                        var index = 0;
+                        index < filteredGroups.length;
+                        index += 1
+                      )
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _GroupSummaryTile(
+                            group: filteredGroups[index],
+                            onTap: () => _openGroup(filteredGroups[index]),
+                          ),
                         ),
-                      ),
+                  ],
                 ],
               ),
             );
@@ -720,6 +815,112 @@ class _SettleoraGroupDetailScreenState
   }
 }
 
+class _GroupDiscoveryControls extends StatelessWidget {
+  const _GroupDiscoveryControls({
+    required this.groups,
+    required this.visibleCount,
+    required this.searchController,
+    required this.selectedRole,
+    required this.selectedStatus,
+    required this.hasActiveFilter,
+    required this.onSearchChanged,
+    required this.onRoleSelected,
+    required this.onStatusSelected,
+    required this.onClear,
+  });
+
+  final List<SettleoraGroup> groups;
+  final int visibleCount;
+  final TextEditingController searchController;
+  final SettleoraGroupRole? selectedRole;
+  final SettleoraGroupMembershipStatus? selectedStatus;
+  final bool hasActiveFilter;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<SettleoraGroupRole> onRoleSelected;
+  final ValueChanged<SettleoraGroupMembershipStatus> onStatusSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = _orderedGroupRoles(groups);
+    final statuses = _orderedGroupStatuses(groups);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('group-list-search'),
+          controller: searchController,
+          onChanged: onSearchChanged,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: 'Search groups',
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: searchController.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    key: const Key('group-list-search-clear'),
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      searchController.clear();
+                      onSearchChanged('');
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Showing $visibleCount of ${groups.length} groups',
+                key: const Key('group-list-visible-count'),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (hasActiveFilter)
+              TextButton.icon(
+                key: const Key('group-list-clear-filters'),
+                onPressed: onClear,
+                icon: const Icon(Icons.filter_alt_off_outlined),
+                label: const Text('Clear'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            for (final role in roles)
+              ChoiceChip(
+                key: ValueKey('group-list-role-filter-$role'),
+                label: Text(
+                  '${settleoraGroupRoleLabel(role)} (${_roleCount(groups, role)})',
+                ),
+                selected: selectedRole == role,
+                onSelected: (_) => onRoleSelected(role),
+              ),
+            for (final status in statuses)
+              ChoiceChip(
+                key: ValueKey('group-list-status-filter-$status'),
+                label: Text(
+                  '${settleoraGroupMembershipStatusLabel(status)} (${_statusCount(groups, status)})',
+                ),
+                selected: selectedStatus == status,
+                onSelected: (_) => onStatusSelected(status),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _GroupSummaryTile extends StatelessWidget {
   const _GroupSummaryTile({required this.group, required this.onTap});
 
@@ -1083,6 +1284,45 @@ class _GroupFormDialogState extends State<_GroupFormDialog> {
       ],
     );
   }
+}
+
+List<SettleoraGroupRole> _orderedGroupRoles(List<SettleoraGroup> groups) {
+  final loadedRoles = {
+    for (final group in groups)
+      if (group.currentUserRole.trim().isNotEmpty) group.currentUserRole,
+  };
+
+  return [
+    for (final role in SettleoraGroupRoleValues.values)
+      if (loadedRoles.remove(role)) role,
+    ...loadedRoles.toList()..sort(),
+  ];
+}
+
+List<SettleoraGroupMembershipStatus> _orderedGroupStatuses(
+  List<SettleoraGroup> groups,
+) {
+  final loadedStatuses = {
+    for (final group in groups)
+      if (group.currentUserStatus.trim().isNotEmpty) group.currentUserStatus,
+  };
+
+  return [
+    for (final status in SettleoraGroupMembershipStatusValues.values)
+      if (loadedStatuses.remove(status)) status,
+    ...loadedStatuses.toList()..sort(),
+  ];
+}
+
+int _roleCount(List<SettleoraGroup> groups, SettleoraGroupRole role) {
+  return groups.where((group) => group.currentUserRole == role).length;
+}
+
+int _statusCount(
+  List<SettleoraGroup> groups,
+  SettleoraGroupMembershipStatus status,
+) {
+  return groups.where((group) => group.currentUserStatus == status).length;
 }
 
 IconData _failureIcon(SettleoraGroupFailureKind kind) {
