@@ -275,6 +275,60 @@ class _SettlementRequestFilterCounts {
   int count(_SettlementRequestFilter filter) => _counts[filter] ?? 0;
 }
 
+enum _SettlementDetailPaymentFilter {
+  all(label: 'All'),
+  needsAction(label: 'Needs action'),
+  residuals(label: 'Residuals');
+
+  const _SettlementDetailPaymentFilter({required this.label});
+
+  final String label;
+
+  String get key {
+    return switch (this) {
+      _SettlementDetailPaymentFilter.all => 'all',
+      _SettlementDetailPaymentFilter.needsAction => 'needs-action',
+      _SettlementDetailPaymentFilter.residuals => 'residuals',
+    };
+  }
+
+  bool matches(
+    SettleoraSettlementPayment payment,
+    String currentUserProfileId,
+  ) {
+    return switch (this) {
+      _SettlementDetailPaymentFilter.all => true,
+      _SettlementDetailPaymentFilter.needsAction =>
+        payment.canConfirmFor(currentUserProfileId) ||
+            payment.canCancelFor(currentUserProfileId) ||
+            payment.canDisputeFor(currentUserProfileId) ||
+            (payment.isReceiver(currentUserProfileId) &&
+                payment.residuals.any((residual) => residual.canConfirm)),
+      _SettlementDetailPaymentFilter.residuals => payment.residuals.isNotEmpty,
+    };
+  }
+}
+
+class _SettlementDetailPaymentFilterCounts {
+  const _SettlementDetailPaymentFilterCounts(this._counts);
+
+  factory _SettlementDetailPaymentFilterCounts.from({
+    required List<SettleoraSettlementPayment> payments,
+    required String currentUserProfileId,
+  }) {
+    return _SettlementDetailPaymentFilterCounts({
+      for (final filter in _SettlementDetailPaymentFilter.values)
+        filter: payments
+            .where((payment) => filter.matches(payment, currentUserProfileId))
+            .length,
+    });
+  }
+
+  final Map<_SettlementDetailPaymentFilter, int> _counts;
+
+  int count(_SettlementDetailPaymentFilter filter) => _counts[filter] ?? 0;
+}
+
 class SettleoraSettlementDetailScreen extends StatefulWidget {
   const SettleoraSettlementDetailScreen({
     super.key,
@@ -294,10 +348,16 @@ class SettleoraSettlementDetailScreen extends StatefulWidget {
 
 class _SettleoraSettlementDetailScreenState
     extends State<SettleoraSettlementDetailScreen> {
+  late final TextEditingController _lineSearchController;
+  late final TextEditingController _paymentSearchController;
   bool _isLoading = true;
   String? _busyAction;
   SettleoraSettlementRequest? _request;
   List<SettleoraSettlementPayment> _payments = const [];
+  String _lineSearchQuery = '';
+  String _paymentSearchQuery = '';
+  _SettlementDetailPaymentFilter _paymentFilter =
+      _SettlementDetailPaymentFilter.all;
   SettleoraSettlementCounterpartyPaymentDetails? _paymentDetails;
   SettleoraSettlementFailure? _paymentDetailsFailure;
   SettleoraSettlementFailure? _failure;
@@ -305,7 +365,67 @@ class _SettleoraSettlementDetailScreenState
   @override
   void initState() {
     super.initState();
+    _lineSearchController = TextEditingController();
+    _paymentSearchController = TextEditingController();
+    _lineSearchController.addListener(_handleLineSearchChanged);
+    _paymentSearchController.addListener(_handlePaymentSearchChanged);
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _lineSearchController.removeListener(_handleLineSearchChanged);
+    _paymentSearchController.removeListener(_handlePaymentSearchChanged);
+    _lineSearchController.dispose();
+    _paymentSearchController.dispose();
+    super.dispose();
+  }
+
+  void _handleLineSearchChanged() {
+    final nextQuery = _lineSearchController.text.trim();
+    if (nextQuery == _lineSearchQuery) {
+      return;
+    }
+
+    setState(() {
+      _lineSearchQuery = nextQuery;
+    });
+  }
+
+  void _handlePaymentSearchChanged() {
+    final nextQuery = _paymentSearchController.text.trim();
+    if (nextQuery == _paymentSearchQuery) {
+      return;
+    }
+
+    setState(() {
+      _paymentSearchQuery = nextQuery;
+    });
+  }
+
+  void _selectPaymentFilter(_SettlementDetailPaymentFilter filter) {
+    if (filter == _paymentFilter) {
+      return;
+    }
+
+    setState(() {
+      _paymentFilter = filter;
+    });
+  }
+
+  void _clearLineDiscovery() {
+    setState(() {
+      _lineSearchQuery = '';
+      _lineSearchController.clear();
+    });
+  }
+
+  void _clearPaymentDiscovery() {
+    setState(() {
+      _paymentFilter = _SettlementDetailPaymentFilter.all;
+      _paymentSearchQuery = '';
+      _paymentSearchController.clear();
+    });
   }
 
   Future<void> _load({bool showLoading = true}) async {
@@ -519,6 +639,13 @@ class _SettleoraSettlementDetailScreenState
               );
             }
 
+            final visibleLines = _filterRequestLines(request.lines);
+            final visiblePayments = _filterPayments(_payments);
+            final hasActiveLineDiscovery = _lineSearchQuery.isNotEmpty;
+            final hasActivePaymentDiscovery =
+                _paymentFilter != _SettlementDetailPaymentFilter.all ||
+                _paymentSearchQuery.isNotEmpty;
+
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
@@ -555,6 +682,14 @@ class _SettleoraSettlementDetailScreenState
                   ),
                 ),
                 const SizedBox(height: 20),
+                _DetailReviewSummarySection(
+                  request: request,
+                  payments: _payments,
+                  currentUserProfileId: widget.currentUserProfileId,
+                  paymentDetails: _paymentDetails,
+                  paymentDetailsFailure: _paymentDetailsFailure,
+                ),
+                const SizedBox(height: 20),
                 _LifecycleSection(
                   request: request,
                   payments: _payments,
@@ -566,12 +701,28 @@ class _SettleoraSettlementDetailScreenState
                   failure: _paymentDetailsFailure,
                 ),
                 const SizedBox(height: 20),
-                _RequestLinesSection(lines: request.lines),
+                _RequestLinesSection(
+                  lines: visibleLines,
+                  totalLineCount: request.lines.length,
+                  controller: _lineSearchController,
+                  hasActiveDiscovery: hasActiveLineDiscovery,
+                  onClear: _clearLineDiscovery,
+                ),
                 const SizedBox(height: 20),
                 _PaymentsSection(
-                  payments: _payments,
+                  payments: visiblePayments,
+                  totalPaymentCount: _payments.length,
+                  controller: _paymentSearchController,
+                  selectedFilter: _paymentFilter,
+                  counts: _SettlementDetailPaymentFilterCounts.from(
+                    payments: _payments,
+                    currentUserProfileId: widget.currentUserProfileId,
+                  ),
+                  hasActiveDiscovery: hasActivePaymentDiscovery,
                   currentUserProfileId: widget.currentUserProfileId,
                   busyAction: _busyAction,
+                  onFilterSelected: _selectPaymentFilter,
+                  onClear: _clearPaymentDiscovery,
                   onConfirmPayment: (payment) => _confirmAndRunAction(
                     actionKey: 'payment-confirm-${payment.id}',
                     title: 'Confirm receipt?',
@@ -632,6 +783,42 @@ class _SettleoraSettlementDetailScreenState
         ),
       ),
     );
+  }
+
+  List<SettleoraSettlementRequestLine> _filterRequestLines(
+    List<SettleoraSettlementRequestLine> lines,
+  ) {
+    final queryTerms = _searchTerms(_lineSearchQuery);
+    if (queryTerms.isEmpty) {
+      return lines;
+    }
+
+    return lines
+        .where((line) => queryTerms.every(_lineSearchText(line).contains))
+        .toList(growable: false);
+  }
+
+  List<SettleoraSettlementPayment> _filterPayments(
+    List<SettleoraSettlementPayment> payments,
+  ) {
+    final queryTerms = _searchTerms(_paymentSearchQuery);
+    return payments
+        .where((payment) {
+          if (!_paymentFilter.matches(payment, widget.currentUserProfileId)) {
+            return false;
+          }
+
+          if (queryTerms.isEmpty) {
+            return true;
+          }
+
+          final searchText = _paymentSearchText(
+            payment: payment,
+            currentUserProfileId: widget.currentUserProfileId,
+          );
+          return queryTerms.every(searchText.contains);
+        })
+        .toList(growable: false);
   }
 }
 
@@ -1153,6 +1340,69 @@ _LifecycleGuidance _lifecycleState({
   };
 }
 
+class _DetailReviewSummarySection extends StatelessWidget {
+  const _DetailReviewSummarySection({
+    required this.request,
+    required this.payments,
+    required this.currentUserProfileId,
+    required this.paymentDetails,
+    required this.paymentDetailsFailure,
+  });
+
+  final SettleoraSettlementRequest request;
+  final List<SettleoraSettlementPayment> payments;
+  final String currentUserProfileId;
+  final SettleoraSettlementCounterpartyPaymentDetails? paymentDetails;
+  final SettleoraSettlementFailure? paymentDetailsFailure;
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingResidualCount = payments.fold<int>(
+      0,
+      (count, payment) =>
+          count +
+          payment.residuals.where((residual) => residual.canConfirm).length,
+    );
+    final residualCount = payments.fold<int>(
+      0,
+      (count, payment) => count + payment.residuals.length,
+    );
+    final roleLabel = _requestRoleLabel(
+      request: request,
+      currentUserProfileId: currentUserProfileId,
+    );
+    final paymentDetailsStatus = paymentDetailsFailure != null
+        ? 'Unavailable'
+        : paymentDetails == null
+        ? 'Not available'
+        : paymentDetails!.isConfigured
+        ? 'Available'
+        : 'Not configured';
+
+    return _Section(
+      title: 'Review Summary',
+      children: [
+        _GuidancePanel(
+          icon: Icons.fact_check_outlined,
+          title: 'Loaded settlement facts',
+          message:
+              '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel',
+          chips: [
+            '${request.lines.length} lines',
+            '${payments.length} payments',
+            '$residualCount residuals',
+            if (pendingResidualCount > 0)
+              '$pendingResidualCount need confirmation'
+            else
+              'No residual review',
+            'Payment details $paymentDetailsStatus',
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _CounterpartyPaymentDetailsSection extends StatelessWidget {
   const _CounterpartyPaymentDetailsSection({
     required this.details,
@@ -1230,13 +1480,23 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
 }
 
 class _RequestLinesSection extends StatelessWidget {
-  const _RequestLinesSection({required this.lines});
+  const _RequestLinesSection({
+    required this.lines,
+    required this.totalLineCount,
+    required this.controller,
+    required this.hasActiveDiscovery,
+    required this.onClear,
+  });
 
   final List<SettleoraSettlementRequestLine> lines;
+  final int totalLineCount;
+  final TextEditingController controller;
+  final bool hasActiveDiscovery;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
-    if (lines.isEmpty) {
+    if (totalLineCount == 0) {
       return const _Section(
         title: 'Request Lines',
         children: [
@@ -1250,20 +1510,82 @@ class _RequestLinesSection extends StatelessWidget {
       );
     }
 
-    final sorted = [...lines]
-      ..sort(
-        (left, right) => left.allocationOrder.compareTo(right.allocationOrder),
-      );
-
     return _Section(
       title: 'Request Lines',
+      trailing: Text(
+        '${lines.length} of $totalLineCount',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
       children: [
-        for (var index = 0; index < sorted.length; index += 1)
-          _KeyValueText(
-            label: 'Line ${index + 1}',
-            value:
-                '${_money(sorted[index].exactAmount, sorted[index].currency)} - ${settleoraSettlementRequestLineStatusLabel(sorted[index].status)}',
+        _DetailSearchControls(
+          controller: controller,
+          searchKey: const Key('settlement-detail-lines-search'),
+          clearKey: const Key('settlement-detail-lines-search-clear'),
+          label: 'Search request lines',
+          hasActiveDiscovery: hasActiveDiscovery,
+          onClear: onClear,
+        ),
+        const SizedBox(height: 10),
+        if (lines.isEmpty)
+          const _StatePanel(
+            icon: Icons.search_off_outlined,
+            title: 'No matching request lines',
+            message: 'No loaded request lines match this search.',
+            compact: true,
+          )
+        else
+          for (var index = 0; index < lines.length; index += 1)
+            _KeyValueText(
+              label: 'Line ${index + 1}',
+              value:
+                  '${_money(lines[index].exactAmount, lines[index].currency)} - ${settleoraSettlementRequestLineStatusLabel(lines[index].status)}',
+            ),
+      ],
+    );
+  }
+}
+
+class _DetailSearchControls extends StatelessWidget {
+  const _DetailSearchControls({
+    required this.controller,
+    required this.searchKey,
+    required this.clearKey,
+    required this.label,
+    required this.hasActiveDiscovery,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final Key searchKey;
+  final Key clearKey;
+  final String label;
+  final bool hasActiveDiscovery;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: searchKey,
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: const Icon(Icons.search_outlined),
+              border: const OutlineInputBorder(),
+            ),
           ),
+        ),
+        if (hasActiveDiscovery) ...[
+          const SizedBox(width: 8),
+          IconButton(
+            key: clearKey,
+            onPressed: onClear,
+            tooltip: 'Clear search',
+            icon: const Icon(Icons.close_outlined),
+          ),
+        ],
       ],
     );
   }
@@ -1272,8 +1594,15 @@ class _RequestLinesSection extends StatelessWidget {
 class _PaymentsSection extends StatelessWidget {
   const _PaymentsSection({
     required this.payments,
+    required this.totalPaymentCount,
+    required this.controller,
+    required this.selectedFilter,
+    required this.counts,
+    required this.hasActiveDiscovery,
     required this.currentUserProfileId,
     required this.busyAction,
+    required this.onFilterSelected,
+    required this.onClear,
     required this.onConfirmPayment,
     required this.onCancelPayment,
     required this.onDisputePayment,
@@ -1281,8 +1610,15 @@ class _PaymentsSection extends StatelessWidget {
   });
 
   final List<SettleoraSettlementPayment> payments;
+  final int totalPaymentCount;
+  final TextEditingController controller;
+  final _SettlementDetailPaymentFilter selectedFilter;
+  final _SettlementDetailPaymentFilterCounts counts;
+  final bool hasActiveDiscovery;
   final String currentUserProfileId;
   final String? busyAction;
+  final void Function(_SettlementDetailPaymentFilter filter) onFilterSelected;
+  final VoidCallback onClear;
   final void Function(SettleoraSettlementPayment payment) onConfirmPayment;
   final void Function(SettleoraSettlementPayment payment) onCancelPayment;
   final void Function(SettleoraSettlementPayment payment) onDisputePayment;
@@ -1294,7 +1630,7 @@ class _PaymentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (payments.isEmpty) {
+    if (totalPaymentCount == 0) {
       return const _Section(
         title: 'Payments',
         children: [
@@ -1310,22 +1646,61 @@ class _PaymentsSection extends StatelessWidget {
 
     return _Section(
       title: 'Payments',
+      trailing: Text(
+        '${payments.length} of $totalPaymentCount',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
       children: [
-        for (var index = 0; index < payments.length; index += 1)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _PaymentTile(
-              index: index,
-              payment: payments[index],
-              currentUserProfileId: currentUserProfileId,
-              busyAction: busyAction,
-              onConfirmPayment: () => onConfirmPayment(payments[index]),
-              onCancelPayment: () => onCancelPayment(payments[index]),
-              onDisputePayment: () => onDisputePayment(payments[index]),
-              onConfirmResidual: (residual) =>
-                  onConfirmResidual(payments[index], residual),
-            ),
+        _DetailSearchControls(
+          controller: controller,
+          searchKey: const Key('settlement-detail-payments-search'),
+          clearKey: const Key('settlement-detail-payments-search-clear'),
+          label: 'Search payments and residuals',
+          hasActiveDiscovery: hasActiveDiscovery,
+          onClear: onClear,
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final filter in _SettlementDetailPaymentFilter.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    key: Key('settlement-detail-payment-filter-${filter.key}'),
+                    selected: selectedFilter == filter,
+                    onSelected: (_) => onFilterSelected(filter),
+                    label: Text('${filter.label} (${counts.count(filter)})'),
+                  ),
+                ),
+            ],
           ),
+        ),
+        const SizedBox(height: 10),
+        if (payments.isEmpty)
+          const _StatePanel(
+            icon: Icons.search_off_outlined,
+            title: 'No matching payments',
+            message: 'No loaded payments or residuals match this search.',
+            compact: true,
+          )
+        else
+          for (var index = 0; index < payments.length; index += 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _PaymentTile(
+                index: index,
+                payment: payments[index],
+                currentUserProfileId: currentUserProfileId,
+                busyAction: busyAction,
+                onConfirmPayment: () => onConfirmPayment(payments[index]),
+                onCancelPayment: () => onCancelPayment(payments[index]),
+                onDisputePayment: () => onDisputePayment(payments[index]),
+                onConfirmResidual: (residual) =>
+                    onConfirmResidual(payments[index], residual),
+              ),
+            ),
       ],
     );
   }
@@ -1994,6 +2369,87 @@ String _requestSearchText({
   ];
 
   return tokens.join(' ').toLowerCase();
+}
+
+List<String> _searchTerms(String query) {
+  return query
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .where((term) => term.isNotEmpty)
+      .toList(growable: false);
+}
+
+String _lineSearchText(SettleoraSettlementRequestLine line) {
+  final tokens = <String>[
+    line.exactAmount,
+    line.currency,
+    _money(line.exactAmount, line.currency),
+    line.status,
+    settleoraSettlementRequestLineStatusLabel(line.status),
+  ];
+
+  return tokens.join(' ').toLowerCase();
+}
+
+String _paymentSearchText({
+  required SettleoraSettlementPayment payment,
+  required String currentUserProfileId,
+}) {
+  final isPayer = payment.isPayer(currentUserProfileId);
+  final isReceiver = payment.isReceiver(currentUserProfileId);
+  final canConfirm = payment.canConfirmFor(currentUserProfileId);
+  final canCancel = payment.canCancelFor(currentUserProfileId);
+  final canDispute = payment.canDisputeFor(currentUserProfileId);
+  final canConfirmResidual =
+      isReceiver && payment.residuals.any((residual) => residual.canConfirm);
+  final tokens = <String>[
+    payment.amount,
+    payment.currency,
+    _money(payment.amount, payment.currency),
+    payment.paymentDate,
+    payment.status,
+    settleoraSettlementPaymentStatusLabel(payment.status),
+    if (isPayer) ...['payer', 'paid by you', 'outgoing'],
+    if (isReceiver) ...['receiver', 'received by you', 'incoming'],
+    if (canConfirm) 'confirm receipt available',
+    if (canCancel) 'cancel available',
+    if (canDispute) 'dispute available',
+    if (canConfirmResidual) 'residual confirmation available',
+    for (final allocation in payment.allocations) ...[
+      allocation.clearedAmount,
+      allocation.currency,
+      _money(allocation.clearedAmount, allocation.currency),
+    ],
+    for (final residual in payment.residuals) ...[
+      residual.amount,
+      residual.currency,
+      _money(residual.amount, residual.currency),
+      residual.direction,
+      settleoraSettlementResidualDirectionLabel(residual.direction),
+      residual.policy,
+      settleoraSettlementResidualPolicyLabel(residual.policy),
+      residual.status,
+      settleoraSettlementResidualStatusLabel(residual.status),
+      if (residual.canConfirm) 'needs confirmation',
+    ],
+  ];
+
+  return tokens.join(' ').toLowerCase();
+}
+
+String _requestRoleLabel({
+  required SettleoraSettlementRequest request,
+  required String currentUserProfileId,
+}) {
+  if (request.isDebtor(currentUserProfileId)) {
+    return 'You pay';
+  }
+
+  if (request.isCreditor(currentUserProfileId)) {
+    return 'You receive';
+  }
+
+  return 'Viewer';
 }
 
 String _money(String amount, String currency) {
