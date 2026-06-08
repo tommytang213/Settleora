@@ -229,6 +229,7 @@ class _ReceiptOcrReviewQueueScreenState
       ),
       body: SafeArea(
         child: _ReceiptOcrReviewQueueContent(
+          key: ValueKey<ReceiptOcrReviewRepository?>(repository),
           isConnected: repository != null,
           reviews: _reviews,
           isLoading: _isLoading,

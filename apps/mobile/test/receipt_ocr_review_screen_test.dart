@@ -18,6 +18,211 @@ void main() {
       expect(repository.lastListLimit, 50);
     });
 
+    testWidgets('search filters loaded queue rows', (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(merchantText: 'Fresh Mart'),
+          sampleSummary(
+            reviewId: _groupReviewId,
+            fileId: _newFileId,
+            groupId: _groupId,
+            merchantText: 'Team Dinner',
+            currency: 'HKD',
+          ),
+          sampleSummary(
+            reviewId: '77777777-7777-7777-7777-777777777779',
+            fileId: _oldFileId,
+            merchantText: 'Coffee Stand',
+            currency: null,
+          ),
+        ],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Fresh Mart'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Coffee Stand'), findsOneWidget);
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-search')),
+        'team',
+      );
+      await tester.pump();
+
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Fresh Mart'), findsNothing);
+      expect(find.text('Coffee Stand'), findsNothing);
+      expect(find.text('No matching receipt reviews'), findsNothing);
+    });
+
+    testWidgets('status scope and currency chips count and filter rows', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: discoverySummaries(),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(find.text('All (4)'), findsOneWidget);
+      expect(find.text('Needs review (2)'), findsOneWidget);
+      expect(find.text('Applied (2)'), findsOneWidget);
+      expect(find.text('Personal (2)'), findsOneWidget);
+      expect(find.text('Group (2)'), findsOneWidget);
+      expect(find.text('Has currency (2)'), findsOneWidget);
+      expect(find.text('Missing currency (2)'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-needs-review')),
+      );
+      await tester.pump();
+
+      expect(find.text('Fresh Mart'), findsOneWidget);
+      expect(find.text('Unsafe Currency'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsNothing);
+      expect(find.text('Coffee Stand'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-group')),
+      );
+      await tester.pump();
+
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Unsafe Currency'), findsOneWidget);
+      expect(find.text('Fresh Mart'), findsNothing);
+      expect(find.text('Coffee Stand'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-has-currency')),
+      );
+      await tester.pump();
+
+      expect(find.text('Fresh Mart'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Coffee Stand'), findsNothing);
+      expect(find.text('Unsafe Currency'), findsNothing);
+      expect(visibleText(tester), isNot(contains('usd1')));
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-missing-currency')),
+      );
+      await tester.pump();
+
+      expect(find.text('Coffee Stand'), findsOneWidget);
+      expect(find.text('Unsafe Currency'), findsOneWidget);
+      expect(find.text('Fresh Mart'), findsNothing);
+      expect(find.text('Team Dinner'), findsNothing);
+    });
+
+    testWidgets('combined search and chip filters work', (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: discoverySummaries(),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-search')),
+        'team',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-group')),
+      );
+      await tester.pump();
+
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Fresh Mart'), findsNothing);
+      expect(find.text('Coffee Stand'), findsNothing);
+      expect(find.text('Unsafe Currency'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-personal')),
+      );
+      await tester.pump();
+
+      expect(find.text('No matching receipt reviews'), findsOneWidget);
+      expect(find.text('No receipt reviews'), findsNothing);
+      expect(find.text('Team Dinner'), findsNothing);
+    });
+
+    testWidgets('clear reset restores all loaded rows', (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: discoverySummaries(),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('receipt-review-clear-discovery')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-search')),
+        'team',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-filter-group')),
+      );
+      await tester.pump();
+
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Fresh Mart'), findsNothing);
+      expect(
+        find.byKey(const Key('receipt-review-clear-discovery')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('receipt-review-clear-discovery')));
+      await tester.pump();
+
+      expect(editableTextValue(tester, const Key('receipt-review-search')), '');
+      expect(find.text('Fresh Mart'), findsOneWidget);
+      expect(find.text('Team Dinner'), findsOneWidget);
+      expect(find.text('Coffee Stand'), findsOneWidget);
+      expect(find.text('Unsafe Currency'), findsOneWidget);
+      expect(
+        find.byKey(const Key('receipt-review-clear-discovery')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('filtered-empty state is distinct from true-empty queue', (
+      tester,
+    ) async {
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Fresh Mart')],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-search')),
+        'no loaded row matches this',
+      );
+      await tester.pump();
+
+      expect(find.text('No matching receipt reviews'), findsOneWidget);
+      expect(
+        find.text(
+          'Adjust the search or filters to show loaded receipt reviews.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('No receipt reviews'), findsNothing);
+      expect(find.text('Fresh Mart'), findsNothing);
+    });
+
     testWidgets('sanitizes queue failures before display', (tester) async {
       final repository = FakeReceiptOcrReviewRepository(
         listFailure: suspiciousFailure(ReceiptOcrReviewFailureKind.server),
@@ -1881,11 +2086,45 @@ ReceiptOcrReviewRoute sampleRoute({
   );
 }
 
+List<ReceiptOcrReviewSummary> discoverySummaries() {
+  return [
+    sampleSummary(
+      merchantText: 'Fresh Mart',
+      status: ReceiptOcrReviewStatusValues.provisional,
+      currency: 'USD',
+    ),
+    sampleSummary(
+      reviewId: _groupReviewId,
+      fileId: _newFileId,
+      groupId: _groupId,
+      merchantText: 'Team Dinner',
+      status: ReceiptOcrReviewStatusValues.reviewed,
+      currency: 'HKD',
+    ),
+    sampleSummary(
+      reviewId: '77777777-7777-7777-7777-777777777779',
+      fileId: _oldFileId,
+      merchantText: 'Coffee Stand',
+      status: ReceiptOcrReviewStatusValues.reviewed,
+      currency: null,
+    ),
+    sampleSummary(
+      reviewId: '77777777-7777-7777-7777-777777777780',
+      fileId: '66666666-6666-6666-6666-666666666667',
+      groupId: _groupId,
+      merchantText: 'Unsafe Currency',
+      status: ReceiptOcrReviewStatusValues.provisional,
+      currency: 'usd1',
+    ),
+  ];
+}
+
 ReceiptOcrReviewSummary sampleSummary({
   String reviewId = _reviewId,
   String billId = _billId,
   String fileId = _fileId,
   String? groupId,
+  ReceiptOcrReviewStatus status = ReceiptOcrReviewStatusValues.reviewed,
   String? merchantText = 'Corner Market',
   String? currency = 'USD',
   int lineCount = 1,
@@ -1895,7 +2134,7 @@ ReceiptOcrReviewSummary sampleSummary({
     billId: billId,
     groupId: groupId,
     fileId: fileId,
-    status: ReceiptOcrReviewStatusValues.reviewed,
+    status: status,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: merchantText,
     currency: currency,
