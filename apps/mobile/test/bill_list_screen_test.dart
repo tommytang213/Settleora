@@ -172,6 +172,124 @@ void main() {
     expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
   });
 
+  testWidgets('personal bill create review checklist tracks local form state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: const [4, 5, 6],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-create-review-checklist')),
+      findsOneWidget,
+    );
+    expect(find.text('Review before save'), findsOneWidget);
+    expect(
+      find.text(
+        'Local form checklist only. The server still validates the saved bill.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('0 attachments'), findsOneWidget);
+    expect(
+      find.text('Missing local details: merchant, bill date.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Missing local item fields: 1 item name, 1 item amount.'),
+      findsOneWidget,
+    );
+    expect(find.text('No attachments selected.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('personal-bill-add-item')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 item rows'), findsOneWidget);
+    expect(
+      find.text('Missing local item fields: 2 item names, 2 item amounts.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('personal-bill-item-remove-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 item row'), findsOneWidget);
+    expect(
+      find.text('Missing local item fields: 1 item name, 1 item amount.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Brunch Spot',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-date')),
+      '2026-05-23',
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Merchant, date, and currency are filled locally.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+      '7.50',
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('All item names, amounts, and currencies are filled locally.'),
+      findsOneWidget,
+    );
+
+    await _addDraftAttachment(
+      tester,
+      const Key('personal-bill-attachment-purpose-receipt'),
+    );
+
+    expect(find.text('1 attachment'), findsOneWidget);
+    expect(
+      find.text('Attachments are selected for upload after bill creation.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('personal-bill-attachment-remove-0')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('0 attachments'), findsOneWidget);
+    expect(find.text('No attachments selected.'), findsOneWidget);
+  });
+
   testWidgets('create validation blocks blank fields and zero item rows', (
     tester,
   ) async {
@@ -1054,8 +1172,15 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('1 attachment selected'), findsOneWidget);
+      expect(find.text('1 attachment'), findsOneWidget);
       expect(find.text('support.pdf'), findsOneWidget);
       expect(find.text('receipt.png'), findsNothing);
+      expect(
+        find.text(
+          'Attachment retry is active for the remaining selected uploads.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Retry remaining attachment uploads'), findsOneWidget);
       expect(
         find.byTooltip('Retry remaining attachment uploads'),

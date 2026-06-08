@@ -513,6 +513,14 @@ class _SettleoraPersonalBillCreateScreenState
     });
   }
 
+  void _notifyDraftChanged() {
+    if (!mounted || _isSaving) {
+      return;
+    }
+
+    setState(() {});
+  }
+
   Future<void> _addDraftAttachment() async {
     final fileInput = widget.attachmentFileInput;
     if (fileInput == null || _isSaving || _isPickingAttachment) {
@@ -840,6 +848,7 @@ class _SettleoraPersonalBillCreateScreenState
                   key: const Key('personal-bill-merchant-name'),
                   controller: _merchantController,
                   enabled: !_isSaving,
+                  onChanged: (_) => _notifyDraftChanged(),
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'Merchant name',
@@ -851,6 +860,7 @@ class _SettleoraPersonalBillCreateScreenState
                   key: const Key('personal-bill-date'),
                   controller: _billDateController,
                   enabled: !_isSaving,
+                  onChanged: (_) => _notifyDraftChanged(),
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'Bill date',
@@ -865,6 +875,7 @@ class _SettleoraPersonalBillCreateScreenState
                   key: const Key('personal-bill-currency'),
                   controller: _currencyController,
                   enabled: !_isSaving,
+                  onChanged: (_) => _notifyDraftChanged(),
                   textCapitalization: TextCapitalization.characters,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
@@ -909,6 +920,7 @@ class _SettleoraPersonalBillCreateScreenState
                       controllers: _itemControllers[index],
                       isSaving: _isSaving,
                       onRemove: () => _removeItem(index),
+                      onDraftChanged: _notifyDraftChanged,
                     ),
                   ),
                 const SizedBox(height: 10),
@@ -923,6 +935,17 @@ class _SettleoraPersonalBillCreateScreenState
                   onAdd: _addDraftAttachment,
                   onRemove: _removeDraftAttachment,
                   onPurposeChanged: _changeDraftAttachmentPurpose,
+                ),
+                const SizedBox(height: 22),
+                _PersonalBillCreateReviewChecklist(
+                  merchantController: _merchantController,
+                  billDateController: _billDateController,
+                  currencyController: _currencyController,
+                  itemControllers: _itemControllers,
+                  attachmentCount: _draftAttachments.length,
+                  isAttachmentRetryActive:
+                      _createdBillAwaitingAttachmentUpload != null &&
+                      _draftAttachments.isNotEmpty,
                 ),
               ],
             ),
@@ -970,6 +993,154 @@ class _PersonalBillCreateItemControllers {
     currency.dispose();
     note.dispose();
   }
+}
+
+class _PersonalBillCreateReviewChecklist extends StatelessWidget {
+  const _PersonalBillCreateReviewChecklist({
+    required this.merchantController,
+    required this.billDateController,
+    required this.currencyController,
+    required this.itemControllers,
+    required this.attachmentCount,
+    required this.isAttachmentRetryActive,
+  });
+
+  final TextEditingController merchantController;
+  final TextEditingController billDateController;
+  final TextEditingController currencyController;
+  final List<_PersonalBillCreateItemControllers> itemControllers;
+  final int attachmentCount;
+  final bool isAttachmentRetryActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final missingDetails = <String>[
+      if (merchantController.text.trim().isEmpty) 'merchant',
+      if (billDateController.text.trim().isEmpty) 'bill date',
+      if (currencyController.text.trim().isEmpty) 'currency',
+    ];
+    final missingItemNames = itemControllers
+        .where((item) => item.name.text.trim().isEmpty)
+        .length;
+    final missingItemAmounts = itemControllers
+        .where((item) => item.amount.text.trim().isEmpty)
+        .length;
+    final missingItemCurrencies = itemControllers
+        .where((item) => item.currency.text.trim().isEmpty)
+        .length;
+    final itemFieldsReady =
+        itemControllers.isNotEmpty &&
+        missingItemNames == 0 &&
+        missingItemAmounts == 0 &&
+        missingItemCurrencies == 0;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Semantics(
+      container: true,
+      label: 'Personal bill create local review checklist',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            key: const Key('personal-bill-create-review-checklist'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.fact_check_outlined,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Review before save',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Local form checklist only. The server still validates the saved bill.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ReviewChecklistChip(
+                    label: _pluralCount(itemControllers.length, 'item row'),
+                  ),
+                  _ReviewChecklistChip(
+                    label: _pluralCount(attachmentCount, 'attachment'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _ReviewChecklistHint(
+                text: missingDetails.isEmpty
+                    ? 'Merchant, date, and currency are filled locally.'
+                    : 'Missing local details: ${missingDetails.join(', ')}.',
+                isReady: missingDetails.isEmpty,
+              ),
+              _ReviewChecklistHint(
+                text: itemFieldsReady
+                    ? 'All item names, amounts, and currencies are filled locally.'
+                    : _personalBillCreateMissingItemFieldsMessage(
+                        itemControllers: itemControllers,
+                        missingItemNames: missingItemNames,
+                        missingItemAmounts: missingItemAmounts,
+                        missingItemCurrencies: missingItemCurrencies,
+                      ),
+                isReady: itemFieldsReady,
+              ),
+              _ReviewChecklistHint(
+                text: attachmentCount == 0
+                    ? 'No attachments selected.'
+                    : 'Attachments are selected for upload after bill creation.',
+                isReady: attachmentCount > 0,
+              ),
+              if (isAttachmentRetryActive)
+                const _ReviewChecklistHint(
+                  text:
+                      'Attachment retry is active for the remaining selected uploads.',
+                  isReady: false,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _personalBillCreateMissingItemFieldsMessage({
+  required List<_PersonalBillCreateItemControllers> itemControllers,
+  required int missingItemNames,
+  required int missingItemAmounts,
+  required int missingItemCurrencies,
+}) {
+  if (itemControllers.isEmpty) {
+    return 'No item rows yet.';
+  }
+
+  final missingParts = <String>[
+    if (missingItemNames > 0) _pluralCount(missingItemNames, 'item name'),
+    if (missingItemAmounts > 0) _pluralCount(missingItemAmounts, 'item amount'),
+    if (missingItemCurrencies > 0)
+      _pluralCount(missingItemCurrencies, 'item currency'),
+  ];
+
+  return 'Missing local item fields: ${missingParts.join(', ')}.';
 }
 
 class _BillCreateDraftAttachment {
@@ -1217,12 +1388,14 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
     required this.controllers,
     required this.isSaving,
     required this.onRemove,
+    required this.onDraftChanged,
   });
 
   final int index;
   final _PersonalBillCreateItemControllers controllers;
   final bool isSaving;
   final VoidCallback onRemove;
+  final VoidCallback onDraftChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1259,6 +1432,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               key: ValueKey('personal-bill-item-name-$index'),
               controller: controllers.name,
               enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Name',
@@ -1272,6 +1446,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               key: ValueKey('personal-bill-item-amount-$index'),
               controller: controllers.amount,
               enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
@@ -1288,6 +1463,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               key: ValueKey('personal-bill-item-currency-$index'),
               controller: controllers.currency,
               enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textCapitalization: TextCapitalization.characters,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
@@ -1304,6 +1480,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               key: ValueKey('personal-bill-item-note-$index'),
               controller: controllers.note,
               enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                 labelText: 'Note',
