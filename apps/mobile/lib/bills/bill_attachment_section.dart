@@ -30,10 +30,14 @@ class BillAttachmentSection extends StatefulWidget {
 }
 
 class _BillAttachmentSectionState extends State<BillAttachmentSection> {
+  final TextEditingController _discoverySearchController =
+      TextEditingController();
   bool _isLoading = true;
   bool _loadInFlight = false;
   bool _isSelectingUploadPurpose = false;
   bool _isUploading = false;
+  _AttachmentDiscoveryFilter _selectedDiscoveryFilter =
+      _AttachmentDiscoveryFilter.all;
   String? _downloadingFileId;
   String? _removingFileId;
   String? _confirmingRemoveFileId;
@@ -50,7 +54,15 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
   @override
   void initState() {
     super.initState();
+    _discoverySearchController.addListener(_onDiscoverySearchChanged);
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _discoverySearchController.removeListener(_onDiscoverySearchChanged);
+    _discoverySearchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -67,6 +79,8 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         _activeDownloadBillId = null;
         _activeDownloadGroupId = null;
         _confirmingRemoveFileId = null;
+        _selectedDiscoveryFilter = _AttachmentDiscoveryFilter.all;
+        _discoverySearchController.clear();
       });
     }
     if (routeChanged ||
@@ -78,6 +92,25 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
 
   Future<void> _load() async {
     await _loadAttachments();
+  }
+
+  void _onDiscoverySearchChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _selectDiscoveryFilter(_AttachmentDiscoveryFilter filter) {
+    setState(() {
+      _selectedDiscoveryFilter = filter;
+    });
+  }
+
+  void _clearDiscovery() {
+    setState(() {
+      _selectedDiscoveryFilter = _AttachmentDiscoveryFilter.all;
+      _discoverySearchController.clear();
+    });
   }
 
   Future<List<SettleoraBillAttachment>?> _loadAttachments({
@@ -583,6 +616,12 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
     final actionState = _attachmentActionState;
     final attachmentActionDisabled = actionState.blocksActions;
     final hasAttachments = _attachments.isNotEmpty;
+    final discovery = _AttachmentDiscoveryState.from(
+      attachments: _attachments,
+      query: _discoverySearchController.text,
+      selectedFilter: _selectedDiscoveryFilter,
+      receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+    );
 
     return _AttachmentSectionContainer(
       title: 'Attachments',
@@ -671,27 +710,57 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
             ),
             const SizedBox(height: 10),
           ],
-          if (hasAttachments)
-            for (var index = 0; index < _attachments.length; index += 1)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _AttachmentTile(
-                  attachment: _attachments[index],
-                  index: index,
-                  keyPrefix: widget.keyPrefix,
-                  isBusy: attachmentActionDisabled,
-                  isDownloading: actionState.isDownloading(_attachments[index]),
-                  isRemoving: actionState.isRemoving(_attachments[index]),
-                  canOpenOcr: actionState.showsOcrReviewAction(
-                    _attachments[index],
-                    widget.receiptOcrReviewRepository,
-                  ),
-                  onDownload: () => _download(_attachments[index]),
-                  onRemove: () => _confirmRemove(_attachments[index]),
-                  onOpenOcr: () => _openOcrReview(_attachments[index]),
-                ),
+          if (hasAttachments) ...[
+            if (!attachmentActionDisabled) ...[
+              _AttachmentDiscoveryControls(
+                keyPrefix: widget.keyPrefix,
+                controller: _discoverySearchController,
+                discovery: discovery,
+                selectedFilter: _selectedDiscoveryFilter,
+                onFilterSelected: _selectDiscoveryFilter,
+                onClear: discovery.isActive ? _clearDiscovery : null,
+              ),
+              const SizedBox(height: 10),
+            ],
+            if (discovery.visibleAttachments.isEmpty)
+              const _AttachmentStatePanel(
+                icon: Icons.filter_alt_off_outlined,
+                title: 'No matching attachments',
+                message: 'Clear search or filters to show attachments again.',
+                compact: true,
               )
-          else if (failure == null)
+            else
+              for (
+                var index = 0;
+                index < discovery.visibleAttachments.length;
+                index += 1
+              )
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _AttachmentTile(
+                    attachment: discovery.visibleAttachments[index],
+                    index: index,
+                    keyPrefix: widget.keyPrefix,
+                    isBusy: attachmentActionDisabled,
+                    isDownloading: actionState.isDownloading(
+                      discovery.visibleAttachments[index],
+                    ),
+                    isRemoving: actionState.isRemoving(
+                      discovery.visibleAttachments[index],
+                    ),
+                    canOpenOcr: actionState.showsOcrReviewAction(
+                      discovery.visibleAttachments[index],
+                      widget.receiptOcrReviewRepository,
+                    ),
+                    onDownload: () =>
+                        _download(discovery.visibleAttachments[index]),
+                    onRemove: () =>
+                        _confirmRemove(discovery.visibleAttachments[index]),
+                    onOpenOcr: () =>
+                        _openOcrReview(discovery.visibleAttachments[index]),
+                  ),
+                ),
+          ] else if (failure == null)
             const _AttachmentStatePanel(
               icon: Icons.attach_file_outlined,
               title: 'No attachments',
@@ -702,6 +771,136 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
       ],
     );
   }
+}
+
+enum _AttachmentDiscoveryFilter {
+  all,
+  receipts,
+  supporting,
+  reviewableOcr,
+  other,
+}
+
+class _AttachmentDiscoveryState {
+  const _AttachmentDiscoveryState({
+    required this.visibleAttachments,
+    required this.totalCount,
+    required this.receiptCount,
+    required this.supportingCount,
+    required this.reviewableOcrCount,
+    required this.otherCount,
+    required this.isActive,
+  });
+
+  factory _AttachmentDiscoveryState.from({
+    required List<SettleoraBillAttachment> attachments,
+    required String query,
+    required _AttachmentDiscoveryFilter selectedFilter,
+    required ReceiptOcrReviewRepository? receiptOcrReviewRepository,
+  }) {
+    final normalizedQuery = query.trim().toLowerCase();
+    final canReviewOcr = receiptOcrReviewRepository != null;
+    final visibleAttachments = [
+      for (final attachment in attachments)
+        if (_matchesAttachmentDiscoveryFilter(
+              attachment,
+              selectedFilter,
+              canReviewOcr: canReviewOcr,
+            ) &&
+            _matchesAttachmentDiscoverySearch(attachment, normalizedQuery))
+          attachment,
+    ];
+
+    return _AttachmentDiscoveryState(
+      visibleAttachments: visibleAttachments,
+      totalCount: attachments.length,
+      receiptCount: attachments
+          .where(
+            (attachment) =>
+                attachment.purpose ==
+                SettleoraBillAttachmentPurposeValues.receipt,
+          )
+          .length,
+      supportingCount: attachments
+          .where(
+            (attachment) =>
+                attachment.purpose ==
+                SettleoraBillAttachmentPurposeValues.supportingAttachment,
+          )
+          .length,
+      reviewableOcrCount: canReviewOcr
+          ? attachments
+                .where(
+                  (attachment) =>
+                      attachment.purpose ==
+                      SettleoraBillAttachmentPurposeValues.receipt,
+                )
+                .length
+          : 0,
+      otherCount: attachments
+          .where(
+            (attachment) =>
+                attachment.purpose !=
+                    SettleoraBillAttachmentPurposeValues.receipt &&
+                attachment.purpose !=
+                    SettleoraBillAttachmentPurposeValues.supportingAttachment,
+          )
+          .length,
+      isActive:
+          normalizedQuery.isNotEmpty ||
+          selectedFilter != _AttachmentDiscoveryFilter.all,
+    );
+  }
+
+  final List<SettleoraBillAttachment> visibleAttachments;
+  final int totalCount;
+  final int receiptCount;
+  final int supportingCount;
+  final int reviewableOcrCount;
+  final int otherCount;
+  final bool isActive;
+}
+
+bool _matchesAttachmentDiscoveryFilter(
+  SettleoraBillAttachment attachment,
+  _AttachmentDiscoveryFilter filter, {
+  required bool canReviewOcr,
+}) {
+  return switch (filter) {
+    _AttachmentDiscoveryFilter.all => true,
+    _AttachmentDiscoveryFilter.receipts =>
+      attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt,
+    _AttachmentDiscoveryFilter.supporting =>
+      attachment.purpose ==
+          SettleoraBillAttachmentPurposeValues.supportingAttachment,
+    _AttachmentDiscoveryFilter.reviewableOcr =>
+      canReviewOcr &&
+          attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt,
+    _AttachmentDiscoveryFilter.other =>
+      attachment.purpose != SettleoraBillAttachmentPurposeValues.receipt &&
+          attachment.purpose !=
+              SettleoraBillAttachmentPurposeValues.supportingAttachment,
+  };
+}
+
+bool _matchesAttachmentDiscoverySearch(
+  SettleoraBillAttachment attachment,
+  String normalizedQuery,
+) {
+  if (normalizedQuery.isEmpty) {
+    return true;
+  }
+
+  final metadata = _AttachmentTileMetadata.from(attachment);
+  final searchableText = [
+    metadata.purposeLabel,
+    metadata.contentTypeLabel,
+    metadata.sizeLabel,
+    metadata.uploadedAtLabel,
+    metadata.updatedAtLabel,
+  ].join(' ').toLowerCase();
+
+  return searchableText.contains(normalizedQuery);
 }
 
 class _AttachmentActionState {
@@ -802,6 +1001,146 @@ class _AttachmentRefreshStatus extends StatelessWidget {
           Text(label, style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
+    );
+  }
+}
+
+class _AttachmentDiscoveryControls extends StatelessWidget {
+  const _AttachmentDiscoveryControls({
+    required this.keyPrefix,
+    required this.controller,
+    required this.discovery,
+    required this.selectedFilter,
+    required this.onFilterSelected,
+    required this.onClear,
+  });
+
+  final String keyPrefix;
+  final TextEditingController controller;
+  final _AttachmentDiscoveryState discovery;
+  final _AttachmentDiscoveryFilter selectedFilter;
+  final ValueChanged<_AttachmentDiscoveryFilter> onFilterSelected;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Showing ${discovery.visibleAttachments.length} of '
+          '${discovery.totalCount} attachments',
+          key: Key('$keyPrefix-discovery-count'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: Key('$keyPrefix-discovery-search'),
+          controller: controller,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: 'Search attachments',
+            hintText: 'Purpose, type, size, or date',
+            prefixIcon: const Icon(Icons.search),
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixIcon: onClear == null
+                ? null
+                : IconButton(
+                    key: Key('$keyPrefix-discovery-clear-field'),
+                    tooltip: 'Clear attachment discovery',
+                    onPressed: onClear,
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _AttachmentDiscoveryChip(
+              keyPrefix: keyPrefix,
+              filter: _AttachmentDiscoveryFilter.all,
+              selectedFilter: selectedFilter,
+              label: 'All',
+              count: discovery.totalCount,
+              onSelected: onFilterSelected,
+            ),
+            _AttachmentDiscoveryChip(
+              keyPrefix: keyPrefix,
+              filter: _AttachmentDiscoveryFilter.receipts,
+              selectedFilter: selectedFilter,
+              label: 'Receipts',
+              count: discovery.receiptCount,
+              onSelected: onFilterSelected,
+            ),
+            _AttachmentDiscoveryChip(
+              keyPrefix: keyPrefix,
+              filter: _AttachmentDiscoveryFilter.supporting,
+              selectedFilter: selectedFilter,
+              label: 'Supporting',
+              count: discovery.supportingCount,
+              onSelected: onFilterSelected,
+            ),
+            _AttachmentDiscoveryChip(
+              keyPrefix: keyPrefix,
+              filter: _AttachmentDiscoveryFilter.reviewableOcr,
+              selectedFilter: selectedFilter,
+              label: 'Reviewable OCR',
+              count: discovery.reviewableOcrCount,
+              onSelected: onFilterSelected,
+            ),
+            _AttachmentDiscoveryChip(
+              keyPrefix: keyPrefix,
+              filter: _AttachmentDiscoveryFilter.other,
+              selectedFilter: selectedFilter,
+              label: 'Other',
+              count: discovery.otherCount,
+              onSelected: onFilterSelected,
+            ),
+            if (onClear != null)
+              TextButton.icon(
+                key: Key('$keyPrefix-discovery-clear'),
+                onPressed: onClear,
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Clear'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AttachmentDiscoveryChip extends StatelessWidget {
+  const _AttachmentDiscoveryChip({
+    required this.keyPrefix,
+    required this.filter,
+    required this.selectedFilter,
+    required this.label,
+    required this.count,
+    required this.onSelected,
+  });
+
+  final String keyPrefix;
+  final _AttachmentDiscoveryFilter filter;
+  final _AttachmentDiscoveryFilter selectedFilter;
+  final String label;
+  final int count;
+  final ValueChanged<_AttachmentDiscoveryFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final chipLabel = '$label ($count)';
+
+    return FilterChip(
+      key: Key('$keyPrefix-discovery-filter-${filter.name}'),
+      label: Text(chipLabel),
+      selected: selectedFilter == filter,
+      onSelected: (_) => onSelected(filter),
     );
   }
 }

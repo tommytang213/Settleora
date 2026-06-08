@@ -1129,6 +1129,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('group-bill-attachments-download-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('group-bill-attachments-download-0')),
     );
@@ -1239,6 +1240,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('group-bill-attachments-download-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('group-bill-attachments-download-0')),
       );
@@ -1359,6 +1361,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('group-bill-attachments-download-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('group-bill-attachments-download-0')),
       );
@@ -1415,6 +1418,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('group-bill-attachments-remove-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('group-bill-attachments-remove-0')),
     );
@@ -1432,6 +1436,10 @@ void main() {
     expect(attachmentRepository.removeCalls, 0);
     expect(find.text('Supporting attachment'), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-attachments-remove-0')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('group-bill-attachments-remove-0')),
     );

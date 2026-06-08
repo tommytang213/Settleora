@@ -45,6 +45,333 @@ void main() {
       expect(visibleText(tester), isNot(contains('token')));
     });
 
+    testWidgets('renders discovery controls with loaded attachment counts', (
+      tester,
+    ) async {
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(
+              purpose: SettleoraBillAttachmentPurposeValues.receipt,
+            ),
+            sampleAttachment(
+              fileId: _supportingFileId,
+              purpose:
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+              contentType: 'application/pdf',
+            ),
+            sampleAttachment(fileId: _futureFileId, purpose: 'future_purpose'),
+          ],
+        ),
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      expect(
+        find.byKey(const Key('attachments-discovery-search')),
+        findsOneWidget,
+      );
+      expect(find.text('Showing 3 of 3 attachments'), findsOneWidget);
+      expect(find.text('All (3)'), findsOneWidget);
+      expect(find.text('Receipts (1)'), findsOneWidget);
+      expect(find.text('Supporting (1)'), findsOneWidget);
+      expect(find.text('Reviewable OCR (1)'), findsOneWidget);
+      expect(find.text('Other (1)'), findsOneWidget);
+      expect(
+        find.byKey(const Key('attachments-discovery-clear')),
+        findsNothing,
+      );
+      expectVisibleTextOmitsUnsafeAttachmentDetails(tester);
+    });
+
+    testWidgets(
+      'filters attachments by safe metadata and preserves row order',
+      (tester) async {
+        await pumpAttachmentSection(
+          tester,
+          repository: FakeBillAttachmentRepository(
+            attachments: [
+              sampleAttachment(
+                fileId: _supportingFileId,
+                purpose:
+                    SettleoraBillAttachmentPurposeValues.supportingAttachment,
+                contentType: 'application/pdf',
+              ),
+              sampleAttachment(
+                fileId: _fileId,
+                purpose: SettleoraBillAttachmentPurposeValues.receipt,
+                contentType: 'image/png',
+              ),
+              sampleAttachment(
+                fileId: _futureFileId,
+                purpose: SettleoraBillAttachmentPurposeValues.receipt,
+                contentType: 'image/webp',
+                sizeBytes: 2048,
+              ),
+            ],
+          ),
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('attachments-discovery-search')),
+          'image',
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Showing 2 of 3 attachments'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('attachments-download-0')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('attachments-download-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('attachments-download-2')),
+          findsNothing,
+        );
+        expect(
+          tester.getTopLeft(find.text('image/png')).dy,
+          lessThan(tester.getTopLeft(find.text('image/webp')).dy),
+        );
+        expect(
+          find.byKey(const Key('attachments-discovery-clear')),
+          findsOneWidget,
+        );
+        expectVisibleTextOmitsUnsafeAttachmentDetails(tester);
+      },
+    );
+
+    testWidgets('shows filtered-empty state separately from true empty', (
+      tester,
+    ) async {
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [sampleAttachment(contentType: 'image/png')],
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('attachments-discovery-search')),
+        'application/pdf',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Showing 0 of 1 attachments'), findsOneWidget);
+      expect(find.text('No matching attachments'), findsOneWidget);
+      expect(find.text('No attachments'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('attachments-discovery-clear')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Showing 1 of 1 attachments'), findsOneWidget);
+      expect(find.text('Receipt'), findsOneWidget);
+    });
+
+    testWidgets('filter chips narrow visible rows without changing counts', (
+      tester,
+    ) async {
+      await pumpAttachmentSection(
+        tester,
+        repository: FakeBillAttachmentRepository(
+          attachments: [
+            sampleAttachment(),
+            sampleAttachment(
+              fileId: _supportingFileId,
+              purpose:
+                  SettleoraBillAttachmentPurposeValues.supportingAttachment,
+              contentType: 'application/pdf',
+            ),
+            sampleAttachment(fileId: _futureFileId, purpose: 'future_purpose'),
+          ],
+        ),
+        receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(),
+      );
+
+      await tester.tap(
+        find.byKey(const Key('attachments-discovery-filter-supporting')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Showing 1 of 3 attachments'), findsOneWidget);
+      expect(find.text('All (3)'), findsOneWidget);
+      expect(find.text('Receipts (1)'), findsOneWidget);
+      expect(find.text('Supporting (1)'), findsOneWidget);
+      expect(find.text('Reviewable OCR (1)'), findsOneWidget);
+      expect(find.text('Other (1)'), findsOneWidget);
+      expect(find.text('application/pdf'), findsOneWidget);
+      expect(find.text('image/png'), findsNothing);
+      expect(
+        find.byKey(const Key('attachments-discovery-clear')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('filtered download uses selected visible attachment file ID', (
+      tester,
+    ) async {
+      final repository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(),
+          sampleAttachment(
+            fileId: _supportingFileId,
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+        ],
+      );
+
+      await pumpAttachmentSection(tester, repository: repository);
+
+      await tester.tap(
+        find.byKey(const Key('attachments-discovery-filter-supporting')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('attachments-download-0')));
+      await tester.pumpAndSettle();
+
+      expect(repository.downloadCalls, 1);
+      expect(repository.lastDownloadedFileId, _supportingFileId);
+    });
+
+    testWidgets('filtered remove uses selected visible attachment file ID', (
+      tester,
+    ) async {
+      final repository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(),
+          sampleAttachment(
+            fileId: _supportingFileId,
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+        ],
+      );
+
+      await pumpAttachmentSection(tester, repository: repository);
+
+      await tester.tap(
+        find.byKey(const Key('attachments-discovery-filter-supporting')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('attachments-remove-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('attachments-remove-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(repository.removeCalls, 1);
+      expect(repository.lastRemovedFileId, _supportingFileId);
+    });
+
+    testWidgets(
+      'filtered OCR action uses selected visible attachment file ID',
+      (tester) async {
+        final receiptRepository = FakeReceiptOcrReviewRepository();
+
+        await pumpAttachmentSection(
+          tester,
+          repository: FakeBillAttachmentRepository(
+            attachments: [
+              sampleAttachment(
+                fileId: _supportingFileId,
+                purpose:
+                    SettleoraBillAttachmentPurposeValues.supportingAttachment,
+                contentType: 'application/pdf',
+              ),
+              sampleAttachment(
+                fileId: _futureFileId,
+                purpose: SettleoraBillAttachmentPurposeValues.receipt,
+                contentType: 'image/webp',
+              ),
+            ],
+          ),
+          receiptOcrReviewRepository: receiptRepository,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('attachments-discovery-filter-reviewableOcr')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('attachments-ocr-0')));
+        await tester.pumpAndSettle();
+
+        expect(receiptRepository.getCalls, 1);
+        expectLastReceiptRoute(
+          receiptRepository,
+          billId: _billId,
+          fileId: _futureFileId,
+        );
+      },
+    );
+
+    testWidgets('resets active discovery on route change', (tester) async {
+      final repository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            fileId: _supportingFileId,
+            purpose: SettleoraBillAttachmentPurposeValues.supportingAttachment,
+            contentType: 'application/pdf',
+          ),
+        ],
+      );
+
+      await pumpAttachmentSection(
+        tester,
+        repository: repository,
+        route: const SettleoraBillAttachmentRoute.personal(_billId),
+      );
+      await tester.enterText(
+        find.byKey(const Key('attachments-discovery-search')),
+        'pdf',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Showing 1 of 1 attachments'), findsOneWidget);
+      expect(
+        find.byKey(const Key('attachments-discovery-clear')),
+        findsOneWidget,
+      );
+
+      repository.attachments = [
+        sampleAttachment(
+          fileId: _fileId,
+          purpose: SettleoraBillAttachmentPurposeValues.receipt,
+          contentType: 'image/png',
+        ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: BillAttachmentSection(
+                  keyPrefix: 'attachments',
+                  reloadRevision: 0,
+                  route: const SettleoraBillAttachmentRoute.personal(
+                    '33333333-3333-3333-3333-333333333333',
+                  ),
+                  repository: repository,
+                  fileInput: null,
+                  receiptOcrReviewRepository: null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Showing 1 of 1 attachments'), findsOneWidget);
+      expect(find.text('image/png'), findsOneWidget);
+      expect(
+        find.byKey(const Key('attachments-discovery-clear')),
+        findsNothing,
+      );
+    });
+
     testWidgets('labels refresh and retry controls accessibly', (tester) async {
       final semantics = enableAttachmentSemantics(tester);
 
