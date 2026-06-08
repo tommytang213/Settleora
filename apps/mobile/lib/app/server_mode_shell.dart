@@ -73,6 +73,7 @@ class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
   bool _isSigningOut = false;
   bool _isLoadingOverview = true;
+  Future<void>? _overviewLoadFuture;
   _SettleoraDashboardOverview? _overview;
   _SettleoraDashboardFailure? _overviewFailure;
 
@@ -82,7 +83,24 @@ class _SettleoraAuthenticatedServerShellState
     Future<void>.microtask(_loadOverview);
   }
 
-  Future<void> _loadOverview() async {
+  Future<void> _loadOverview() {
+    final activeLoad = _overviewLoadFuture;
+    if (activeLoad != null) {
+      return activeLoad;
+    }
+
+    late final Future<void> load;
+    load = _runOverviewLoad().whenComplete(() {
+      if (_overviewLoadFuture == load) {
+        _overviewLoadFuture = null;
+      }
+    });
+    _overviewLoadFuture = load;
+
+    return load;
+  }
+
+  Future<void> _runOverviewLoad() async {
     setState(() {
       _isLoadingOverview = true;
       _overviewFailure = null;
@@ -122,23 +140,30 @@ class _SettleoraAuthenticatedServerShellState
 
       setState(() {
         _overviewFailure = _SettleoraDashboardFailure.from(error);
-        _overview = null;
         _isLoadingOverview = false;
       });
     }
   }
 
+  Future<void> _openDashboardDestination(WidgetBuilder builder) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: builder));
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadOverview();
+  }
+
   Future<void> _openBills() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraBillListScreen(
-          repository: widget.billRepository,
-          syncController: widget.billSyncController,
-          attachmentRepository: widget.billAttachmentRepository,
-          attachmentFileInput: widget.billAttachmentFileInput,
-          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
-          revisionRepository: widget.billRevisionRepository,
-        ),
+    await _openDashboardDestination(
+      (_) => SettleoraBillListScreen(
+        repository: widget.billRepository,
+        syncController: widget.billSyncController,
+        attachmentRepository: widget.billAttachmentRepository,
+        attachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        revisionRepository: widget.billRevisionRepository,
       ),
     );
   }
@@ -156,21 +181,19 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openNotifications() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraNotificationScreen(
-          repository: widget.notificationRepository,
-          currentUserProfileId: widget.currentUser.userProfileId,
-          billRepository: widget.billRepository,
-          groupRepository: widget.groupRepository,
-          settlementRepository: widget.settlementRepository,
-          recurringBillRepository: widget.recurringBillRepository,
-          billAttachmentRepository: widget.billAttachmentRepository,
-          billAttachmentFileInput: widget.billAttachmentFileInput,
-          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
-          billRevisionRepository: widget.billRevisionRepository,
-          onSessionEnded: widget.onSessionEnded,
-        ),
+    await _openDashboardDestination(
+      (_) => SettleoraNotificationScreen(
+        repository: widget.notificationRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billRepository: widget.billRepository,
+        groupRepository: widget.groupRepository,
+        settlementRepository: widget.settlementRepository,
+        recurringBillRepository: widget.recurringBillRepository,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
+        onSessionEnded: widget.onSessionEnded,
       ),
     );
   }
@@ -187,48 +210,40 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openReceiptReviews() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ReceiptOcrReviewQueueScreen(
-          repository: widget.receiptOcrReviewRepository,
-        ),
+    await _openDashboardDestination(
+      (_) => ReceiptOcrReviewQueueScreen(
+        repository: widget.receiptOcrReviewRepository,
       ),
     );
   }
 
   Future<void> _openSettlements() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraSettlementListScreen(
-          repository: widget.settlementRepository,
-          currentUserProfileId: widget.currentUser.userProfileId,
-        ),
+    await _openDashboardDestination(
+      (_) => SettleoraSettlementListScreen(
+        repository: widget.settlementRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
       ),
     );
   }
 
   Future<void> _openRecurringBills() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraRecurringBillScreen(
-          repository: widget.recurringBillRepository,
-        ),
+    await _openDashboardDestination(
+      (_) => SettleoraRecurringBillScreen(
+        repository: widget.recurringBillRepository,
       ),
     );
   }
 
   Future<void> _openGroups() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraGroupListScreen(
-          repository: widget.groupRepository,
-          billRepository: widget.billRepository,
-          currentUserProfileId: widget.currentUser.userProfileId,
-          billAttachmentRepository: widget.billAttachmentRepository,
-          billAttachmentFileInput: widget.billAttachmentFileInput,
-          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
-          billRevisionRepository: widget.billRevisionRepository,
-        ),
+    await _openDashboardDestination(
+      (_) => SettleoraGroupListScreen(
+        repository: widget.groupRepository,
+        billRepository: widget.billRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
       ),
     );
   }
@@ -392,16 +407,42 @@ class _SettleoraAuthenticatedServerShellState
               ),
             ),
             const SizedBox(height: 8),
-            Text('Today', style: Theme.of(context).textTheme.titleLarge),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Today',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  key: const Key('dashboard-overview-refresh'),
+                  tooltip: 'Refresh overview',
+                  onPressed: _isLoadingOverview ? null : _loadOverview,
+                  icon: _isLoadingOverview
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            if (_isLoadingOverview)
+            if (_isLoadingOverview && overview == null)
               const _DashboardLoadingCard()
-            else if (overviewFailure != null)
+            else if (overviewFailure != null && overview == null)
               _DashboardErrorCard(
                 failure: overviewFailure,
                 onRetry: _loadOverview,
               )
-            else if (overview != null)
+            else if (overview != null) ...[
+              if (_isLoadingOverview) const _DashboardRefreshIndicator(),
+              if (overviewFailure != null)
+                _DashboardInlineErrorCard(
+                  failure: overviewFailure,
+                  onRetry: _loadOverview,
+                ),
               _DashboardOverviewContent(
                 overview: overview,
                 onOpenBills: _openBills,
@@ -410,6 +451,7 @@ class _SettleoraAuthenticatedServerShellState
                 onOpenRecurringBills: _openRecurringBills,
                 onOpenNotifications: _openNotifications,
               ),
+            ],
             const SizedBox(height: 16),
             Text('More', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -599,6 +641,59 @@ class _DashboardErrorCard extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardRefreshIndicator extends StatelessWidget {
+  const _DashboardRefreshIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          SizedBox.square(
+            dimension: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text('Refreshing overview'),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardInlineErrorCard extends StatelessWidget {
+  const _DashboardInlineErrorCard({
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final _SettleoraDashboardFailure failure;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline),
+            const SizedBox(width: 12),
+            Expanded(child: Text('${failure.title}. Showing last overview.')),
+            TextButton(
+              key: const Key('dashboard-overview-inline-retry'),
+              onPressed: onRetry,
+              child: const Text('Retry'),
             ),
           ],
         ),
