@@ -69,7 +69,7 @@ void main() {
     expect(find.text('Residual confirmed.'), findsOneWidget);
   });
 
-  testWidgets('requested settlement explains payer next step and seam gap', (
+  testWidgets('debtor marks requested settlement paid after confirmation', (
     tester,
   ) async {
     final repository = FakeSettlementRepository(
@@ -86,8 +86,118 @@ void main() {
     expect(find.text('Next step'), findsOneWidget);
     expect(find.text('You are expected to pay'), findsOneWidget);
     expect(find.text('Payment needed'), findsOneWidget);
-    expect(find.text('Mark-paid unavailable here'), findsOneWidget);
-    expect(find.byKey(const Key('settlement-payment-confirm-0')), findsNothing);
+    expect(find.text('Mark paid available'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settlement-request-mark-paid')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mark settlement paid?'), findsOneWidget);
+    expect(
+      find.text(
+        'Mark paid only after sending payment. The server will verify the claim, update settlement state, and keep the audit trail.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining(_settlementId), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('settlement-mark-paid-date')),
+      '2026-05-18',
+    );
+    await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
+    await tester.pumpAndSettle();
+
+    expect(repository.markPaymentPaidCalls, 1);
+    expect(repository.lastMarkedPaidSettlementId, _settlementId);
+    expect(repository.lastMarkedPaidAmount, '10.00');
+    expect(repository.lastMarkedPaidCurrency, 'USD');
+    expect(repository.lastMarkedPaidPaymentDate, '2026-05-18');
+    expect(repository.getRequestCalls, 2);
+    expect(repository.listPaymentsCalls, 2);
+    expect(find.text('Payment marked paid.'), findsOneWidget);
+  });
+
+  testWidgets('mark-paid dialog validates empty inputs locally', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(),
+      payments: const [],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    await tester.tap(find.byKey(const Key('settlement-request-mark-paid')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('settlement-mark-paid-amount')),
+      '',
+    );
+    await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Enter amount, currency, and payment date before marking paid.',
+      ),
+      findsOneWidget,
+    );
+    expect(repository.markPaymentPaidCalls, 0);
+  });
+
+  testWidgets('creditor does not see payer-only mark-paid action', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(),
+      payments: const [],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    expect(find.byKey(const Key('settlement-request-mark-paid')), findsNothing);
+    expect(find.text('Waiting for payer'), findsOneWidget);
+  });
+
+  testWidgets('mark-paid action blocks duplicate taps while in flight', (
+    tester,
+  ) async {
+    final markPaidCompleter = Completer<void>();
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(),
+      payments: const [],
+      markPaymentPaidCompleter: markPaidCompleter,
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    final markPaid = find.byKey(const Key('settlement-request-mark-paid'));
+    await tester.tap(markPaid);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
+    await tester.pump();
+
+    expect(repository.markPaymentPaidCalls, 1);
+    expect(tester.widget<FilledButton>(markPaid).onPressed, isNull);
+
+    await tester.tap(markPaid);
+    await tester.pump();
+
+    expect(repository.markPaymentPaidCalls, 1);
+    markPaidCompleter.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('receiver confirms marked-paid payment after confirmation', (
@@ -258,6 +368,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     SettleoraSettlementRequest? detail,
     this.payments = const [],
     this.paymentDetails,
+    this.markPaymentPaidCompleter,
     this.confirmPaymentCompleter,
   }) : detail = detail ?? sampleRequest();
 
@@ -267,6 +378,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   SettleoraSettlementRequest detail;
   List<SettleoraSettlementPayment> payments;
   final SettleoraSettlementCounterpartyPaymentDetails? paymentDetails;
+  final Completer<void>? markPaymentPaidCompleter;
   final Completer<void>? confirmPaymentCompleter;
   int listBalancesCalls = 0;
   int listRequestsCalls = 0;
@@ -275,11 +387,16 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   int paymentDetailsCalls = 0;
   int cancelRequestCalls = 0;
   int disputeRequestCalls = 0;
+  int markPaymentPaidCalls = 0;
   int confirmPaymentCalls = 0;
   int cancelPaymentCalls = 0;
   int disputePaymentCalls = 0;
   int confirmResidualCalls = 0;
   String? lastPaymentDetailsUserProfileId;
+  String? lastMarkedPaidSettlementId;
+  String? lastMarkedPaidAmount;
+  String? lastMarkedPaidCurrency;
+  String? lastMarkedPaidPaymentDate;
   String? lastResidualId;
 
   @override
@@ -315,6 +432,35 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     listPaymentsCalls += 1;
     _throwIfNeeded();
     return payments;
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> markSettlementPaymentPaid({
+    required String settlementId,
+    required String amount,
+    required String currency,
+    required String paymentDate,
+  }) async {
+    markPaymentPaidCalls += 1;
+    lastMarkedPaidSettlementId = settlementId;
+    lastMarkedPaidAmount = amount;
+    lastMarkedPaidCurrency = currency;
+    lastMarkedPaidPaymentDate = paymentDate;
+    final completer = markPaymentPaidCompleter;
+    if (completer != null) {
+      await completer.future;
+    }
+    final payment = samplePayment(
+      amount: amount,
+      currency: currency,
+      paymentDate: paymentDate,
+      residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+    );
+    detail = sampleRequest(
+      status: SettleoraSettlementRequestStatusValues.markedPaid,
+    );
+    payments = [payment];
+    return payment;
   }
 
   @override
@@ -495,6 +641,9 @@ SettleoraSettlementRequest sampleRequest({
 
 SettleoraSettlementPayment samplePayment({
   String status = SettleoraSettlementPaymentStatusValues.markedPaid,
+  String amount = '2.50',
+  String currency = 'USD',
+  String paymentDate = '2026-05-17',
   String residualStatus =
       SettleoraSettlementResidualStatusValues.pendingReceiverConfirmation,
 }) {
@@ -503,10 +652,10 @@ SettleoraSettlementPayment samplePayment({
     settlementRequestId: _settlementId,
     paidByUserProfileId: _debtorUserProfileId,
     receivedByUserProfileId: _creditorUserProfileId,
-    amount: '2.50',
-    currency: 'USD',
+    amount: amount,
+    currency: currency,
     status: status,
-    paymentDate: '2026-05-17',
+    paymentDate: paymentDate,
     claimedAtUtc: _claimedAtUtc,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
@@ -514,8 +663,8 @@ SettleoraSettlementPayment samplePayment({
       SettleoraSettlementPaymentAllocation(
         id: _allocationId,
         settlementRequestLineId: _lineId,
-        clearedAmount: '2.50',
-        currency: 'USD',
+        clearedAmount: amount,
+        currency: currency,
         allocationOrder: 0,
         createdAtUtc: _createdAtUtc,
       ),

@@ -288,6 +288,36 @@ class _SettleoraSettlementDetailScreenState
     );
   }
 
+  Future<void> _markPaymentPaid(SettleoraSettlementRequest request) async {
+    if (_busyAction != null) {
+      return;
+    }
+
+    final result = await _showMarkPaymentPaidDialog(
+      context: context,
+      amount: request.amount,
+      currency: request.currency,
+      paymentDate: _formatDate(DateTime.now()),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    await _runAction(
+      actionKey: 'request-mark-paid',
+      successMessage: 'Payment marked paid.',
+      operation: () async {
+        await widget.repository.markSettlementPaymentPaid(
+          settlementId: request.id,
+          amount: result.amount,
+          currency: result.currency,
+          paymentDate: result.paymentDate,
+        );
+      },
+    );
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(
       context,
@@ -338,6 +368,7 @@ class _SettleoraSettlementDetailScreenState
                   request: request,
                   currentUserProfileId: widget.currentUserProfileId,
                   busyAction: _busyAction,
+                  onMarkPaid: () => _markPaymentPaid(request),
                   onCancel: () => _confirmAndRunAction(
                     actionKey: 'request-cancel',
                     title: 'Cancel settlement?',
@@ -645,6 +676,7 @@ class _RequestHeader extends StatelessWidget {
     required this.request,
     required this.currentUserProfileId,
     required this.busyAction,
+    required this.onMarkPaid,
     required this.onCancel,
     required this.onDispute,
   });
@@ -652,14 +684,18 @@ class _RequestHeader extends StatelessWidget {
   final SettleoraSettlementRequest request;
   final String currentUserProfileId;
   final String? busyAction;
+  final VoidCallback onMarkPaid;
   final VoidCallback onCancel;
   final VoidCallback onDispute;
 
   @override
   Widget build(BuildContext context) {
+    final canMarkPaid =
+        request.status == SettleoraSettlementRequestStatusValues.requested &&
+        request.isDebtor(currentUserProfileId);
     final canCancel = request.canCancelFor(currentUserProfileId);
     final canDispute = request.canDisputeFor(currentUserProfileId);
-    final hasActions = canCancel || canDispute;
+    final hasActions = canMarkPaid || canCancel || canDispute;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -684,6 +720,18 @@ class _RequestHeader extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (canMarkPaid)
+                FilledButton.icon(
+                  key: const Key('settlement-request-mark-paid'),
+                  onPressed: busyAction == null ? onMarkPaid : null,
+                  icon: busyAction == 'request-mark-paid'
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.payments_outlined),
+                  label: const Text('Mark paid'),
+                ),
               if (canCancel)
                 OutlinedButton.icon(
                   key: const Key('settlement-request-cancel'),
@@ -788,8 +836,8 @@ _LifecycleGuidance _lifecycleState({
               icon: Icons.north_east_outlined,
               title: 'You are expected to pay',
               message:
-                  'Use the counterparty payment details, then mark the settlement as paid. Mark-paid is supported by the API but is not wired into this mobile repository seam yet.',
-              chips: const ['Payment needed', 'Mark-paid unavailable here'],
+                  'Use the counterparty payment details, then mark this settlement paid after sending payment. The server verifies the payment claim and keeps the audit trail.',
+              chips: const ['Payment needed', 'Mark paid available'],
             )
           : _LifecycleGuidance(
               icon: Icons.schedule_outlined,
@@ -1242,6 +1290,157 @@ class _ResidualList extends StatelessWidget {
   }
 }
 
+class _SettlementPaymentClaimDraft {
+  const _SettlementPaymentClaimDraft({
+    required this.amount,
+    required this.currency,
+    required this.paymentDate,
+  });
+
+  final String amount;
+  final String currency;
+  final String paymentDate;
+}
+
+Future<_SettlementPaymentClaimDraft?> _showMarkPaymentPaidDialog({
+  required BuildContext context,
+  required String amount,
+  required String currency,
+  required String paymentDate,
+}) async {
+  return showDialog<_SettlementPaymentClaimDraft>(
+    context: context,
+    builder: (context) => _MarkPaymentPaidDialog(
+      amount: amount,
+      currency: currency,
+      paymentDate: paymentDate,
+    ),
+  );
+}
+
+class _MarkPaymentPaidDialog extends StatefulWidget {
+  const _MarkPaymentPaidDialog({
+    required this.amount,
+    required this.currency,
+    required this.paymentDate,
+  });
+
+  final String amount;
+  final String currency;
+  final String paymentDate;
+
+  @override
+  State<_MarkPaymentPaidDialog> createState() => _MarkPaymentPaidDialogState();
+}
+
+class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
+  late final TextEditingController _amountController;
+  late final TextEditingController _currencyController;
+  late final TextEditingController _paymentDateController;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountController = TextEditingController(text: widget.amount);
+    _currencyController = TextEditingController(text: widget.currency);
+    _paymentDateController = TextEditingController(text: widget.paymentDate);
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _currencyController.dispose();
+    _paymentDateController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Mark settlement paid?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Mark paid only after sending payment. The server will verify the claim, update settlement state, and keep the audit trail.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              key: const Key('settlement-mark-paid-amount'),
+              controller: _amountController,
+              decoration: const InputDecoration(labelText: 'Amount'),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('settlement-mark-paid-currency'),
+              controller: _currencyController,
+              decoration: const InputDecoration(labelText: 'Currency'),
+              textCapitalization: TextCapitalization.characters,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('settlement-mark-paid-date'),
+              controller: _paymentDateController,
+              decoration: const InputDecoration(
+                labelText: 'Payment date',
+                helperText: 'Use yyyy-mm-dd.',
+              ),
+              keyboardType: TextInputType.datetime,
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _errorText!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Back'),
+        ),
+        FilledButton(
+          key: const Key('settlement-mark-paid-submit'),
+          onPressed: _submit,
+          child: const Text('Mark paid'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final amount = _amountController.text.trim();
+    final currency = _currencyController.text.trim();
+    final paymentDate = _paymentDateController.text.trim();
+    if (amount.isEmpty || currency.isEmpty || paymentDate.isEmpty) {
+      setState(() {
+        _errorText =
+            'Enter amount, currency, and payment date before marking paid.';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _SettlementPaymentClaimDraft(
+        amount: amount,
+        currency: currency,
+        paymentDate: paymentDate,
+      ),
+    );
+  }
+}
+
 class _FailurePanel extends StatelessWidget {
   const _FailurePanel({required this.failure, required this.onRetry});
 
@@ -1497,6 +1696,14 @@ String _money(String amount, String currency) {
 
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
+}
+
+String _formatDate(DateTime value) {
+  final local = value.toLocal();
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
 
 String _fallback(String? value, String fallback) {

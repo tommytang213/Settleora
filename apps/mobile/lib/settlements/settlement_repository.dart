@@ -387,6 +387,13 @@ abstract interface class SettleoraSettlementRepository {
     String settlementId,
   );
 
+  Future<SettleoraSettlementPayment> markSettlementPaymentPaid({
+    required String settlementId,
+    required String amount,
+    required String currency,
+    required String paymentDate,
+  });
+
   Future<SettleoraSettlementCounterpartyPaymentDetails>
   getCounterpartyPaymentDetails({
     required String settlementId,

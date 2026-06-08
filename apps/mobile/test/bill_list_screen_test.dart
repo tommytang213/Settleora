@@ -4303,6 +4303,16 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   }
 
   @override
+  Future<SettleoraSettlementPayment> markSettlementPaymentPaid({
+    required String settlementId,
+    required String amount,
+    required String currency,
+    required String paymentDate,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<SettleoraSettlementRequest>> listSettlementRequests() {
     listRequestsCalls += 1;
     return Future.value(const []);
