@@ -592,6 +592,7 @@ void main() {
   testWidgets('detail shows review candidates and blocked preview reasons', (
     tester,
   ) async {
+    await useLargeSurface(tester);
     final repository = FakeReceiptOcrReviewRepository(
       listResponse: [sampleSummary()],
       reviewResponse: sampleReview(),
@@ -609,20 +610,23 @@ void main() {
     expect(find.text('Line candidates'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('Preview apply'), 500);
-    await tester.tap(find.text('Preview apply'));
+    final previewApplyButton = find
+        .widgetWithText(OutlinedButton, 'Preview apply')
+        .last;
+    await tester.tap(previewApplyButton);
     await tester.pumpAndSettle();
 
     expect(find.text('Blocked by server preview'), findsOneWidget);
     expect(find.text('Currency mismatch'), findsOneWidget);
 
     final applyButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Apply to draft'),
+      find.widgetWithText(FilledButton, 'Apply to draft').last,
     );
     expect(applyButton.onPressed, isNull);
   });
 
   testWidgets('apply requires explicit confirmation', (tester) async {
+    await useLargeSurface(tester);
     final repository = FakeReceiptOcrReviewRepository(
       reviewResponse: sampleReview(),
       previewResponse: samplePreview(),
@@ -639,11 +643,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Preview apply'), 500);
-    await tester.tap(find.text('Preview apply'));
+    final previewApplyButton = find
+        .widgetWithText(OutlinedButton, 'Preview apply')
+        .last;
+    await tester.tap(previewApplyButton);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Apply to draft'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Apply reviewed lines?'), findsOneWidget);

@@ -941,6 +941,211 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('search filters loaded detail line candidates', (tester) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: discoveryLines()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Coupon'), findsOneWidget);
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-line-search')),
+        'service',
+      );
+      await tester.pump();
+
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Milk'), findsNothing);
+      expect(find.text('Coupon'), findsNothing);
+      expect(find.text('No matching line candidates'), findsNothing);
+      expect(
+        find.text('Showing 1 of 4 loaded line candidates'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('detail line filter chips count and filter rows', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: discoveryLines()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      expect(find.text('All (4)'), findsOneWidget);
+      expect(find.text('Has amount (3)'), findsOneWidget);
+      expect(find.text('Missing amount (1)'), findsOneWidget);
+      expect(find.text('Has quantity (2)'), findsOneWidget);
+      expect(find.text('Missing quantity (2)'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-line-filter-has-amount')),
+      );
+      await tester.pump();
+
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Coupon'), findsOneWidget);
+      expect(find.text('Manual note'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-line-filter-missing-amount')),
+      );
+      await tester.pump();
+
+      expect(find.text('Manual note'), findsOneWidget);
+      expect(find.text('Milk'), findsNothing);
+      expect(find.text('Service charge'), findsNothing);
+      expect(find.text('Coupon'), findsNothing);
+    });
+
+    testWidgets('combined detail line search and filter work', (tester) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: discoveryLines()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-line-search')),
+        'charge',
+      );
+      await tester.tap(
+        find.byKey(
+          const ValueKey('receipt-review-line-filter-missing-quantity'),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Milk'), findsNothing);
+      expect(find.text('Coupon'), findsNothing);
+      expect(find.text('Manual note'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-line-filter-has-quantity')),
+      );
+      await tester.pump();
+
+      expect(find.text('No matching line candidates'), findsOneWidget);
+      expect(find.text('Service charge'), findsNothing);
+      expect(find.text('No line candidates'), findsNothing);
+    });
+
+    testWidgets('detail line clear reset restores all loaded rows', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: discoveryLines()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('receipt-review-line-clear-discovery')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-line-search')),
+        'service',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-line-filter-has-amount')),
+      );
+      await tester.pump();
+
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Milk'), findsNothing);
+      expect(
+        find.byKey(const Key('receipt-review-line-clear-discovery')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('receipt-review-line-clear-discovery')),
+      );
+      await tester.pump();
+
+      expect(
+        editableTextValue(tester, const Key('receipt-review-line-search')),
+        '',
+      );
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.text('Service charge'), findsOneWidget);
+      expect(find.text('Coupon'), findsOneWidget);
+      expect(find.text('Manual note'), findsOneWidget);
+      expect(
+        find.byKey(const Key('receipt-review-line-clear-discovery')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('filtered-empty line state is distinct from true-empty lines', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: discoveryLines()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-line-search')),
+        'no loaded line matches this',
+      );
+      await tester.pump();
+
+      expect(find.text('No matching line candidates'), findsOneWidget);
+      expect(
+        find.text(
+          'Adjust the search or filters to show loaded OCR line candidates.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('No line candidates'), findsNothing);
+      expect(find.text('Milk'), findsNothing);
+    });
+
+    testWidgets('true-empty detail lines remain unchanged', (tester) async {
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: const []),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Header candidates'), findsOneWidget);
+      expect(find.text('No line candidates'), findsOneWidget);
+      expect(
+        find.text('Apply is blocked until the server receives reviewed lines.'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('receipt-review-line-search')), findsNothing);
+      expect(find.text('No matching line candidates'), findsNothing);
+    });
+
     testWidgets('labels detail edit actions and delete confirmation controls', (
       tester,
     ) async {
@@ -2188,6 +2393,51 @@ List<ReceiptOcrReviewLine> sampleLines() {
       quantity: '1',
       unitPriceAmount: '10.00',
       lineTotalAmount: '10.00',
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+  ];
+}
+
+List<ReceiptOcrReviewLine> discoveryLines() {
+  return [
+    ReceiptOcrReviewLine(
+      id: _lineId,
+      sortOrder: 0,
+      text: 'Milk',
+      quantity: '1',
+      unitPriceAmount: '10.00',
+      lineTotalAmount: '10.00',
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+    ReceiptOcrReviewLine(
+      id: '55555555-5555-5555-5555-555555555556',
+      sortOrder: 1,
+      text: 'Service charge',
+      quantity: null,
+      unitPriceAmount: null,
+      lineTotalAmount: '1.20',
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+    ReceiptOcrReviewLine(
+      id: '55555555-5555-5555-5555-555555555557',
+      sortOrder: 2,
+      text: 'Coupon',
+      quantity: '1',
+      unitPriceAmount: null,
+      lineTotalAmount: '2.00',
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+    ReceiptOcrReviewLine(
+      id: '55555555-5555-5555-5555-555555555558',
+      sortOrder: 3,
+      text: 'Manual note',
+      quantity: null,
+      unitPriceAmount: null,
+      lineTotalAmount: null,
       createdAtUtc: _createdAtUtc,
       updatedAtUtc: _updatedAtUtc,
     ),
