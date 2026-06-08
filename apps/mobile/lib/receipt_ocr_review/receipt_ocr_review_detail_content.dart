@@ -862,13 +862,64 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
   }
 }
 
-class _ReceiptOcrReviewLines extends StatelessWidget {
+class _ReceiptOcrReviewLines extends StatefulWidget {
   const _ReceiptOcrReviewLines({required this.lines});
 
   final List<ReceiptOcrReviewLine> lines;
 
   @override
+  State<_ReceiptOcrReviewLines> createState() => _ReceiptOcrReviewLinesState();
+}
+
+class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
+  final TextEditingController _searchController = TextEditingController();
+  _ReceiptOcrReviewLineDiscoveryFilter _selectedFilter =
+      _ReceiptOcrReviewLineDiscoveryFilter.all;
+  String _searchQuery = '';
+
+  @override
+  void didUpdateWidget(_ReceiptOcrReviewLines oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_sameLineSet(oldWidget.lines, widget.lines)) {
+      _searchController.clear();
+      _searchQuery = '';
+      _selectedFilter = _ReceiptOcrReviewLineDiscoveryFilter.all;
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  bool get _isDiscoveryActive =>
+      _searchQuery.trim().isNotEmpty ||
+      _selectedFilter != _ReceiptOcrReviewLineDiscoveryFilter.all;
+
+  void _setSearchQuery(String value) {
+    setState(() {
+      _searchQuery = value;
+    });
+  }
+
+  void _setSelectedFilter(_ReceiptOcrReviewLineDiscoveryFilter filter) {
+    setState(() {
+      _selectedFilter = filter;
+    });
+  }
+
+  void _clearDiscovery() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _selectedFilter = _ReceiptOcrReviewLineDiscoveryFilter.all;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final lines = widget.lines;
     if (lines.isEmpty) {
       return const _StatePanel(
         icon: Icons.format_list_bulleted,
@@ -880,6 +931,11 @@ class _ReceiptOcrReviewLines extends StatelessWidget {
 
     final sorted = [...lines]
       ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    final discovery = _ReceiptOcrReviewLineDiscoveryState(
+      lines: sorted,
+      selectedFilter: _selectedFilter,
+      searchQuery: _searchQuery,
+    );
 
     return Semantics(
       container: true,
@@ -892,37 +948,240 @@ class _ReceiptOcrReviewLines extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          for (final line in sorted)
-            Semantics(
-              container: true,
-              label: _lineOcrCandidateSemanticLabel,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListTile(
-                    title: Text(
-                      line.text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(_lineSummary(line)),
-                    ),
-                  ),
-                ),
-              ),
+          if (sorted.length <= 1)
+            for (final line in sorted) _ReceiptOcrReviewLineTile(line: line)
+          else ...[
+            _ReceiptOcrReviewLineDiscoveryControls(
+              discovery: discovery,
+              searchController: _searchController,
+              onSearchChanged: _setSearchQuery,
+              onFilterSelected: _setSelectedFilter,
+              onClearDiscovery: _isDiscoveryActive ? _clearDiscovery : null,
             ),
+            const SizedBox(height: 10),
+            if (discovery.visibleLines.isEmpty)
+              const _StatePanel(
+                icon: Icons.search_off_outlined,
+                title: 'No matching line candidates',
+                message:
+                    'Adjust the search or filters to show loaded OCR line candidates.',
+                compact: true,
+              )
+            else
+              for (final line in discovery.visibleLines)
+                _ReceiptOcrReviewLineTile(line: line),
+          ],
         ],
       ),
     );
   }
+}
+
+class _ReceiptOcrReviewLineDiscoveryControls extends StatelessWidget {
+  const _ReceiptOcrReviewLineDiscoveryControls({
+    required this.discovery,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.onFilterSelected,
+    required this.onClearDiscovery,
+  });
+
+  final _ReceiptOcrReviewLineDiscoveryState discovery;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<_ReceiptOcrReviewLineDiscoveryFilter> onFilterSelected;
+  final VoidCallback? onClearDiscovery;
+
+  @override
+  Widget build(BuildContext context) {
+    final loadedCount = discovery.lines.length;
+    final visibleCount = discovery.visibleLines.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('receipt-review-line-search'),
+          controller: searchController,
+          decoration: const InputDecoration(
+            labelText: 'Search line candidates',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+          ),
+          textInputAction: TextInputAction.search,
+          onChanged: onSearchChanged,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Showing $visibleCount of $loadedCount loaded line candidates',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final filter in _ReceiptOcrReviewLineDiscoveryFilter.values)
+              FilterChip(
+                key: ValueKey('receipt-review-line-filter-${filter.key}'),
+                selected: discovery.selectedFilter == filter,
+                label: Text('${filter.label} (${discovery.countFor(filter)})'),
+                onSelected: (_) => onFilterSelected(filter),
+              ),
+            if (onClearDiscovery != null)
+              TextButton.icon(
+                key: const Key('receipt-review-line-clear-discovery'),
+                onPressed: onClearDiscovery,
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ReceiptOcrReviewLineTile extends StatelessWidget {
+  const _ReceiptOcrReviewLineTile({required this.line});
+
+  final ReceiptOcrReviewLine line;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: _lineOcrCandidateSemanticLabel,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: ListTile(
+            title: Text(
+              line.text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(_lineSummary(line)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _ReceiptOcrReviewLineDiscoveryFilter {
+  all(label: 'All', key: 'all'),
+  hasAmount(label: 'Has amount', key: 'has-amount'),
+  missingAmount(label: 'Missing amount', key: 'missing-amount'),
+  hasQuantity(label: 'Has quantity', key: 'has-quantity'),
+  missingQuantity(label: 'Missing quantity', key: 'missing-quantity');
+
+  const _ReceiptOcrReviewLineDiscoveryFilter({
+    required this.label,
+    required this.key,
+  });
+
+  final String label;
+  final String key;
+}
+
+class _ReceiptOcrReviewLineDiscoveryState {
+  _ReceiptOcrReviewLineDiscoveryState({
+    required this.lines,
+    required this.selectedFilter,
+    required String searchQuery,
+  }) : searchQuery = searchQuery.trim().toLowerCase();
+
+  final List<ReceiptOcrReviewLine> lines;
+  final _ReceiptOcrReviewLineDiscoveryFilter selectedFilter;
+  final String searchQuery;
+
+  late final List<ReceiptOcrReviewLine> visibleLines = [
+    for (final line in lines)
+      if (_matchesLineFilter(line, selectedFilter) && _matchesSearch(line))
+        line,
+  ];
+
+  int countFor(_ReceiptOcrReviewLineDiscoveryFilter filter) {
+    return lines.where((line) => _matchesLineFilter(line, filter)).length;
+  }
+
+  bool _matchesSearch(ReceiptOcrReviewLine line) {
+    if (searchQuery.isEmpty) {
+      return true;
+    }
+
+    return _safeSearchText(line).contains(searchQuery);
+  }
+
+  String _safeSearchText(ReceiptOcrReviewLine line) {
+    return [
+      line.text,
+      ?line.quantity,
+      ?line.unitPriceAmount,
+      ?line.lineTotalAmount,
+      _lineSummary(line),
+    ].join(' ').toLowerCase();
+  }
+}
+
+bool _matchesLineFilter(
+  ReceiptOcrReviewLine line,
+  _ReceiptOcrReviewLineDiscoveryFilter filter,
+) {
+  return switch (filter) {
+    _ReceiptOcrReviewLineDiscoveryFilter.all => true,
+    _ReceiptOcrReviewLineDiscoveryFilter.hasAmount => _lineHasAmount(line),
+    _ReceiptOcrReviewLineDiscoveryFilter.missingAmount => !_lineHasAmount(line),
+    _ReceiptOcrReviewLineDiscoveryFilter.hasQuantity => _hasNonEmptyCandidate(
+      line.quantity,
+    ),
+    _ReceiptOcrReviewLineDiscoveryFilter.missingQuantity =>
+      !_hasNonEmptyCandidate(line.quantity),
+  };
+}
+
+bool _lineHasAmount(ReceiptOcrReviewLine line) {
+  return _hasNonEmptyCandidate(line.unitPriceAmount) ||
+      _hasNonEmptyCandidate(line.lineTotalAmount);
+}
+
+bool _hasNonEmptyCandidate(String? value) {
+  return value != null && value.trim().isNotEmpty;
+}
+
+bool _sameLineSet(
+  List<ReceiptOcrReviewLine> left,
+  List<ReceiptOcrReviewLine> right,
+) {
+  if (left.length != right.length) {
+    return false;
+  }
+
+  for (var index = 0; index < left.length; index++) {
+    final leftLine = left[index];
+    final rightLine = right[index];
+    if (leftLine.id != rightLine.id ||
+        leftLine.sortOrder != rightLine.sortOrder ||
+        leftLine.text != rightLine.text ||
+        leftLine.quantity != rightLine.quantity ||
+        leftLine.unitPriceAmount != rightLine.unitPriceAmount ||
+        leftLine.lineTotalAmount != rightLine.lineTotalAmount) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 class _ApplyPreviewSection extends StatelessWidget {
