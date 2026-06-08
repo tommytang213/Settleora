@@ -89,6 +89,31 @@ void main() {
       expect(client.lastResidualId, _residualId);
     });
 
+    test(
+      'creates a settlement payment claim through the generated client',
+      () async {
+        final client = FakeSettlementGeneratedClient();
+        final repository = GeneratedSettleoraSettlementRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+
+        final payment = await repository.markSettlementPaymentPaid(
+          settlementId: ' $_settlementId ',
+          amount: ' 10.00 ',
+          currency: ' USD ',
+          paymentDate: ' 2026-05-18 ',
+        );
+
+        expect(payment.id, _paymentId);
+        expect(client.createPaymentCalls, 1);
+        expect(client.lastSettlementId, _settlementId);
+        expect(client.lastCreatePaymentAmount, '10.00');
+        expect(client.lastCreatePaymentCurrency, 'USD');
+        expect(client.lastCreatePaymentDate, '2026-05-18');
+      },
+    );
+
     test('maps generated failures to bounded safe failures', () async {
       final repository = GeneratedSettleoraSettlementRepository(
         client: FakeSettlementGeneratedClient(
@@ -161,6 +186,7 @@ class FakeSettlementGeneratedClient
   int getRequestCalls = 0;
   int listPaymentCalls = 0;
   int paymentDetailsCalls = 0;
+  int createPaymentCalls = 0;
   int cancelRequestCalls = 0;
   int disputeRequestCalls = 0;
   int confirmPaymentCalls = 0;
@@ -171,6 +197,9 @@ class FakeSettlementGeneratedClient
   String? lastPaymentId;
   String? lastResidualId;
   String? lastUserProfileId;
+  String? lastCreatePaymentAmount;
+  String? lastCreatePaymentCurrency;
+  String? lastCreatePaymentDate;
 
   @override
   Future<api.SettlementBalanceProjectionListResponse>
@@ -216,6 +245,26 @@ class FakeSettlementGeneratedClient
     accessTokens.add(accessToken);
     _throwIfNeeded();
     return api.SettlementPaymentListResponse(payments: [sampleApiPayment()]);
+  }
+
+  @override
+  Future<api.SettlementPaymentResponse> createSettlementPaymentClaim(
+    String settlementId,
+    api.CreateSettlementPaymentRequest body, {
+    required String accessToken,
+  }) async {
+    createPaymentCalls += 1;
+    lastSettlementId = settlementId;
+    lastCreatePaymentAmount = body.amount;
+    lastCreatePaymentCurrency = body.currency;
+    lastCreatePaymentDate = body.paymentDate;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return sampleApiPayment(
+      amount: body.amount,
+      currency: body.currency,
+      paymentDate: body.paymentDate,
+    );
   }
 
   @override
@@ -378,6 +427,9 @@ api.SettlementRequestResponse sampleApiRequest({
 
 api.SettlementPaymentResponse sampleApiPayment({
   String status = api.SettlementPaymentStatusValues.markedPaid,
+  String amount = '2.50',
+  String currency = 'USD',
+  String paymentDate = '2026-05-17',
   String residualStatus =
       api.SettlementResidualStatusValues.pendingReceiverConfirmation,
 }) {
@@ -386,10 +438,10 @@ api.SettlementPaymentResponse sampleApiPayment({
     settlementRequestId: _settlementId,
     paidByUserProfileId: _debtorUserProfileId,
     receivedByUserProfileId: _creditorUserProfileId,
-    amount: '2.50',
-    currency: 'USD',
+    amount: amount,
+    currency: currency,
     status: status,
-    paymentDate: '2026-05-17',
+    paymentDate: paymentDate,
     claimedAtUtc: _claimedAtUtc,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
@@ -397,8 +449,8 @@ api.SettlementPaymentResponse sampleApiPayment({
       api.SettlementPaymentAllocationResponse(
         id: _allocationId,
         settlementRequestLineId: _lineId,
-        clearedAmount: '2.50',
-        currency: 'USD',
+        clearedAmount: amount,
+        currency: currency,
         allocationOrder: 0,
         createdAtUtc: _createdAtUtc,
       ),

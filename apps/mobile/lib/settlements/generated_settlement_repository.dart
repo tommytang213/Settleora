@@ -24,6 +24,12 @@ abstract interface class SettleoraSettlementGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.SettlementPaymentResponse> createSettlementPaymentClaim(
+    String settlementId,
+    api.CreateSettlementPaymentRequest body, {
+    required String accessToken,
+  });
+
   Future<api.SettlementCounterpartyPaymentDetailsResponse>
   getSettlementCounterpartyPaymentDetails(
     String settlementId,
@@ -97,6 +103,19 @@ class SettleoraGeneratedSettlementClient
   }) {
     return _client.listSettlementPayments(
       settlementId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.SettlementPaymentResponse> createSettlementPaymentClaim(
+    String settlementId,
+    api.CreateSettlementPaymentRequest body, {
+    required String accessToken,
+  }) {
+    return _client.createSettlementPaymentClaim(
+      settlementId,
+      body,
       accessToken: accessToken,
     );
   }
@@ -277,6 +296,49 @@ class GeneratedSettleoraSettlementRepository
           accessToken: accessToken,
         );
         return response.payments.map(_mapPayment).toList(growable: false);
+      } on SettleoraSettlementFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraSettlementPayment> markSettlementPaymentPaid({
+    required String settlementId,
+    required String amount,
+    required String currency,
+    required String paymentDate,
+  }) {
+    final trimmedSettlementId = _requireId(
+      settlementId,
+      message: 'Choose a settlement before marking it paid.',
+    );
+    final trimmedAmount = _requireId(
+      amount,
+      message: 'Enter the payment amount before marking it paid.',
+    );
+    final trimmedCurrency = _requireId(
+      currency,
+      message: 'Enter the payment currency before marking it paid.',
+    );
+    final trimmedPaymentDate = _requireId(
+      paymentDate,
+      message: 'Enter the payment date before marking it paid.',
+    );
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.createSettlementPaymentClaim(
+          trimmedSettlementId,
+          api.CreateSettlementPaymentRequest(
+            amount: trimmedAmount,
+            currency: trimmedCurrency,
+            paymentDate: trimmedPaymentDate,
+          ),
+          accessToken: accessToken,
+        );
+        return _mapPayment(response);
       } on SettleoraSettlementFailure {
         rethrow;
       } catch (error) {
