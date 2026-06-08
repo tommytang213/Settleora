@@ -38,8 +38,8 @@ void main() {
     repository.completeForecast([sampleOccurrence()]);
     await tester.pumpAndSettle();
 
-    expect(find.text('Templates'), findsOneWidget);
-    expect(find.text('Forecast'), findsOneWidget);
+    expect(find.text('Templates'), findsWidgets);
+    expect(find.text('Forecast'), findsWidgets);
     expect(find.text('Rent'), findsWidgets);
     expect(find.text('1200.00 USD'), findsWidgets);
     expect(find.text('Every month'), findsWidgets);
@@ -72,6 +72,250 @@ void main() {
     expect(find.text('No forecast'), findsOneWidget);
     expect(repository.listTemplateCalls, 1);
     expect(repository.forecastCalls, 1);
+  });
+
+  testWidgets('recurring bill search filters templates and forecast locally', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: [
+        sampleTemplate(merchantName: 'Rent'),
+        sampleTemplate(
+          id: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Gym',
+          description: 'Wellness membership',
+          forecastAmount: '80.00',
+        ),
+      ],
+      forecast: [
+        sampleOccurrence(merchantName: 'Rent'),
+        sampleOccurrence(
+          templateId: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Gym',
+          forecastAmount: '80.00',
+          occurrenceDate: '2026-06-15',
+          dueDate: '2026-06-15',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-search')),
+      'gym',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gym'), findsWidgets);
+    expect(find.text('Rent'), findsNothing);
+    expect(repository.listTemplateCalls, 1);
+    expect(repository.forecastCalls, 1);
+  });
+
+  testWidgets('recurring bill filter chips show counts and filter by scope', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: [
+        sampleTemplate(merchantName: 'Rent'),
+        sampleTemplate(
+          id: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Office rent',
+          isGroupScoped: true,
+        ),
+      ],
+      forecast: [
+        sampleOccurrence(merchantName: 'Rent'),
+        sampleOccurrence(
+          templateId: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Office rent',
+          isGroupScoped: true,
+          occurrenceDate: '2026-06-15',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('All (2)'), findsNWidgets(2));
+    expect(find.text('Personal (1)'), findsNWidgets(2));
+    expect(find.text('Group (1)'), findsNWidgets(2));
+
+    await tapRecurringFilterChip(
+      tester,
+      const Key('recurring-bill-template-filter-group'),
+    );
+    await tapRecurringFilterChip(
+      tester,
+      const Key('recurring-bill-forecast-filter-group'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Office rent'), findsWidgets);
+    expect(find.text('Rent'), findsNothing);
+    expect(
+      find.byKey(const Key('recurring-bill-clear-discovery')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('recurring bill search combines with forecast filter chips', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: [
+        sampleOccurrence(merchantName: 'Rent'),
+        sampleOccurrence(
+          templateId: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Gym',
+          status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+          draftGenerated: true,
+          generatedBillId: _generatedBillId,
+          occurrenceDate: '2026-06-15',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-search')),
+      'gym',
+    );
+    await tester.pumpAndSettle();
+    await tapRecurringFilterChip(
+      tester,
+      const Key('recurring-bill-forecast-filter-draft-generated'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gym'), findsWidgets);
+    expect(find.text('Rent'), findsNothing);
+    expect(find.text('Draft Generated'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('recurring-bill-generate-0')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('recurring bill clear control resets search and filters', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: [
+        sampleTemplate(merchantName: 'Rent'),
+        sampleTemplate(
+          id: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Gym',
+          isGroupScoped: true,
+        ),
+      ],
+      forecast: [
+        sampleOccurrence(merchantName: 'Rent'),
+        sampleOccurrence(
+          templateId: '55555555-5555-5555-5555-555555555555',
+          merchantName: 'Gym',
+          isGroupScoped: true,
+          occurrenceDate: '2026-06-15',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-search')),
+      'gym',
+    );
+    await tapRecurringFilterChip(
+      tester,
+      const Key('recurring-bill-template-filter-group'),
+    );
+    await tapRecurringFilterChip(
+      tester,
+      const Key('recurring-bill-forecast-filter-group'),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-clear-discovery')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('recurring-bill-search')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      find.byKey(const Key('recurring-bill-clear-discovery')),
+      findsNothing,
+    );
+    expect(find.text('Rent'), findsWidgets);
+    expect(find.text('Gym'), findsWidgets);
+  });
+
+  testWidgets('recurring bill screen distinguishes filtered empty states', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: [sampleTemplate(merchantName: 'Rent')],
+      forecast: [sampleOccurrence(merchantName: 'Rent')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-search')),
+      'internet',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching templates'), findsOneWidget);
+    expect(find.text('No matching forecast'), findsOneWidget);
+    expect(find.text('No recurring bills'), findsNothing);
+    expect(find.text('No forecast'), findsNothing);
+  });
+
+  testWidgets('recurring bill search controller disposes cleanly', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-search')),
+      'rent',
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('recurring bill screen retries bounded load failures', (
@@ -137,7 +381,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
+    await tapGenerateDraftButton(tester);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
@@ -172,7 +416,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
+    await tapGenerateDraftButton(tester);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(find.byKey(const Key('recurring-bill-generate-confirm')));
@@ -193,7 +437,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('recurring-bill-generate-0')));
+    await tapGenerateDraftButton(tester);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
@@ -876,18 +1120,23 @@ SettleoraCurrentUser sampleCurrentUser() {
 }
 
 SettleoraRecurringBillTemplateSummary sampleTemplate({
+  String id = _templateId,
+  String? merchantName = 'Rent',
+  String? description = 'Monthly apartment rent',
   String status = SettleoraRecurringBillTemplateStatusValues.active,
   String? nextOccurrenceDate = '2026-06-01',
   bool isGroupScoped = false,
+  String forecastAmount = '1200.00',
+  String forecastCurrency = 'USD',
 }) {
   return SettleoraRecurringBillTemplateSummary(
-    id: _templateId,
-    merchantName: 'Rent',
-    description: 'Monthly apartment rent',
+    id: id,
+    merchantName: merchantName,
+    description: description,
     status: status,
     schedule: sampleSchedule(),
-    forecastAmount: '1200.00',
-    forecastCurrency: 'USD',
+    forecastAmount: forecastAmount,
+    forecastCurrency: forecastCurrency,
     nextOccurrenceDate: nextOccurrenceDate,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
@@ -935,23 +1184,29 @@ SettleoraRecurringBillSchedule sampleSchedule() {
 }
 
 SettleoraRecurringBillForecastOccurrence sampleOccurrence({
+  String templateId = _templateId,
+  String? occurrenceId = _occurrenceId,
+  String occurrenceDate = '2026-06-01',
   String status = SettleoraRecurringBillOccurrenceStatusValues.forecasted,
   bool draftGenerated = false,
   String? generatedBillId,
   String? dueDate = '2026-06-04',
   bool isGroupScoped = false,
+  String forecastAmount = '1200.00',
+  String forecastCurrency = 'USD',
+  String? merchantName = 'Rent',
 }) {
   return SettleoraRecurringBillForecastOccurrence(
-    templateId: _templateId,
-    occurrenceId: _occurrenceId,
-    occurrenceDate: '2026-06-01',
+    templateId: templateId,
+    occurrenceId: occurrenceId,
+    occurrenceDate: occurrenceDate,
     dueDate: dueDate,
     status: status,
     draftGenerated: draftGenerated,
     generatedBillId: generatedBillId,
-    forecastAmount: '1200.00',
-    forecastCurrency: 'USD',
-    merchantName: 'Rent',
+    forecastAmount: forecastAmount,
+    forecastCurrency: forecastCurrency,
+    merchantName: merchantName,
     isGroupScoped: isGroupScoped,
   );
 }
@@ -977,6 +1232,18 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Future<void> tapRecurringFilterChip(WidgetTester tester, Key key) async {
+  await tester.ensureVisible(find.byKey(key));
+  await tester.tap(find.byKey(key));
+}
+
+Future<void> tapGenerateDraftButton(WidgetTester tester) async {
+  final finder = find.byKey(const ValueKey('recurring-bill-generate-0'));
+  await tester.drag(find.byType(ListView), const Offset(0, -420));
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
 }
 
 const _templateId = '11111111-1111-1111-1111-111111111111';

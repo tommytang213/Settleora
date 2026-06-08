@@ -14,17 +14,41 @@ class SettleoraRecurringBillScreen extends StatefulWidget {
 
 class _SettleoraRecurringBillScreenState
     extends State<SettleoraRecurringBillScreen> {
+  late final TextEditingController _searchController;
   bool _isLoading = true;
   String? _generatingKey;
   List<SettleoraRecurringBillTemplateSummary> _templates = const [];
   List<SettleoraRecurringBillForecastOccurrence> _forecast = const [];
+  _RecurringTemplateFilter _templateFilter = _RecurringTemplateFilter.all;
+  _RecurringForecastFilter _forecastFilter = _RecurringForecastFilter.all;
+  String _searchQuery = '';
   SettleoraRecurringBillFailure? _failure;
   SettleoraRecurringBillFailure? _actionFailure;
 
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
+    _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_handleSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    final nextQuery = _searchController.text.trim();
+    if (nextQuery == _searchQuery) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = nextQuery;
+    });
   }
 
   Future<void> _load() async {
@@ -171,6 +195,35 @@ class _SettleoraRecurringBillScreenState
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _selectTemplateFilter(_RecurringTemplateFilter filter) {
+    if (filter == _templateFilter) {
+      return;
+    }
+
+    setState(() {
+      _templateFilter = filter;
+    });
+  }
+
+  void _selectForecastFilter(_RecurringForecastFilter filter) {
+    if (filter == _forecastFilter) {
+      return;
+    }
+
+    setState(() {
+      _forecastFilter = filter;
+    });
+  }
+
+  void _clearDiscoveryState() {
+    setState(() {
+      _templateFilter = _RecurringTemplateFilter.all;
+      _forecastFilter = _RecurringForecastFilter.all;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final actionFailure = _actionFailure;
@@ -204,6 +257,22 @@ class _SettleoraRecurringBillScreenState
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
+                  _RecurringBillDiscoveryControls(
+                    controller: _searchController,
+                    selectedTemplateFilter: _templateFilter,
+                    selectedForecastFilter: _forecastFilter,
+                    templateCounts: _RecurringTemplateFilterCounts.from(
+                      templates: _templates,
+                    ),
+                    forecastCounts: _RecurringForecastFilterCounts.from(
+                      forecast: _forecast,
+                    ),
+                    hasActiveDiscovery: _hasActiveDiscovery,
+                    onTemplateFilterSelected: _selectTemplateFilter,
+                    onForecastFilterSelected: _selectForecastFilter,
+                    onClear: _clearDiscoveryState,
+                  ),
+                  const SizedBox(height: 20),
                   if (actionFailure != null) ...[
                     _InlineFailure(failure: actionFailure),
                     const SizedBox(height: 12),
@@ -219,18 +288,27 @@ class _SettleoraRecurringBillScreenState
                               'Recurring bill templates visible to this account will appear here.',
                           compact: true,
                         )
+                      else if (_visibleTemplates.isEmpty)
+                        const _StatePanel(
+                          icon: Icons.search_off_outlined,
+                          title: 'No matching templates',
+                          message:
+                              'Adjust the search or template filters to show recurring bills again.',
+                          compact: true,
+                        )
                       else
                         for (
                           var index = 0;
-                          index < _templates.length;
+                          index < _visibleTemplates.length;
                           index += 1
                         )
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: _TemplateTile(
                               key: ValueKey('recurring-bill-template-$index'),
-                              template: _templates[index],
-                              onTap: () => _openTemplate(_templates[index]),
+                              template: _visibleTemplates[index],
+                              onTap: () =>
+                                  _openTemplate(_visibleTemplates[index]),
                             ),
                           ),
                     ],
@@ -247,24 +325,32 @@ class _SettleoraRecurringBillScreenState
                               'Upcoming recurring bill occurrences will appear here.',
                           compact: true,
                         )
+                      else if (_visibleForecast.isEmpty)
+                        const _StatePanel(
+                          icon: Icons.search_off_outlined,
+                          title: 'No matching forecast',
+                          message:
+                              'Adjust the search or forecast filters to show upcoming occurrences again.',
+                          compact: true,
+                        )
                       else
                         for (
                           var index = 0;
-                          index < _forecast.length;
+                          index < _visibleForecast.length;
                           index += 1
                         )
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: _ForecastTile(
-                              occurrence: _forecast[index],
+                              occurrence: _visibleForecast[index],
                               buttonKey: ValueKey(
                                 'recurring-bill-generate-$index',
                               ),
                               isGenerating:
                                   _generatingKey ==
-                                  _operationKey(_forecast[index]),
+                                  _operationKey(_visibleForecast[index]),
                               onGenerate: () =>
-                                  _generateDraft(_forecast[index]),
+                                  _generateDraft(_visibleForecast[index]),
                             ),
                           ),
                     ],
@@ -277,6 +363,153 @@ class _SettleoraRecurringBillScreenState
       ),
     );
   }
+
+  bool get _hasActiveDiscovery {
+    return _searchQuery.isNotEmpty ||
+        _templateFilter != _RecurringTemplateFilter.all ||
+        _forecastFilter != _RecurringForecastFilter.all;
+  }
+
+  List<SettleoraRecurringBillTemplateSummary> get _visibleTemplates {
+    final queryTerms = _searchTerms(_searchQuery);
+    return _templates
+        .where((template) {
+          if (!_templateFilter.matches(template)) {
+            return false;
+          }
+          if (queryTerms.isEmpty) {
+            return true;
+          }
+
+          final searchText = _templateSearchText(template);
+          return queryTerms.every(searchText.contains);
+        })
+        .toList(growable: false);
+  }
+
+  List<SettleoraRecurringBillForecastOccurrence> get _visibleForecast {
+    final queryTerms = _searchTerms(_searchQuery);
+    return _forecast
+        .where((occurrence) {
+          if (!_forecastFilter.matches(occurrence)) {
+            return false;
+          }
+          if (queryTerms.isEmpty) {
+            return true;
+          }
+
+          final searchText = _forecastSearchText(occurrence);
+          return queryTerms.every(searchText.contains);
+        })
+        .toList(growable: false);
+  }
+}
+
+enum _RecurringTemplateFilter {
+  all(label: 'All'),
+  active(label: 'Active'),
+  inactive(label: 'Inactive'),
+  personal(label: 'Personal'),
+  group(label: 'Group');
+
+  const _RecurringTemplateFilter({required this.label});
+
+  final String label;
+
+  String get key {
+    return switch (this) {
+      _RecurringTemplateFilter.all => 'all',
+      _RecurringTemplateFilter.active => 'active',
+      _RecurringTemplateFilter.inactive => 'inactive',
+      _RecurringTemplateFilter.personal => 'personal',
+      _RecurringTemplateFilter.group => 'group',
+    };
+  }
+
+  bool matches(SettleoraRecurringBillTemplateSummary template) {
+    return switch (this) {
+      _RecurringTemplateFilter.all => true,
+      _RecurringTemplateFilter.active =>
+        template.status == SettleoraRecurringBillTemplateStatusValues.active,
+      _RecurringTemplateFilter.inactive =>
+        template.status != SettleoraRecurringBillTemplateStatusValues.active,
+      _RecurringTemplateFilter.personal => !template.isGroupScoped,
+      _RecurringTemplateFilter.group => template.isGroupScoped,
+    };
+  }
+}
+
+class _RecurringTemplateFilterCounts {
+  const _RecurringTemplateFilterCounts(this._counts);
+
+  factory _RecurringTemplateFilterCounts.from({
+    required List<SettleoraRecurringBillTemplateSummary> templates,
+  }) {
+    return _RecurringTemplateFilterCounts({
+      for (final filter in _RecurringTemplateFilter.values)
+        filter: templates.where(filter.matches).length,
+    });
+  }
+
+  final Map<_RecurringTemplateFilter, int> _counts;
+
+  int count(_RecurringTemplateFilter filter) => _counts[filter] ?? 0;
+}
+
+enum _RecurringForecastFilter {
+  all(label: 'All'),
+  needsDraft(label: 'Needs draft'),
+  draftGenerated(label: 'Draft generated'),
+  closed(label: 'Closed'),
+  personal(label: 'Personal'),
+  group(label: 'Group');
+
+  const _RecurringForecastFilter({required this.label});
+
+  final String label;
+
+  String get key {
+    return switch (this) {
+      _RecurringForecastFilter.all => 'all',
+      _RecurringForecastFilter.needsDraft => 'needs-draft',
+      _RecurringForecastFilter.draftGenerated => 'draft-generated',
+      _RecurringForecastFilter.closed => 'closed',
+      _RecurringForecastFilter.personal => 'personal',
+      _RecurringForecastFilter.group => 'group',
+    };
+  }
+
+  bool matches(SettleoraRecurringBillForecastOccurrence occurrence) {
+    return switch (this) {
+      _RecurringForecastFilter.all => true,
+      _RecurringForecastFilter.needsDraft => occurrence.canGenerateDraft,
+      _RecurringForecastFilter.draftGenerated => occurrence.draftGenerated,
+      _RecurringForecastFilter.closed =>
+        occurrence.status ==
+                SettleoraRecurringBillOccurrenceStatusValues.cancelled ||
+            occurrence.status ==
+                SettleoraRecurringBillOccurrenceStatusValues.skipped,
+      _RecurringForecastFilter.personal => !occurrence.isGroupScoped,
+      _RecurringForecastFilter.group => occurrence.isGroupScoped,
+    };
+  }
+}
+
+class _RecurringForecastFilterCounts {
+  const _RecurringForecastFilterCounts(this._counts);
+
+  factory _RecurringForecastFilterCounts.from({
+    required List<SettleoraRecurringBillForecastOccurrence> forecast,
+  }) {
+    return _RecurringForecastFilterCounts({
+      for (final filter in _RecurringForecastFilter.values)
+        filter: forecast.where(filter.matches).length,
+    });
+  }
+
+  final Map<_RecurringForecastFilter, int> _counts;
+
+  int count(_RecurringForecastFilter filter) => _counts[filter] ?? 0;
 }
 
 class SettleoraRecurringBillDetailScreen extends StatefulWidget {
@@ -755,6 +988,132 @@ class _FailurePanel extends StatelessWidget {
   }
 }
 
+class _RecurringBillDiscoveryControls extends StatelessWidget {
+  const _RecurringBillDiscoveryControls({
+    required this.controller,
+    required this.selectedTemplateFilter,
+    required this.selectedForecastFilter,
+    required this.templateCounts,
+    required this.forecastCounts,
+    required this.hasActiveDiscovery,
+    required this.onTemplateFilterSelected,
+    required this.onForecastFilterSelected,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final _RecurringTemplateFilter selectedTemplateFilter;
+  final _RecurringForecastFilter selectedForecastFilter;
+  final _RecurringTemplateFilterCounts templateCounts;
+  final _RecurringForecastFilterCounts forecastCounts;
+  final bool hasActiveDiscovery;
+  final ValueChanged<_RecurringTemplateFilter> onTemplateFilterSelected;
+  final ValueChanged<_RecurringForecastFilter> onForecastFilterSelected;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('recurring-bill-search'),
+          controller: controller,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: 'Search recurring bills',
+            prefixIcon: const Icon(Icons.search),
+            border: const OutlineInputBorder(),
+            suffixIcon: controller.text.isEmpty
+                ? null
+                : IconButton(
+                    key: const Key('recurring-bill-search-clear'),
+                    tooltip: 'Clear search',
+                    onPressed: controller.clear,
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _FilterChipRow(
+          label: 'Templates',
+          children: [
+            for (final filter in _RecurringTemplateFilter.values)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  key: Key('recurring-bill-template-filter-${filter.key}'),
+                  label: Text(
+                    '${filter.label} (${templateCounts.count(filter)})',
+                  ),
+                  selected: selectedTemplateFilter == filter,
+                  onSelected: (_) => onTemplateFilterSelected(filter),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _FilterChipRow(
+          label: 'Forecast',
+          children: [
+            for (final filter in _RecurringForecastFilter.values)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  key: Key('recurring-bill-forecast-filter-${filter.key}'),
+                  label: Text(
+                    '${filter.label} (${forecastCounts.count(filter)})',
+                  ),
+                  selected: selectedForecastFilter == filter,
+                  onSelected: (_) => onForecastFilterSelected(filter),
+                ),
+              ),
+          ],
+        ),
+        if (hasActiveDiscovery) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('recurring-bill-clear-discovery'),
+              onPressed: onClear,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('Clear filters'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FilterChipRow extends StatelessWidget {
+  const _FilterChipRow({required this.label, required this.children});
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: children),
+        ),
+      ],
+    );
+  }
+}
+
 class _InlineFailure extends StatelessWidget {
   const _InlineFailure({required this.failure});
 
@@ -947,4 +1306,46 @@ String _formatTimestamp(DateTime value) {
 
 String _operationKey(SettleoraRecurringBillForecastOccurrence occurrence) {
   return '${occurrence.templateId}|${occurrence.occurrenceDate}';
+}
+
+List<String> _searchTerms(String query) {
+  return query
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .where((term) => term.isNotEmpty)
+      .toList(growable: false);
+}
+
+String _templateSearchText(SettleoraRecurringBillTemplateSummary template) {
+  return [
+    template.displayName,
+    template.description,
+    template.forecastAmount,
+    template.forecastCurrency,
+    _money(template.forecastAmount, template.forecastCurrency),
+    settleoraRecurringBillTemplateStatusLabel(template.status),
+    settleoraRecurringBillScheduleLabel(template.schedule),
+    _templateDueSummary(template),
+    template.nextOccurrenceDate,
+    template.isGroupScoped ? 'Group shared group bill' : 'Personal bill',
+  ].whereType<String>().join(' ').toLowerCase();
+}
+
+String _forecastSearchText(
+  SettleoraRecurringBillForecastOccurrence occurrence,
+) {
+  return [
+    occurrence.displayName,
+    occurrence.forecastAmount,
+    occurrence.forecastCurrency,
+    _money(occurrence.forecastAmount, occurrence.forecastCurrency),
+    settleoraRecurringBillOccurrenceStatusLabel(occurrence.status),
+    _occurrenceDueSummary(occurrence),
+    _occurrenceGuidance(occurrence),
+    occurrence.occurrenceDate,
+    occurrence.dueDate,
+    occurrence.draftGenerated ? 'Draft generated' : 'Needs draft',
+    occurrence.canGenerateDraft ? 'Can generate draft' : null,
+    occurrence.isGroupScoped ? 'Group shared group bill' : 'Personal bill',
+  ].whereType<String>().join(' ').toLowerCase();
 }
