@@ -37,10 +37,13 @@ class SettleoraBillListScreen extends StatefulWidget {
 }
 
 class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
+  final _searchController = TextEditingController();
+
   bool _isLoading = true;
   bool _isSyncing = false;
   String? _busyBillId;
   List<SettleoraBillSummary> _bills = const [];
+  _PersonalBillListFilter _selectedFilter = _PersonalBillListFilter.all;
   SettleoraBillFailure? _failure;
   SettleoraBillSyncSnapshot? _syncSnapshot;
   String? _syncNotice;
@@ -49,6 +52,12 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   void initState() {
     super.initState();
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -243,6 +252,11 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   Widget build(BuildContext context) {
     final snapshot = _syncSnapshot;
     final syncNotice = _syncNotice;
+    final searchQuery = _searchController.text;
+    final visibleBills = _filteredBills(searchQuery);
+    final hasFilters =
+        searchQuery.trim().isNotEmpty ||
+        _selectedFilter != _PersonalBillListFilter.all;
 
     return Scaffold(
       appBar: AppBar(
@@ -304,22 +318,53 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                     ),
                   ] else ...[
                     const SizedBox(height: 12),
-                    for (var index = 0; index < _bills.length; index += 1)
+                    _BillListDiscoveryControls(
+                      keyPrefix: 'bill-list',
+                      searchController: _searchController,
+                      searchHint: 'Search bills',
+                      selectedFilter: _selectedFilter,
+                      filters: _PersonalBillListFilter.values,
+                      labelForFilter: (filter) =>
+                          filter.labelWithCount(_personalFilterCount(filter)),
+                      onSearchChanged: (_) => setState(() {}),
+                      onFilterSelected: (filter) {
+                        setState(() {
+                          _selectedFilter = filter;
+                        });
+                      },
+                      onClear: _clearFilters,
+                      hasFilters: hasFilters,
+                    ),
+                    if (visibleBills.isEmpty) ...[
+                      const SizedBox(height: 56),
+                      const _StatePanel(
+                        icon: Icons.search_off_outlined,
+                        title: 'No matching bills',
+                        message: 'No personal bills match these filters.',
+                      ),
+                    ],
+                    for (var index = 0; index < visibleBills.length; index += 1)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
+                        padding: EdgeInsets.only(
+                          top: index == 0 ? 14 : 0,
+                          bottom: 10,
+                        ),
                         child: _BillSummaryTile(
-                          bill: _bills[index],
-                          syncItem: snapshot?.latestForBill(_bills[index].id),
+                          bill: visibleBills[index],
+                          syncItem: snapshot?.latestForBill(
+                            visibleBills[index].id,
+                          ),
                           hasOpenOperation:
                               snapshot?.hasOpenBillOperation(
-                                _bills[index].id,
+                                visibleBills[index].id,
                               ) ??
                               false,
-                          isBusy: _busyBillId == _bills[index].id,
+                          isBusy: _busyBillId == visibleBills[index].id,
                           archiveButtonKey: ValueKey('bill-archive-$index'),
                           restoreButtonKey: ValueKey('bill-restore-$index'),
-                          onTap: () => _openBill(_bills[index]),
-                          onQueue: () => _queueBillLifecycle(_bills[index]),
+                          onTap: () => _openBill(visibleBills[index]),
+                          onQueue: () =>
+                              _queueBillLifecycle(visibleBills[index]),
                         ),
                       ),
                   ],
@@ -336,6 +381,48 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         label: const Text('Create bill'),
       ),
     );
+  }
+
+  List<SettleoraBillSummary> _filteredBills(String query) {
+    return _bills
+        .where((bill) => _selectedFilter.matches(bill))
+        .where((bill) => _billMatchesQuery(bill, query))
+        .toList(growable: false);
+  }
+
+  int _personalFilterCount(_PersonalBillListFilter filter) {
+    return _bills.where(filter.matches).length;
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _searchController.clear();
+      _selectedFilter = _PersonalBillListFilter.all;
+    });
+  }
+}
+
+enum _PersonalBillListFilter { all, active, archived }
+
+extension _PersonalBillListFilterText on _PersonalBillListFilter {
+  String get label {
+    return switch (this) {
+      _PersonalBillListFilter.all => 'All',
+      _PersonalBillListFilter.active => 'Active',
+      _PersonalBillListFilter.archived => 'Archived',
+    };
+  }
+
+  String labelWithCount(int count) {
+    return '$label ($count)';
+  }
+
+  bool matches(SettleoraBillSummary bill) {
+    return switch (this) {
+      _PersonalBillListFilter.all => true,
+      _PersonalBillListFilter.active => !bill.isArchived,
+      _PersonalBillListFilter.archived => bill.isArchived,
+    };
   }
 }
 
@@ -1363,6 +1450,8 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
 
 class _SettleoraGroupBillListScreenState
     extends State<SettleoraGroupBillListScreen> {
+  final _searchController = TextEditingController();
+
   bool _isLoading = true;
   List<SettleoraBillSummary> _bills = const [];
   late Map<String, String> _participantDisplayNames;
@@ -1376,6 +1465,12 @@ class _SettleoraGroupBillListScreenState
       widget.participantDisplayNames,
     );
     Future<void>.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1496,8 +1591,12 @@ class _SettleoraGroupBillListScreenState
 
   @override
   Widget build(BuildContext context) {
-    final visibleBills = _filteredBills();
+    final searchQuery = _searchController.text;
+    final visibleBills = _filteredBills(searchQuery);
     final filterCounts = _filterCounts();
+    final hasFilters =
+        searchQuery.trim().isNotEmpty ||
+        _selectedFilter != _GroupBillListFilter.all;
 
     return Scaffold(
       appBar: AppBar(
@@ -1530,14 +1629,22 @@ class _SettleoraGroupBillListScreenState
                 children: [
                   _GroupBillContext(groupName: widget.groupName),
                   const SizedBox(height: 14),
-                  _GroupBillListFilterChips(
+                  _BillListDiscoveryControls(
+                    keyPrefix: 'group-bill-list',
+                    searchController: _searchController,
+                    searchHint: 'Search group bills',
                     selectedFilter: _selectedFilter,
-                    counts: filterCounts,
-                    onSelected: (filter) {
+                    filters: _GroupBillListFilter.values,
+                    labelForFilter: (filter) =>
+                        filter.labelWithCount(filterCounts[filter] ?? 0),
+                    onSearchChanged: (_) => setState(() {}),
+                    onFilterSelected: (filter) {
                       setState(() {
                         _selectedFilter = filter;
                       });
                     },
+                    onClear: _clearFilters,
+                    hasFilters: hasFilters,
                   ),
                   if (_bills.isEmpty) ...[
                     const SizedBox(height: 56),
@@ -1550,9 +1657,15 @@ class _SettleoraGroupBillListScreenState
                   ] else if (visibleBills.isEmpty) ...[
                     const SizedBox(height: 56),
                     _StatePanel(
-                      icon: Icons.filter_list_off_outlined,
-                      title: _selectedFilter.emptyTitle,
-                      message: _selectedFilter.emptyMessage,
+                      icon: hasFilters
+                          ? Icons.search_off_outlined
+                          : Icons.filter_list_off_outlined,
+                      title: searchQuery.trim().isNotEmpty
+                          ? 'No matching group bills'
+                          : _selectedFilter.emptyTitle,
+                      message: searchQuery.trim().isNotEmpty
+                          ? 'No group bills match this search and filter.'
+                          : _selectedFilter.emptyMessage,
                     ),
                   ] else ...[
                     const SizedBox(height: 14),
@@ -1582,12 +1695,20 @@ class _SettleoraGroupBillListScreenState
     );
   }
 
-  List<SettleoraBillSummary> _filteredBills() {
+  List<SettleoraBillSummary> _filteredBills(String query) {
     return _bills
         .where(
           (bill) => _selectedFilter.matches(
             bill: bill,
             currentUserProfileId: widget.currentUserProfileId,
+          ),
+        )
+        .where(
+          (bill) => _billMatchesQuery(
+            bill,
+            query,
+            participantDisplayNames: _participantDisplayNames,
+            extraFields: [widget.groupName],
           ),
         )
         .toList(growable: false);
@@ -1605,6 +1726,13 @@ class _SettleoraGroupBillListScreenState
             )
             .length,
     };
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _searchController.clear();
+      _selectedFilter = _GroupBillListFilter.all;
+    });
   }
 }
 
@@ -1708,37 +1836,157 @@ SettleoraBillParticipant? _currentBillParticipant(
   return null;
 }
 
-class _GroupBillListFilterChips extends StatelessWidget {
-  const _GroupBillListFilterChips({
+bool _billMatchesQuery(
+  SettleoraBillSummary bill,
+  String query, {
+  Map<String, String> participantDisplayNames = const {},
+  Iterable<String> extraFields = const [],
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty) {
+    return true;
+  }
+
+  final searchableFields = <String>[
+    bill.displayName,
+    bill.billDate,
+    bill.totalAmount,
+    bill.totalCurrency,
+    _money(bill.totalAmount, bill.totalCurrency),
+    settleoraBillStatusLabel(bill.status),
+    bill.status,
+    settleoraBillReconciliationStatusLabel(bill.reconciliationStatus),
+    bill.reconciliationStatus,
+    settleoraBillArchiveStateLabel(bill.archiveState),
+    bill.archiveState,
+    '${bill.itemCount} items',
+    '${bill.participantCount} participants',
+    '${bill.payerCount} payers',
+    ...extraFields,
+  ];
+
+  for (final participant in bill.participants) {
+    searchableFields.addAll([
+      participant.userProfileId,
+      settleoraBillParticipantStatusLabel(participant.status),
+      participant.status,
+      participant.resolvedShareAmount,
+      participant.resolvedShareCurrency,
+      _money(
+        participant.resolvedShareAmount,
+        participant.resolvedShareCurrency,
+      ),
+    ]);
+    final displayName = participantDisplayNames[participant.userProfileId];
+    if (displayName != null) {
+      searchableFields.add(displayName);
+    }
+    final reasonCode = participant.rejectionReasonCode;
+    if (reasonCode != null) {
+      searchableFields.addAll([
+        reasonCode,
+        settleoraBillParticipantRejectionReasonLabel(reasonCode),
+      ]);
+    }
+  }
+
+  return searchableFields
+      .where((field) => field.trim().isNotEmpty)
+      .any((field) => field.toLowerCase().contains(normalizedQuery));
+}
+
+class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
+  const _BillListDiscoveryControls({
+    required this.keyPrefix,
+    required this.searchController,
+    required this.searchHint,
     required this.selectedFilter,
-    required this.counts,
-    required this.onSelected,
+    required this.filters,
+    required this.labelForFilter,
+    required this.onSearchChanged,
+    required this.onFilterSelected,
+    required this.onClear,
+    required this.hasFilters,
   });
 
-  final _GroupBillListFilter selectedFilter;
-  final Map<_GroupBillListFilter, int> counts;
-  final ValueChanged<_GroupBillListFilter> onSelected;
+  final String keyPrefix;
+  final TextEditingController searchController;
+  final String searchHint;
+  final T selectedFilter;
+  final List<T> filters;
+  final String Function(T filter) labelForFilter;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<T> onFilterSelected;
+  final VoidCallback onClear;
+  final bool hasFilters;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      key: const Key('group-bill-list-filters'),
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final filter in _GroupBillListFilter.values) ...[
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                key: ValueKey('group-bill-filter-${filter.name}'),
-                label: Text(filter.labelWithCount(counts[filter] ?? 0)),
-                selected: selectedFilter == filter,
-                onSelected: (_) => onSelected(filter),
+    final filterKeyPrefix = keyPrefix == 'group-bill-list'
+        ? 'group-bill'
+        : keyPrefix;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: Key('$keyPrefix-search'),
+          controller: searchController,
+          onChanged: onSearchChanged,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: searchController.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    key: Key('$keyPrefix-clear-search'),
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      searchController.clear();
+                      onSearchChanged('');
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+            labelText: searchHint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                key: Key('$keyPrefix-filters'),
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final filter in filters) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          key: ValueKey(
+                            '$filterKeyPrefix-filter-${filter.name}',
+                          ),
+                          label: Text(labelForFilter(filter)),
+                          selected: selectedFilter == filter,
+                          onSelected: (_) => onFilterSelected(filter),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              key: Key('$keyPrefix-clear-filters'),
+              onPressed: hasFilters ? onClear : null,
+              icon: const Icon(Icons.filter_list_off_outlined),
+              label: const Text('Clear'),
+            ),
           ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3939,6 +4187,7 @@ class _BillSummaryTile extends StatelessWidget {
     final actionIcon = bill.isArchived
         ? Icons.unarchive_outlined
         : Icons.archive_outlined;
+    final nextStepLabel = _personalBillNextStepLabel(bill);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -3960,8 +4209,9 @@ class _BillSummaryTile extends StatelessWidget {
             children: [
               Text(
                 '${bill.billDate} - ${_money(bill.totalAmount, bill.totalCurrency)}',
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -3976,6 +4226,16 @@ class _BillSummaryTile extends StatelessWidget {
                         ? Icons.inventory_2_outlined
                         : Icons.check_circle_outline,
                   ),
+                  _SoftChip(
+                    label: settleoraBillReconciliationStatusLabel(
+                      bill.reconciliationStatus,
+                    ),
+                    icon: Icons.fact_check_outlined,
+                  ),
+                  _SoftChip(
+                    label: _billCountSummary(bill),
+                    icon: Icons.format_list_bulleted_outlined,
+                  ),
                   if (syncItem != null)
                     _SoftChip(
                       label:
@@ -3988,6 +4248,8 @@ class _BillSummaryTile extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(syncItem!.safeMessage!),
               ],
+              const SizedBox(height: 6),
+              Text(nextStepLabel),
             ],
           ),
         ),
@@ -5157,6 +5419,36 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+String _billCountSummary(SettleoraBillSummary bill) {
+  final parts = <String>[
+    _pluralCount(bill.itemCount, 'item'),
+    _pluralCount(bill.participantCount, 'participant'),
+    _pluralCount(bill.payerCount, 'payer'),
+  ];
+
+  return parts.join(' - ');
+}
+
+String _pluralCount(int count, String singular) {
+  return count == 1 ? '1 $singular' : '$count ${singular}s';
+}
+
+String _personalBillNextStepLabel(SettleoraBillSummary bill) {
+  if (bill.isArchived) {
+    return 'Restore to open details or update this bill.';
+  }
+
+  return switch (bill.status) {
+    'draft' => 'Open to review details or add attachments.',
+    'pending_confirmation' => 'Waiting for confirmation before final state.',
+    'rejected' => 'Open to review the returned bill state.',
+    'confirmed' => 'Confirmed bill. Settlement remains separate.',
+    'finalized' => 'Finalized bill. Settlement remains separate.',
+    'cancelled' => 'Cancelled bill. Details remain read-only here.',
+    _ => 'Open for bill details.',
+  };
 }
 
 String? _requiredField(String? value, String message) {

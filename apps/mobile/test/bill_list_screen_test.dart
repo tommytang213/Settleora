@@ -82,6 +82,75 @@ void main() {
     expect(find.text('Create group bill'), findsNothing);
   });
 
+  testWidgets('personal bill search filters clear to the loaded bill list', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          id: 'draft-bill-id',
+          merchantName: 'Corner Market',
+          status: 'draft',
+          totalCurrency: 'USD',
+        ),
+        sampleBillSummary(
+          id: 'archived-bill-id',
+          merchantName: 'Train Tickets',
+          status: 'confirmed',
+          totalAmount: '42.00',
+          totalCurrency: 'EUR',
+          archiveState: SettleoraBillArchiveStateValues.archived,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bill-list-search')), findsOneWidget);
+    expect(find.text('All (2)'), findsOneWidget);
+    expect(find.text('Active (1)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Train Tickets'), findsOneWidget);
+    expect(find.text('1 item - 1 participant - 1 payer'), findsWidgets);
+    expect(
+      find.text('Open to review details or add attachments.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Restore to open details or update this bill.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(find.byKey(const Key('bill-list-search')), 'eur');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Train Tickets'), findsOneWidget);
+    expect(find.text('Corner Market'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('bill-list-filter-active')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching bills'), findsOneWidget);
+    expect(find.text('No personal bills match these filters.'), findsOneWidget);
+    expect(find.text('Train Tickets'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('bill-list-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Train Tickets'), findsOneWidget);
+  });
+
   testWidgets('tapping create opens the personal bill create screen', (
     tester,
   ) async {
@@ -3895,6 +3964,7 @@ SettleoraBillSummary sampleBillSummary({
   String id = _billId,
   String? merchantName = 'Corner Market',
   String billDate = '2026-05-17',
+  String status = 'draft',
   String totalAmount = '10.80',
   String totalCurrency = 'USD',
   String archiveState = SettleoraBillArchiveStateValues.active,
@@ -3903,7 +3973,7 @@ SettleoraBillSummary sampleBillSummary({
     id: id,
     merchantName: merchantName,
     billDate: billDate,
-    status: 'draft',
+    status: status,
     reconciliationStatus: 'unreconciled',
     totalAmount: totalAmount,
     totalCurrency: totalCurrency,
