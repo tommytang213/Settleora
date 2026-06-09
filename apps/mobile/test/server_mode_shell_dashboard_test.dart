@@ -115,6 +115,11 @@ void main() {
     await pumpShell(tester);
 
     expect(
+      find.byKey(const Key('server-shell-create-personal-bill')),
+      findsOneWidget,
+    );
+    expect(find.text('Create bill'), findsOneWidget);
+    expect(
       find.text(
         'No overview items yet. Open a section below to create or review Day 1 records.',
       ),
@@ -134,6 +139,81 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('dashboard quick action opens personal bill create screen', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    await tester.tap(
+      find.byKey(const Key('server-shell-create-personal-bill')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create bill'), findsWidgets);
+    expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
+    expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
+  });
+
+  testWidgets(
+    'dashboard quick action refreshes overview after create success',
+    (tester) async {
+      final billRepository = FakeBillRepository(
+        bills: [sampleBill()],
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Quick Cafe',
+        ),
+      );
+
+      await pumpShell(tester, billRepository: billRepository);
+
+      expect(billRepository.listCalls, 1);
+
+      await tester.tap(
+        find.byKey(const Key('server-shell-create-personal-bill')),
+      );
+      await tester.pumpAndSettle();
+
+      await fillMinimalPersonalBillCreateForm(tester);
+      await tester.tap(find.byKey(const Key('personal-bill-save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.byKey(const Key('personal-bill-date')), findsNothing);
+      expect(billRepository.createCalls, 1);
+      expect(billRepository.lastCreateDraft?.merchantName, 'Quick Cafe');
+      expect(billRepository.listCalls, 2);
+      expect(find.textContaining('Latest: Quick Cafe'), findsOneWidget);
+    },
+  );
+
+  testWidgets('dashboard quick action back does not create or refresh', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(bills: [sampleBill()]);
+
+    await pumpShell(tester, billRepository: billRepository);
+
+    expect(billRepository.listCalls, 1);
+
+    await tester.tap(
+      find.byKey(const Key('server-shell-create-personal-bill')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('server-shell-create-personal-bill')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('personal-bill-date')), findsNothing);
+    expect(billRepository.createCalls, 0);
+    expect(billRepository.listCalls, 1);
+    expect(find.text('Refreshing overview'), findsNothing);
   });
 
   testWidgets('dashboard retries bounded load failures', (tester) async {
@@ -292,6 +372,25 @@ Future<void> pumpShell(
   await tester.pumpAndSettle();
 }
 
+Future<void> fillMinimalPersonalBillCreateForm(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-merchant-name')),
+    'Quick Cafe',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-date')),
+    '2026-06-08',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-item-name-0')),
+    'Lunch',
+  );
+  await tester.enterText(
+    find.byKey(const Key('personal-bill-item-amount-0')),
+    '18.40',
+  );
+}
+
 SettleoraCurrentUser sampleCurrentUser() {
   return SettleoraCurrentUser(
     userProfileId: _profileId,
@@ -317,6 +416,56 @@ SettleoraBillSummary sampleBill({String merchantName = 'Corner Market'}) {
     payerCount: 1,
     createdAtUtc: DateTime.utc(2026, 6, 7, 10),
     updatedAtUtc: DateTime.utc(2026, 6, 7, 10),
+  );
+}
+
+SettleoraBillDetail sampleBillDetail({
+  String id = _billId,
+  String? merchantName = 'Corner Market',
+  String billDate = '2026-06-08',
+  String totalAmount = '18.40',
+  String totalCurrency = 'USD',
+}) {
+  return SettleoraBillDetail(
+    id: id,
+    merchantName: merchantName,
+    billDate: billDate,
+    status: 'draft',
+    reconciliationStatus: 'unreconciled',
+    reconciliationNote: null,
+    revisionCreationActions: const SettleoraBillRevisionCreationActions(
+      canCreateRevision: false,
+    ),
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
+    createdAtUtc: DateTime.utc(2026, 6, 8, 9),
+    updatedAtUtc: DateTime.utc(2026, 6, 8, 9),
+    items: const [
+      SettleoraBillItem(
+        id: 'item-1',
+        name: 'Lunch',
+        note: null,
+        amount: '18.40',
+        currency: 'USD',
+        sortOrder: 0,
+      ),
+    ],
+    participants: const [
+      SettleoraBillParticipant(
+        userProfileId: _profileId,
+        status: 'pending_acceptance',
+        resolvedShareAmount: '18.40',
+        resolvedShareCurrency: 'USD',
+      ),
+    ],
+    payers: const [
+      SettleoraBillPayer(
+        userProfileId: _profileId,
+        amount: '18.40',
+        currency: 'USD',
+      ),
+    ],
+    adjustments: const [],
   );
 }
 
@@ -432,12 +581,19 @@ SettleoraBillSyncController sampleBillSyncController() {
 }
 
 class FakeBillRepository implements SettleoraBillRepository {
-  FakeBillRepository({this.bills = const [], this.failures = const []});
+  FakeBillRepository({
+    this.bills = const [],
+    this.failures = const [],
+    SettleoraBillDetail? createdDetail,
+  }) : createdDetail = createdDetail ?? sampleBillDetail();
 
   List<SettleoraBillSummary> bills;
   final List<SettleoraBillFailure> failures;
+  final SettleoraBillDetail createdDetail;
   Completer<void>? nextListPersonalBillsGate;
   int listCalls = 0;
+  int createCalls = 0;
+  SettleoraPersonalBillCreateDraft? lastCreateDraft;
 
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
@@ -461,8 +617,28 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<SettleoraBillDetail> createPersonalBill(
     SettleoraPersonalBillCreateDraft draft,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    createCalls += 1;
+    lastCreateDraft = draft;
+    bills = [
+      SettleoraBillSummary(
+        id: createdDetail.id,
+        merchantName: createdDetail.merchantName,
+        billDate: createdDetail.billDate,
+        status: createdDetail.status,
+        reconciliationStatus: createdDetail.reconciliationStatus,
+        totalAmount: createdDetail.totalAmount,
+        totalCurrency: createdDetail.totalCurrency,
+        archiveState: SettleoraBillArchiveStateValues.active,
+        itemCount: createdDetail.items.length,
+        participantCount: createdDetail.participants.length,
+        payerCount: createdDetail.payers.length,
+        createdAtUtc: createdDetail.createdAtUtc,
+        updatedAtUtc: createdDetail.updatedAtUtc,
+      ),
+      ...bills.where((bill) => bill.id != createdDetail.id),
+    ];
+    return createdDetail;
   }
 
   @override
@@ -919,5 +1095,6 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 
 const _profileId = 'profile-1';
 const _billId = 'bill-1';
+const _createdBillId = 'created-bill-1';
 const _settlementId = 'settlement-1';
 const _templateId = 'template-1';

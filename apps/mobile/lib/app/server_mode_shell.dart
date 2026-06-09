@@ -168,6 +168,24 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _openCreatePersonalBill() async {
+    final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
+      MaterialPageRoute(
+        builder: (_) => SettleoraPersonalBillCreateScreen(
+          repository: widget.billRepository,
+          attachmentRepository: widget.billAttachmentRepository,
+          attachmentFileInput: widget.billAttachmentFileInput,
+        ),
+      ),
+    );
+
+    if (!mounted || createdBill == null) {
+      return;
+    }
+
+    await _loadOverview();
+  }
+
   Future<void> _openProfile() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -415,6 +433,13 @@ class _SettleoraAuthenticatedServerShellState
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
+                FilledButton.tonalIcon(
+                  key: const Key('server-shell-create-personal-bill'),
+                  onPressed: _openCreatePersonalBill,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create bill'),
+                ),
+                const SizedBox(width: 4),
                 IconButton(
                   key: const Key('dashboard-overview-refresh'),
                   tooltip: 'Refresh overview',
