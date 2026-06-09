@@ -13,6 +13,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.billRepository,
+    this.openCreateOnStart = false,
     this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
@@ -22,6 +23,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
+  final bool openCreateOnStart;
   final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
@@ -38,6 +40,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
 
   bool _isLoading = true;
   bool _isCreating = false;
+  bool _didOpenCreateOnStart = false;
   List<SettleoraGroup> _groups = const [];
   String _searchQuery = '';
   SettleoraGroupRole? _selectedRole;
@@ -48,7 +51,12 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   @override
   void initState() {
     super.initState();
-    Future<void>.microtask(_load);
+    Future<void>.microtask(() async {
+      await _load();
+      if (widget.openCreateOnStart) {
+        await _openCreateOnStart();
+      }
+    });
   }
 
   @override
@@ -84,6 +92,15 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _openCreateOnStart() async {
+    if (_didOpenCreateOnStart || _failure != null || !mounted) {
+      return;
+    }
+
+    _didOpenCreateOnStart = true;
+    await _createGroup();
   }
 
   void _updateSearchQuery(String value) {
