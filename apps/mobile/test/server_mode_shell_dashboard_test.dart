@@ -119,6 +119,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Create bill'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-create-group')), findsOneWidget);
+    expect(find.text('Create group'), findsOneWidget);
     expect(
       find.text(
         'No overview items yet. Open a section below to create or review Day 1 records.',
@@ -214,6 +216,79 @@ void main() {
     expect(billRepository.createCalls, 0);
     expect(billRepository.listCalls, 1);
     expect(find.text('Refreshing overview'), findsNothing);
+  });
+
+  testWidgets(
+    'dashboard create group quick action opens existing group create flow',
+    (tester) async {
+      final billRepository = FakeBillRepository(bills: [sampleBill()]);
+      final groupRepository = FakeGroupRepository();
+
+      await pumpShell(
+        tester,
+        billRepository: billRepository,
+        groupRepository: groupRepository,
+      );
+
+      expect(billRepository.listCalls, 1);
+
+      await tester.tap(find.byKey(const Key('server-shell-create-group')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Groups'), findsOneWidget);
+      expect(find.text('Create Group'), findsOneWidget);
+      expect(find.byKey(const Key('group-form-name')), findsOneWidget);
+      expect(groupRepository.listCalls, 1);
+      expect(groupRepository.createCalls, 0);
+
+      await tester.enterText(find.byKey(const Key('group-form-name')), 'House');
+      await tester.tap(find.byKey(const Key('group-form-save')));
+      await tester.pumpAndSettle();
+
+      expect(groupRepository.createCalls, 1);
+      expect(groupRepository.lastGroupSave?.name, 'House');
+      expect(find.text('House'), findsOneWidget);
+      expect(find.text('Group created.'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('server-shell-create-group')),
+        findsOneWidget,
+      );
+      expect(billRepository.listCalls, 2);
+    },
+  );
+
+  testWidgets('dashboard create group cancel does not create a group', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(bills: [sampleBill()]);
+    final groupRepository = FakeGroupRepository();
+
+    await pumpShell(
+      tester,
+      billRepository: billRepository,
+      groupRepository: groupRepository,
+    );
+
+    await tester.tap(find.byKey(const Key('server-shell-create-group')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-form-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Create Group'), findsNothing);
+    expect(groupRepository.createCalls, 0);
+    expect(find.text('Group created.'), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('server-shell-create-group')), findsOneWidget);
+    expect(billRepository.listCalls, 2);
   });
 
   testWidgets('dashboard retries bounded load failures', (tester) async {
@@ -343,6 +418,7 @@ void main() {
 Future<void> pumpShell(
   WidgetTester tester, {
   FakeBillRepository? billRepository,
+  FakeGroupRepository? groupRepository,
   FakeNotificationRepository? notificationRepository,
   FakeSettlementRepository? settlementRepository,
   FakeRecurringBillRepository? recurringRepository,
@@ -357,7 +433,7 @@ Future<void> pumpShell(
             settlementRepository ?? FakeSettlementRepository(),
         recurringBillRepository:
             recurringRepository ?? FakeRecurringBillRepository(),
-        groupRepository: FakeGroupRepository(),
+        groupRepository: groupRepository ?? FakeGroupRepository(),
         notificationRepository:
             notificationRepository ?? FakeNotificationRepository(),
         reportRepository: FakeMonthlyReportRepository(),
@@ -566,6 +642,17 @@ SettleoraNotificationRow sampleNotification() {
     createdAtUtc: DateTime.utc(2026, 6, 7, 12),
     readAtUtc: null,
     archivedAtUtc: null,
+  );
+}
+
+SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
+  return SettleoraGroup(
+    id: id,
+    name: name,
+    currentUserRole: SettleoraGroupRoleValues.owner,
+    currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+    createdAtUtc: DateTime.utc(2026, 6, 7, 12),
+    updatedAtUtc: DateTime.utc(2026, 6, 7, 12),
   );
 }
 
@@ -920,14 +1007,27 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({List<SettleoraGroup>? groups})
+    : groups = groups ?? const [];
+
+  List<SettleoraGroup> groups;
+  int listCalls = 0;
+  int createCalls = 0;
+  SettleoraGroupSaveRequest? lastGroupSave;
+
   @override
   Future<List<SettleoraGroup>> listGroups() async {
-    return const [];
+    listCalls += 1;
+    return groups;
   }
 
   @override
-  Future<SettleoraGroup> createGroup(SettleoraGroupSaveRequest request) {
-    throw UnimplementedError();
+  Future<SettleoraGroup> createGroup(SettleoraGroupSaveRequest request) async {
+    createCalls += 1;
+    lastGroupSave = request;
+    final group = sampleGroup(name: request.name.trim());
+    groups = [group, ...groups.where((item) => item.id != group.id)];
+    return group;
   }
 
   @override
@@ -1096,5 +1196,6 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 const _profileId = 'profile-1';
 const _billId = 'bill-1';
 const _createdBillId = 'created-bill-1';
+const _groupId = 'group-1';
 const _settlementId = 'settlement-1';
 const _templateId = 'template-1';

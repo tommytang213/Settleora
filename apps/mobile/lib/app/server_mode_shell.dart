@@ -266,6 +266,21 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _openCreateGroup() async {
+    await _openDashboardDestination(
+      (_) => SettleoraGroupListScreen(
+        repository: widget.groupRepository,
+        billRepository: widget.billRepository,
+        openCreateOnStart: true,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
+      ),
+    );
+  }
+
   Future<void> _openSessions() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -433,13 +448,6 @@ class _SettleoraAuthenticatedServerShellState
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
-                FilledButton.tonalIcon(
-                  key: const Key('server-shell-create-personal-bill'),
-                  onPressed: _openCreatePersonalBill,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create bill'),
-                ),
-                const SizedBox(width: 4),
                 IconButton(
                   key: const Key('dashboard-overview-refresh'),
                   tooltip: 'Refresh overview',
@@ -450,6 +458,28 @@ class _SettleoraAuthenticatedServerShellState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    key: const Key('server-shell-create-personal-bill'),
+                    onPressed: _openCreatePersonalBill,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create bill'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    key: const Key('server-shell-create-group'),
+                    onPressed: _openCreateGroup,
+                    icon: const Icon(Icons.group_add_outlined),
+                    label: const Text('Create group'),
+                  ),
                 ),
               ],
             ),

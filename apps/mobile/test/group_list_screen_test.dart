@@ -50,6 +50,92 @@ void main() {
     expect(find.text('Group created.'), findsOneWidget);
   });
 
+  testWidgets('group list can auto-open create dialog once', (tester) async {
+    final repository = FakeGroupRepository(groups: const []);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          openCreateOnStart: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Group'), findsOneWidget);
+    expect(find.byKey(const Key('group-form-name')), findsOneWidget);
+    expect(repository.listCalls, 1);
+    expect(repository.createCalls, 0);
+
+    await tester.tap(find.byKey(const Key('group-form-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createCalls, 0);
+    expect(find.text('Group created.'), findsNothing);
+    expect(find.text('No groups'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          openCreateOnStart: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Group'), findsNothing);
+    expect(repository.listCalls, 1);
+
+    await tester.tap(find.byKey(const Key('group-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Group'), findsOneWidget);
+  });
+
+  testWidgets('group list auto-open create uses existing save behavior', (
+    tester,
+  ) async {
+    final repository = FakeGroupRepository(groups: const []);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          openCreateOnStart: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('group-form-name')), 'House');
+    await tester.tap(find.byKey(const Key('group-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastGroupSave?.name, 'House');
+    expect(find.text('House'), findsOneWidget);
+    expect(find.text('Group created.'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupListScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          openCreateOnStart: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Group'), findsNothing);
+    expect(repository.createCalls, 1);
+  });
+
   testWidgets('group list search filters visible groups', (tester) async {
     final repository = FakeGroupRepository(groups: sampleGroupDiscoveryRows());
 
