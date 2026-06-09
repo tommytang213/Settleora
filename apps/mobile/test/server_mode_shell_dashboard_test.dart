@@ -65,6 +65,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('2 unread notifications'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-sync-status-card')),
+      findsNothing,
+    );
     expect(billRepository.listCalls, 1);
     expect(notificationRepository.summaryCalls, 1);
     expect(settlementRepository.listBalanceCalls, 1);
@@ -378,6 +382,165 @@ void main() {
     expect(billRepository.listCalls, callsAfterOpeningBills + 1);
   });
 
+  testWidgets('dashboard shows compact pending sync status', (tester) async {
+    final billRepository = FakeBillRepository(bills: [sampleBill()]);
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'sync-queued-1',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+          sampleSyncItem(
+            id: 'sync-syncing-1',
+            resourceId: 'bill-2',
+            state: SettleoraSyncQueueItemStateValues.syncing,
+          ),
+        ],
+      ),
+    );
+
+    await pumpShell(
+      tester,
+      billRepository: billRepository,
+      billSyncController: sampleBillSyncController(store: store),
+    );
+
+    expect(
+      find.byKey(const Key('server-shell-sync-status-card')),
+      findsOneWidget,
+    );
+    expect(find.text('Sync pending'), findsOneWidget);
+    expect(find.textContaining('2 pending'), findsOneWidget);
+    expect(find.text('Review in Bills'), findsOneWidget);
+  });
+
+  testWidgets('dashboard sync status prioritizes attention counts', (
+    tester,
+  ) async {
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'sync-queued-1',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+          sampleSyncItem(
+            id: 'sync-failed-1',
+            resourceId: 'bill-2',
+            state: SettleoraSyncQueueItemStateValues.failed,
+          ),
+          sampleSyncItem(
+            id: 'sync-conflict-1',
+            resourceId: 'bill-3',
+            state: SettleoraSyncQueueItemStateValues.conflict,
+          ),
+        ],
+      ),
+    );
+
+    await pumpShell(
+      tester,
+      billSyncController: sampleBillSyncController(store: store),
+    );
+
+    expect(find.text('Sync needs attention'), findsOneWidget);
+    expect(find.textContaining('1 pending'), findsOneWidget);
+    expect(find.textContaining('1 failed'), findsOneWidget);
+    expect(find.textContaining('1 conflict'), findsOneWidget);
+  });
+
+  testWidgets('dashboard sync status action opens bills surface', (
+    tester,
+  ) async {
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'sync-queued-1',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+        ],
+      ),
+    );
+
+    await pumpShell(
+      tester,
+      billSyncController: sampleBillSyncController(store: store),
+    );
+
+    await tester.tap(
+      find.byKey(const Key('server-shell-sync-status-open-bills')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsOneWidget);
+    expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+  });
+
+  testWidgets('returning from bills refreshes dashboard sync status', (
+    tester,
+  ) async {
+    final store = MemorySyncQueueStore();
+
+    await pumpShell(
+      tester,
+      billSyncController: sampleBillSyncController(store: store),
+    );
+
+    expect(
+      find.byKey(const Key('server-shell-sync-status-card')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await tester.pumpAndSettle();
+
+    store.state = SettleoraSyncQueueState(
+      items: [
+        sampleSyncItem(
+          id: 'sync-queued-1',
+          resourceId: _billId,
+          state: SettleoraSyncQueueItemStateValues.queued,
+        ),
+      ],
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('server-shell-sync-status-card')),
+      findsOneWidget,
+    );
+    expect(find.text('Sync pending'), findsOneWidget);
+  });
+
+  testWidgets('dashboard omits sync card when local sync read fails', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(bills: [sampleBill()]);
+
+    await pumpShell(
+      tester,
+      billRepository: billRepository,
+      billSyncController: sampleBillSyncController(
+        store: FailingSyncQueueStore(),
+      ),
+    );
+
+    expect(find.text('Personal bills'), findsOneWidget);
+    expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-sync-status-card')),
+      findsNothing,
+    );
+    expect(find.text('Overview unavailable'), findsNothing);
+  });
+
   testWidgets('returning from notifications refreshes dashboard overview', (
     tester,
   ) async {
@@ -422,6 +585,7 @@ Future<void> pumpShell(
   FakeNotificationRepository? notificationRepository,
   FakeSettlementRepository? settlementRepository,
   FakeRecurringBillRepository? recurringRepository,
+  SettleoraBillSyncController? billSyncController,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -438,7 +602,7 @@ Future<void> pumpShell(
             notificationRepository ?? FakeNotificationRepository(),
         reportRepository: FakeMonthlyReportRepository(),
         profileRepository: FakeProfileRepository(),
-        billSyncController: sampleBillSyncController(),
+        billSyncController: billSyncController ?? sampleBillSyncController(),
         authRepository: FakeAuthRepository(),
         accessTokenProvider: FakeAccessTokenProvider(),
         onSessionEnded: (_) async {},
@@ -656,14 +820,44 @@ SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
   );
 }
 
-SettleoraBillSyncController sampleBillSyncController() {
-  final store = MemorySyncQueueStore();
+SettleoraBillSyncController sampleBillSyncController({
+  SettleoraSyncQueueStore? store,
+}) {
+  final queueStore = store ?? MemorySyncQueueStore();
   return SettleoraBillSyncController(
-    queueStore: store,
+    queueStore: queueStore,
     queueProcessor: SettleoraSyncQueueProcessor(
-      queueStore: store,
+      queueStore: queueStore,
       repository: FakeSyncRepository(),
     ),
+  );
+}
+
+SettleoraSyncQueueItem sampleSyncItem({
+  required String id,
+  required String resourceId,
+  required SettleoraSyncQueueItemState state,
+}) {
+  final createdAtUtc = DateTime.utc(2026, 6, 7, 12);
+  return SettleoraSyncQueueItem(
+    id: id,
+    idempotencyKey: 'mobile-sync:bill_archive:expense_bill:$resourceId:$id',
+    operationType: SettleoraSyncOperationTypeValues.billArchive,
+    resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+    resourceId: resourceId,
+    baseVersion: null,
+    payload: const {},
+    state: state,
+    safeErrorCode: state == SettleoraSyncQueueItemStateValues.failed
+        ? 'network'
+        : null,
+    safeMessage: state == SettleoraSyncQueueItemStateValues.failed
+        ? 'Sync failed.'
+        : null,
+    createdAtUtc: createdAtUtc,
+    updatedAtUtc: createdAtUtc,
+    lastAttemptAtUtc: null,
+    attemptCount: state == SettleoraSyncQueueItemStateValues.queued ? 0 : 1,
   );
 }
 
@@ -1172,6 +1366,24 @@ class MemorySyncQueueStore extends SettleoraSyncQueueStore {
   @override
   Future<void> write(SettleoraSyncQueueState state) async {
     this.state = state;
+  }
+}
+
+class FailingSyncQueueStore extends SettleoraSyncQueueStore {
+  @override
+  int get maxItemCount => 100;
+
+  @override
+  Future<SettleoraSyncQueueState> read() {
+    throw const SettleoraSyncQueueFailure(
+      kind: SettleoraSyncQueueFailureKind.storage,
+      message: 'Sync status is unavailable.',
+    );
+  }
+
+  @override
+  Future<void> write(SettleoraSyncQueueState state) {
+    throw UnimplementedError();
   }
 }
 

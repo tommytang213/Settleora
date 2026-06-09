@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/settleora_api_client.dart';
@@ -76,6 +78,8 @@ class _SettleoraAuthenticatedServerShellState
   Future<void>? _overviewLoadFuture;
   _SettleoraDashboardOverview? _overview;
   _SettleoraDashboardFailure? _overviewFailure;
+  SettleoraBillSyncSnapshot? _billSyncSnapshot;
+  int _overviewLoadVersion = 0;
 
   @override
   void initState() {
@@ -106,8 +110,12 @@ class _SettleoraAuthenticatedServerShellState
       _overviewFailure = null;
     });
 
+    final loadVersion = _overviewLoadVersion + 1;
+    _overviewLoadVersion = loadVersion;
+    final billSyncSnapshotFuture = _readBillSyncSnapshot();
+
     try {
-      final results = await Future.wait<Object>([
+      final overviewResults = await Future.wait<Object>([
         widget.billRepository.listPersonalBills(limit: 3),
         widget.notificationRepository.getNotificationSummary(),
         widget.settlementRepository.listBalances(),
@@ -115,24 +123,28 @@ class _SettleoraAuthenticatedServerShellState
         widget.recurringBillRepository.listTemplates(maxItems: 3),
         widget.recurringBillRepository.listForecast(limit: 3),
       ]);
-
       if (!mounted) {
         return;
       }
 
       setState(() {
         _overview = _SettleoraDashboardOverview(
-          personalBills: results[0] as List<SettleoraBillSummary>,
-          notificationSummary: results[1] as SettleoraNotificationSummary,
-          settlementBalances: results[2] as SettleoraSettlementBalanceSnapshot,
-          settlementRequests: results[3] as List<SettleoraSettlementRequest>,
+          personalBills: overviewResults[0] as List<SettleoraBillSummary>,
+          notificationSummary:
+              overviewResults[1] as SettleoraNotificationSummary,
+          settlementBalances:
+              overviewResults[2] as SettleoraSettlementBalanceSnapshot,
+          settlementRequests:
+              overviewResults[3] as List<SettleoraSettlementRequest>,
           recurringTemplates:
-              results[4] as List<SettleoraRecurringBillTemplateSummary>,
+              overviewResults[4] as List<SettleoraRecurringBillTemplateSummary>,
           recurringForecast:
-              results[5] as List<SettleoraRecurringBillForecastOccurrence>,
+              overviewResults[5]
+                  as List<SettleoraRecurringBillForecastOccurrence>,
         );
         _isLoadingOverview = false;
       });
+      unawaited(_applyBillSyncSnapshot(billSyncSnapshotFuture, loadVersion));
     } catch (error) {
       if (!mounted) {
         return;
@@ -142,7 +154,30 @@ class _SettleoraAuthenticatedServerShellState
         _overviewFailure = _SettleoraDashboardFailure.from(error);
         _isLoadingOverview = false;
       });
+      unawaited(_applyBillSyncSnapshot(billSyncSnapshotFuture, loadVersion));
     }
+  }
+
+  Future<SettleoraBillSyncSnapshot?> _readBillSyncSnapshot() async {
+    try {
+      return await widget.billSyncController.readSnapshot();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _applyBillSyncSnapshot(
+    Future<SettleoraBillSyncSnapshot?> snapshotFuture,
+    int loadVersion,
+  ) async {
+    final snapshot = await snapshotFuture;
+    if (!mounted || loadVersion != _overviewLoadVersion) {
+      return;
+    }
+
+    setState(() {
+      _billSyncSnapshot = snapshot;
+    });
   }
 
   Future<void> _openDashboardDestination(WidgetBuilder builder) async {
@@ -500,6 +535,7 @@ class _SettleoraAuthenticatedServerShellState
                 ),
               _DashboardOverviewContent(
                 overview: overview,
+                billSyncSnapshot: _billSyncSnapshot,
                 onOpenBills: _openBills,
                 onOpenGroups: _openGroups,
                 onOpenSettlements: _openSettlements,
@@ -760,6 +796,7 @@ class _DashboardInlineErrorCard extends StatelessWidget {
 class _DashboardOverviewContent extends StatelessWidget {
   const _DashboardOverviewContent({
     required this.overview,
+    required this.billSyncSnapshot,
     required this.onOpenBills,
     required this.onOpenGroups,
     required this.onOpenSettlements,
@@ -768,6 +805,7 @@ class _DashboardOverviewContent extends StatelessWidget {
   });
 
   final _SettleoraDashboardOverview overview;
+  final SettleoraBillSyncSnapshot? billSyncSnapshot;
   final VoidCallback onOpenBills;
   final VoidCallback onOpenGroups;
   final VoidCallback onOpenSettlements;
@@ -782,6 +820,10 @@ class _DashboardOverviewContent extends StatelessWidget {
           const _DashboardEmptyCard(),
           const SizedBox(height: 8),
         ],
+        _DashboardSyncStatusCard(
+          snapshot: billSyncSnapshot,
+          onOpenBills: onOpenBills,
+        ),
         _DashboardNavigationTile(
           key: const Key('server-shell-bills'),
           icon: Icons.list_alt_outlined,
@@ -868,6 +910,81 @@ class _DashboardEmptyCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _DashboardSyncStatusCard extends StatelessWidget {
+  const _DashboardSyncStatusCard({
+    required this.snapshot,
+    required this.onOpenBills,
+  });
+
+  final SettleoraBillSyncSnapshot? snapshot;
+  final VoidCallback onOpenBills;
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = this.snapshot;
+    if (snapshot == null || !_shouldShow(snapshot)) {
+      return const SizedBox.shrink();
+    }
+
+    final needsAttention =
+        snapshot.failedCount > 0 || snapshot.conflictCount > 0;
+    final title = needsAttention ? 'Sync needs attention' : 'Sync pending';
+    final queuedOrPendingCount = snapshot.queuedCount + snapshot.syncingCount;
+    final countParts = <String>[
+      if (queuedOrPendingCount > 0)
+        '$queuedOrPendingCount pending${_plural(queuedOrPendingCount)}',
+      if (snapshot.failedCount > 0)
+        '${snapshot.failedCount} failed${_plural(snapshot.failedCount)}',
+      if (snapshot.conflictCount > 0)
+        '${snapshot.conflictCount} conflict${_plural(snapshot.conflictCount)}',
+    ];
+
+    return Card(
+      key: const Key('server-shell-sync-status-card'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              needsAttention
+                  ? Icons.sync_problem_outlined
+                  : Icons.sync_outlined,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  if (countParts.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(countParts.join(' - ')),
+                  ],
+                ],
+              ),
+            ),
+            TextButton(
+              key: const Key('server-shell-sync-status-open-bills'),
+              onPressed: onOpenBills,
+              child: const Text('Review in Bills'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _shouldShow(SettleoraBillSyncSnapshot snapshot) {
+    return snapshot.queuedCount > 0 ||
+        snapshot.pendingCount > 0 ||
+        snapshot.syncingCount > 0 ||
+        snapshot.failedCount > 0 ||
+        snapshot.conflictCount > 0;
   }
 }
 
