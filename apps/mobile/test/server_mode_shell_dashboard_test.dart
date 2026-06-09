@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
@@ -164,6 +166,98 @@ void main() {
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 2);
   });
+
+  testWidgets(
+    'manual dashboard refresh keeps visible overview and deduplicates',
+    (tester) async {
+      final billRepository = FakeBillRepository(bills: [sampleBill()]);
+
+      await pumpShell(tester, billRepository: billRepository);
+
+      expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
+      expect(billRepository.listCalls, 1);
+
+      final refreshGate = Completer<void>();
+      billRepository.nextListPersonalBillsGate = refreshGate;
+      billRepository.bills = [sampleBill(merchantName: 'Fresh Grocer')];
+
+      await tester.tap(find.byKey(const Key('dashboard-overview-refresh')));
+      await tester.pump();
+
+      expect(find.text('Refreshing overview'), findsOneWidget);
+      expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
+      expect(billRepository.listCalls, 2);
+
+      await tester.tap(find.byKey(const Key('dashboard-overview-refresh')));
+      await tester.pump();
+
+      expect(billRepository.listCalls, 2);
+
+      refreshGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Refreshing overview'), findsNothing);
+      expect(find.textContaining('Latest: Fresh Grocer'), findsOneWidget);
+      expect(billRepository.listCalls, 2);
+    },
+  );
+
+  testWidgets('returning from bills refreshes dashboard overview', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(bills: [sampleBill()]);
+
+    await pumpShell(tester, billRepository: billRepository);
+
+    expect(billRepository.listCalls, 1);
+
+    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await tester.pumpAndSettle();
+
+    final callsAfterOpeningBills = billRepository.listCalls;
+    expect(find.text('Bills'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(billRepository.listCalls, callsAfterOpeningBills + 1);
+  });
+
+  testWidgets('returning from notifications refreshes dashboard overview', (
+    tester,
+  ) async {
+    final notificationRepository = FakeNotificationRepository(
+      notifications: [sampleNotification()],
+    );
+
+    await pumpShell(tester, notificationRepository: notificationRepository);
+
+    expect(notificationRepository.summaryCalls, 1);
+
+    final notificationsTile = find.byKey(
+      const Key('server-shell-notifications'),
+    );
+    await tester.dragUntilVisible(
+      notificationsTile,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(notificationsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(notificationsTile);
+    await tester.pumpAndSettle();
+
+    final callsAfterOpeningNotifications = notificationRepository.summaryCalls;
+    expect(find.text('Notifications'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      notificationRepository.summaryCalls,
+      callsAfterOpeningNotifications + 1,
+    );
+  });
 }
 
 Future<void> pumpShell(
@@ -208,10 +302,10 @@ SettleoraCurrentUser sampleCurrentUser() {
   );
 }
 
-SettleoraBillSummary sampleBill() {
+SettleoraBillSummary sampleBill({String merchantName = 'Corner Market'}) {
   return SettleoraBillSummary(
     id: _billId,
-    merchantName: 'Corner Market',
+    merchantName: merchantName,
     billDate: '2026-06-07',
     status: 'confirmed',
     reconciliationStatus: 'unreconciled',
@@ -340,13 +434,19 @@ SettleoraBillSyncController sampleBillSyncController() {
 class FakeBillRepository implements SettleoraBillRepository {
   FakeBillRepository({this.bills = const [], this.failures = const []});
 
-  final List<SettleoraBillSummary> bills;
+  List<SettleoraBillSummary> bills;
   final List<SettleoraBillFailure> failures;
+  Completer<void>? nextListPersonalBillsGate;
   int listCalls = 0;
 
   @override
   Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) async {
     listCalls += 1;
+    final gate = nextListPersonalBillsGate;
+    if (gate != null) {
+      nextListPersonalBillsGate = null;
+      await gate.future;
+    }
     if (listCalls <= failures.length) {
       throw failures[listCalls - 1];
     }
