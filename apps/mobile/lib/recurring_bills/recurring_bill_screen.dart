@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import 'recurring_bill_repository.dart';
 
 class SettleoraRecurringBillScreen extends StatefulWidget {
-  const SettleoraRecurringBillScreen({super.key, required this.repository});
+  const SettleoraRecurringBillScreen({
+    super.key,
+    required this.repository,
+    this.openNeedsDraftOnStart = false,
+  });
 
   final SettleoraRecurringBillRepository repository;
+  final bool openNeedsDraftOnStart;
 
   @override
   State<SettleoraRecurringBillScreen> createState() =>
@@ -28,6 +33,9 @@ class _SettleoraRecurringBillScreenState
   @override
   void initState() {
     super.initState();
+    if (widget.openNeedsDraftOnStart) {
+      _forecastFilter = _RecurringForecastFilter.needsDraft;
+    }
     _searchController = TextEditingController();
     _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);

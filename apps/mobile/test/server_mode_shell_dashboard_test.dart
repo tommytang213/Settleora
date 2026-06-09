@@ -62,7 +62,7 @@ void main() {
     expect(find.textContaining('1 request may need review'), findsOneWidget);
     expect(
       find.textContaining('1 forecast item ready for draft review'),
-      findsOneWidget,
+      findsWidgets,
     );
     expect(find.textContaining('2 unread notifications'), findsOneWidget);
     expect(
@@ -74,6 +74,139 @@ void main() {
     expect(settlementRepository.listBalanceCalls, 1);
     expect(recurringRepository.listForecastCalls, 1);
   });
+
+  testWidgets(
+    'dashboard recurring draft shortcut appears for draft-ready forecast',
+    (tester) async {
+      final recurringRepository = FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [sampleOccurrence()],
+      );
+
+      await pumpShell(tester, recurringRepository: recurringRepository);
+
+      expect(
+        find.byKey(const Key('server-shell-recurring-drafts-action')),
+        findsOneWidget,
+      );
+      expect(find.text('Recurring drafts ready'), findsOneWidget);
+      expect(find.text('1 forecast item ready for draft review'), findsWidgets);
+      expect(find.text('Review drafts'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'dashboard recurring draft shortcut hides without draft-ready forecast',
+    (tester) async {
+      final recurringRepository = FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [
+          sampleOccurrence(
+            status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+            draftGenerated: true,
+            generatedBillId: _generatedBillId,
+          ),
+        ],
+      );
+
+      await pumpShell(tester, recurringRepository: recurringRepository);
+
+      expect(
+        find.byKey(const Key('server-shell-recurring-drafts-action')),
+        findsNothing,
+      );
+      expect(find.text('Recurring drafts ready'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'dashboard recurring draft shortcut opens needs-draft recurring forecast',
+    (tester) async {
+      final recurringRepository = FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [
+          sampleOccurrence(merchantName: 'Rent'),
+          sampleOccurrence(
+            templateId: '55555555-5555-5555-5555-555555555555',
+            merchantName: 'Gym',
+            status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+            draftGenerated: true,
+            generatedBillId: _generatedBillId,
+            occurrenceDate: '2026-07-15',
+          ),
+        ],
+      );
+
+      await pumpShell(tester, recurringRepository: recurringRepository);
+
+      await tester.tap(
+        find.byKey(const Key('server-shell-recurring-drafts-review')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recurring bills'), findsWidgets);
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(
+                const Key('recurring-bill-forecast-filter-needs-draft'),
+              ),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('Rent'), findsWidgets);
+      expect(find.text('Gym'), findsNothing);
+      expect(recurringRepository.listForecastCalls, 2);
+    },
+  );
+
+  testWidgets(
+    'dashboard recurring bills tile opens generic recurring forecast',
+    (tester) async {
+      final recurringRepository = FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [
+          sampleOccurrence(merchantName: 'Rent'),
+          sampleOccurrence(
+            templateId: '55555555-5555-5555-5555-555555555555',
+            merchantName: 'Gym',
+            status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+            draftGenerated: true,
+            generatedBillId: _generatedBillId,
+            occurrenceDate: '2026-07-15',
+          ),
+        ],
+      );
+
+      await pumpShell(tester, recurringRepository: recurringRepository);
+
+      await tester.dragUntilVisible(
+        find.byKey(const Key('server-shell-recurring-bills')),
+        find.byType(Scrollable).first,
+        const Offset(0, -300),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('server-shell-recurring-bills')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('server-shell-recurring-bills')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recurring bills'), findsWidgets);
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(const Key('recurring-bill-forecast-filter-all')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('Rent'), findsWidgets);
+      expect(find.text('Gym'), findsWidgets);
+      expect(recurringRepository.listForecastCalls, 2);
+    },
+  );
 
   testWidgets('dashboard cards navigate to existing mobile surfaces', (
     tester,
@@ -968,19 +1101,31 @@ SettleoraRecurringBillTemplateSummary sampleTemplate() {
   );
 }
 
-SettleoraRecurringBillForecastOccurrence sampleOccurrence() {
-  return const SettleoraRecurringBillForecastOccurrence(
-    templateId: _templateId,
-    occurrenceId: null,
-    occurrenceDate: '2026-07-01',
-    dueDate: '2026-07-04',
-    status: SettleoraRecurringBillOccurrenceStatusValues.forecasted,
-    draftGenerated: false,
-    generatedBillId: null,
-    forecastAmount: '1200.00',
-    forecastCurrency: 'USD',
-    merchantName: 'Rent',
-    isGroupScoped: false,
+SettleoraRecurringBillForecastOccurrence sampleOccurrence({
+  String templateId = _templateId,
+  String? occurrenceId,
+  String occurrenceDate = '2026-07-01',
+  String? dueDate = '2026-07-04',
+  String status = SettleoraRecurringBillOccurrenceStatusValues.forecasted,
+  bool draftGenerated = false,
+  String? generatedBillId,
+  String forecastAmount = '1200.00',
+  String forecastCurrency = 'USD',
+  String? merchantName = 'Rent',
+  bool isGroupScoped = false,
+}) {
+  return SettleoraRecurringBillForecastOccurrence(
+    templateId: templateId,
+    occurrenceId: occurrenceId,
+    occurrenceDate: occurrenceDate,
+    dueDate: dueDate,
+    status: status,
+    draftGenerated: draftGenerated,
+    generatedBillId: generatedBillId,
+    forecastAmount: forecastAmount,
+    forecastCurrency: forecastCurrency,
+    merchantName: merchantName,
+    isGroupScoped: isGroupScoped,
   );
 }
 
@@ -1635,3 +1780,4 @@ const _createdBillId = 'created-bill-1';
 const _groupId = 'group-1';
 const _settlementId = 'settlement-1';
 const _templateId = 'template-1';
+const _generatedBillId = 'generated-bill-1';

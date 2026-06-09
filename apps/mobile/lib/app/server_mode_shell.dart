@@ -332,6 +332,15 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _openRecurringDrafts() async {
+    await _openDashboardDestination(
+      (_) => SettleoraRecurringBillScreen(
+        repository: widget.recurringBillRepository,
+        openNeedsDraftOnStart: true,
+      ),
+    );
+  }
+
   Future<void> _openGroups() async {
     await _openDashboardDestination(
       (_) => SettleoraGroupListScreen(
@@ -587,6 +596,7 @@ class _SettleoraAuthenticatedServerShellState
                 onOpenGroups: _openGroups,
                 onOpenSettlements: _openSettlements,
                 onOpenRecurringBills: _openRecurringBills,
+                onOpenRecurringDrafts: _openRecurringDrafts,
                 onOpenNotifications: _openNotifications,
               ),
             ],
@@ -850,6 +860,7 @@ class _DashboardOverviewContent extends StatelessWidget {
     required this.onOpenGroups,
     required this.onOpenSettlements,
     required this.onOpenRecurringBills,
+    required this.onOpenRecurringDrafts,
     required this.onOpenNotifications,
   });
 
@@ -861,6 +872,7 @@ class _DashboardOverviewContent extends StatelessWidget {
   final VoidCallback onOpenGroups;
   final VoidCallback onOpenSettlements;
   final VoidCallback onOpenRecurringBills;
+  final VoidCallback onOpenRecurringDrafts;
   final VoidCallback onOpenNotifications;
 
   @override
@@ -910,6 +922,11 @@ class _DashboardOverviewContent extends StatelessWidget {
               : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
           onTap: onOpenSettlements,
         ),
+        if (overview.upcomingForecastCount > 0)
+          _DashboardRecurringDraftsAction(
+            count: overview.upcomingForecastCount,
+            onTap: onOpenRecurringDrafts,
+          ),
         _DashboardNavigationTile(
           key: const Key('server-shell-recurring-bills'),
           icon: Icons.event_repeat_outlined,
@@ -1064,6 +1081,54 @@ class _DashboardSyncStatusCard extends StatelessWidget {
         snapshot.syncingCount > 0 ||
         snapshot.failedCount > 0 ||
         snapshot.conflictCount > 0;
+  }
+}
+
+class _DashboardRecurringDraftsAction extends StatelessWidget {
+  const _DashboardRecurringDraftsAction({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const Key('server-shell-recurring-drafts-action'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.note_add_outlined),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Recurring drafts ready',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$count forecast item${_plural(count)} ready for draft review',
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              key: const Key('server-shell-recurring-drafts-review'),
+              onPressed: onTap,
+              child: const Text('Review drafts'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
