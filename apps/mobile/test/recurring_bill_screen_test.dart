@@ -273,6 +273,71 @@ void main() {
     expect(find.text('Gym'), findsWidgets);
   });
 
+  testWidgets(
+    'recurring bill screen can start on needs-draft forecast and clear it',
+    (tester) async {
+      final repository = FakeRecurringBillRepository(
+        templates: const [],
+        forecast: [
+          sampleOccurrence(merchantName: 'Rent'),
+          sampleOccurrence(
+            templateId: '55555555-5555-5555-5555-555555555555',
+            merchantName: 'Gym',
+            status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+            draftGenerated: true,
+            generatedBillId: _generatedBillId,
+            occurrenceDate: '2026-06-15',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraRecurringBillScreen(
+            repository: repository,
+            openNeedsDraftOnStart: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(
+                const Key('recurring-bill-forecast-filter-needs-draft'),
+              ),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('Rent'), findsWidgets);
+      expect(find.text('Gym'), findsNothing);
+      expect(
+        find.byKey(const Key('recurring-bill-clear-discovery')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('recurring-bill-clear-discovery')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(const Key('recurring-bill-forecast-filter-all')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('Rent'), findsWidgets);
+      expect(find.text('Gym'), findsWidgets);
+      expect(
+        find.byKey(const Key('recurring-bill-clear-discovery')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('recurring bill screen distinguishes filtered empty states', (
     tester,
   ) async {
@@ -552,6 +617,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-recurring-bills')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-recurring-bills')));
     await tester.pumpAndSettle();
 
