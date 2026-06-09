@@ -23,6 +23,7 @@ import '../reports/monthly_report_screen.dart';
 import '../reports/report_repository.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
+import '../sync/sync_queue_processor.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
@@ -75,6 +76,7 @@ class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
   bool _isSigningOut = false;
   bool _isLoadingOverview = true;
+  bool _isFlushingBillSync = false;
   Future<void>? _overviewLoadFuture;
   _SettleoraDashboardOverview? _overview;
   _SettleoraDashboardFailure? _overviewFailure;
@@ -201,6 +203,49 @@ class _SettleoraAuthenticatedServerShellState
         revisionRepository: widget.billRevisionRepository,
       ),
     );
+  }
+
+  Future<void> _flushBillSyncNow() async {
+    if (_isFlushingBillSync) {
+      return;
+    }
+
+    setState(() {
+      _isFlushingBillSync = true;
+    });
+
+    try {
+      final outcome = await widget.billSyncController.flushPending(limit: 25);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _billSyncSnapshot = outcome.snapshot;
+      });
+
+      final result = outcome.result;
+      if (result.sessionRequired) {
+        await widget.onSessionEnded(
+          result.safeMessage ?? 'Sign in again to sync pending changes.',
+        );
+        return;
+      }
+
+      _showSnackBar(_billSyncFlushMessage(result));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Sync is unavailable right now.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFlushingBillSync = false;
+        });
+      }
+    }
   }
 
   Future<void> _openCreatePersonalBill() async {
@@ -536,7 +581,9 @@ class _SettleoraAuthenticatedServerShellState
               _DashboardOverviewContent(
                 overview: overview,
                 billSyncSnapshot: _billSyncSnapshot,
+                isFlushingBillSync: _isFlushingBillSync,
                 onOpenBills: _openBills,
+                onSyncNow: _flushBillSyncNow,
                 onOpenGroups: _openGroups,
                 onOpenSettlements: _openSettlements,
                 onOpenRecurringBills: _openRecurringBills,
@@ -797,7 +844,9 @@ class _DashboardOverviewContent extends StatelessWidget {
   const _DashboardOverviewContent({
     required this.overview,
     required this.billSyncSnapshot,
+    required this.isFlushingBillSync,
     required this.onOpenBills,
+    required this.onSyncNow,
     required this.onOpenGroups,
     required this.onOpenSettlements,
     required this.onOpenRecurringBills,
@@ -806,7 +855,9 @@ class _DashboardOverviewContent extends StatelessWidget {
 
   final _SettleoraDashboardOverview overview;
   final SettleoraBillSyncSnapshot? billSyncSnapshot;
+  final bool isFlushingBillSync;
   final VoidCallback onOpenBills;
+  final VoidCallback onSyncNow;
   final VoidCallback onOpenGroups;
   final VoidCallback onOpenSettlements;
   final VoidCallback onOpenRecurringBills;
@@ -822,7 +873,9 @@ class _DashboardOverviewContent extends StatelessWidget {
         ],
         _DashboardSyncStatusCard(
           snapshot: billSyncSnapshot,
+          isFlushing: isFlushingBillSync,
           onOpenBills: onOpenBills,
+          onSyncNow: onSyncNow,
         ),
         _DashboardNavigationTile(
           key: const Key('server-shell-bills'),
@@ -916,11 +969,15 @@ class _DashboardEmptyCard extends StatelessWidget {
 class _DashboardSyncStatusCard extends StatelessWidget {
   const _DashboardSyncStatusCard({
     required this.snapshot,
+    required this.isFlushing,
     required this.onOpenBills,
+    required this.onSyncNow,
   });
 
   final SettleoraBillSyncSnapshot? snapshot;
+  final bool isFlushing;
   final VoidCallback onOpenBills;
+  final VoidCallback onSyncNow;
 
   @override
   Widget build(BuildContext context) {
@@ -941,6 +998,7 @@ class _DashboardSyncStatusCard extends StatelessWidget {
       if (snapshot.conflictCount > 0)
         '${snapshot.conflictCount} conflict${_plural(snapshot.conflictCount)}',
     ];
+    final canRetry = snapshot.pendingCount > 0;
 
     return Card(
       key: const Key('server-shell-sync-status-card'),
@@ -968,10 +1026,31 @@ class _DashboardSyncStatusCard extends StatelessWidget {
                 ],
               ),
             ),
-            TextButton(
-              key: const Key('server-shell-sync-status-open-bills'),
-              onPressed: onOpenBills,
-              child: const Text('Review in Bills'),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (canRetry) ...[
+                  FilledButton.tonalIcon(
+                    key: const Key('server-shell-sync-now'),
+                    onPressed: isFlushing ? null : onSyncNow,
+                    icon: isFlushing
+                        ? const SizedBox.square(
+                            key: Key('server-shell-sync-now-progress'),
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync),
+                    label: Text(isFlushing ? 'Syncing' : 'Sync now'),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                TextButton(
+                  key: const Key('server-shell-sync-status-open-bills'),
+                  onPressed: onOpenBills,
+                  child: const Text('Review in Bills'),
+                ),
+              ],
             ),
           ],
         ),
@@ -1023,6 +1102,14 @@ class _DashboardNavigationTile extends StatelessWidget {
 }
 
 String _plural(int count) => count == 1 ? '' : 's';
+
+String _billSyncFlushMessage(SettleoraSyncQueueFlushResult result) {
+  if (result.processedCount == 0) {
+    return 'No pending sync changes.';
+  }
+
+  return 'Sync complete: ${result.syncedCount} synced, ${result.failedCount} failed, ${result.conflictCount} conflict${_plural(result.conflictCount)}.';
+}
 
 bool _amountStringLooksNonZero(String value) {
   final normalized = value.trim().replaceAll('-', '').replaceAll('.', '');

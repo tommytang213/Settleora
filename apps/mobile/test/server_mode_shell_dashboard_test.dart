@@ -413,6 +413,8 @@ void main() {
     );
     expect(find.text('Sync pending'), findsOneWidget);
     expect(find.textContaining('2 pending'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-sync-now')), findsOneWidget);
+    expect(find.text('Sync now'), findsOneWidget);
     expect(find.text('Review in Bills'), findsOneWidget);
   });
 
@@ -450,6 +452,200 @@ void main() {
     expect(find.textContaining('1 pending'), findsOneWidget);
     expect(find.textContaining('1 failed'), findsOneWidget);
     expect(find.textContaining('1 conflict'), findsOneWidget);
+  });
+
+  testWidgets(
+    'dashboard sync now flushes pending work and updates visible status',
+    (tester) async {
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(
+          items: [
+            sampleSyncItem(
+              id: 'sync-queued-1',
+              resourceId: _billId,
+              state: SettleoraSyncQueueItemStateValues.queued,
+            ),
+            sampleSyncItem(
+              id: 'sync-failed-1',
+              resourceId: 'bill-2',
+              state: SettleoraSyncQueueItemStateValues.failed,
+            ),
+          ],
+        ),
+      );
+      final syncRepository = FakeSyncRepository(
+        submitResult: const SettleoraSyncOperationResult(
+          operationId: 'operation-1',
+          status: SettleoraSyncOperationResultStatusValues.accepted,
+          resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+          resourceId: _billId,
+          resultingVersion: 2,
+          safeErrorCode: null,
+          safeMessage: null,
+        ),
+      );
+
+      await pumpShell(
+        tester,
+        billSyncController: sampleBillSyncController(
+          store: store,
+          repository: syncRepository,
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+      await tester.pumpAndSettle();
+
+      expect(syncRepository.submitCalls, 2);
+      expect(
+        find.byKey(const Key('server-shell-sync-status-card')),
+        findsNothing,
+      );
+      expect(
+        find.text('Sync complete: 2 synced, 0 failed, 0 conflicts.'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('dashboard sync now ignores duplicate taps while flushing', (
+    tester,
+  ) async {
+    final flushGate = Completer<void>();
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'sync-queued-1',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+        ],
+      ),
+    );
+    final syncRepository = FakeSyncRepository(
+      submitGate: flushGate,
+      submitResult: const SettleoraSyncOperationResult(
+        operationId: 'operation-1',
+        status: SettleoraSyncOperationResultStatusValues.accepted,
+        resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+        resourceId: _billId,
+        resultingVersion: 2,
+        safeErrorCode: null,
+        safeMessage: null,
+      ),
+    );
+
+    await pumpShell(
+      tester,
+      billSyncController: sampleBillSyncController(
+        store: store,
+        repository: syncRepository,
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await tester.pump();
+
+    expect(syncRepository.submitCalls, 1);
+    expect(find.text('Syncing'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-sync-now-progress')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await tester.pump();
+
+    expect(syncRepository.submitCalls, 1);
+
+    flushGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(syncRepository.submitCalls, 1);
+    expect(
+      find.text('Sync complete: 1 synced, 0 failed, 0 conflicts.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'dashboard conflict-only sync status reviews bills without retry action',
+    (tester) async {
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(
+          items: [
+            sampleSyncItem(
+              id: 'sync-conflict-1',
+              resourceId: _billId,
+              state: SettleoraSyncQueueItemStateValues.conflict,
+            ),
+          ],
+        ),
+      );
+
+      await pumpShell(
+        tester,
+        billSyncController: sampleBillSyncController(store: store),
+      );
+
+      expect(find.text('Sync needs attention'), findsOneWidget);
+      expect(find.textContaining('1 conflict'), findsOneWidget);
+      expect(find.byKey(const Key('server-shell-sync-now')), findsNothing);
+      expect(
+        find.byKey(const Key('server-shell-sync-status-open-bills')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('server-shell-sync-status-open-bills')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bills'), findsOneWidget);
+      expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
+    },
+  );
+
+  testWidgets('dashboard sync now ends session for session-required result', (
+    tester,
+  ) async {
+    String? sessionEndedMessage;
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'sync-queued-1',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+        ],
+      ),
+    );
+    final syncRepository = FakeSyncRepository(
+      submitFailure: const SettleoraSyncFailure(
+        kind: SettleoraSyncFailureKind.sessionExpired,
+        message: 'Sign in again to sync pending changes.',
+      ),
+    );
+
+    await pumpShell(
+      tester,
+      billSyncController: sampleBillSyncController(
+        store: store,
+        repository: syncRepository,
+      ),
+      onSessionEnded: (message) async {
+        sessionEndedMessage = message;
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await tester.pumpAndSettle();
+
+    expect(syncRepository.submitCalls, 1);
+    expect(sessionEndedMessage, 'Sign in again to sync pending changes.');
+    expect(find.text('Sync is unavailable right now.'), findsNothing);
   });
 
   testWidgets('dashboard sync status action opens bills surface', (
@@ -586,6 +782,7 @@ Future<void> pumpShell(
   FakeSettlementRepository? settlementRepository,
   FakeRecurringBillRepository? recurringRepository,
   SettleoraBillSyncController? billSyncController,
+  SettleoraSessionEndedCallback? onSessionEnded,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -605,7 +802,7 @@ Future<void> pumpShell(
         billSyncController: billSyncController ?? sampleBillSyncController(),
         authRepository: FakeAuthRepository(),
         accessTokenProvider: FakeAccessTokenProvider(),
-        onSessionEnded: (_) async {},
+        onSessionEnded: onSessionEnded ?? (_) async {},
       ),
     ),
   );
@@ -822,13 +1019,14 @@ SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
 
 SettleoraBillSyncController sampleBillSyncController({
   SettleoraSyncQueueStore? store,
+  SettleoraSyncRepository? repository,
 }) {
   final queueStore = store ?? MemorySyncQueueStore();
   return SettleoraBillSyncController(
     queueStore: queueStore,
     queueProcessor: SettleoraSyncQueueProcessor(
       queueStore: queueStore,
-      repository: FakeSyncRepository(),
+      repository: repository ?? FakeSyncRepository(),
     ),
   );
 }
@@ -1388,10 +1586,36 @@ class FailingSyncQueueStore extends SettleoraSyncQueueStore {
 }
 
 class FakeSyncRepository implements SettleoraSyncRepository {
+  FakeSyncRepository({this.submitResult, this.submitFailure, this.submitGate});
+
+  final SettleoraSyncOperationResult? submitResult;
+  final SettleoraSyncFailure? submitFailure;
+  final Completer<void>? submitGate;
+  int submitCalls = 0;
+
   @override
   Future<SettleoraSyncOperationResult> submitOperation(
     SettleoraSyncQueueItem item,
-  ) {
+  ) async {
+    submitCalls += 1;
+    await submitGate?.future;
+    final failure = submitFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    final result = submitResult;
+    if (result != null) {
+      return SettleoraSyncOperationResult(
+        operationId: result.operationId,
+        status: result.status,
+        resourceType: result.resourceType,
+        resourceId: item.resourceId,
+        resultingVersion: result.resultingVersion,
+        safeErrorCode: result.safeErrorCode,
+        safeMessage: result.safeMessage,
+      );
+    }
+
     throw UnimplementedError();
   }
 
