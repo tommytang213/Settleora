@@ -59,7 +59,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.textContaining('1 request may need review'), findsOneWidget);
+    expect(find.textContaining('1 request may need review'), findsWidgets);
     expect(
       find.textContaining('1 forecast item ready for draft review'),
       findsWidgets,
@@ -94,6 +94,120 @@ void main() {
       expect(find.text('Review drafts'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'dashboard settlement action shortcut appears for actionable requests',
+    (tester) async {
+      final settlementRepository = FakeSettlementRepository(
+        requests: [sampleSettlementRequest()],
+      );
+
+      await pumpShell(tester, settlementRepository: settlementRepository);
+
+      expect(
+        find.byKey(const Key('server-shell-settlement-actions')),
+        findsOneWidget,
+      );
+      expect(find.text('Review settlement actions'), findsOneWidget);
+      expect(find.text('1 request may need review'), findsWidgets);
+      expect(
+        find.byKey(const Key('server-shell-settlement-actions-review')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'dashboard settlement action shortcut hides without actionable requests',
+    (tester) async {
+      final settlementRepository = FakeSettlementRepository(
+        requests: [
+          sampleSettlementRequest(
+            status: SettleoraSettlementRequestStatusValues.confirmed,
+          ),
+        ],
+      );
+
+      await pumpShell(tester, settlementRepository: settlementRepository);
+
+      expect(
+        find.byKey(const Key('server-shell-settlement-actions')),
+        findsNothing,
+      );
+      expect(find.text('Review settlement actions'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'dashboard settlement action shortcut opens needs-action settlement list',
+    (tester) async {
+      final settlementRepository = FakeSettlementRepository(
+        requests: [
+          sampleSettlementRequest(amount: '10.00', currency: 'USD'),
+          sampleSettlementRequest(
+            id: _secondSettlementId,
+            amount: '25.00',
+            currency: 'EUR',
+            status: SettleoraSettlementRequestStatusValues.confirmed,
+          ),
+        ],
+      );
+
+      await pumpShell(tester, settlementRepository: settlementRepository);
+
+      await tester.tap(
+        find.byKey(const Key('server-shell-settlement-actions-review')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Settlements'), findsWidgets);
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(const Key('settlement-list-filter-needs-action')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('25.00 EUR'), findsNothing);
+      expect(settlementRepository.listRequestsCalls, 2);
+    },
+  );
+
+  testWidgets('dashboard settlements tile opens unfiltered settlement list', (
+    tester,
+  ) async {
+    final settlementRepository = FakeSettlementRepository(
+      requests: [
+        sampleSettlementRequest(amount: '10.00', currency: 'USD'),
+        sampleSettlementRequest(
+          id: _secondSettlementId,
+          amount: '25.00',
+          currency: 'EUR',
+          status: SettleoraSettlementRequestStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpShell(tester, settlementRepository: settlementRepository);
+
+    await tester.tap(find.byKey(const Key('server-shell-settlements')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settlements'), findsWidgets);
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const Key('settlement-list-filter-all')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('10.00 USD'), findsOneWidget);
+    expect(find.text('25.00 EUR'), findsOneWidget);
+    expect(settlementRepository.listRequestsCalls, 2);
+  });
 
   testWidgets(
     'dashboard recurring draft shortcut hides without draft-ready forecast',
@@ -1059,17 +1173,25 @@ SettleoraSettlementBalance sampleBalance() {
   );
 }
 
-SettleoraSettlementRequest sampleSettlementRequest() {
+SettleoraSettlementRequest sampleSettlementRequest({
+  String id = _settlementId,
+  String debtorUserProfileId = _profileId,
+  String creditorUserProfileId = 'counterparty-1',
+  String amount = '10.00',
+  String currency = 'USD',
+  String status = SettleoraSettlementRequestStatusValues.requested,
+  String requestedByUserProfileId = 'counterparty-1',
+}) {
   return SettleoraSettlementRequest(
-    id: _settlementId,
+    id: id,
     sourceExpenseBillId: _billId,
     groupId: null,
-    debtorUserProfileId: _profileId,
-    creditorUserProfileId: 'counterparty-1',
-    amount: '10.00',
-    currency: 'USD',
-    status: SettleoraSettlementRequestStatusValues.requested,
-    requestedByUserProfileId: 'counterparty-1',
+    debtorUserProfileId: debtorUserProfileId,
+    creditorUserProfileId: creditorUserProfileId,
+    amount: amount,
+    currency: currency,
+    status: status,
+    requestedByUserProfileId: requestedByUserProfileId,
     requestedAtUtc: DateTime.utc(2026, 6, 7, 11),
     createdAtUtc: DateTime.utc(2026, 6, 7, 11),
     updatedAtUtc: DateTime.utc(2026, 6, 7, 11),
@@ -1365,6 +1487,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   final List<SettleoraSettlementBalance> balances;
   final List<SettleoraSettlementRequest> requests;
   int listBalanceCalls = 0;
+  int listRequestsCalls = 0;
 
   @override
   Future<SettleoraSettlementBalanceSnapshot> listBalances() async {
@@ -1377,6 +1500,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 
   @override
   Future<List<SettleoraSettlementRequest>> listSettlementRequests() async {
+    listRequestsCalls += 1;
     return requests;
   }
 
@@ -1779,5 +1903,6 @@ const _billId = 'bill-1';
 const _createdBillId = 'created-bill-1';
 const _groupId = 'group-1';
 const _settlementId = 'settlement-1';
+const _secondSettlementId = 'settlement-2';
 const _templateId = 'template-1';
 const _generatedBillId = 'generated-bill-1';

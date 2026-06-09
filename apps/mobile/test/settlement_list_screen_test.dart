@@ -269,6 +269,66 @@ void main() {
     );
   });
 
+  testWidgets(
+    'settlement list clears startup needs-action filter and restores requests',
+    (tester) async {
+      final repository = FakeSettlementRepository(
+        requests: [
+          sampleRequest(),
+          sampleRequest(
+            id: _secondSettlementId,
+            amount: '25.00',
+            currency: 'EUR',
+            status: SettleoraSettlementRequestStatusValues.confirmed,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraSettlementListScreen(
+            repository: repository,
+            currentUserProfileId: _debtorUserProfileId,
+            openNeedsActionOnStart: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(const Key('settlement-list-filter-needs-action')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('25.00 EUR'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('settlement-list-clear-filters')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(const Key('settlement-list-filter-all')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('25.00 EUR'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('settlement-list-search')))
+            .controller
+            ?.text,
+        isEmpty,
+      );
+    },
+  );
+
   testWidgets('settlement list shows compact empty state for no matches', (
     tester,
   ) async {
