@@ -7,10 +7,12 @@ class SettleoraSettlementListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.currentUserProfileId,
+    this.openNeedsActionOnStart = false,
   });
 
   final SettleoraSettlementRepository repository;
   final String currentUserProfileId;
+  final bool openNeedsActionOnStart;
 
   @override
   State<SettleoraSettlementListScreen> createState() =>
@@ -23,13 +25,16 @@ class _SettleoraSettlementListScreenState
   bool _isLoading = true;
   SettleoraSettlementBalanceSnapshot? _balanceSnapshot;
   List<SettleoraSettlementRequest> _requests = const [];
-  _SettlementRequestFilter _filter = _SettlementRequestFilter.all;
+  late _SettlementRequestFilter _filter;
   String _searchQuery = '';
   SettleoraSettlementFailure? _failure;
 
   @override
   void initState() {
     super.initState();
+    _filter = widget.openNeedsActionOnStart
+        ? _SettlementRequestFilter.needsAction
+        : _SettlementRequestFilter.all;
     _searchController = TextEditingController();
     _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);

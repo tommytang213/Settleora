@@ -324,6 +324,16 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _openSettlementActions() async {
+    await _openDashboardDestination(
+      (_) => SettleoraSettlementListScreen(
+        repository: widget.settlementRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        openNeedsActionOnStart: true,
+      ),
+    );
+  }
+
   Future<void> _openRecurringBills() async {
     await _openDashboardDestination(
       (_) => SettleoraRecurringBillScreen(
@@ -595,6 +605,7 @@ class _SettleoraAuthenticatedServerShellState
                 onSyncNow: _flushBillSyncNow,
                 onOpenGroups: _openGroups,
                 onOpenSettlements: _openSettlements,
+                onOpenSettlementActions: _openSettlementActions,
                 onOpenRecurringBills: _openRecurringBills,
                 onOpenRecurringDrafts: _openRecurringDrafts,
                 onOpenNotifications: _openNotifications,
@@ -859,6 +870,7 @@ class _DashboardOverviewContent extends StatelessWidget {
     required this.onSyncNow,
     required this.onOpenGroups,
     required this.onOpenSettlements,
+    required this.onOpenSettlementActions,
     required this.onOpenRecurringBills,
     required this.onOpenRecurringDrafts,
     required this.onOpenNotifications,
@@ -871,6 +883,7 @@ class _DashboardOverviewContent extends StatelessWidget {
   final VoidCallback onSyncNow;
   final VoidCallback onOpenGroups;
   final VoidCallback onOpenSettlements;
+  final VoidCallback onOpenSettlementActions;
   final VoidCallback onOpenRecurringBills;
   final VoidCallback onOpenRecurringDrafts;
   final VoidCallback onOpenNotifications;
@@ -922,6 +935,11 @@ class _DashboardOverviewContent extends StatelessWidget {
               : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
           onTap: onOpenSettlements,
         ),
+        if (overview.settlementActionCount > 0)
+          _DashboardSettlementActionsCard(
+            count: overview.settlementActionCount,
+            onTap: onOpenSettlementActions,
+          ),
         if (overview.upcomingForecastCount > 0)
           _DashboardRecurringDraftsAction(
             count: overview.upcomingForecastCount,
@@ -1081,6 +1099,52 @@ class _DashboardSyncStatusCard extends StatelessWidget {
         snapshot.syncingCount > 0 ||
         snapshot.failedCount > 0 ||
         snapshot.conflictCount > 0;
+  }
+}
+
+class _DashboardSettlementActionsCard extends StatelessWidget {
+  const _DashboardSettlementActionsCard({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const Key('server-shell-settlement-actions'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.rule_outlined),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Review settlement actions',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text('$count request${_plural(count)} may need review'),
+                ],
+              ),
+            ),
+            TextButton(
+              key: const Key('server-shell-settlement-actions-review'),
+              onPressed: onTap,
+              child: const Text('Review'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
