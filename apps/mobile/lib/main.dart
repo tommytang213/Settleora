@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'app/app_bootstrap.dart';
 import 'app/secure_storage.dart';
+import 'dashboard/dashboard_preview_screen.dart';
+import 'ui/settleora_theme.dart';
 
 void main() {
   runApp(SettleoraMobileApp());
@@ -24,6 +26,9 @@ class SettleoraMobileApp extends StatelessWidget {
     this.profileRepositoryFactory,
     this.billSyncControllerFactory,
     this.now,
+    this.showDashboardPreview = const bool.fromEnvironment(
+      'SETTLEORA_DASHBOARD_PREVIEW',
+    ),
   }) : secureStorage = secureStorage ?? SettleoraSecureStorage();
 
   final SettleoraSecureStorageBoundary secureStorage;
@@ -41,34 +46,32 @@ class SettleoraMobileApp extends StatelessWidget {
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final DateTime Function()? now;
+  final bool showDashboardPreview;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Settleora',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0F766E),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      home: SettleoraAppBootstrap(
-        secureStorage: secureStorage,
-        receiptOcrReviewRepositoryFactory: receiptOcrReviewRepositoryFactory,
-        authRepositoryFactory: authRepositoryFactory,
-        billRepositoryFactory: billRepositoryFactory,
-        billAttachmentRepositoryFactory: billAttachmentRepositoryFactory,
-        billRevisionRepositoryFactory: billRevisionRepositoryFactory,
-        settlementRepositoryFactory: settlementRepositoryFactory,
-        recurringBillRepositoryFactory: recurringBillRepositoryFactory,
-        groupRepositoryFactory: groupRepositoryFactory,
-        notificationRepositoryFactory: notificationRepositoryFactory,
-        reportRepositoryFactory: reportRepositoryFactory,
-        profileRepositoryFactory: profileRepositoryFactory,
-        billSyncControllerFactory: billSyncControllerFactory,
-        now: now,
-      ),
+      theme: SettleoraTheme.light(),
+      home: showDashboardPreview
+          ? const DashboardPreviewScreen()
+          : SettleoraAppBootstrap(
+              secureStorage: secureStorage,
+              receiptOcrReviewRepositoryFactory:
+                  receiptOcrReviewRepositoryFactory,
+              authRepositoryFactory: authRepositoryFactory,
+              billRepositoryFactory: billRepositoryFactory,
+              billAttachmentRepositoryFactory: billAttachmentRepositoryFactory,
+              billRevisionRepositoryFactory: billRevisionRepositoryFactory,
+              settlementRepositoryFactory: settlementRepositoryFactory,
+              recurringBillRepositoryFactory: recurringBillRepositoryFactory,
+              groupRepositoryFactory: groupRepositoryFactory,
+              notificationRepositoryFactory: notificationRepositoryFactory,
+              reportRepositoryFactory: reportRepositoryFactory,
+              profileRepositoryFactory: profileRepositoryFactory,
+              billSyncControllerFactory: billSyncControllerFactory,
+              now: now,
+            ),
     );
   }
 }
