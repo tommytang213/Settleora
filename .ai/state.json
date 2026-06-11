@@ -3,14 +3,14 @@
   "project": "Settleora",
   "sourceBranch": "main",
   "integrationBranch": "ai/integration",
-  "activeMilestoneId": "M1",
-  "activeMilestoneName": "Mobile Group Bill Happy Path UI-Test Readiness",
-  "status": "m1_ui_test_date_currency_input_polish_validated",
+  "activeMilestoneId": "M2",
+  "activeMilestoneName": "Mobile Navigation + Home Dashboard Shell Polish",
+  "status": "m2_kickoff_ready",
   "lastCompletedTaskId": "M1-009",
-  "currentTaskId": null,
-  "stopReason": "m1_ui_test_date_currency_input_polish_ready_for_human_review",
-  "humanReviewRequired": true,
+  "currentTaskId": "M2-001",
+  "stopReason": null,
+  "humanReviewRequired": false,
   "forbiddenChangeDetected": false,
   "lastValidatedCommit": null,
-  "uiTestingReady": true
+  "uiTestingReady": false
 }
