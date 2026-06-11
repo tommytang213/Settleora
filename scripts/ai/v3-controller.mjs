@@ -26,6 +26,8 @@ const requiredFiles = {
 
 const maxBugfixCyclesPerFinding = 2;
 const maxSameValidationFailure = 2;
+const codexCommandEnv = "SETTLEORA_AI_V3_CODEX_COMMAND";
+const defaultCodexCommand = "codex-vm-full";
 
 const forbiddenPathPatterns = [
   /^main$/,
@@ -423,6 +425,14 @@ Timezone: Asia/Hong_Kong / HKT / GMT+8
   return { promptPath, branchName };
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function attemptedCommand(command, args = []) {
+  return [command, ...args].map((part) => JSON.stringify(String(part))).join(" ");
+}
+
 function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
@@ -432,16 +442,81 @@ function runCommand(command, args, options = {}) {
   });
 
   return {
+    command,
+    args,
     status: result.status,
+    signal: result.signal || null,
+    error: result.error
+      ? {
+          code: result.error.code,
+          name: result.error.name,
+          message: result.error.message,
+        }
+      : null,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
   };
 }
 
-function assertSuccess(result, message) {
-  if (result.status !== 0) {
-    throw new Error(`${message}\n${result.stdout}${result.stderr}`);
+function formatCommandFailure(result) {
+  const lines = [
+    `Command: ${attemptedCommand(result.command, result.args)}`,
+    `Status: ${result.status === null ? "null" : result.status}`,
+  ];
+
+  if (result.signal) {
+    lines.push(`Signal: ${result.signal}`);
   }
+  if (result.error) {
+    lines.push(`Launch error: ${result.error.name || "Error"} ${result.error.code || ""} ${result.error.message || ""}`.trim());
+  }
+  if (result.stdout) {
+    lines.push(`stdout:\n${result.stdout}`);
+  }
+  if (result.stderr) {
+    lines.push(`stderr:\n${result.stderr}`);
+  }
+
+  return lines.join("\n");
+}
+
+function assertSuccess(result, message) {
+  if (result.error || result.status !== 0) {
+    throw new Error(`${message}\n${formatCommandFailure(result)}`);
+  }
+}
+
+function resolveCodexCommand() {
+  const override = process.env[codexCommandEnv]?.trim();
+  if (override) {
+    return {
+      command: override,
+      source: `${codexCommandEnv} override`,
+      resolverCommand: null,
+      resolverArgs: [],
+    };
+  }
+
+  const resolverCommand = "bash";
+  const resolverArgs = ["-lc", `command -v ${shellQuote(defaultCodexCommand)}`];
+  const result = runCommand(resolverCommand, resolverArgs);
+  if (!result.error && result.status === 0 && result.stdout.trim()) {
+    return {
+      command: result.stdout.trim().split(/\r?\n/)[0],
+      source: "login-shell PATH",
+      resolverCommand,
+      resolverArgs,
+    };
+  }
+
+  throw new Error(
+    [
+      `${defaultCodexCommand} could not be found before launch.`,
+      `Resolver attempted: ${attemptedCommand(resolverCommand, resolverArgs)}`,
+      `Current PATH: ${process.env.PATH || ""}`,
+      formatCommandFailure(result),
+    ].join("\n"),
+  );
 }
 
 function changedFiles(baseRef, headRef) {
@@ -569,8 +644,9 @@ function mergePr(pr, expectedHeadSha) {
 
 function runRealControllerIteration(selection, data, promptInfo, config) {
   const prompt = readFileSync(promptInfo.promptPath, "utf8");
-  const codex = runCommand("codex-vm-full", [], { input: prompt });
-  assertSuccess(codex, "codex-vm-full task execution failed");
+  const codexCommand = resolveCodexCommand();
+  const codex = runCommand(codexCommand.command, [], { input: prompt });
+  assertSuccess(codex, `${defaultCodexCommand} task execution failed (${codexCommand.source}: ${codexCommand.command})`);
 
   const branch = runCommand("git", ["rev-parse", "--verify", promptInfo.branchName]);
   assertSuccess(branch, `Expected task branch was not created: ${promptInfo.branchName}`);

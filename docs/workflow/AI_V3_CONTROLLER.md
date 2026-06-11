@@ -9,7 +9,9 @@ GitHub Actions does not call GPT or Codex directly in v0. Actions only provide r
 - v0 is single-VM first. It uses one repository checkout and a lock file at `/workspace/logs/ai-v3-controller/controller.lock`.
 - Worktrees can be added later when the controller needs concurrent task branches.
 - Multi-VM coordination is deferred until the single-VM loop is stable.
-- Real runs call `codex-vm-full` with the generated task prompt as stdin. Do not pass shell commands to `codex-vm-full`.
+- Real runs resolve `codex-vm-full` from the DevBox login-shell `PATH` with `bash -lc 'command -v codex-vm-full'`, then call the resolved command with the generated task prompt as stdin. Do not pass shell commands to `codex-vm-full`.
+- Set `SETTLEORA_AI_V3_CODEX_COMMAND` to an explicit command path to override `codex-vm-full` during controller launch debugging.
+- If Codex cannot be found or launched, the controller run log records the attempted command, launch error details, stdout/stderr when present, resolver details, and the current `PATH`.
 
 ## Commands
 
