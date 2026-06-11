@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1-002 implementation prepared; mobile validation blocked by missing local Flutter/Dart toolchain`
+Status: `M1-003 implementation prepared; mobile validation blocked by missing local Flutter/Dart toolchain`
 
 ## Acceptance Checklist
 
@@ -13,6 +13,14 @@ Status: `M1-002 implementation prepared; mobile validation blocked by missing lo
 
 ## Validation
 
+- M1-003 implementation: polished group bill create recovery so a transient detail reload failure after successful submit retries `getGroupBill` without duplicating `submitGroupBill`; added focused widget coverage in `apps/mobile/test/group_bill_list_screen_test.dart`.
+- M1-003 local formatting attempt: `dart format apps/mobile/lib/bills/bill_list_screen.dart apps/mobile/test/group_bill_list_screen_test.dart` failed because `/bin/bash: line 1: dart: command not found`.
+- `npm run doctor:mobile`: failed in mobile preflight. Node `v22.22.2`, npm `10.9.7`, dotnet `9.0.117`, npm cache/logs writable, Docker skipped; warning `dart: unable to start (spawnSync dart ENOENT)`; failure `flutter: unable to start (spawnSync flutter ENOENT)`.
+- `npm run validate:mobile`: failed in the same mobile preflight before `flutter pub get`, `flutter analyze`, or `flutter test`; warning `dart: unable to start (spawnSync dart ENOENT)`; failure `flutter: unable to start (spawnSync flutter ENOENT)`.
+- `git diff --check`: passed with no output before commit.
+- `git status --short`: showed only `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `apps/mobile/lib/bills/bill_list_screen.dart`, and `apps/mobile/test/group_bill_list_screen_test.dart` modified before commit.
+- `git diff --check origin/ai/integration...HEAD`: passed with no output before commit, but `HEAD` had no task commit yet and scope guard reported zero committed changed files; will be rerun after commit.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed before commit with zero committed changed files; will be rerun after commit.
 - M1-002 implementation: added `docs/qa/M1_GROUP_BILL_CREATE_QA_MAP.md` and one group bill create happy-path smoke widget test under `apps/mobile/test/group_bill_list_screen_test.dart`.
 - M1-002 local focused Flutter test attempt: `flutter test test/group_bill_list_screen_test.dart` from `apps/mobile` failed before running tests because `/bin/bash: line 1: flutter: command not found`.
 - `npm run doctor:mobile`: failed in mobile preflight. Node `v22.22.2`, npm `10.9.7`, dotnet `9.0.117`, npm cache/logs writable, Docker skipped; warning `dart: unable to start (spawnSync dart ENOENT)`; failure `flutter: unable to start (spawnSync flutter ENOENT)`.
@@ -32,4 +40,5 @@ Status: `M1-002 implementation prepared; mobile validation blocked by missing lo
 
 ## Findings
 
+- M1-003 has a local validation blocker: Flutter and Dart are unavailable on PATH in this execution environment. The task branch should not be auto-merged until mobile validation runs in an environment with the mobile toolchain or CI confirms equivalent coverage.
 - M1-002 has a local validation blocker: Flutter and Dart are unavailable on PATH in this execution environment. The task branch should not be auto-merged until mobile validation runs in an environment with the mobile toolchain or CI confirms equivalent coverage.
