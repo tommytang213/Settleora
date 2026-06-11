@@ -3064,6 +3064,69 @@ void main() {
   );
 
   testWidgets(
+    'group bill create detail load failure retries without duplicate submit',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+        getGroupFailures: [
+          const SettleoraBillFailure(
+            kind: SettleoraBillFailureKind.network,
+            message:
+                'The server is unavailable. Try again when the connection is back.',
+          ),
+        ],
+        details: [
+          sampleBillDetail(
+            id: _createdBillId,
+            merchantName: 'Night Market',
+            status: 'pending_confirmation',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [sampleMember(displayName: 'Taylor')],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(billRepository.submitGroupCalls, 1);
+      expect(billRepository.getGroupCalls, 1);
+      expect(
+        find.byKey(const Key('group-bill-create-failure')),
+        findsOneWidget,
+      );
+      expect(find.text('Retry submitted bill detail'), findsOneWidget);
+
+      await _tapSaveGroupBill(tester);
+
+      expect(billRepository.createGroupCalls, 1);
+      expect(billRepository.submitGroupCalls, 1);
+      expect(billRepository.getGroupCalls, 2);
+      expect(find.text('Group bill'), findsWidgets);
+      expect(find.text('Pending confirmation'), findsWidgets);
+    },
+  );
+
+  testWidgets(
     'group bill create blocks double submit while request is in flight',
     (tester) async {
       await useLargeSurface(tester);
@@ -4350,6 +4413,7 @@ class FakeBillRepository implements SettleoraBillRepository {
     List<SettleoraBillDetail>? details,
     List<SettleoraBillFailure>? listFailures,
     List<SettleoraBillFailure>? submitGroupFailures,
+    List<SettleoraBillFailure>? getGroupFailures,
     List<SettleoraBillFailure>? participantFailures,
     SettleoraBillDetail? createdGroupDetail,
     this.createGroupFailure,
@@ -4358,6 +4422,7 @@ class FakeBillRepository implements SettleoraBillRepository {
   }) : details = details ?? [detail ?? sampleBillDetail()],
        listFailures = listFailures ?? [],
        submitGroupFailures = submitGroupFailures ?? [],
+       getGroupFailures = getGroupFailures ?? [],
        participantFailures = participantFailures ?? [],
        createdGroupDetail = createdGroupDetail ?? sampleBillDetail();
 
@@ -4365,6 +4430,7 @@ class FakeBillRepository implements SettleoraBillRepository {
   final List<SettleoraBillDetail> details;
   final List<SettleoraBillFailure> listFailures;
   final List<SettleoraBillFailure> submitGroupFailures;
+  final List<SettleoraBillFailure> getGroupFailures;
   final List<SettleoraBillFailure> participantFailures;
   final SettleoraBillDetail createdGroupDetail;
   final SettleoraBillFailure? createGroupFailure;
@@ -4468,6 +4534,10 @@ class FakeBillRepository implements SettleoraBillRepository {
   ) async {
     getGroupCalls += 1;
     lastGetBillId = billId;
+    if (getGroupFailures.isNotEmpty) {
+      throw getGroupFailures.removeAt(0);
+    }
+
     return _detailForCall(getGroupCalls - 1);
   }
 

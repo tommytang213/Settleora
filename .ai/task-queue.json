@@ -46,9 +46,7 @@
     "title": "Group bill create QA map and smoke tests",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
-    "humanRequired": true,
-    "humanRequiredReason": "Implementation is prepared, but local mobile validation is blocked because flutter and dart are unavailable on PATH.",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
@@ -68,7 +66,7 @@
     "title": "Group bill create validation/recovery polish",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",

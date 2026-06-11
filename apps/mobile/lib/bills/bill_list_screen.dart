@@ -2438,6 +2438,7 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillFailure? _failure;
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
   SettleoraBillDetail? _createdBillAwaitingCompletion;
+  bool _createdBillSubmittedAwaitingDetail = false;
   _GroupBillCreateEntryMode _entryMode = _GroupBillCreateEntryMode.manual;
   _GroupBillCreateStep _selectedStep = _GroupBillCreateStep.start;
   _GroupBillSplitMode _selectedSplitMode = _GroupBillSplitMode.byItem;
@@ -2882,7 +2883,9 @@ class _SettleoraGroupBillCreateScreenState
 
     final existingCreatedBill = _createdBillAwaitingCompletion;
     if (existingCreatedBill != null) {
-      if (_draftAttachments.isEmpty) {
+      if (_createdBillSubmittedAwaitingDetail) {
+        await _loadSubmittedGroupBillDetail(existingCreatedBill);
+      } else if (_draftAttachments.isEmpty) {
         await _submitCreatedGroupBill(existingCreatedBill);
       } else {
         await _finishAttachmentUploads(existingCreatedBill);
@@ -2991,6 +2994,7 @@ class _SettleoraGroupBillCreateScreenState
 
       setState(() {
         _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = false;
       });
 
       if (_draftAttachments.isEmpty) {
@@ -3026,6 +3030,7 @@ class _SettleoraGroupBillCreateScreenState
               'The bill was created, but attachments cannot be uploaded right now.',
         );
         _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
       });
       return;
@@ -3080,6 +3085,7 @@ class _SettleoraGroupBillCreateScreenState
         );
         _attachmentUploadFailure = SettleoraBillAttachmentFailure.from(error);
         _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
       });
     }
@@ -3098,6 +3104,40 @@ class _SettleoraGroupBillCreateScreenState
         widget.groupId,
         createdBill.id,
       );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = true;
+      });
+      await _loadSubmittedGroupBillDetail(createdBill);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = SettleoraBillFailure.from(error);
+        _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = false;
+        _isSaving = false;
+      });
+    }
+  }
+
+  Future<void> _loadSubmittedGroupBillDetail(
+    SettleoraBillDetail createdBill,
+  ) async {
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+      _attachmentUploadFailure = null;
+      _attachmentDraftError = null;
+    });
+
+    try {
       final submittedBill = await widget.billRepository.getGroupBill(
         widget.groupId,
         createdBill.id,
@@ -3108,6 +3148,7 @@ class _SettleoraGroupBillCreateScreenState
 
       setState(() {
         _createdBillAwaitingCompletion = null;
+        _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
       });
       await _leaveRoute(submittedBill);
@@ -3119,6 +3160,7 @@ class _SettleoraGroupBillCreateScreenState
       setState(() {
         _failure = SettleoraBillFailure.from(error);
         _createdBillAwaitingCompletion = createdBill;
+        _createdBillSubmittedAwaitingDetail = true;
         _isSaving = false;
       });
     }
@@ -3245,6 +3287,22 @@ class _SettleoraGroupBillCreateScreenState
     };
   }
 
+  String get _saveLabel {
+    if (_createdBillAwaitingCompletion == null) {
+      return 'Submit group bill';
+    }
+
+    if (_createdBillSubmittedAwaitingDetail) {
+      return 'Retry submitted bill detail';
+    }
+
+    if (_draftAttachments.isEmpty) {
+      return 'Retry group bill submit';
+    }
+
+    return 'Retry remaining attachment uploads';
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
@@ -3253,11 +3311,7 @@ class _SettleoraGroupBillCreateScreenState
     final itemListError = _itemListError;
     final splitTotalError = _splitTotalError;
     final payerTotalError = _payerTotalError;
-    final saveLabel = _createdBillAwaitingCompletion == null
-        ? 'Submit group bill'
-        : _draftAttachments.isEmpty
-        ? 'Retry group bill submit'
-        : 'Retry remaining attachment uploads';
+    final saveLabel = _saveLabel;
     final shouldShowSaveAction =
         _selectedStep == _GroupBillCreateStep.review ||
         _createdBillAwaitingCompletion != null;
