@@ -18,6 +18,7 @@ This map covers the mobile server-mode group bill create/list/detail happy path 
 | Group bill list loads for a group workspace | Group name, group bill filters, refresh action, and `Create group bill` action render without personal bill create affordances. | `group bill list renders loading, empty, and refresh states` |
 | Members are required before create | Member load failure blocks the create form and does not call personal or group bill create. | `group bill create stays unavailable when members fail to load` |
 | Create form exposes guided sections | Start, Basics, Receipt & Items, Split, Payers, and Review waypoints are reachable from the group create flow. | `group bill create happy path smoke reaches submitted detail` |
+| Receipt-mode navigation stays predictable | Receipt/import mode skips directly to Receipt & Items and Back returns to Start instead of a skipped Basics section. | `group bill create receipt mode back returns to start` |
 | Minimal manual bill can be entered | Merchant/payee, date, currency, item, split member, payer, and review checklist remain in group context. | `group bill create happy path smoke reaches submitted detail`; `group bill create maps member split and payer draft strings` |
 | Group create uses group repository path only | `createGroupBill` receives the selected group ID and no personal bill create is called. | `group bill create happy path smoke reaches submitted detail`; `group bill create maps member split and payer draft strings` |
 | Submit uses returned bill ID and group context | `submitGroupBill` is called once with the created group bill ID and group ID. | `group bill create happy path smoke reaches submitted detail`; `group bill create submit calls repository once in group context` |
@@ -33,7 +34,7 @@ Use a server-mode test account that owns or can create group bills in a group wi
 - Confirm the group name, group bill filters, refresh action, and `Create group bill` action are visible.
 - Start `Create group bill`, verify the guided sections: Start, Basics, Receipt & Items, Split, Payers, and Review.
 - Enter a manual bill with merchant/payee, date, currency, one item, one selected split member, and one payer whose amount matches the item total.
-- Review the checklist and confirm selected members, item rows, split rows, and payer rows are understandable.
+- Review the checklist and confirm selected members, item rows, split rows, payer rows, and optional attachment state are understandable.
 - Submit the bill.
 - Confirm the returned group bill detail opens with the created merchant/payee and submitted/pending state.
 - Navigate back and confirm the group bill list refreshes in the same group context.

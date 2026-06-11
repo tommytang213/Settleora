@@ -1992,7 +1992,10 @@ void main() {
     expect(find.text('Selected members: none yet'), findsOneWidget);
     expect(find.text('1 split row without a selected member.'), findsOneWidget);
     expect(find.text('No payer rows yet.'), findsOneWidget);
-    expect(find.text('No attachments selected.'), findsOneWidget);
+    expect(
+      find.text('No attachments selected; attachments are optional.'),
+      findsOneWidget,
+    );
     expect(visibleText(tester), isNot(contains('member-alex-id')));
     expect(visibleText(tester), isNot(contains('member-taylor-id')));
 
@@ -2107,7 +2110,10 @@ void main() {
     await _goToGroupBillCreateStep(tester, 'review');
 
     expect(find.text('0 attachments'), findsOneWidget);
-    expect(find.text('No attachments selected.'), findsOneWidget);
+    expect(
+      find.text('No attachments selected; attachments are optional.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('group bill create exposes guided sections and groups nav', (
@@ -2149,6 +2155,38 @@ void main() {
     expect(find.text('Server validation still applies'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
     expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+  });
+
+  testWidgets('group bill receipt mode back returns to start', (tester) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-create-mode-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready for receipt import'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-basics')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-back-step')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create group bill start'), findsOneWidget);
+    expect(find.text('Ready for receipt import'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-basics')),
+      findsNothing,
+    );
   });
 
   testWidgets('group bill detail accepted share uses dedicated panel', (

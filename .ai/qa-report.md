@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `AI V3 controller hardening validation passed; ready for PR merge gate`
+Status: `M1-005 group bill UI navigation and checklist polish passed validation; ready for PR merge gate`
 
 ## Acceptance Checklist
 
@@ -40,6 +40,13 @@ Status: `AI V3 controller hardening validation passed; ready for PR merge gate`
 - M1-004 dirty salvage: preserved the dirty M1-004 diff on `ai/task/m1-004-receipt-attachment-handoff-clarity`, confirmed dirty files were limited to the six expected mobile bill/test files, and completed focused receipt/supporting-attachment handoff copy polish without backend/API, generated-client, storage-policy, auth, schema, money, deployment, CI, or secret changes.
 - M1-004 implementation: clarified receipt versus supporting attachment upload choices, receipt upload success feedback, saved attachment row handoff copy, and group/personal bill create draft attachment copy so receipts remain evidence/input with provisional review-first OCR and supporting files remain bill evidence only.
 - M1-004 state repair: `M1-004` is marked completed, `lastCompletedTaskId` is `M1-004`, `currentTaskId` is `M1-005`, and human-review/blocker state remains clear.
+- M1-005 implementation: receipt/import group bill create navigation now returns Back from Receipt & Items to Start, and the group bill review checklist now labels no attachments as an optional state rather than an incomplete review item.
+- M1-005 state update: `M1-005` is marked completed, `lastCompletedTaskId` is `M1-005`, `currentTaskId` is `M1-006`, and human-review/blocker state remains clear.
+- `/opt/flutter/bin/dart format --set-exit-if-changed lib/bills/bill_list_screen.dart test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; 3 files checked and 0 changed.
+- `/opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; 65 tests passed.
+- `/opt/flutter/bin/flutter test test/bill_list_screen_test.dart` from `apps/mobile`: first run failed after an over-broad assertion update in the personal checklist test and one remaining stale group checklist assertion; rerun after correcting test expectations passed with 74 tests.
+- `npm run doctor:mobile`: passed; mobile doctor passed with Flutter `3.44.0` and Dart `3.12.0`.
+- `npm run validate:mobile`: passed; mobile doctor passed, `flutter pub get` passed with dependency-update notices only, `flutter analyze` found no issues, and the full Flutter suite passed with 526 tests.
 - `git status --short --branch` from repo root before salvage: passed; branch was `ai/task/m1-004-receipt-attachment-handoff-clarity` with only the six expected dirty mobile files.
 - `git diff --name-only` from repo root before salvage: passed; dirty files were `apps/mobile/lib/bills/bill_attachment_section.dart`, `apps/mobile/lib/bills/bill_attachment_section_accessibility.dart`, `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/bill_attachment_section_test.dart`, `apps/mobile/test/bill_list_screen_test.dart`, and `apps/mobile/test/group_bill_list_screen_test.dart`.
 - `git diff --stat` from repo root before salvage: passed; six files changed with 136 insertions and 20 deletions before final polish.

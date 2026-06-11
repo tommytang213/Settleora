@@ -3321,6 +3321,47 @@ void main() {
     },
   );
 
+  testWidgets('group bill create receipt mode back returns to start', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-create-mode-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready for receipt import'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-basics')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-back-step')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create group bill start'), findsOneWidget);
+    expect(find.text('Ready for receipt import'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-basics')),
+      findsNothing,
+    );
+  });
+
   testWidgets('group bill create rejects invalid draft attachment', (
     tester,
   ) async {

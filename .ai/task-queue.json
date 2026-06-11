@@ -109,7 +109,7 @@
     "title": "Group bill UI navigation and checklist polish",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
