@@ -456,7 +456,9 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
           children: [
             const ListTile(
               title: Text('Upload attachment as'),
-              subtitle: Text('Choose how the server should process this file.'),
+              subtitle: Text(
+                'Receipt files can move into OCR review. Supporting files stay as bill evidence.',
+              ),
             ),
             _AttachmentSemanticButtonLabel(
               label: _uploadAsReceiptLabel,
@@ -467,6 +469,9 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
                 key: const Key('attachment-upload-purpose-receipt'),
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: const Text('Receipt'),
+                subtitle: const Text(
+                  'Use for receipt OCR review after upload.',
+                ),
                 onTap: () => Navigator.of(
                   context,
                 ).pop(SettleoraBillAttachmentPurposeValues.receipt),
@@ -481,6 +486,9 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
                 key: const Key('attachment-upload-purpose-supporting'),
                 leading: const Icon(Icons.attach_file_outlined),
                 title: const Text('Supporting attachment'),
+                subtitle: const Text(
+                  'Reference only; it is not handed to receipt OCR review.',
+                ),
                 onTap: () => Navigator.of(context).pop(
                   SettleoraBillAttachmentPurposeValues.supportingAttachment,
                 ),
@@ -764,7 +772,8 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
             const _AttachmentStatePanel(
               icon: Icons.attach_file_outlined,
               title: 'No attachments',
-              message: 'Receipts and supporting files will appear here.',
+              message:
+                  'Upload receipts for OCR review or supporting files for bill evidence.',
               compact: true,
             ),
         ],
@@ -1210,6 +1219,10 @@ class _AttachmentTile extends StatelessWidget {
                   ),
                 ],
               ),
+              _AttachmentHandoffText(
+                purpose: attachment.purpose,
+                canOpenOcr: canOpenOcr,
+              ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -1261,13 +1274,50 @@ class _AttachmentTile extends StatelessWidget {
                         key: ValueKey('$keyPrefix-ocr-$index'),
                         onPressed: isBusy ? null : onOpenOcr,
                         icon: const Icon(Icons.fact_check_outlined),
-                        label: const Text('Review OCR'),
+                        label: const Text('Review receipt'),
                       ),
                     ),
                 ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentHandoffText extends StatelessWidget {
+  const _AttachmentHandoffText({
+    required this.purpose,
+    required this.canOpenOcr,
+  });
+
+  final SettleoraBillAttachmentPurpose purpose;
+  final bool canOpenOcr;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = switch (purpose) {
+      SettleoraBillAttachmentPurposeValues.receipt when canOpenOcr =>
+        'Receipt handoff: review OCR before applying saved data to a draft.',
+      SettleoraBillAttachmentPurposeValues.receipt =>
+        'Receipt saved as bill evidence. OCR review is unavailable here.',
+      SettleoraBillAttachmentPurposeValues.supportingAttachment =>
+        'Supporting file only; not used for receipt OCR review.',
+      _ => null,
+    };
+
+    if (text == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );

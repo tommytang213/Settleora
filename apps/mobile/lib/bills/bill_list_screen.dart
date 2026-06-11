@@ -1166,7 +1166,7 @@ class _CreateBillHeader extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   hasReceiptAttachment
-                      ? 'Receipt attached. Review receipt data before saving.'
+                      ? 'Receipt selected. It uploads after save; OCR remains review-first.'
                       : 'Manual entry. Add receipt files when available.',
                   style: Theme.of(
                     context,
@@ -1312,7 +1312,7 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
               _ReviewChecklistHint(
                 text: attachmentCount == 0
                     ? 'No attachments selected.'
-                    : 'Attachments are selected for upload after bill creation.',
+                    : 'Attachments are selected for upload after bill creation. Receipt OCR stays provisional until reviewed.',
                 isReady: attachmentCount > 0,
               ),
               if (isAttachmentRetryActive)
@@ -1475,7 +1475,8 @@ class _BillCreateDraftAttachmentSection extends StatelessWidget {
           const _StatePanel(
             icon: Icons.attach_file_outlined,
             title: 'No attachments selected',
-            message: 'Receipts and supporting files can be added later.',
+            message:
+                'Receipts can be added for OCR review; supporting files can be added as bill evidence.',
           )
         else
           for (var index = 0; index < attachments.length; index += 1)
@@ -1561,6 +1562,14 @@ class _BillCreateDraftAttachmentTile extends StatelessWidget {
                     Text(
                       purposeLabel,
                       key: ValueKey('$keyPrefix-attachment-purpose-$index'),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _draftAttachmentHandoffMessage(attachment.purpose),
+                      key: ValueKey('$keyPrefix-attachment-handoff-$index'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Semantics(
@@ -5286,7 +5295,7 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
               _ReviewChecklistHint(
                 text: attachmentCount == 0
                     ? 'No attachments selected.'
-                    : 'Attachments are selected for upload after draft creation.',
+                    : 'Attachments are selected for upload after draft creation. Receipt OCR stays provisional until reviewed.',
                 isReady: attachmentCount > 0,
               ),
             ],
@@ -5295,6 +5304,16 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
       ),
     );
   }
+}
+
+String _draftAttachmentHandoffMessage(SettleoraBillAttachmentPurpose purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt =>
+      'Receipt evidence uploads after save; OCR review stays provisional.',
+    SettleoraBillAttachmentPurposeValues.supportingAttachment =>
+      'Supporting evidence uploads after save; it is not sent to OCR review.',
+    _ => 'Attachment uploads after save as bill evidence.',
+  };
 }
 
 class _ReviewChecklistChip extends StatelessWidget {

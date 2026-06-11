@@ -1509,7 +1509,9 @@ void main() {
     expect(attachmentRepository.listCalls, 1);
     expect(find.text('No attachments'), findsOneWidget);
     expect(
-      find.text('Receipts and supporting files will appear here.'),
+      find.text(
+        'Upload receipts for OCR review or supporting files for bill evidence.',
+      ),
       findsOneWidget,
     );
     expect(
@@ -1629,7 +1631,12 @@ void main() {
       expect(attachmentRepository.lastUpload?.contentType, 'image/png');
       expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
       expect(attachmentRepository.listCalls, 2);
-      expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt uploaded. Review OCR before applying it to a draft.',
+        ),
+        findsOneWidget,
+      );
       expect(
         find.widgetWithText(SnackBarAction, 'Review receipt'),
         findsOneWidget,
@@ -3241,6 +3248,18 @@ void main() {
       expect(find.text('support.pdf'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
       expect(find.text('Supporting attachment'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt evidence uploads after save; OCR review stays provisional.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Supporting evidence uploads after save; it is not sent to OCR review.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('image/png - 3 bytes'), findsOneWidget);
       expect(find.text('application/pdf - 4 bytes'), findsOneWidget);
       expect(

@@ -451,7 +451,9 @@ void main() {
 
     expect(find.text('1 attachment'), findsOneWidget);
     expect(
-      find.text('Attachments are selected for upload after bill creation.'),
+      find.text(
+        'Attachments are selected for upload after bill creation. Receipt OCR stays provisional until reviewed.',
+      ),
       findsOneWidget,
     );
 
@@ -733,6 +735,12 @@ void main() {
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('local-receipt.png'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt evidence uploads after save; OCR review stays provisional.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('No attachments selected'), findsNothing);
       expect(find.byTooltip('Remove selected bill attachment'), findsOneWidget);
       expect(
@@ -2082,7 +2090,9 @@ void main() {
 
     expect(find.text('1 attachment'), findsOneWidget);
     expect(
-      find.text('Attachments are selected for upload after draft creation.'),
+      find.text(
+        'Attachments are selected for upload after draft creation. Receipt OCR stays provisional until reviewed.',
+      ),
       findsOneWidget,
     );
 
@@ -2744,7 +2754,9 @@ void main() {
     expect(attachmentRepository.listCalls, 1);
     expect(find.text('No attachments'), findsOneWidget);
     expect(
-      find.text('Receipts and supporting files will appear here.'),
+      find.text(
+        'Upload receipts for OCR review or supporting files for bill evidence.',
+      ),
       findsOneWidget,
     );
     expect(find.byKey(const Key('bill-attachments-upload')), findsOneWidget);
@@ -3662,7 +3674,10 @@ void main() {
     expect(attachmentRepository.lastUpload?.contentType, 'image/png');
     expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
     expect(attachmentRepository.listCalls, 2);
-    expect(find.text('Receipt uploaded.'), findsOneWidget);
+    expect(
+      find.text('Receipt uploaded. Review OCR before applying it to a draft.'),
+      findsOneWidget,
+    );
     expect(
       find.widgetWithText(SnackBarAction, 'Review receipt'),
       findsOneWidget,
@@ -3735,7 +3750,7 @@ void main() {
     expect(attachmentRepository.listCalls, 2);
     expect(find.text('Attachment uploaded.'), findsOneWidget);
     expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
-    expect(find.text('Review OCR'), findsNothing);
+    expect(find.text('Review receipt'), findsNothing);
     expect(receiptRepository.getCalls, 0);
     expect(find.text('Supporting attachment'), findsOneWidget);
     expect(find.text('application/pdf'), findsOneWidget);
@@ -3785,7 +3800,12 @@ void main() {
 
       expect(attachmentRepository.attachCalls, 1);
       expect(attachmentRepository.listCalls, 2);
-      expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt uploaded. Review OCR before applying it to a draft.',
+        ),
+        findsOneWidget,
+      );
       expect(
         find.widgetWithText(SnackBarAction, 'Review receipt'),
         findsNothing,
@@ -3966,7 +3986,10 @@ void main() {
       find.text('Attachments are unavailable right now. Try again later.'),
       findsOneWidget,
     );
-    expect(find.text('Receipt uploaded.'), findsOneWidget);
+    expect(
+      find.text('Receipt uploaded. Review OCR before applying it to a draft.'),
+      findsOneWidget,
+    );
     expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
     expect(visibleText(tester), isNot(contains('C:\\Users\\secret')));
     expect(

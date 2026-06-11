@@ -78,6 +78,16 @@ void main() {
       expect(find.text('Reviewable OCR (1)'), findsOneWidget);
       expect(find.text('Other (1)'), findsOneWidget);
       expect(
+        find.text(
+          'Receipt handoff: review OCR before applying saved data to a draft.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Supporting file only; not used for receipt OCR review.'),
+        findsOneWidget,
+      );
+      expect(
         find.byKey(const Key('attachments-discovery-clear')),
         findsNothing,
       );
@@ -419,6 +429,20 @@ void main() {
       expect(find.byTooltip('Upload as receipt'), findsOneWidget);
       expect(find.byTooltip('Upload as supporting attachment'), findsOneWidget);
       expect(find.byTooltip('Cancel attachment upload'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt files can move into OCR review. Supporting files stay as bill evidence.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Use for receipt OCR review after upload.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Reference only; it is not handed to receipt OCR review.'),
+        findsOneWidget,
+      );
       expect(find.bySemanticsLabel('Upload as receipt'), findsOneWidget);
       expect(
         find.bySemanticsLabel('Upload as supporting attachment'),
@@ -559,7 +583,13 @@ void main() {
       );
 
       expect(find.text('Receipt'), findsOneWidget);
-      expect(find.text('Review OCR'), findsNothing);
+      expect(find.text('Review receipt'), findsNothing);
+      expect(
+        find.text(
+          'Receipt saved as bill evidence. OCR review is unavailable here.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('opens personal receipt OCR detail from attachment metadata', (
@@ -1041,7 +1071,12 @@ void main() {
       attachCompleter.complete();
       await tester.pumpAndSettle();
 
-      expect(find.text('Receipt uploaded.'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt uploaded. Review OCR before applying it to a draft.',
+        ),
+        findsOneWidget,
+      );
       expectOutlinedButtonEnabled(
         tester,
         const Key('attachments-upload'),
@@ -1188,7 +1223,12 @@ void main() {
         expect(repository.attachCalls, 1);
         expect(repository.listCalls, 2);
         expect(repository.lastUpload?.filename, 'local-receipt.png');
-        expect(find.text('Receipt uploaded.'), findsOneWidget);
+        expect(
+          find.text(
+            'Receipt uploaded. Review OCR before applying it to a draft.',
+          ),
+          findsOneWidget,
+        );
         expect(
           find.widgetWithText(SnackBarAction, 'Review receipt'),
           findsOneWidget,
