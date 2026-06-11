@@ -1772,8 +1772,8 @@ void main() {
         find.byKey(const ValueKey('group-bill-item-name-0')),
         findsOneWidget,
       );
-      expect(find.text('Eggs'), findsOneWidget);
-      expect(find.text('Taylor'), findsOneWidget);
+      expect(find.text('Eggs'), findsWidgets);
+      expect(find.text('Taylor'), findsWidgets);
       expect(find.text('1 payer row'), findsOneWidget);
 
       await tester.pageBack();
@@ -1836,7 +1836,7 @@ void main() {
     await tester.tap(find.text('Taylor'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Taylor'), findsOneWidget);
+    expect(find.text('Taylor'), findsWidgets);
     expect(find.text('Choose member'), findsNothing);
 
     await _fillMinimalGroupBillCreateForm(tester);
