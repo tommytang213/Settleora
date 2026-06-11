@@ -22,7 +22,7 @@ The guard resolves the active milestone from `.ai/state.json` `activeMilestoneId
 
 For M1, the guard allows `.ai/**`, `AGENTS.md`, `docs/**`, `apps/mobile/lib/bills/**`, and `apps/mobile/test/**`.
 
-For M2, the guard allows `.ai/**`, `docs/qa/**`, the AI V3 controller/pipeline workflow docs, `scripts/ai/**`, `apps/mobile/lib/app/**`, and `apps/mobile/test/**`.
+For M2, the guard allows `.ai/**`, `docs/qa/**`, the AI V3 controller/pipeline workflow docs, `scripts/ai/**`, `apps/mobile/lib/app/**`, exact top-level landing/handoff screens for bills, groups, and settlements, and `apps/mobile/test/**`.
 
 All milestones still forbid backend/API, worker, contracts, generated clients, infrastructure, GitHub workflow/settings, Docker/compose/env-looking files, and migration-looking paths.
 
