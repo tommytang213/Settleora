@@ -24,6 +24,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Password hashing implementation design](docs/architecture/PASSWORD_HASHING_IMPLEMENTATION_DESIGN.md)
 - [Database foundation](docs/architecture/DATABASE_FOUNDATION.md)
 - [Storage file metadata architecture](docs/architecture/STORAGE_FILE_METADATA_ARCHITECTURE.md)
+- [Storage file policy architecture](docs/architecture/STORAGE_FILE_POLICY_ARCHITECTURE.md)
 - [Privacy vault architecture](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md)
 - [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Money and rounding architecture](docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md)

@@ -128,6 +128,9 @@ Required Day 1 validation coverage includes mixed 8%/10% tax groups, tax-include
 ### Receipt capture and OCR
 
 - Mobile receipt capture/import.
+- Day 1 receipt capture/import includes policy-driven receipt image normalization before OCR/upload/storage.
+- Existing photo, file, share-sheet, offline-queue, web, and replacement uploads must not bypass receipt image normalization policy.
+- Receipt images default to normalized JPEG, and raw source retention is off by default.
 - On-device OCR as required mobile capability.
 - Server OCR worker as complementary path, not the only OCR path.
 - OCR review screen.
@@ -245,6 +248,9 @@ Day 1 includes:
 - File metadata belongs in PostgreSQL.
 - API responses use stable file IDs, not direct storage paths.
 - File reads/writes require API authorization.
+- Other image attachments are normalized according to purpose-specific upload policy so payment proofs, QR images, screenshots, and high-resolution camera images remain bounded and readable.
+- Allowed types, source size, normalized size, attachment counts, retention, and normalization behavior are configurable in admin policy, bounded by deployment hard caps.
+- The API enforces upload limits, file-purpose policy, byte/content validation, retention rules, and storage abstraction regardless of client behavior.
 - Receipt, statement, payment proof, and QR files are sensitive application data.
 - Day 1 supports two user-selectable privacy modes where deployment/admin policy allows them: `standard_secure` and `recoverable_private_vault`.
 - Standard Secure Mode is the Day 1 default privacy mode.
