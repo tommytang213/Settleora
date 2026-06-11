@@ -26,9 +26,9 @@ Status: `M1-004 validation passed; ready for PR merge gate`
 - `/opt/flutter/bin/flutter analyze` from `apps/mobile`: passed; no issues found.
 - `/opt/flutter/bin/flutter test test/bill_attachment_section_test.dart test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; 164 tests passed.
 - `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` from repo root: passed; mobile doctor passed with Flutter `3.44.0` and Dart `3.12.0`, `flutter pub get` passed, `flutter analyze` passed, and the full Flutter suite passed with 524 tests.
-- `git diff --check origin/ai/integration...HEAD` before commit: passed with no output, but `HEAD` had no task commit yet; will be rerun after commit.
-- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD` before commit: passed with zero committed changed files because the task diff was still uncommitted; will be rerun after commit.
-- `npm run validate:docs`: passed; documentation validation passed.
+- `git diff --check origin/ai/integration...HEAD`: passed after commit with no output.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit with changed files limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `apps/mobile/lib/bills/bill_attachment_section.dart`, `apps/mobile/lib/bills/bill_attachment_section_accessibility.dart`, `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/bill_attachment_section_test.dart`, `apps/mobile/test/bill_list_screen_test.dart`, and `apps/mobile/test/group_bill_list_screen_test.dart`.
+- `npm run validate:docs`: passed before and after commit; documentation validation passed.
 - M1-003 implementation: polished group bill create recovery so a transient detail reload failure after successful submit retries `getGroupBill` without duplicating `submitGroupBill`; added focused widget coverage in `apps/mobile/test/group_bill_list_screen_test.dart`.
 - `/opt/flutter/bin/dart format --set-exit-if-changed lib/bills/bill_list_screen.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; formatted 2 files, 0 changed.
 - `/opt/flutter/bin/flutter pub get` from `apps/mobile`: passed; dependencies resolved, with dependency-update notices only.
