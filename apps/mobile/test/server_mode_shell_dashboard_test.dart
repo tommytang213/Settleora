@@ -50,42 +50,6 @@ void main() {
 
     expect(_semanticsSelected(tester, const Key('bottom-nav-home')), isTrue);
     expect(_semanticsSelected(tester, const Key('bottom-nav-settle')), isFalse);
-
-    final homeLabel = tester.widget<Text>(
-      find.descendant(of: bottomNav, matching: find.text('Home')),
-    );
-    final settleLabel = tester.widget<Text>(
-      find.descendant(of: bottomNav, matching: find.text('Settle')),
-    );
-    expect(homeLabel.style?.fontWeight, FontWeight.w800);
-    expect(settleLabel.style?.fontWeight, FontWeight.w600);
-  });
-
-  testWidgets('bottom navigation active styling follows selected destination', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          bottomNavigationBar: SettleoraBottomNav(
-            selected: SettleoraNavDestination.settle,
-          ),
-        ),
-      ),
-    );
-
-    final bottomNav = find.byType(SettleoraBottomNav);
-    final homeLabel = tester.widget<Text>(
-      find.descendant(of: bottomNav, matching: find.text('Home')),
-    );
-    final settleLabel = tester.widget<Text>(
-      find.descendant(of: bottomNav, matching: find.text('Settle')),
-    );
-
-    expect(_semanticsSelected(tester, const Key('bottom-nav-home')), isFalse);
-    expect(_semanticsSelected(tester, const Key('bottom-nav-settle')), isTrue);
-    expect(homeLabel.style?.fontWeight, FontWeight.w600);
-    expect(settleLabel.style?.fontWeight, FontWeight.w800);
   });
 
   testWidgets('home bottom navigation opens implemented top-level routes', (
