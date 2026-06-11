@@ -89,6 +89,14 @@ File metadata belongs in PostgreSQL later. Mobile clients may cache local files 
 
 OCR text can contain sensitive personal and payment information. It must be treated as sensitive application data. Full OCR text and receipt contents should not be logged by default.
 
+## Receipt Scan Preprocessing
+
+Receipt scan preprocessing is distinct from OCR. Capture/import preprocessing includes orientation correction, crop or document-boundary detection, perspective correction, enhancement, safe downscaling, metadata stripping, a JPEG normalized receipt master by default, and thumbnail generation.
+
+All receipt capture and import paths must use the same receipt image intake policy, including camera scan, gallery import, file import, share-to-Settleora, offline queue upload, web upload, replacement upload, and server-side reprocessing. OCR works from normalized or derivative images, while extracted data remains reviewable and provisional according to the local-only or server-mode authority rules above.
+
+Receipt image normalization, raw source retention, thumbnails, deployment hard caps, and purpose-specific upload policy are defined in [Storage file policy architecture](STORAGE_FILE_POLICY_ARCHITECTURE.md).
+
 ## Validation Boundaries
 
 Client-side OCR extraction is a convenience in server-mode, not an authority boundary. The backend validates money, currency, rounding, ownership, permissions, and policy before accepting server-mode records.
