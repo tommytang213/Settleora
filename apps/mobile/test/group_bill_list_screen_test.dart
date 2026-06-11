@@ -2870,6 +2870,95 @@ void main() {
     },
   );
 
+  testWidgets('group bill create happy path smoke reaches submitted detail', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'QA Smoke Market',
+      ),
+      details: [
+        sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'QA Smoke Market',
+          status: 'pending_confirmation',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.byKey(const Key('bill-list-create')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create group bill start'), findsOneWidget);
+    expect(find.text('Start'), findsWidgets);
+    expect(find.text('Basics'), findsWidgets);
+    expect(find.text('Receipt & Items'), findsWidgets);
+    expect(find.text('Split'), findsWidgets);
+    expect(find.text('Payers'), findsWidgets);
+    expect(find.text('Review'), findsWidgets);
+    expect(find.text('Trip Crew'), findsWidgets);
+
+    await _fillMinimalGroupCreateForm(tester);
+    await _addSingleGroupPayer(tester, amount: '12.00');
+    await _goToGroupBillCreateStep(tester, 'review');
+
+    expect(
+      find.byKey(const Key('group-bill-create-review-checklist')),
+      findsOneWidget,
+    );
+    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('1 split row'), findsOneWidget);
+    expect(find.text('1 payer row'), findsOneWidget);
+    expect(find.text('2 active members'), findsOneWidget);
+    expect(find.text('Selected members: Taylor, Morgan'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-bill-save')));
+    await tester.pumpAndSettle();
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.createPersonalCalls, 0);
+    expect(billRepository.submitGroupCalls, 1);
+    expect(billRepository.lastGroupId, _groupId);
+    expect(billRepository.lastSubmitGroupId, _groupId);
+    expect(billRepository.lastSubmitBillId, _createdBillId);
+    expect(billRepository.getGroupCalls, 1);
+    expect(find.byKey(const Key('bill-list-sync')), findsNothing);
+    expect(find.text('Group bill'), findsWidgets);
+    expect(find.text('QA Smoke Market'), findsOneWidget);
+    expect(find.text('Pending confirmation'), findsWidgets);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(billRepository.listGroupCalls, 2);
+    expect(find.text('Trip Crew'), findsOneWidget);
+  });
+
   testWidgets(
     'group bill create submit calls repository once in group context',
     (tester) async {
