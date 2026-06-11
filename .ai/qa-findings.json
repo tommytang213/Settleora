@@ -1,0 +1,37 @@
+[
+  {
+    "id": "M1-UI-001",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill create assignment sheet did not make quantity/exact/share split basis editable or understandable.",
+    "resolution": "Mobile assignment sheet now exposes exact amount and share-weight inputs, relabels quantity as unit/share weights, and blocks invalid apply states locally."
+  },
+  {
+    "id": "M1-UI-002",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill payer step was unfriendly for the common one-person-paid-first flow.",
+    "resolution": "Mobile payer step now defaults the current active user to the full item total when available and adds payer quick actions."
+  },
+  {
+    "id": "M1-UI-003",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill submit showed an unsupported request validation failure from a locally ready-looking draft.",
+    "resolution": "Mobile generated create mapping now omits blank equal-split basisValue keys instead of serializing explicit null values; widget and generated repository tests cover valid one-item split/payer create payloads."
+  },
+  {
+    "id": "M1-UI-004",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Receipt & Items exposed raw split payload controls and lacked clear quantity/units semantics.",
+    "resolution": "Mobile group bill create now keeps Receipt & Items focused on item details with a line-total amount label and local quantity/units guidance, removes raw split-entry controls from item cards, and keeps split assignment in the Split step."
+  },
+  {
+    "id": "M1-UI-005",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill create date and currency fields still used free-text entry during M1 UI testing.",
+    "resolution": "Mobile group bill create now uses a mobile date picker affordance with a Today shortcut and dropdown/selectors for bill, item, and payer currency values while preserving uppercase 3-letter payload codes."
+  }
+]

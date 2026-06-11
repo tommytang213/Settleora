@@ -685,7 +685,7 @@ api.CreateGroupBillItemSplitRequest _mapGroupCreateItemSplitDraft(
   final basisValue = _optionalText(draft.basisValue);
   final allocationOrder = _optionalAllocationOrder(draft.allocationOrder);
 
-  if (draft.basisValue == null) {
+  if (basisValue == null) {
     return api.CreateGroupBillItemSplitRequest(
       userProfileId: _requiredId(
         draft.userProfileId,

@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "project": "Settleora",
+  "sourceBranch": "main",
+  "integrationBranch": "ai/integration",
+  "activeMilestoneId": "M1",
+  "activeMilestoneName": "Mobile Group Bill Happy Path UI-Test Readiness",
+  "status": "m1_ui_test_date_currency_input_polish_validated",
+  "lastCompletedTaskId": "M1-009",
+  "currentTaskId": null,
+  "stopReason": "m1_ui_test_date_currency_input_polish_ready_for_human_review",
+  "humanReviewRequired": true,
+  "forbiddenChangeDetected": false,
+  "lastValidatedCommit": null,
+  "uiTestingReady": true
+}
