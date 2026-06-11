@@ -3275,6 +3275,12 @@ class _SettleoraGroupBillCreateScreenState
   }
 
   void _goToPreviousStep() {
+    if (_selectedStep == _GroupBillCreateStep.receiptItems &&
+        _entryMode == _GroupBillCreateEntryMode.receipt) {
+      _selectStep(_GroupBillCreateStep.start);
+      return;
+    }
+
     final steps = _GroupBillCreateStep.values;
     final index = steps.indexOf(_selectedStep);
     if (index > 0) {
@@ -5294,9 +5300,9 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
               ),
               _ReviewChecklistHint(
                 text: attachmentCount == 0
-                    ? 'No attachments selected.'
+                    ? 'No attachments selected; attachments are optional.'
                     : 'Attachments are selected for upload after draft creation. Receipt OCR stays provisional until reviewed.',
-                isReady: attachmentCount > 0,
+                isReady: true,
               ),
             ],
           ),
