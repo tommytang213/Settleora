@@ -35,8 +35,8 @@
 ## Validation Results
 
 - `git status --short`: passed before commit; changed files were limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`, and `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
-- `git diff --check origin/ai/integration...HEAD`: passed before commit with no output. Final committed diff check is required after commit.
-- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed before commit with zero committed changed files. Final committed scope guard is required after commit.
+- `git diff --check origin/ai/integration...HEAD`: passed before commit with no output; passed again after commit with no output.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit; scope guard reported 5 changed files, all allowed for M2: `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`, and `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
 - `npm run validate:docs`: passed; documentation validation passed.
 - `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`: passed; validation doctor passed with Flutter 3.44.0 and Dart 3.12.0.
 - `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`: passed; validation doctor passed, `flutter pub get` completed, `flutter analyze` reported no issues, and `flutter test` passed all 531 tests.
