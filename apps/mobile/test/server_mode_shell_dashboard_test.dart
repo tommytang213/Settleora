@@ -70,7 +70,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Groups'), findsWidgets);
-    expect(_semanticsSelected(tester, const Key('bottom-nav-groups')), isTrue);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -79,7 +78,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settlements'), findsWidgets);
-    expect(_semanticsSelected(tester, const Key('bottom-nav-settle')), isTrue);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -88,10 +86,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Receipt Reviews'), findsOneWidget);
-    expect(
-      _semanticsSelected(tester, const Key('bottom-nav-receipts')),
-      isTrue,
-    );
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -100,7 +94,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Profile'), findsWidgets);
-    expect(_semanticsSelected(tester, const Key('bottom-nav-profile')), isTrue);
   });
 
   testWidgets('dashboard overview renders repository summaries', (

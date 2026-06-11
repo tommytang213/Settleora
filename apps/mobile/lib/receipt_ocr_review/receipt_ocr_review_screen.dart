@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../ui/settleora_components.dart';
 import 'receipt_ocr_review_repository.dart';
 
 part 'receipt_ocr_review_accessibility.dart';
@@ -227,9 +226,6 @@ class _ReceiptOcrReviewQueueScreenState
             icon: const Icon(Icons.refresh),
           ),
         ],
-      ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.receipts,
       ),
       body: SafeArea(
         child: _ReceiptOcrReviewQueueContent(
