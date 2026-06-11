@@ -4,7 +4,7 @@
     "title": "Add AI pipeline brain files",
     "risk": "medium",
     "autoMergeAllowed": false,
-    "status": "in_review",
+    "status": "completed",
     "allowedAreas": [
       "AGENTS.md",
       "docs/**",
@@ -27,7 +27,7 @@
     "title": "Reconcile current milestone/docs state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**"
