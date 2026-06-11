@@ -1,13 +1,13 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2-001 current-state reconciliation completed; controller should select M2-002 next after PR merge`
 
 ## Acceptance Checklist
 
 - [x] Current milestone goal is updated to M2 mobile navigation and Home/dashboard shell polish.
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
-- [ ] M2 current-state reconciliation completed.
+- [x] M2 current-state reconciliation completed.
 - [ ] Home/dashboard shell polish completed and validated.
 - [ ] Bottom navigation clarity polish completed and validated.
 - [ ] Groups and Settle landing handoff polish completed and validated.
@@ -57,3 +57,6 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 ## Findings
 
 - No open M2 QA findings at kickoff.
+- `M2-001` reconciled the QA map against the current Flutter implementation. The authenticated Home is `SettleoraAuthenticatedServerShell`; `DashboardPreviewScreen` is a static preview/demo, not the runtime landing screen.
+- The shared bottom nav currently defines `Home`, `Bills`, `Groups`, `Settle`, `Receipts`, and `Profile`, but pushed screens use it mostly as fixed selected-context chrome without wired cross-tab `onSelected` behavior.
+- Home dashboard data is backed by existing personal bill, notification, settlement, recurring bill, and local personal-bill sync seams. Shared-bill global counts and receipt-review counts are not currently loaded into Home.
