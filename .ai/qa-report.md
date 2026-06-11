@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1 UI-test item quantity/split cleanup validated locally; human review required before merge`
+Status: `M1 UI-test date/currency input polish validated locally; human review required before merge`
 
 ## Acceptance Checklist
 
@@ -12,6 +12,14 @@ Status: `M1 UI-test item quantity/split cleanup validated locally; human review 
 - [x] UI testing checklist is ready when milestone work reaches QA.
 
 ## M1 Final Validation Summary
+
+- M1-009 UI-test date/currency input polish is validated locally on `ai/task/m1-ui-test-date-currency-input-polish-20260611-2125`.
+- Group bill create now uses a mobile date picker affordance with a `Today` shortcut in Basics instead of visible free-text date entry.
+- Group bill create currency controls now use dropdown/selectors for bill-level currency, receipt item currency, and payer currency; submitted draft values remain uppercase 3-letter currency codes.
+- Focused validation: `/opt/flutter/bin/dart format --set-exit-if-changed apps/mobile/lib/bills/bill_list_screen.dart apps/mobile/test/group_bill_list_screen_test.dart apps/mobile/test/bill_list_screen_test.dart` passed, `flutter analyze` passed, and `flutter test test/group_bill_list_screen_test.dart test/bill_list_screen_test.dart` passed with 144 tests.
+- Full mobile validation: `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed; mobile doctor passed, `flutter pub get` passed with dependency-update notices only, `flutter analyze` found no issues, and the full Flutter suite passed with 531 tests.
+- QA docs now note mobile picker/today and currency selector expectations plus a future web note that web date UX should support keyboard/manual input as well as picker/today behavior.
+- No forbidden backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, web runtime, storage/privacy policy, or secret changes are part of this UI-test bugfix loop.
 
 - M1-008 UI-test item quantity/split cleanup is validated locally on `ai/task/m1-ui-test-item-quantity-split-cleanup-20260611-2058`.
 - The group bill create `Receipt & Items` item card no longer exposes raw split-entry controls (`Splits`, `Add split`, member dropdown, split method, basis value, or allocation order); split assignment remains in the `Split` step assignment workspace and sheet.
@@ -115,4 +123,4 @@ Status: `M1 UI-test item quantity/split cleanup validated locally; human review 
 
 ## Findings
 
-- No open QA blockers for M1-004 after validation with the explicit Flutter SDK path.
+- No open QA blockers for M1-009 after focused validation with the explicit Flutter SDK path.

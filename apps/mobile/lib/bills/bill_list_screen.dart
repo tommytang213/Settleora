@@ -15,6 +15,16 @@ import 'bill_revision_review_screen.dart';
 import 'bill_repository.dart';
 import 'bill_sync_controller.dart';
 
+const List<String> _supportedGroupBillCurrencyCodes = <String>[
+  'USD',
+  'EUR',
+  'GBP',
+  'HKD',
+  'JPY',
+  'KWD',
+  'BHD',
+];
+
 class SettleoraBillListScreen extends StatefulWidget {
   const SettleoraBillListScreen({
     super.key,
@@ -2557,6 +2567,36 @@ class _SettleoraGroupBillCreateScreenState
     });
   }
 
+  void _setBillCurrency(String currency) {
+    final normalizedCurrency = currency.trim().toUpperCase();
+    if (normalizedCurrency.isEmpty) {
+      return;
+    }
+
+    final previousCurrency = _currencyController.text.trim().toUpperCase();
+    setState(() {
+      _currencyController.text = normalizedCurrency;
+      for (final item in _itemControllers) {
+        final itemCurrency = item.currency.text.trim().toUpperCase();
+        if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
+          item.currency.text = normalizedCurrency;
+        }
+      }
+      for (final payer in _payerControllers) {
+        final payerCurrency = payer.currency.text.trim().toUpperCase();
+        if (payerCurrency.isEmpty || payerCurrency == previousCurrency) {
+          payer.currency.text = normalizedCurrency;
+        }
+      }
+    });
+  }
+
+  void _setGroupBillDate(DateTime date) {
+    setState(() {
+      _billDateController.text = _formatBillDate(date);
+    });
+  }
+
   void _setSinglePayer(String? memberId) {
     final trimmedMemberId = memberId?.trim();
     if (_isSaving || trimmedMemberId == null || trimmedMemberId.isEmpty) {
@@ -3552,34 +3592,30 @@ class _SettleoraGroupBillCreateScreenState
                                     ),
                                   ),
                                   const SizedBox(height: 12),
-                                  TextFormField(
+                                  _MobileDatePickerField(
                                     key: const Key('group-bill-date'),
                                     controller: _billDateController,
                                     enabled: !_isSaving,
-                                    onChanged: (_) => _notifyDraftChanged(),
-                                    textInputAction: TextInputAction.next,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Bill date',
-                                      hintText: 'YYYY-MM-DD',
+                                    label: 'Bill date',
+                                    todayKey: const Key(
+                                      'group-bill-date-today',
                                     ),
+                                    pickerKey: const Key(
+                                      'group-bill-date-picker',
+                                    ),
+                                    onDateSelected: _setGroupBillDate,
                                     validator: (value) => _requiredField(
                                       value,
                                       'Enter a bill date.',
                                     ),
                                   ),
                                   const SizedBox(height: 12),
-                                  TextFormField(
+                                  _CurrencyPickerField(
                                     key: const Key('group-bill-currency'),
                                     controller: _currencyController,
                                     enabled: !_isSaving,
-                                    onChanged: (_) => _notifyDraftChanged(),
-                                    textCapitalization:
-                                        TextCapitalization.characters,
-                                    textInputAction: TextInputAction.next,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Currency',
-                                      hintText: 'USD',
-                                    ),
+                                    label: 'Currency',
+                                    onChanged: _setBillCurrency,
                                     validator: (value) => _currencyCodeField(
                                       value,
                                       requiredMessage: 'Enter a currency.',
@@ -3681,6 +3717,14 @@ class _SettleoraGroupBillCreateScreenState
                                         isSaving: _isSaving,
                                         onRemove: () => _removeItem(index),
                                         onDraftChanged: _notifyDraftChanged,
+                                        onCurrencyChanged: (currency) {
+                                          setState(() {
+                                            _itemControllers[index]
+                                                    .currency
+                                                    .text =
+                                                currency;
+                                          });
+                                        },
                                       ),
                                     ),
                                 ],
@@ -3812,6 +3856,14 @@ class _SettleoraGroupBillCreateScreenState
                                           isSaving: _isSaving,
                                           onRemove: () => _removePayer(index),
                                           onDraftChanged: _notifyDraftChanged,
+                                          onCurrencyChanged: (currency) {
+                                            setState(() {
+                                              _payerControllers[index]
+                                                      .currency
+                                                      .text =
+                                                  currency;
+                                            });
+                                          },
                                         ),
                                       ),
                                   if (payerTotalError != null) ...[
@@ -6209,6 +6261,7 @@ class _GroupBillCreateItemCard extends StatelessWidget {
     required this.isSaving,
     required this.onRemove,
     required this.onDraftChanged,
+    required this.onCurrencyChanged,
   });
 
   final int index;
@@ -6217,6 +6270,7 @@ class _GroupBillCreateItemCard extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onRemove;
   final VoidCallback onDraftChanged;
+  final ValueChanged<String> onCurrencyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -6296,17 +6350,12 @@ class _GroupBillCreateItemCard extends StatelessWidget {
               validator: _optionalPositiveWholeNumberField,
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            _CurrencyPickerField(
               key: ValueKey('group-bill-item-currency-$index'),
               controller: controllers.currency,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Currency',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Currency',
+              onChanged: onCurrencyChanged,
               validator: (value) => _currencyCodeField(
                 value,
                 requiredMessage: 'Enter an item currency.',
@@ -6339,6 +6388,7 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
     required this.isSaving,
     required this.onRemove,
     required this.onDraftChanged,
+    required this.onCurrencyChanged,
   });
 
   final int index;
@@ -6347,6 +6397,7 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onRemove;
   final VoidCallback onDraftChanged;
+  final ValueChanged<String> onCurrencyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -6411,17 +6462,12 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            _CurrencyPickerField(
               key: ValueKey('group-bill-payer-currency-$index'),
               controller: controllers.currency,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Currency',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Currency',
+              onChanged: onCurrencyChanged,
               validator: (value) => _currencyCodeField(
                 value,
                 requiredMessage: 'Enter a payer currency.',
@@ -6442,6 +6488,153 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CurrencyPickerField extends StatelessWidget {
+  const _CurrencyPickerField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.enabled,
+    required this.onChanged,
+    required this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  final FormFieldValidator<String> validator;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedValue = controller.text.trim().toUpperCase();
+    final value = _supportedGroupBillCurrencyCodes.contains(normalizedValue)
+        ? normalizedValue
+        : _supportedGroupBillCurrencyCodes.first;
+    if (controller.text != value) {
+      controller.text = value;
+    }
+
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      items: [
+        for (final currency in _supportedGroupBillCurrencyCodes)
+          DropdownMenuItem<String>(value: currency, child: Text(currency)),
+      ],
+      onChanged: enabled
+          ? (selected) {
+              if (selected == null) {
+                return;
+              }
+              controller.text = selected;
+              onChanged(selected);
+            }
+          : null,
+      validator: (_) => validator(controller.text),
+    );
+  }
+}
+
+class _MobileDatePickerField extends StatelessWidget {
+  const _MobileDatePickerField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.enabled,
+    required this.todayKey,
+    required this.pickerKey,
+    required this.onDateSelected,
+    required this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool enabled;
+  final Key todayKey;
+  final Key pickerKey;
+  final ValueChanged<DateTime> onDateSelected;
+  final FormFieldValidator<String> validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return FormField<String>(
+      initialValue: controller.text,
+      validator: (_) => validator(controller.text),
+      builder: (field) {
+        final selectedDate = controller.text.trim();
+        final displayDate = selectedDate.isEmpty
+            ? 'No date selected'
+            : selectedDate;
+        final hasError = field.errorText != null;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: label,
+                border: const OutlineInputBorder(),
+                errorText: field.errorText,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayDate,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ),
+                  TextButton(
+                    key: todayKey,
+                    onPressed: enabled
+                        ? () {
+                            onDateSelected(DateTime.now());
+                            field.didChange(controller.text);
+                          }
+                        : null,
+                    child: const Text('Today'),
+                  ),
+                  IconButton(
+                    key: pickerKey,
+                    tooltip: 'Choose bill date',
+                    onPressed: enabled
+                        ? () async {
+                            final initialDate =
+                                _parseBillDate(controller.text) ??
+                                DateTime.now();
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: initialDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked == null) {
+                              return;
+                            }
+                            onDateSelected(picked);
+                            field.didChange(controller.text);
+                          }
+                        : null,
+                    icon: Icon(
+                      Icons.calendar_today_outlined,
+                      color: hasError
+                          ? Theme.of(context).colorScheme.error
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -10073,6 +10266,35 @@ String? _currencyCodeField(String? value, {required String requiredMessage}) {
   }
 
   return null;
+}
+
+DateTime? _parseBillDate(String value) {
+  final trimmed = value.trim();
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null || month == null || day == null) {
+    return null;
+  }
+
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return null;
+  }
+
+  return parsed;
+}
+
+String _formatBillDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
 
 String _billAttachmentPurposeLabel(SettleoraBillAttachmentPurpose purpose) {

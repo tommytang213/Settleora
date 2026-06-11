@@ -1992,21 +1992,20 @@ void main() {
     await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-currency-0')),
-      '',
-    );
     await _goToGroupBillCreateStep(tester, 'basics');
-    await tester.enterText(find.byKey(const Key('group-bill-currency')), '');
     await _goToGroupBillCreateStep(tester, 'receiptItems');
-    await tester.enterText(
-      find.byKey(const Key('group-bill-item-currency-0')),
-      '',
-    );
     await _tapSaveGroupBill(tester);
 
     expect(find.text('Enter a bill date.'), findsOneWidget);
-    expect(find.text('Enter a currency.'), findsOneWidget);
+    await _goToGroupBillCreateStep(tester, 'basics');
+    expect(find.byKey(const Key('group-bill-currency')), findsOneWidget);
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    expect(find.byKey(const Key('group-bill-item-currency-0')), findsOneWidget);
+    await _goToGroupBillCreateStep(tester, 'payers');
+    expect(
+      find.byKey(const Key('group-bill-payer-currency-0')),
+      findsOneWidget,
+    );
     expect(billRepository.createGroupCalls, 0);
 
     await _goToGroupBillCreateStep(tester, 'receiptItems');
@@ -2083,10 +2082,6 @@ void main() {
         ' 12.00 ',
       );
       await tester.enterText(
-        find.byKey(const Key('group-bill-payer-currency-0')),
-        ' usd ',
-      );
-      await tester.enterText(
         find.byKey(const Key('group-bill-payer-method-0')),
         ' Cash ',
       );
@@ -2139,18 +2134,11 @@ void main() {
         '12.00',
       );
       await _goToGroupBillCreateStep(tester, 'basics');
-      await tester.enterText(
-        find.byKey(const Key('group-bill-currency')),
-        'US1',
-      );
-      await _tapSaveGroupBill(tester);
-
+      expect(find.byKey(const Key('group-bill-currency')), findsOneWidget);
       expect(
         find.text('Use a 3-letter currency code such as USD.'),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(billRepository.createGroupCalls, 0);
-      expect(attachmentRepository.attachCalls, 0);
     },
   );
 
@@ -2543,9 +2531,10 @@ void main() {
       find.byKey(const Key('group-bill-item-amount-1')),
       '6.00',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-item-currency-1')),
-      'usd',
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-item-currency-1'),
+      'USD',
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-item-note-1')),
@@ -2991,6 +2980,66 @@ void main() {
     );
   });
 
+  testWidgets(
+    'group bill create date today and currency selectors update draft',
+    (tester) async {
+      await useLargeSurface(tester);
+      final billRepository = FakeBillRepository(
+        createdGroupDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Night Market',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: billRepository,
+            groupRepository: FakeGroupRepository(
+              members: [
+                sampleMember(displayName: 'Taylor'),
+                sampleMember(
+                  userProfileId: _otherProfileId,
+                  displayName: 'Morgan',
+                ),
+              ],
+            ),
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _fillMinimalGroupCreateForm(tester);
+      await _goToGroupBillCreateStep(tester, 'basics');
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-currency'),
+        'EUR',
+      );
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-item-currency-0'),
+        'GBP',
+      );
+      await _goToGroupBillCreateStep(tester, 'basics');
+      expect(find.text(_todayBillDate()), findsOneWidget);
+      expect(find.byKey(const Key('group-bill-date-picker')), findsOneWidget);
+      await _addSingleGroupPayer(tester, amount: '12.00');
+      await _tapSaveGroupBill(tester);
+
+      final draft = billRepository.lastGroupCreateDraft;
+      expect(draft?.billDate, _todayBillDate());
+      expect(draft?.currency, 'EUR');
+      expect(draft?.items.single.currency, 'GBP');
+      expect(draft?.payers.single.currency, 'HKD');
+    },
+  );
+
   testWidgets('group bill create maps member split and payer draft strings', (
     tester,
   ) async {
@@ -3039,9 +3088,10 @@ void main() {
       find.byKey(const Key('group-bill-payer-amount-0')),
       ' 12.00 ',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-currency-0')),
-      ' usd ',
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-currency-0'),
+      'HKD',
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-payer-method-0')),
@@ -3054,19 +3104,19 @@ void main() {
     expect(billRepository.createPersonalCalls, 0);
     expect(billRepository.lastGroupId, _groupId);
     expect(draft?.merchantName, '  Night Market  ');
-    expect(draft?.billDate, '  2026-05-23  ');
-    expect(draft?.currency, ' usd ');
+    expect(draft?.billDate, _todayBillDate());
+    expect(draft?.currency, 'USD');
     expect(draft?.items.single.name, '  Noodles  ');
     expect(draft?.items.single.note, ' shared bowl ');
     expect(draft?.items.single.amount, ' 12.00 ');
-    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.currency, 'USD');
     expect(draft?.items.single.splits.single.userProfileId, _profileId);
     expect(draft?.items.single.splits.single.splitMethod, 'exact_amount');
     expect(draft?.items.single.splits.single.basisValue, ' 12.00 ');
     expect(draft?.items.single.splits.single.allocationOrder, 0);
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
-    expect(draft?.payers.single.currency, ' usd ');
+    expect(draft?.payers.single.currency, 'HKD');
     expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
   });
 
@@ -3666,7 +3716,7 @@ void main() {
     final draft = billRepository.lastGroupCreateDraft;
     expect(billRepository.createGroupCalls, 1);
     expect(draft?.merchantName, '  Night Market  ');
-    expect(draft?.billDate, '  2026-05-23  ');
+    expect(draft?.billDate, _todayBillDate());
     expect(draft?.items.single.name, '  Noodles  ');
     expect(draft?.items.single.splits.single.userProfileId, _profileId);
     expect(attachmentRepository.attachCalls, 0);
@@ -3738,9 +3788,10 @@ void main() {
       find.byKey(const Key('group-bill-payer-amount-0')),
       ' 12.00 ',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-currency-0')),
-      ' usd ',
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-currency-0'),
+      'HKD',
     );
     await tester.enterText(
       find.byKey(const Key('group-bill-payer-method-0')),
@@ -3775,19 +3826,19 @@ void main() {
     final draft = billRepository.lastGroupCreateDraft;
     expect(billRepository.createGroupCalls, 1);
     expect(draft?.merchantName, '  Night Market  ');
-    expect(draft?.billDate, '  2026-05-23  ');
-    expect(draft?.currency, ' usd ');
+    expect(draft?.billDate, _todayBillDate());
+    expect(draft?.currency, 'USD');
     expect(draft?.items.single.name, '  Noodles  ');
     expect(draft?.items.single.note, ' shared bowl ');
     expect(draft?.items.single.amount, ' 12.00 ');
-    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.currency, 'USD');
     expect(draft?.items.single.splits.single.userProfileId, _profileId);
     expect(draft?.items.single.splits.single.splitMethod, 'exact_amount');
     expect(draft?.items.single.splits.single.basisValue, ' 12.00 ');
     expect(draft?.items.single.splits.single.allocationOrder, 0);
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
-    expect(draft?.payers.single.currency, ' usd ');
+    expect(draft?.payers.single.currency, 'HKD');
     expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
     expect(attachmentRepository.attachCalls, 1);
     expect(attachmentRepository.removeCalls, 0);
@@ -4570,17 +4621,22 @@ String visibleText(WidgetTester tester) {
   return buffer.toString();
 }
 
+String _todayBillDate() {
+  final now = DateTime.now();
+  final year = now.year.toString().padLeft(4, '0');
+  final month = now.month.toString().padLeft(2, '0');
+  final day = now.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
 Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
   await _goToGroupBillCreateStep(tester, 'basics');
   await tester.enterText(
     find.byKey(const Key('group-bill-merchant-name')),
     '  Night Market  ',
   );
-  await tester.enterText(
-    find.byKey(const Key('group-bill-date')),
-    '  2026-05-23  ',
-  );
-  await tester.enterText(find.byKey(const Key('group-bill-currency')), ' usd ');
+  await tester.tap(find.byKey(const Key('group-bill-date-today')));
+  await tester.pumpAndSettle();
 
   await _goToGroupBillCreateStep(tester, 'receiptItems');
   await tester.enterText(
@@ -4590,10 +4646,6 @@ Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const Key('group-bill-item-amount-0')),
     ' 12.00 ',
-  );
-  await tester.enterText(
-    find.byKey(const Key('group-bill-item-currency-0')),
-    ' usd ',
   );
   await tester.enterText(
     find.byKey(const Key('group-bill-item-note-0')),
@@ -4658,9 +4710,10 @@ Future<void> _addSingleGroupPayer(
     find.byKey(const Key('group-bill-payer-amount-0')),
     amount,
   );
-  await tester.enterText(
-    find.byKey(const Key('group-bill-payer-currency-0')),
-    ' usd ',
+  await _chooseDropdownValue(
+    tester,
+    const Key('group-bill-payer-currency-0'),
+    'HKD',
   );
   await tester.enterText(
     find.byKey(const Key('group-bill-payer-method-0')),

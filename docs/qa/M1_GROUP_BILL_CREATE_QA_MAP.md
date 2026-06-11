@@ -19,7 +19,8 @@ This map covers the mobile server-mode group bill create/list/detail happy path 
 | Members are required before create | Member load failure blocks the create form and does not call personal or group bill create. | `group bill create stays unavailable when members fail to load` |
 | Create form exposes guided sections | Start, Basics, Receipt & Items, Split, Payers, and Review waypoints are reachable from the group create flow. | `group bill create happy path smoke reaches submitted detail` |
 | Receipt-mode navigation stays predictable | Receipt/import mode skips directly to Receipt & Items and Back returns to Start instead of a skipped Basics section. | `group bill create receipt mode back returns to start` |
-| Minimal manual bill can be entered | Merchant/payee, date, currency, item, split member, payer, and review checklist remain in group context. | `group bill create happy path smoke reaches submitted detail`; `group bill create maps member split and payer draft strings` |
+| Minimal manual bill can be entered | Merchant/payee, date picker/today action, currency selectors, item, split member, payer, and review checklist remain in group context. | `group bill create happy path smoke reaches submitted detail`; `group bill create maps member split and payer draft strings` |
+| Date and currency inputs use mobile controls | Bill date uses a mobile picker affordance with `Today`; bill, item, and payer currency values use dropdown/selectors and submit uppercase 3-letter codes. | `group bill create date today and currency selectors update draft`; `group bill create maps member split and payer draft strings` |
 | Receipt & Items stays item-focused | Item cards show line total amount and quantity/units, and do not expose raw split payload controls. | `group bill receipt items hides raw split controls and keeps quantity local` |
 | Group create uses group repository path only | `createGroupBill` receives the selected group ID and no personal bill create is called. | `group bill create happy path smoke reaches submitted detail`; `group bill create maps member split and payer draft strings` |
 | Submit uses returned bill ID and group context | `submitGroupBill` is called once with the created group bill ID and group ID. | `group bill create happy path smoke reaches submitted detail`; `group bill create submit calls repository once in group context` |
@@ -38,7 +39,8 @@ Use a server-mode test account that owns or can create group bills in a group wi
 - Open Groups, select the target group, and open group bills.
 - Confirm the group name, group bill filters, refresh action, and `Create group bill` action are visible.
 - Start `Create group bill`, verify the guided sections: Start, Basics, Receipt & Items, Split, Payers, and Review.
-- Enter a manual bill with merchant/payee, date, currency, one item, one selected split member, and one payer whose amount matches the item total.
+- Enter a manual bill with merchant/payee, date picker or `Today`, selected currency, one item, one selected split member, and one payer whose amount matches the item total.
+- Confirm bill, item, and payer currency controls are selectors/dropdowns rather than free-text fields.
 - On Receipt & Items, confirm item amount is the line total, quantity/units are optional local guidance, and raw split-entry controls are absent.
 - In the assign item sheet, verify exact amount mode exposes amount inputs, share mode exposes share-weight inputs, and unit/share mode clearly treats units as share weights for the line.
 - In the payer step, verify the current user defaults as the full-total payer when available and quick actions can reset the payer rows.
@@ -55,3 +57,7 @@ Stop and require human review if QA discovers that readiness needs any of the fo
 - Settlement, payment, bill calculation, or money behavior changes.
 - Secrets or secret references.
 - Main branch merge or direct push.
+
+## Future Web Note
+
+When web group bill create is implemented, date UX should support keyboard/manual date entry along with picker and today actions. This note is not part of mobile M1 acceptance.
