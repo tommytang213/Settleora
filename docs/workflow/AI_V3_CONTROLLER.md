@@ -38,7 +38,9 @@ node scripts/ai/v3-controller.mjs --run --max-iterations 8 --allow-auto-merge
 
 ## Auto-Merge Constraints
 
-The controller may only auto-merge into `ai/integration`. It rechecks PR base branch, merge state, checks, changed-file scope, scope guard output, and the expected head SHA before merge. It must never merge into `main`, force push, delete branches, or bypass failing or ambiguous checks.
+The controller may only auto-merge into `ai/integration`. It rechecks PR base branch, draft state, merge state, checks, changed-file scope, forbidden paths, scope guard output, updated task-branch `.ai` state, GitHub review state, and the expected head SHA before merge. It must never merge into `main`, force push, delete branches, or bypass failing or ambiguous checks.
+
+Auto-merge is blocked when the task branch marks itself human-gated, records a stop reason, records a forbidden change, marks the selected queue item as human-required or non-auto-mergable, records blocked/failed validation language in `.ai/qa-report.md` or `.ai/task-queue.json`, has unresolved `CHANGES_REQUESTED`, has Codex review suggestions from `chatgpt-codex-connector[bot]`, or cannot be inspected unambiguously. The run log records the precise `autoMergeBlockReason` for these stops instead of relying on the merge command to fail.
 
 ## QA Fallback Loop
 
@@ -46,7 +48,7 @@ The controller reads `.ai/qa-report.md` and `.ai/qa-findings.json`. Open finding
 
 ## Human Stop Boundaries
 
-Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, database schema or migrations, settlement/payment/bill calculation logic, Docker/env/deployment/CI changes, secrets, ambiguous GitHub state, repeated validation failures, forbidden changed files, or UI testing readiness.
+Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, database schema or migrations, settlement/payment/bill calculation logic, Docker/env/deployment/CI changes, secrets, ambiguous GitHub state, repeated validation failures, forbidden changed files, human-gated controller state, validation-blocked state, or UI testing readiness.
 
 ## Logs And Reports
 

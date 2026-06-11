@@ -259,6 +259,11 @@ function isOpenQaFinding(finding) {
 }
 
 function selectTask(data) {
+  const stateBlock = stateBlocksAutoMerge(data.state);
+  if (stateBlock) {
+    return { stop: true, reason: `Controller state requires human review: ${stateBlock}` };
+  }
+
   if (data.state.uiTestingReady === true || /ui[- ]test(?:ing)? ready/i.test(data.milestone)) {
     return { stop: true, reason: "Milestone is marked UI-test ready" };
   }
@@ -486,6 +491,15 @@ function assertSuccess(result, message) {
   }
 }
 
+function parseJsonOutput(result, message) {
+  assertSuccess(result, message);
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`${message}: unable to parse JSON output (${error.message})`);
+  }
+}
+
 function resolveCodexCommand() {
   const override = process.env[codexCommandEnv]?.trim();
   if (override) {
@@ -558,6 +572,201 @@ function verifyChangedFilesWithinScope(files, task) {
   }
 }
 
+function readBranchText(branchName, filePath) {
+  const result = runCommand("git", ["show", `${branchName}:${filePath}`]);
+  assertSuccess(result, `Unable to read ${filePath} from ${branchName}`);
+  return result.stdout;
+}
+
+function readBranchJson(branchName, filePath) {
+  const text = readBranchText(branchName, filePath);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Unable to parse ${filePath} from ${branchName}: ${error.message}`);
+  }
+}
+
+function nonEmpty(value) {
+  return typeof value === "string" ? value.trim().length > 0 : value !== null && value !== undefined;
+}
+
+function stateBlocksAutoMerge(state) {
+  if (state.humanReviewRequired === true) {
+    return ".ai/state.json sets humanReviewRequired: true";
+  }
+  if (nonEmpty(state.stopReason)) {
+    return ".ai/state.json sets a stopReason";
+  }
+  if (state.forbiddenChangeDetected === true) {
+    return ".ai/state.json sets forbiddenChangeDetected: true";
+  }
+  return null;
+}
+
+const blockedTaskStatuses = new Set([
+  "blocked",
+  "human-required",
+  "human_required",
+  "needs-human-review",
+  "needs_human_review",
+  "manual-review-required",
+  "manual_review_required",
+  "qa_failed",
+  "qa-failed",
+  "validation-blocked",
+  "validation_blocked",
+  "failed-validation",
+  "failed_validation",
+]);
+
+function taskQueueBlocksAutoMerge(taskQueue, taskId) {
+  if (!Array.isArray(taskQueue)) {
+    return ".ai/task-queue.json is not an array";
+  }
+
+  const task = taskQueue.find((item) => item && item.id === taskId);
+  if (!task) {
+    return `.ai/task-queue.json does not contain selected task ${taskId}`;
+  }
+  if (task.humanRequired === true) {
+    return `.ai/task-queue.json task ${taskId} sets humanRequired: true`;
+  }
+  if (task.autoMergeAllowed === false) {
+    return `.ai/task-queue.json task ${taskId} sets autoMergeAllowed: false`;
+  }
+
+  const status = String(task.status || "").trim().toLowerCase();
+  if (blockedTaskStatuses.has(status)) {
+    return `.ai/task-queue.json task ${taskId} has blocked status: ${task.status}`;
+  }
+
+  return null;
+}
+
+const validationBlockedPattern =
+  /\b(validation blocked|could not run|failed validation|human-gated|manual review required|human review required|mobile validation (?:is )?blocked|blocked validation)\b/i;
+
+function textBlocksAutoMerge(label, text) {
+  const match = String(text || "").match(validationBlockedPattern);
+  return match ? `${label} indicates blocked validation or human review: ${match[0]}` : null;
+}
+
+function inspectTaskBranchAutoMergeState(branchName, taskId) {
+  const state = readBranchJson(branchName, requiredFiles.state);
+  const stateBlock = stateBlocksAutoMerge(state);
+  if (stateBlock) {
+    return stateBlock;
+  }
+
+  const taskQueueText = readBranchText(branchName, requiredFiles.taskQueue);
+  let taskQueue;
+  try {
+    taskQueue = JSON.parse(taskQueueText);
+  } catch (error) {
+    return `.ai/task-queue.json cannot be parsed: ${error.message}`;
+  }
+
+  const queueBlock = taskQueueBlocksAutoMerge(taskQueue, taskId);
+  if (queueBlock) {
+    return queueBlock;
+  }
+
+  const queueTextBlock = textBlocksAutoMerge(".ai/task-queue.json", taskQueueText);
+  if (queueTextBlock) {
+    return queueTextBlock;
+  }
+
+  const qaReportText = readBranchText(branchName, requiredFiles.qaReport);
+  const qaReportBlock = textBlocksAutoMerge(".ai/qa-report.md", qaReportText);
+  if (qaReportBlock) {
+    return qaReportBlock;
+  }
+
+  return null;
+}
+
+function repoNameWithOwner() {
+  const view = parseJsonOutput(
+    runCommand("gh", ["repo", "view", "--json", "nameWithOwner"]),
+    "Unable to inspect GitHub repository",
+  );
+  if (!view.nameWithOwner || !String(view.nameWithOwner).includes("/")) {
+    throw new Error("Unable to determine GitHub repository nameWithOwner");
+  }
+  return view.nameWithOwner;
+}
+
+function ghApiPaginatedItems(endpoint, label) {
+  const result = runCommand("gh", ["api", endpoint, "--paginate", "--jq", ".[] | @json"]);
+  if (result.error || result.status !== 0) {
+    throw new Error(`${label} failed\n${formatCommandFailure(result)}`);
+  }
+
+  const lines = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  try {
+    return lines.map((line) => JSON.parse(line));
+  } catch (error) {
+    throw new Error(`${label} returned ambiguous JSON: ${error.message}`);
+  }
+}
+
+function githubReviewBlocksAutoMerge(prNumber) {
+  let nameWithOwner;
+  try {
+    nameWithOwner = repoNameWithOwner();
+  } catch (error) {
+    return `GitHub review inspection failed: ${error.message}`;
+  }
+
+  const [owner, repo] = nameWithOwner.split("/");
+  let reviews;
+  let comments;
+  try {
+    reviews = ghApiPaginatedItems(
+      `repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+      `GitHub review inspection failed for PR ${prNumber}`,
+    );
+    comments = ghApiPaginatedItems(
+      `repos/${owner}/${repo}/pulls/${prNumber}/comments`,
+      `GitHub inline comment inspection failed for PR ${prNumber}`,
+    );
+  } catch (error) {
+    return error.message;
+  }
+
+  if (!Array.isArray(reviews) || !Array.isArray(comments)) {
+    return "GitHub review/comment inspection returned ambiguous data";
+  }
+
+  const changesRequested = reviews.find((review) => review?.state === "CHANGES_REQUESTED");
+  if (changesRequested) {
+    const reviewer = changesRequested.user?.login || "unknown reviewer";
+    return `PR ${prNumber} has CHANGES_REQUESTED from ${reviewer}`;
+  }
+
+  const codexReview = reviews.find((review) => {
+    const reviewer = review?.user?.login || "";
+    const body = review?.body || "";
+    return reviewer === "chatgpt-codex-connector[bot]" && /\bP[0-2]\b|inline comment|suggest/i.test(body);
+  });
+  if (codexReview) {
+    return `PR ${prNumber} has Codex review suggestions from chatgpt-codex-connector[bot]`;
+  }
+
+  const codexInlineComment = comments.find((comment) => {
+    const author = comment?.user?.login || "";
+    const body = comment?.body || "";
+    return author === "chatgpt-codex-connector[bot]" || /\bP[0-2]\b/i.test(body);
+  });
+  if (codexInlineComment) {
+    const author = codexInlineComment.user?.login || "unknown reviewer";
+    return `PR ${prNumber} has blocking inline review comment from ${author}`;
+  }
+
+  return null;
+}
+
 function findOrCreatePr(branchName, task) {
   const existing = runCommand("gh", [
     "pr",
@@ -611,13 +820,80 @@ function checksPass(prNumber) {
   };
 }
 
+function autoMergeBlockReason(pr, expectedHeadSha, branchName, task, integrationBranch) {
+  let view;
+  try {
+    view = parseJsonOutput(
+      runCommand("gh", [
+        "pr",
+        "view",
+        String(pr.number),
+        "--json",
+        "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeStateStatus",
+      ]),
+      "Unable to re-check PR before auto-merge",
+    );
+  } catch (error) {
+    return error.message;
+  }
+
+  if (view.baseRefName !== "ai/integration" || view.baseRefName !== integrationBranch) {
+    return `PR ${pr.number} base is ${view.baseRefName}; expected ai/integration`;
+  }
+  if (view.headRefOid !== expectedHeadSha) {
+    return `PR ${pr.number} head SHA changed from ${expectedHeadSha} to ${view.headRefOid}`;
+  }
+  if (view.mergeStateStatus !== "CLEAN") {
+    return `PR ${pr.number} merge state is ${view.mergeStateStatus}; expected CLEAN`;
+  }
+  if (view.isDraft !== false) {
+    return `PR ${pr.number} is still a draft`;
+  }
+
+  const checks = checksPass(pr.number);
+  if (!checks.passed) {
+    return `PR ${pr.number} checks failed or were ambiguous\n${checks.output}`;
+  }
+
+  try {
+    const files = changedFiles(`origin/${integrationBranch}`, branchName);
+    verifyChangedFilesWithinScope(files, task);
+  } catch (error) {
+    return error.message;
+  }
+
+  if (existsSync("scripts/ai/v3-scope-guard.mjs")) {
+    const scopeGuard = runCommand("node", [
+      "scripts/ai/v3-scope-guard.mjs",
+      "--base",
+      `origin/${integrationBranch}`,
+      "--head",
+      branchName,
+    ]);
+    if (scopeGuard.error || scopeGuard.status !== 0) {
+      return `Scope guard failed before auto-merge\n${formatCommandFailure(scopeGuard)}`;
+    }
+  }
+
+  try {
+    const branchStateBlock = inspectTaskBranchAutoMergeState(branchName, task.id);
+    if (branchStateBlock) {
+      return branchStateBlock;
+    }
+  } catch (error) {
+    return error.message;
+  }
+
+  return githubReviewBlocksAutoMerge(pr.number);
+}
+
 function mergePr(pr, expectedHeadSha) {
   const view = runCommand("gh", [
     "pr",
     "view",
     String(pr.number),
     "--json",
-    "baseRefName,headRefOid,mergeStateStatus",
+    "baseRefName,headRefOid,mergeStateStatus,isDraft",
   ]);
   assertSuccess(view, "Unable to re-check PR before merge");
   const current = JSON.parse(view.stdout);
@@ -629,6 +905,9 @@ function mergePr(pr, expectedHeadSha) {
   }
   if (current.mergeStateStatus !== "CLEAN") {
     throw new Error(`Refusing to merge PR ${pr.number}: merge state is ${current.mergeStateStatus}`);
+  }
+  if (current.isDraft !== false) {
+    throw new Error(`Refusing to merge PR ${pr.number}: PR is still a draft`);
   }
 
   const merged = runCommand("gh", [
@@ -682,6 +961,22 @@ function runRealControllerIteration(selection, data, promptInfo, config) {
   }
 
   if (config.allowAutoMerge && selection.task.autoMergeAllowed === true) {
+    const blockReason = autoMergeBlockReason(
+      pr,
+      expectedHeadSha,
+      promptInfo.branchName,
+      selection.task,
+      data.state.integrationBranch,
+    );
+    if (blockReason) {
+      return {
+        pr,
+        merged: false,
+        headSha: expectedHeadSha,
+        autoMergeBlocked: true,
+        autoMergeBlockReason: blockReason,
+      };
+    }
     mergePr(pr, expectedHeadSha);
     return { pr, merged: true, headSha: expectedHeadSha };
   }
