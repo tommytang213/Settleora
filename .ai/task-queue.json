@@ -1,5 +1,40 @@
 [
   {
+    "id": "M2-HOME-DASHBOARD-VISIBLE-REDESIGN-20260612-0118",
+    "title": "Human-review fix: make Home visibly dashboard-like",
+    "risk": "medium",
+    "autoMergeAllowed": false,
+    "status": "human_review_required",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**",
+      "apps/mobile/lib/app/**",
+      "apps/mobile/test/**"
+    ],
+    "goal": "Address the human screenshot finding that Home still looked like a plain menu list by making it a visibly distinct dashboard with user-facing sections, responsive wide/narrow layout, and no implementation-seam copy.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "cd apps/mobile && /opt/flutter/bin/dart format --set-exit-if-changed lib/app test",
+      "cd apps/mobile && /opt/flutter/bin/flutter pub get",
+      "cd apps/mobile && /opt/flutter/bin/flutter analyze",
+      "cd apps/mobile && /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+    ],
+    "stopConditions": [
+      "Human PC UI retest has not confirmed the dashboard is visibly improved",
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires settlement/payment/bill calculation logic",
+      "Requires Docker/env/deployment/CI changes"
+    ]
+  },
+  {
     "id": "M2-001",
     "title": "Reconcile mobile nav/home current state and QA map",
     "risk": "low",

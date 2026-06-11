@@ -519,129 +519,74 @@ class _SettleoraAuthenticatedServerShellState
         ],
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            ListTile(
-              key: const Key('server-shell-current-user'),
-              leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-              title: Text(currentUser.displayName),
-              subtitle: Text(
-                defaultCurrency == null
-                    ? 'Signed in'
-                    : 'Signed in - $defaultCurrency',
-              ),
-              trailing: IconButton(
-                key: const Key('server-shell-profile'),
-                tooltip: 'Profile',
-                onPressed: _openProfile,
-                icon: const Icon(Icons.account_circle_outlined),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Today',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  key: const Key('dashboard-overview-refresh'),
-                  tooltip: 'Refresh overview',
-                  onPressed: _isLoadingOverview ? null : _loadOverview,
-                  icon: _isLoadingOverview
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = constraints.maxWidth >= 900 ? 1040.0 : 680.0;
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _DashboardHero(
+                        currentUser: currentUser,
+                        defaultCurrency: defaultCurrency,
+                        overview: overview,
+                        isLoadingOverview: _isLoadingOverview,
+                        onRefresh: _loadOverview,
+                        onOpenProfile: _openProfile,
+                      ),
+                      const SizedBox(height: 16),
+                      _DashboardQuickActions(
+                        onCreatePersonalBill: _openCreatePersonalBill,
+                        onCreateGroup: _openCreateGroup,
+                      ),
+                      const SizedBox(height: 16),
+                      if (_isLoadingOverview && overview == null)
+                        const _DashboardLoadingCard()
+                      else if (overviewFailure != null && overview == null)
+                        _DashboardErrorCard(
+                          failure: overviewFailure,
+                          onRetry: _loadOverview,
                         )
-                      : const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    key: const Key('server-shell-create-personal-bill'),
-                    onPressed: _openCreatePersonalBill,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Create bill'),
+                      else if (overview != null) ...[
+                        if (_isLoadingOverview)
+                          const _DashboardRefreshIndicator(),
+                        if (overviewFailure != null)
+                          _DashboardInlineErrorCard(
+                            failure: overviewFailure,
+                            onRetry: _loadOverview,
+                          ),
+                        _DashboardOverviewContent(
+                          overview: overview,
+                          billSyncSnapshot: _billSyncSnapshot,
+                          isFlushingBillSync: _isFlushingBillSync,
+                          onOpenBills: _openBills,
+                          onSyncNow: _flushBillSyncNow,
+                          onOpenGroups: _openGroups,
+                          onOpenSettlements: _openSettlements,
+                          onOpenSettlementActions: _openSettlementActions,
+                          onOpenRecurringBills: _openRecurringBills,
+                          onOpenRecurringDrafts: _openRecurringDrafts,
+                          onOpenNotifications: _openNotifications,
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      _DashboardMoreSection(
+                        onOpenProfile: _openProfile,
+                        onOpenReceiptReviews: _openReceiptReviews,
+                        onOpenSessions: _openSessions,
+                        onOpenMonthlyReport: _openMonthlyReport,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    key: const Key('server-shell-create-group'),
-                    onPressed: _openCreateGroup,
-                    icon: const Icon(Icons.group_add_outlined),
-                    label: const Text('Create group'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_isLoadingOverview && overview == null)
-              const _DashboardLoadingCard()
-            else if (overviewFailure != null && overview == null)
-              _DashboardErrorCard(
-                failure: overviewFailure,
-                onRetry: _loadOverview,
-              )
-            else if (overview != null) ...[
-              if (_isLoadingOverview) const _DashboardRefreshIndicator(),
-              if (overviewFailure != null)
-                _DashboardInlineErrorCard(
-                  failure: overviewFailure,
-                  onRetry: _loadOverview,
-                ),
-              _DashboardOverviewContent(
-                overview: overview,
-                billSyncSnapshot: _billSyncSnapshot,
-                isFlushingBillSync: _isFlushingBillSync,
-                onOpenBills: _openBills,
-                onSyncNow: _flushBillSyncNow,
-                onOpenGroups: _openGroups,
-                onOpenSettlements: _openSettlements,
-                onOpenSettlementActions: _openSettlementActions,
-                onOpenRecurringBills: _openRecurringBills,
-                onOpenRecurringDrafts: _openRecurringDrafts,
-                onOpenNotifications: _openNotifications,
               ),
-            ],
-            const SizedBox(height: 16),
-            Text('More', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            _DashboardNavigationTile(
-              icon: Icons.account_circle_outlined,
-              title: 'Profile',
-              subtitle: 'Manage profile and payment details',
-              onTap: _openProfile,
-            ),
-            _DashboardNavigationTile(
-              key: const Key('server-shell-receipt-reviews'),
-              icon: Icons.receipt_long_outlined,
-              title: 'Receipt Reviews',
-              subtitle: 'Review OCR data attached to bills',
-              onTap: _openReceiptReviews,
-            ),
-            _DashboardNavigationTile(
-              key: const Key('server-shell-sessions'),
-              icon: Icons.devices_outlined,
-              title: 'Sessions',
-              subtitle: 'Review and revoke signed-in devices',
-              onTap: _openSessions,
-            ),
-            _DashboardNavigationTile(
-              key: const Key('server-shell-reports'),
-              icon: Icons.summarize_outlined,
-              title: 'Monthly report',
-              subtitle: 'Open the current reporting surface',
-              onTap: _openMonthlyReport,
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -754,24 +699,353 @@ class _SettleoraDashboardFailure {
   final String message;
 }
 
+class _DashboardHero extends StatelessWidget {
+  const _DashboardHero({
+    required this.currentUser,
+    required this.defaultCurrency,
+    required this.overview,
+    required this.isLoadingOverview,
+    required this.onRefresh,
+    required this.onOpenProfile,
+  });
+
+  final SettleoraCurrentUser currentUser;
+  final String? defaultCurrency;
+  final _SettleoraDashboardOverview? overview;
+  final bool isLoadingOverview;
+  final Future<void> Function() onRefresh;
+  final VoidCallback onOpenProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final overview = this.overview;
+    final attentionCount = overview == null
+        ? 0
+        : overview.settlementActionCount +
+              overview.upcomingForecastCount +
+              overview.notificationSummary.attentionCount +
+              overview.notificationSummary.urgentCount;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 460;
+
+        return Container(
+          key: const Key('server-shell-current-user'),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isCompact) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: theme.colorScheme.onPrimaryContainer,
+                      foregroundColor: theme.colorScheme.primaryContainer,
+                      child: const Icon(Icons.person_outline),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _DashboardHeroTitle(
+                  currentUser: currentUser,
+                  defaultCurrency: defaultCurrency,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    IconButton(
+                      key: const Key('dashboard-overview-refresh'),
+                      tooltip: 'Refresh overview',
+                      onPressed: isLoadingOverview ? null : onRefresh,
+                      icon: isLoadingOverview
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      key: const Key('server-shell-profile'),
+                      tooltip: 'Profile',
+                      onPressed: onOpenProfile,
+                      icon: const Icon(Icons.account_circle_outlined),
+                    ),
+                  ],
+                ),
+              ] else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: theme.colorScheme.onPrimaryContainer,
+                      foregroundColor: theme.colorScheme.primaryContainer,
+                      child: const Icon(Icons.person_outline),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _DashboardHeroTitle(
+                        currentUser: currentUser,
+                        defaultCurrency: defaultCurrency,
+                      ),
+                    ),
+                    IconButton(
+                      key: const Key('dashboard-overview-refresh'),
+                      tooltip: 'Refresh overview',
+                      onPressed: isLoadingOverview ? null : onRefresh,
+                      icon: isLoadingOverview
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      key: const Key('server-shell-profile'),
+                      tooltip: 'Profile',
+                      onPressed: onOpenProfile,
+                      icon: const Icon(Icons.account_circle_outlined),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DashboardMetricChip(
+                    icon: Icons.priority_high_outlined,
+                    label: attentionCount == 0
+                        ? 'No urgent items'
+                        : '$attentionCount item${_plural(attentionCount)} to review',
+                  ),
+                  _DashboardMetricChip(
+                    icon: Icons.receipt_long_outlined,
+                    label: overview == null
+                        ? 'Bills loading'
+                        : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
+                  ),
+                  _DashboardMetricChip(
+                    icon: Icons.notifications_outlined,
+                    label: overview == null
+                        ? 'Activity loading'
+                        : '${overview.notificationSummary.unreadCount} unread',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DashboardHeroTitle extends StatelessWidget {
+  const _DashboardHeroTitle({
+    required this.currentUser,
+    required this.defaultCurrency,
+  });
+
+  final SettleoraCurrentUser currentUser;
+  final String? defaultCurrency;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Today', style: theme.textTheme.labelLarge),
+        const SizedBox(height: 4),
+        Text(
+          'Welcome back, ${currentUser.displayName}',
+          style: theme.textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          defaultCurrency == null
+              ? 'Signed in'
+              : 'Signed in - $defaultCurrency',
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardMetricChip extends StatelessWidget {
+  const _DashboardMetricChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 6),
+            Flexible(child: Text(label)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardQuickActions extends StatelessWidget {
+  const _DashboardQuickActions({
+    required this.onCreatePersonalBill,
+    required this.onCreateGroup,
+  });
+
+  final VoidCallback onCreatePersonalBill;
+  final VoidCallback onCreateGroup;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardSection(
+      title: 'Quick actions',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 620;
+          final buttons = [
+            FilledButton.icon(
+              key: const Key('server-shell-create-personal-bill'),
+              onPressed: onCreatePersonalBill,
+              icon: const Icon(Icons.add),
+              label: const Text('Create bill'),
+            ),
+            FilledButton.tonalIcon(
+              key: const Key('server-shell-create-group'),
+              onPressed: onCreateGroup,
+              icon: const Icon(Icons.group_add_outlined),
+              label: const Text('Create group'),
+            ),
+          ];
+
+          if (isWide) {
+            return Row(
+              children: [
+                for (var index = 0; index < buttons.length; index += 1) ...[
+                  if (index > 0) const SizedBox(width: 12),
+                  Expanded(child: buttons[index]),
+                ],
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [buttons.first, const SizedBox(height: 8), buttons.last],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DashboardMoreSection extends StatelessWidget {
+  const _DashboardMoreSection({
+    required this.onOpenProfile,
+    required this.onOpenReceiptReviews,
+    required this.onOpenSessions,
+    required this.onOpenMonthlyReport,
+  });
+
+  final VoidCallback onOpenProfile;
+  final VoidCallback onOpenReceiptReviews;
+  final VoidCallback onOpenSessions;
+  final VoidCallback onOpenMonthlyReport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardSection(
+      title: 'More',
+      child: Column(
+        children: [
+          _DashboardNavigationTile(
+            icon: Icons.account_circle_outlined,
+            title: 'Profile',
+            subtitle: 'Manage profile and payment details',
+            onTap: onOpenProfile,
+          ),
+          _DashboardNavigationTile(
+            key: const Key('server-shell-receipt-reviews'),
+            icon: Icons.receipt_long_outlined,
+            title: 'Receipt Reviews',
+            subtitle: 'Review OCR data attached to bills',
+            onTap: onOpenReceiptReviews,
+          ),
+          _DashboardNavigationTile(
+            key: const Key('server-shell-sessions'),
+            icon: Icons.devices_outlined,
+            title: 'Sessions',
+            subtitle: 'Review and revoke signed-in devices',
+            onTap: onOpenSessions,
+          ),
+          _DashboardNavigationTile(
+            key: const Key('server-shell-reports'),
+            icon: Icons.summarize_outlined,
+            title: 'Monthly report',
+            subtitle: 'Open the current reporting surface',
+            onTap: onOpenMonthlyReport,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardSection extends StatelessWidget {
+  const _DashboardSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+}
+
 class _DashboardLoadingCard extends StatelessWidget {
   const _DashboardLoadingCard();
 
   @override
   Widget build(BuildContext context) {
     return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
-          children: [
-            SizedBox.square(
-              dimension: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 12),
-            Text('Loading dashboard overview'),
-          ],
+      child: ListTile(
+        leading: SizedBox.square(
+          dimension: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
         ),
+        title: Text('Loading dashboard overview'),
       ),
     );
   }
@@ -890,7 +1164,7 @@ class _DashboardOverviewContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final needsAttention = Column(
       children: [
         if (overview.isEmpty) ...[
           const _DashboardEmptyCard(),
@@ -902,6 +1176,27 @@ class _DashboardOverviewContent extends StatelessWidget {
           onOpenBills: onOpenBills,
           onSyncNow: onSyncNow,
         ),
+        if (overview.settlementActionCount > 0)
+          _DashboardSettlementActionsCard(
+            count: overview.settlementActionCount,
+            onTap: onOpenSettlementActions,
+          ),
+        if (overview.upcomingForecastCount > 0)
+          _DashboardRecurringDraftsAction(
+            count: overview.upcomingForecastCount,
+            onTap: onOpenRecurringDrafts,
+          ),
+        if (!overview.isEmpty &&
+            overview.settlementActionCount == 0 &&
+            overview.upcomingForecastCount == 0 &&
+            overview.notificationSummary.attentionCount == 0 &&
+            overview.notificationSummary.urgentCount == 0)
+          const _DashboardCalmCard(),
+      ],
+    );
+
+    final recentActivity = Column(
+      children: [
         _DashboardNavigationTile(
           key: const Key('server-shell-bills'),
           icon: Icons.list_alt_outlined,
@@ -918,44 +1213,9 @@ class _DashboardOverviewContent extends StatelessWidget {
           key: const Key('server-shell-groups'),
           icon: Icons.groups_outlined,
           title: 'Shared bills',
-          subtitle: 'Open groups to review shared bill activity',
-          detail:
-              'No global shared-bill count is exposed by this mobile seam yet.',
+          subtitle:
+              'Open groups to review shared bills and group activity you can access',
           onTap: onOpenGroups,
-        ),
-        _DashboardNavigationTile(
-          key: const Key('server-shell-settlements'),
-          icon: Icons.handshake_outlined,
-          title: 'Settlements',
-          subtitle: overview.settlementActionCount == 0
-              ? 'Open settlements to review balances and requests'
-              : '${overview.settlementActionCount} request${_plural(overview.settlementActionCount)} may need review',
-          detail: overview.openBalanceCount == 0
-              ? null
-              : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
-          onTap: onOpenSettlements,
-        ),
-        if (overview.settlementActionCount > 0)
-          _DashboardSettlementActionsCard(
-            count: overview.settlementActionCount,
-            onTap: onOpenSettlementActions,
-          ),
-        if (overview.upcomingForecastCount > 0)
-          _DashboardRecurringDraftsAction(
-            count: overview.upcomingForecastCount,
-            onTap: onOpenRecurringDrafts,
-          ),
-        _DashboardNavigationTile(
-          key: const Key('server-shell-recurring-bills'),
-          icon: Icons.event_repeat_outlined,
-          title: 'Recurring bills',
-          subtitle: overview.upcomingForecastCount == 0
-              ? 'Open recurring bills to review templates and forecast'
-              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
-          detail: overview.activeRecurringTemplateCount == 0
-              ? null
-              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
-          onTap: onOpenRecurringBills,
         ),
         _DashboardNavigationTile(
           key: const Key('server-shell-notifications'),
@@ -973,6 +1233,76 @@ class _DashboardOverviewContent extends StatelessWidget {
         ),
       ],
     );
+
+    final thisMonth = Column(
+      children: [
+        _DashboardNavigationTile(
+          key: const Key('server-shell-settlements'),
+          icon: Icons.handshake_outlined,
+          title: 'Settlements',
+          subtitle: overview.settlementActionCount == 0
+              ? 'Open settlements to review balances and requests'
+              : '${overview.settlementActionCount} request${_plural(overview.settlementActionCount)} may need review',
+          detail: overview.openBalanceCount == 0
+              ? null
+              : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
+          onTap: onOpenSettlements,
+        ),
+        _DashboardNavigationTile(
+          key: const Key('server-shell-recurring-bills'),
+          icon: Icons.event_repeat_outlined,
+          title: 'Recurring bills',
+          subtitle: overview.upcomingForecastCount == 0
+              ? 'Open recurring bills to review templates and forecast'
+              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
+          detail: overview.activeRecurringTemplateCount == 0
+              ? null
+              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
+          onTap: onOpenRecurringBills,
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 760) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _DashboardSection(
+                  title: 'Needs attention',
+                  child: needsAttention,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  children: [
+                    _DashboardSection(
+                      title: 'Recent activity',
+                      child: recentActivity,
+                    ),
+                    const SizedBox(height: 16),
+                    _DashboardSection(title: 'This month', child: thisMonth),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          children: [
+            _DashboardSection(title: 'Needs attention', child: needsAttention),
+            const SizedBox(height: 16),
+            _DashboardSection(title: 'Recent activity', child: recentActivity),
+            const SizedBox(height: 16),
+            _DashboardSection(title: 'This month', child: thisMonth),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -982,19 +1312,26 @@ class _DashboardEmptyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.inbox_outlined),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'No overview items yet. Open a section below to create or review Day 1 records.',
-              ),
-            ),
-          ],
+      child: ListTile(
+        leading: Icon(Icons.inbox_outlined),
+        title: Text(
+          'No overview items yet. Open a section below to create or review Day 1 records.',
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardCalmCard extends StatelessWidget {
+  const _DashboardCalmCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: ListTile(
+        leading: Icon(Icons.check_circle_outline),
+        title: Text(
+          'Nothing urgent right now. Check recent activity or start a new bill when you are ready.',
         ),
       ),
     );

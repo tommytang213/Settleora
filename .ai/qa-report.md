@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2 Home dashboard redesign fixed in code; human PC UI retest required`
 
 ## Acceptance Checklist
 
@@ -8,11 +8,12 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
 - [ ] M2 current-state reconciliation completed.
-- [ ] Home/dashboard shell polish completed and validated.
+- [x] Home/dashboard visible redesign implemented and focused-test validated.
 - [ ] Bottom navigation clarity polish completed and validated.
 - [ ] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
-- [ ] Human UI testing checklist completed.
+- [x] Human UI retest checklist updated for Home dashboard regression.
+- [ ] Human PC UI retest confirms visible Home dashboard improvement.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
 
 ## M2 Kickoff Summary
@@ -56,4 +57,22 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 
 ## Findings
 
-- No open M2 QA findings at kickoff.
+- `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The fix replaces the menu-like surface with a distinct dashboard header, `Quick actions`, `Needs attention`, `Recent activity`, `This month`, and `More` sections; removes the shared-bill seam copy; and adds narrow/wide focused widget coverage. M2 remains human-review required until a PC UI retest confirms the visible change.
+
+## Home Dashboard Redesign Fix
+
+- Branch: `ai/task/m2-home-dashboard-visible-redesign-20260612-0118`.
+- Scope: mobile app shell/test and QA/control files only.
+- Before: Home appeared as a skinny settings-style list and exposed implementation wording about a mobile seam.
+- After: Home has a colored dashboard header with signed-in context and overview chips, quick action buttons, attention/action cards, recent activity cards, this-month cards, and a separate More section.
+- Day 1 honesty preserved: counts only use existing loaded mobile overview data; unavailable shared global counts are not invented.
+- Human review state: still required. This fix must be checked in a PC/wide Flutter window and a narrow/mobile-sized viewport before M2 is marked ready.
+
+## Required Human UI Retest
+
+- Confirm the Home screen visibly differs from the previous menu-list page.
+- Confirm `Quick actions`, `Needs attention`, `Recent activity`, and `This month` sections are visible and understandable.
+- Confirm no user-facing copy mentions implementation seams, API limitations, generated clients, or unavailable global shared-bill counts.
+- Confirm narrow/mobile and wide desktop/test viewport layouts avoid awkward empty space, horizontal overflow, and clipped text.
+- Confirm `Create bill` and `Create group` still open their existing flows.
+- Confirm Home cards still navigate to Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report as applicable.

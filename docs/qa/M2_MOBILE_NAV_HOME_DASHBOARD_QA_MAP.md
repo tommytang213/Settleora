@@ -33,6 +33,8 @@ M2 should make the mobile app feel coherent after the M1 group-bill flow by impr
 - Home uses honest empty, unavailable, or placeholder states where runtime data does not exist.
 - Home does not present unimplemented widgets as live data.
 - Home does not compute authoritative money, settlement state, sync acceptance, authorization, or policy decisions client-side.
+- Home must look materially different from the previous plain menu-list version at both mobile and wider desktop/test viewport sizes.
+- Home must not expose implementation wording such as mobile seams, generated clients, unavailable API fields, or internal limitations to normal users.
 
 ### Bottom Navigation
 
@@ -69,10 +71,26 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 
 - Home/dashboard shell rendering in server-mode-ready app state.
 - Empty/unavailable dashboard states.
+- Visible dashboard section labels such as `Quick actions`, `Needs attention`, `Recent activity`, and `This month`.
+- Absence of implementation-seam copy on the Home dashboard.
+- Narrow/mobile and wide desktop/test viewport Home dashboard behavior.
 - Bottom navigation labels and active-state behavior.
 - Navigation from Home to Groups, Bills, and Settlements/Settle.
 - Handoffs from Groups into group detail and group bill surfaces.
 - Safe quick actions that route to implemented screens only.
+
+## Human PC UI Retest Checklist
+
+The M2 Home/dashboard fix remains human-review required until a tester verifies:
+
+- The Home screen visibly changed from the previous profile-plus-menu-list page.
+- `Quick actions`, `Needs attention`, `Recent activity`, `This month`, and `More` appear as meaningful user-facing sections.
+- `Create bill` and `Create group` still open their existing flows.
+- Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report routes still work from Home where present.
+- No Home copy mentions implementation seams, API seams, generated clients, or missing global shared-bill counts.
+- A narrow/mobile viewport remains clean and scrollable with no clipped text or horizontal overflow.
+- A wide desktop/test Flutter window avoids a huge skinny list with empty side/bottom space and presents grouped dashboard content clearly.
+- Nav and landing handoffs still behave as expected after returning from destination screens.
 
 Full mobile validation is required by the final QA task:
 

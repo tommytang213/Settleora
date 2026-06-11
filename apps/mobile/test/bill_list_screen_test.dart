@@ -4327,6 +4327,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-settlements')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-settlements')));
     await tester.pumpAndSettle();
 

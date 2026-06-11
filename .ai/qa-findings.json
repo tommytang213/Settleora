@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "id": "M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human screenshot review",
+    "summary": "The authenticated Home screen still looked like a plain vertical menu/list instead of a materially improved dashboard.",
+    "details": [
+      "Observed profile row, Today heading, two flat actions, menu rows, More rows, and large unused space on wider desktop/test viewport.",
+      "Observed implementation-oriented copy: No global shared-bill count is exposed by this mobile seam yet.",
+      "The screen read more like a settings/navigation hub than a useful Home dashboard."
+    ],
+    "fixSummary": [
+      "Home now has a distinct dashboard header with user context and overview chips.",
+      "Quick actions, Needs attention, Recent activity, This month, and More are explicit sections.",
+      "The shared-bills copy is user-facing and no longer mentions seams or unavailable implementation details.",
+      "The layout is constrained and adaptive for narrow and wide viewports, with focused tests covering both."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "forbiddenChangeDetected": false
+  }
+]

@@ -49,15 +49,22 @@ void main() {
     );
 
     expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Welcome back, Taylor'), findsOneWidget);
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
     expect(find.text('Personal bills'), findsOneWidget);
     expect(find.textContaining('1 recent active bill'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(find.text('Shared bills'), findsOneWidget);
     expect(
-      find.textContaining(
-        'No global shared-bill count is exposed by this mobile seam yet.',
-      ),
+      find.textContaining('Open groups to review shared bills'),
       findsOneWidget,
+    );
+    expect(
+      find.textContaining('No global shared-bill count is exposed'),
+      findsNothing,
     );
     expect(find.textContaining('1 request may need review'), findsWidgets);
     expect(
@@ -73,6 +80,48 @@ void main() {
     expect(notificationRepository.summaryCalls, 1);
     expect(settlementRepository.listBalanceCalls, 1);
     expect(recurringRepository.listForecastCalls, 1);
+  });
+
+  testWidgets('dashboard keeps visible sections on narrow and wide viewports', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 820);
+    await pumpShell(tester, billRepository: FakeBillRepository());
+
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    expect(find.text('Create bill'), findsOneWidget);
+    expect(find.text('Create group'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    tester.view.physicalSize = const Size(1120, 820);
+    await pumpShell(
+      tester,
+      billRepository: FakeBillRepository(bills: [sampleBill()]),
+      settlementRepository: FakeSettlementRepository(
+        requests: [sampleSettlementRequest()],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    expect(find.text('Welcome back, Taylor'), findsOneWidget);
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    expect(find.textContaining('No global shared-bill count'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -192,7 +241,7 @@ void main() {
 
     await pumpShell(tester, settlementRepository: settlementRepository);
 
-    await tester.tap(find.byKey(const Key('server-shell-settlements')));
+    await scrollToAndTap(tester, const Key('server-shell-settlements'));
     await tester.pumpAndSettle();
 
     expect(find.text('Settlements'), findsWidgets);
@@ -336,7 +385,7 @@ void main() {
       notificationRepository: notificationRepository,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
@@ -384,7 +433,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('Open groups to review shared bill activity'),
+      find.textContaining('Open groups to review shared bills'),
       findsOneWidget,
     );
     expect(
@@ -618,7 +667,7 @@ void main() {
 
     expect(billRepository.listCalls, 1);
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     final callsAfterOpeningBills = billRepository.listCalls;
@@ -918,6 +967,10 @@ void main() {
       billSyncController: sampleBillSyncController(store: store),
     );
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-sync-status-open-bills')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const Key('server-shell-sync-status-open-bills')),
     );
@@ -943,7 +996,7 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     store.state = SettleoraSyncQueueState(
@@ -1023,6 +1076,18 @@ void main() {
       callsAfterOpeningNotifications + 1,
     );
   });
+}
+
+Future<void> scrollToAndTap(WidgetTester tester, Key key) async {
+  final finder = find.byKey(key);
+  await tester.dragUntilVisible(
+    finder,
+    find.byType(Scrollable).first,
+    const Offset(0, -300),
+  );
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
 }
 
 Future<void> pumpShell(
