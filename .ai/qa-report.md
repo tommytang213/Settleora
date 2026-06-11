@@ -6,7 +6,7 @@ Status: `M1-002 implementation prepared; mobile validation blocked by missing lo
 
 - [x] Current milestone goal is still accurate.
 - [x] Task queue reflects the next safe milestone work.
-- [ ] Scope guard passes for the branch under review.
+- [x] Scope guard passes for the branch under review.
 - [x] Required validation commands pass or have documented blockers.
 - [x] No forbidden backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage/privacy, deployment/env, or secret changes are present.
 - [ ] UI testing checklist is ready when milestone work reaches QA.
@@ -18,6 +18,9 @@ Status: `M1-002 implementation prepared; mobile validation blocked by missing lo
 - `npm run doctor:mobile`: failed in mobile preflight. Node `v22.22.2`, npm `10.9.7`, dotnet `9.0.117`, npm cache/logs writable, Docker skipped; warning `dart: unable to start (spawnSync dart ENOENT)`; failure `flutter: unable to start (spawnSync flutter ENOENT)`.
 - `npm run validate:mobile`: failed in the same mobile preflight before `flutter pub get`, `flutter analyze`, or `flutter test`; warning `dart: unable to start (spawnSync dart ENOENT)`; failure `flutter: unable to start (spawnSync flutter ENOENT)`.
 - `npm run validate:docs`: passed; documentation validation passed.
+- `git status --short`: passed with no output after commit.
+- `git diff --check origin/ai/integration...HEAD`: passed with no output after commit.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit with changed files limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `apps/mobile/test/group_bill_list_screen_test.dart`, and `docs/qa/M1_GROUP_BILL_CREATE_QA_MAP.md`.
 - M1-001 pre-validation reconciliation: active controller state now points at `M1-001`, the bootstrap task is marked completed, and the M1 queue remains ordered for safe mobile group-bill UI-test readiness work.
 - M1-001 state closure: `M1-001` is marked completed, `lastCompletedTaskId` is `M1-001`, and the next controller task is `M1-002`.
 - PR #77 scope guard/check status before merge gate: GitHub `Scope guard` passed, changed files are limited to `.ai/qa-report.md`, `.ai/state.json`, and `.ai/task-queue.json`, and the PR merge state is `CLEAN`.
