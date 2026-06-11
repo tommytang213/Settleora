@@ -26,6 +26,17 @@ Status: `AI V3 controller hardening validation passed; ready for PR merge gate`
 - `npm run validate:docs`: passed; documentation validation passed.
 - `npm run validate:scaffold`: passed; scaffold validation passed for 19 paths.
 - `npm run validate:openapi`: passed; Redocly validated `packages/contracts/openapi/settleora.v1.yaml`.
+- Post-commit `git status --short`: passed with no output.
+- Post-commit `git diff --name-only origin/ai/integration...HEAD`: passed; changed files were `.ai/qa-report.md`, `docs/workflow/AI_V3_CONTROLLER.md`, `scripts/ai/run-v3-milestone.sh`, `scripts/ai/v3-controller.mjs`, and `scripts/ai/v3-scope-guard.mjs`.
+- Post-commit `git diff --check origin/ai/integration...HEAD`: passed with no output.
+- Post-commit `node --check scripts/ai/v3-controller.mjs`: passed with no output.
+- Post-commit `bash -n scripts/ai/run-v3-milestone.sh`: passed with no output.
+- Post-commit `bash -lc 'command -v node && command -v /home/tommytang213/bin/codex-vm-full && command -v /opt/flutter/bin/flutter'`: passed; resolved `/usr/bin/node`, `/home/tommytang213/bin/codex-vm-full`, and `/opt/flutter/bin/flutter`.
+- Post-commit `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`: passed; selected `M1-005 - Group bill UI navigation and checklist polish`, wrote a prompt under `/workspace/logs/ai-v3-controller/tasks/`, wrote a run log under `/workspace/logs/ai-v3-controller/`, and did not invoke Codex.
+- Post-commit `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed; five changed files were classified as allowed M1 paths and scope guard passed.
+- Post-commit `npm run validate:docs`: passed; documentation validation passed.
+- Post-commit `npm run validate:scaffold`: passed; scaffold validation passed for 19 paths.
+- Post-commit `npm run validate:openapi`: passed; Redocly validated `packages/contracts/openapi/settleora.v1.yaml`.
 - M1-004 dirty salvage: preserved the dirty M1-004 diff on `ai/task/m1-004-receipt-attachment-handoff-clarity`, confirmed dirty files were limited to the six expected mobile bill/test files, and completed focused receipt/supporting-attachment handoff copy polish without backend/API, generated-client, storage-policy, auth, schema, money, deployment, CI, or secret changes.
 - M1-004 implementation: clarified receipt versus supporting attachment upload choices, receipt upload success feedback, saved attachment row handoff copy, and group/personal bill create draft attachment copy so receipts remain evidence/input with provisional review-first OCR and supporting files remain bill evidence only.
 - M1-004 state repair: `M1-004` is marked completed, `lastCompletedTaskId` is `M1-004`, `currentTaskId` is `M1-005`, and human-review/blocker state remains clear.
