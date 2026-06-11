@@ -528,8 +528,8 @@ class _SettleoraAuthenticatedServerShellState
               title: Text(currentUser.displayName),
               subtitle: Text(
                 defaultCurrency == null
-                    ? 'Signed in'
-                    : 'Signed in - $defaultCurrency',
+                    ? 'Server mode'
+                    : 'Server mode - $defaultCurrency',
               ),
               trailing: IconButton(
                 key: const Key('server-shell-profile'),
@@ -625,6 +625,7 @@ class _SettleoraAuthenticatedServerShellState
               icon: Icons.receipt_long_outlined,
               title: 'Receipt Reviews',
               subtitle: 'Review OCR data attached to bills',
+              detail: 'Home does not load receipt-review counts yet.',
               onTap: _openReceiptReviews,
             ),
             _DashboardNavigationTile(
@@ -893,7 +894,11 @@ class _DashboardOverviewContent extends StatelessWidget {
     return Column(
       children: [
         if (overview.isEmpty) ...[
-          const _DashboardEmptyCard(),
+          _DashboardEmptyCard(
+            onOpenBills: onOpenBills,
+            onOpenGroups: onOpenGroups,
+            onOpenSettlements: onOpenSettlements,
+          ),
           const SizedBox(height: 8),
         ],
         _DashboardSyncStatusCard(
@@ -977,22 +982,62 @@ class _DashboardOverviewContent extends StatelessWidget {
 }
 
 class _DashboardEmptyCard extends StatelessWidget {
-  const _DashboardEmptyCard();
+  const _DashboardEmptyCard({
+    required this.onOpenBills,
+    required this.onOpenGroups,
+    required this.onOpenSettlements,
+  });
+
+  final VoidCallback onOpenBills;
+  final VoidCallback onOpenGroups;
+  final VoidCallback onOpenSettlements;
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
+      key: const Key('server-shell-empty-state'),
       child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.inbox_outlined),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'No overview items yet. Open a section below to create or review Day 1 records.',
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.inbox_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'No Home activity yet. Start with an implemented flow, or open a section to review server data.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  key: const Key('server-shell-empty-open-bills'),
+                  onPressed: onOpenBills,
+                  icon: const Icon(Icons.list_alt_outlined),
+                  label: const Text('Open Bills'),
+                ),
+                FilledButton.tonalIcon(
+                  key: const Key('server-shell-empty-open-groups'),
+                  onPressed: onOpenGroups,
+                  icon: const Icon(Icons.groups_outlined),
+                  label: const Text('Open Groups'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('server-shell-empty-open-settlements'),
+                  onPressed: onOpenSettlements,
+                  icon: const Icon(Icons.handshake_outlined),
+                  label: const Text('Open Settle'),
+                ),
+              ],
             ),
           ],
         ),

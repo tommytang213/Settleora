@@ -24,6 +24,13 @@ M2 should make the mobile app feel coherent after the M1 group-bill flow by impr
 - Which sections are placeholders or empty states because runtime data is not implemented.
 - Which existing mobile tests cover top-level navigation, Home shell rendering, and route handoffs.
 
+## M2-002 Home Shell Completion Notes
+
+- The authenticated server-mode shell now labels the current-user context as `Server mode` and includes the default currency when available.
+- The empty Home overview state now includes direct actions to the implemented Bills, Groups, and Settle surfaces.
+- Receipt Reviews remain reachable from Home, with explicit copy that Home does not load receipt-review counts yet.
+- Focused widget coverage lives in `apps/mobile/test/server_mode_shell_dashboard_test.dart`.
+
 ## Acceptance Areas
 
 ### Home Dashboard Shell

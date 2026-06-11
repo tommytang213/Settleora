@@ -1,14 +1,14 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2-002 Home/dashboard shell polish completed; controller should select M2-003 next after PR merge`
 
 ## Acceptance Checklist
 
 - [x] Current milestone goal is updated to M2 mobile navigation and Home/dashboard shell polish.
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
-- [ ] M2 current-state reconciliation completed.
-- [ ] Home/dashboard shell polish completed and validated.
+- [x] M2 current-state reconciliation completed.
+- [x] Home/dashboard shell polish completed and validated.
 - [ ] Bottom navigation clarity polish completed and validated.
 - [ ] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
@@ -56,4 +56,6 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 
 ## Findings
 
-- No open M2 QA findings at kickoff.
+- No open M2 QA findings after M2-002.
+- M2-002 updates the authenticated server-mode Home shell to show explicit server-mode context, an actionable empty state for Bills, Groups, and Settle routes, and honest receipt-review count unavailability copy.
+- Focused dashboard widget coverage was updated for the new empty-state actions, server-mode label, and receipt-review placeholder.

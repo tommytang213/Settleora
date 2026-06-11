@@ -49,6 +49,7 @@ void main() {
     );
 
     expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Server mode - USD'), findsOneWidget);
     expect(find.text('Personal bills'), findsOneWidget);
     expect(find.textContaining('1 recent active bill'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
@@ -366,6 +367,7 @@ void main() {
   testWidgets('dashboard renders honest empty state', (tester) async {
     await pumpShell(tester);
 
+    expect(find.byKey(const Key('server-shell-empty-state')), findsOneWidget);
     expect(
       find.byKey(const Key('server-shell-create-personal-bill')),
       findsOneWidget,
@@ -375,8 +377,20 @@ void main() {
     expect(find.text('Create group'), findsOneWidget);
     expect(
       find.text(
-        'No overview items yet. Open a section below to create or review Day 1 records.',
+        'No Home activity yet. Start with an implemented flow, or open a section to review server data.',
       ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('server-shell-empty-open-bills')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('server-shell-empty-open-groups')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('server-shell-empty-open-settlements')),
       findsOneWidget,
     );
     expect(
@@ -391,6 +405,61 @@ void main() {
       find.textContaining(
         'Open recurring bills to review templates and forecast',
       ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('dashboard empty state actions open implemented sections', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    await tester.tap(find.byKey(const Key('server-shell-empty-open-bills')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsWidgets);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('server-shell-empty-open-groups')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsOneWidget);
+    expect(find.byKey(const Key('group-list-create')), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('server-shell-empty-open-settlements')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settlements'), findsWidgets);
+    expect(
+      find.byKey(const Key('settlement-list-filter-all')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('dashboard is explicit when Home has no receipt review count', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    final receiptTile = find.byKey(const Key('server-shell-receipt-reviews'));
+    await tester.dragUntilVisible(
+      receiptTile,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(receiptTile);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Home does not load receipt-review counts yet.'),
       findsOneWidget,
     );
   });
