@@ -2440,6 +2440,8 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillDetail? _createdBillAwaitingCompletion;
   _GroupBillCreateEntryMode _entryMode = _GroupBillCreateEntryMode.manual;
   _GroupBillCreateStep _selectedStep = _GroupBillCreateStep.start;
+  _GroupBillSplitMode _selectedSplitMode = _GroupBillSplitMode.byItem;
+  String _splitAssignmentFilter = _groupBillAssignmentFilterAll;
   String? _itemListError;
   String? _splitTotalError;
   String? _payerTotalError;
@@ -2551,6 +2553,104 @@ class _SettleoraGroupBillCreateScreenState
       final removed = _payerControllers.removeAt(index);
       removed.dispose();
       _payerTotalError = null;
+    });
+  }
+
+  void _selectSplitMode(_GroupBillSplitMode mode) {
+    setState(() {
+      _selectedSplitMode = mode;
+    });
+  }
+
+  void _selectSplitAssignmentFilter(String filter) {
+    setState(() {
+      _splitAssignmentFilter = filter;
+    });
+  }
+
+  void _assignAllUnassignedEqually() {
+    if (_isSaving || _members.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      for (final item in _itemControllers) {
+        if (!_groupBillCreateItemIsUnassigned(item)) {
+          continue;
+        }
+
+        for (final split in item.splits) {
+          split.dispose();
+        }
+        item.splits
+          ..clear()
+          ..addAll([
+            for (final member in _members)
+              _GroupBillCreateSplitControllers()
+                ..userProfileId = member.userProfileId
+                ..splitMethod.text = 'equal',
+          ]);
+      }
+      _splitTotalError = null;
+    });
+  }
+
+  void _clearSplitAssignments() {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      for (final item in _itemControllers) {
+        for (final split in item.splits) {
+          split.dispose();
+        }
+        item.splits
+          ..clear()
+          ..add(_GroupBillCreateSplitControllers());
+      }
+      _splitTotalError = null;
+    });
+  }
+
+  Future<void> _openAssignItemSheet(int itemIndex) async {
+    if (_isSaving || itemIndex < 0 || itemIndex >= _itemControllers.length) {
+      return;
+    }
+
+    final assignment = await showModalBottomSheet<_GroupBillItemAssignment>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _GroupBillAssignItemSheet(
+        itemIndex: itemIndex,
+        item: _itemControllers[itemIndex],
+        members: _members,
+        currency: _currencyController.text,
+      ),
+    );
+    if (!mounted || assignment == null) {
+      return;
+    }
+
+    setState(() {
+      final item = _itemControllers[itemIndex];
+      for (final split in item.splits) {
+        split.dispose();
+      }
+      item.splits
+        ..clear()
+        ..addAll([
+          for (final memberId in assignment.memberIds)
+            _GroupBillCreateSplitControllers()
+              ..userProfileId = memberId
+              ..splitMethod.text = assignment.method.apiValue
+              ..basisValue.text = assignment.basisValueFor(memberId)
+              ..allocationOrder.text = assignment.allocationOrderFor(memberId),
+        ]);
+      if (item.splits.isEmpty) {
+        item.splits.add(_GroupBillCreateSplitControllers());
+      }
+      _splitTotalError = null;
     });
   }
 
@@ -3078,7 +3178,7 @@ class _SettleoraGroupBillCreateScreenState
               return Form(
                 key: _formKey,
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 152),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -3304,9 +3404,19 @@ class _SettleoraGroupBillCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _GroupBillSplitPreview(
+                            _GroupBillSplitAssignmentWorkspace(
                               members: _members,
                               itemControllers: _itemControllers,
+                              currency: _currencyController.text,
+                              selectedMode: _selectedSplitMode,
+                              selectedFilter: _splitAssignmentFilter,
+                              isSaving: _isSaving,
+                              onModeSelected: _selectSplitMode,
+                              onFilterSelected: _selectSplitAssignmentFilter,
+                              onAssignAllUnassignedEqually:
+                                  _assignAllUnassignedEqually,
+                              onClearAssignments: _clearSplitAssignments,
+                              onAssignItem: _openAssignItemSheet,
                             ),
                             if (splitTotalError != null) ...[
                               const SizedBox(height: 12),
@@ -3709,40 +3819,94 @@ class _ReceiptOcrGuidanceCard extends StatelessWidget {
   }
 }
 
-class _GroupBillSplitPreview extends StatelessWidget {
-  const _GroupBillSplitPreview({
+const _groupBillAssignmentFilterAll = 'all';
+const _groupBillAssignmentFilterUnassigned = 'unassigned';
+
+enum _GroupBillSplitMode {
+  equal('Equal', 'equal'),
+  byItem('By item', 'equal'),
+  exact('Exact amount', 'exact_amount'),
+  share('Share', 'share');
+
+  const _GroupBillSplitMode(this.label, this.apiValue);
+
+  final String label;
+  final String apiValue;
+}
+
+enum _GroupBillAssignmentMethod {
+  equal('Equal', 'equal', Icons.splitscreen_outlined),
+  quantity('Quantity', 'quantity', Icons.exposure_plus_1_outlined),
+  exactAmount('Exact amount', 'exact_amount', Icons.payments_outlined),
+  share('Share', 'share', Icons.pie_chart_outline);
+
+  const _GroupBillAssignmentMethod(this.label, this.apiValue, this.icon);
+
+  final String label;
+  final String apiValue;
+  final IconData icon;
+}
+
+class _GroupBillSplitAssignmentWorkspace extends StatelessWidget {
+  const _GroupBillSplitAssignmentWorkspace({
     required this.members,
     required this.itemControllers,
+    required this.currency,
+    required this.selectedMode,
+    required this.selectedFilter,
+    required this.isSaving,
+    required this.onModeSelected,
+    required this.onFilterSelected,
+    required this.onAssignAllUnassignedEqually,
+    required this.onClearAssignments,
+    required this.onAssignItem,
   });
 
   final List<SettleoraGroupMember> members;
   final List<_GroupBillCreateItemControllers> itemControllers;
+  final String currency;
+  final _GroupBillSplitMode selectedMode;
+  final String selectedFilter;
+  final bool isSaving;
+  final ValueChanged<_GroupBillSplitMode> onModeSelected;
+  final ValueChanged<String> onFilterSelected;
+  final VoidCallback onAssignAllUnassignedEqually;
+  final VoidCallback onClearAssignments;
+  final ValueChanged<int> onAssignItem;
 
   @override
   Widget build(BuildContext context) {
     final missing = _groupBillCreateMissingSplitMembers(itemControllers);
-    final selectedNames = _selectedGroupBillCreateMemberNames(
-      members: members,
+    final unassignedItems = itemControllers
+        .where(_groupBillCreateItemIsUnassigned)
+        .length;
+    final visibleItems = _filteredGroupBillAssignmentItems(
       itemControllers: itemControllers,
-      payerControllers: const [],
+      selectedFilter: selectedFilter,
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Wrap(
+          key: const Key('group-bill-split-mode-selector'),
           spacing: 8,
           runSpacing: 8,
-          children: const [
-            StatusChip(label: 'Equal', size: StatusChipSize.small),
-            StatusChip(label: 'By item', size: StatusChipSize.small),
-            StatusChip(label: 'Exact amount', size: StatusChipSize.small),
-            StatusChip(label: 'Share/ratio', size: StatusChipSize.small),
+          children: [
+            for (final mode in _GroupBillSplitMode.values)
+              ChoiceChip(
+                key: ValueKey('group-bill-split-mode-${mode.name}'),
+                selected: selectedMode == mode,
+                label: Text(mode.label),
+                onSelected: isSaving ? null : (_) => onModeSelected(mode),
+              ),
           ],
         ),
         const SizedBox(height: 12),
         _CreatePreviewStrip(
-          label: 'Split assignment preview',
+          label: selectedMode == _GroupBillSplitMode.byItem
+              ? 'By item assignment workspace'
+              : '${selectedMode.label} split preview',
           value: missing == 0
               ? 'All item split rows have a selected member.'
               : '${_pluralCount(missing, 'split row')} still needs a member.',
@@ -3753,16 +3917,788 @@ class _GroupBillSplitPreview extends StatelessWidget {
               ? StatusChipVariant.success
               : StatusChipVariant.warning,
         ),
-        const SizedBox(height: 10),
-        Text(
-          selectedNames.isEmpty
-              ? 'Item assignment preview: no members selected yet.'
-              : 'Item assignment preview: ${selectedNames.join(', ')}.',
+        if (selectedMode != _GroupBillSplitMode.byItem) ...[
+          const SizedBox(height: 10),
+          Text(
+            'This is a local split preview. The API remains authoritative for final participant shares.',
+            style: TextStyle(color: context.settleoraColors.textMuted),
+          ),
+        ],
+        const SizedBox(height: 12),
+        _GroupBillAssignmentFilters(
+          members: members,
+          selectedFilter: selectedFilter,
+          itemControllers: itemControllers,
+          onSelected: isSaving ? null : onFilterSelected,
+        ),
+        const SizedBox(height: 12),
+        _GroupBillAssignmentActions(
+          canAssignAll: !isSaving && members.isNotEmpty && unassignedItems > 0,
+          canClear:
+              !isSaving &&
+              _groupBillCreateAssignedItemCount(itemControllers) > 0,
+          onAssignAllUnassignedEqually: onAssignAllUnassignedEqually,
+          onClearAssignments: onClearAssignments,
+        ),
+        if (unassignedItems > 0) ...[
+          const SizedBox(height: 12),
+          _GroupBillUnassignedWarning(
+            unassignedItems: unassignedItems,
+            onReviewItems: () =>
+                onFilterSelected(_groupBillAssignmentFilterUnassigned),
+            onAssignAllUnassignedEqually: onAssignAllUnassignedEqually,
+            canAssignAll: !isSaving && members.isNotEmpty,
+          ),
+        ],
+        const SizedBox(height: 12),
+        for (final itemIndex in visibleItems) ...[
+          _GroupBillAssignableItemRow(
+            key: ValueKey('group-bill-assignable-item-$itemIndex'),
+            itemIndex: itemIndex,
+            item: itemControllers[itemIndex],
+            members: members,
+            currency: currency,
+            onTap: isSaving ? null : () => onAssignItem(itemIndex),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (visibleItems.isEmpty)
+          const _MemberPickerEmptyState(
+            title: 'No matching items',
+            body: 'No item rows match this assignment filter.',
+          ),
+        const SizedBox(height: 4),
+        _GroupBillTaxServiceAllocationControls(currency: currency),
+      ],
+    );
+  }
+}
+
+class _GroupBillAssignmentFilters extends StatelessWidget {
+  const _GroupBillAssignmentFilters({
+    required this.members,
+    required this.selectedFilter,
+    required this.itemControllers,
+    required this.onSelected,
+  });
+
+  final List<SettleoraGroupMember> members;
+  final String selectedFilter;
+  final List<_GroupBillCreateItemControllers> itemControllers;
+  final ValueChanged<String>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final filters = <(String, String)>[
+      (_groupBillAssignmentFilterAll, 'All'),
+      for (final member in members)
+        (member.userProfileId, member.safeDisplayName),
+      (_groupBillAssignmentFilterUnassigned, 'Unassigned'),
+    ];
+
+    return SingleChildScrollView(
+      key: const Key('group-bill-assignment-filters'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final filter in filters) ...[
+            ChoiceChip(
+              key: ValueKey('group-bill-assignment-filter-${filter.$1}'),
+              selected: selectedFilter == filter.$1,
+              label: Text(
+                '${filter.$2} (${_groupBillAssignmentFilterCount(itemControllers, filter.$1)})',
+              ),
+              onSelected: onSelected == null
+                  ? null
+                  : (_) => onSelected!(filter.$1),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupBillAssignmentActions extends StatelessWidget {
+  const _GroupBillAssignmentActions({
+    required this.canAssignAll,
+    required this.canClear,
+    required this.onAssignAllUnassignedEqually,
+    required this.onClearAssignments,
+  });
+
+  final bool canAssignAll;
+  final bool canClear;
+  final VoidCallback onAssignAllUnassignedEqually;
+  final VoidCallback onClearAssignments;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        AppButton(
+          key: const Key('group-bill-assign-all-unassigned'),
+          label: 'Assign all unassigned equally',
+          icon: Icons.group_add_outlined,
+          variant: AppButtonVariant.soft,
+          onPressed: canAssignAll ? onAssignAllUnassignedEqually : null,
+        ),
+        AppButton(
+          key: const Key('group-bill-clear-assignments'),
+          label: 'Clear assignments',
+          icon: Icons.backspace_outlined,
+          variant: AppButtonVariant.secondary,
+          onPressed: canClear ? onClearAssignments : null,
         ),
       ],
     );
   }
 }
+
+class _GroupBillUnassignedWarning extends StatelessWidget {
+  const _GroupBillUnassignedWarning({
+    required this.unassignedItems,
+    required this.onReviewItems,
+    required this.onAssignAllUnassignedEqually,
+    required this.canAssignAll,
+  });
+
+  final int unassignedItems;
+  final VoidCallback onReviewItems;
+  final VoidCallback onAssignAllUnassignedEqually;
+  final bool canAssignAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      key: const Key('group-bill-unassigned-warning'),
+      container: true,
+      liveRegion: true,
+      label: '${_pluralCount(unassignedItems, 'item')} unassigned.',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.settleoraColors.warningSoft,
+          borderRadius: BorderRadius.circular(SettleoraRadius.md),
+          border: Border.all(color: context.settleoraColors.borderStrong),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.report_problem_outlined, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${_pluralCount(unassignedItems, 'item')} unassigned',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Review these rows before moving to payers or review. Continuing with unresolved assignments should be intentional.',
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  AppButton(
+                    key: const Key('group-bill-review-unassigned-items'),
+                    label: 'Review items',
+                    icon: Icons.visibility_outlined,
+                    variant: AppButtonVariant.secondary,
+                    onPressed: onReviewItems,
+                  ),
+                  AppButton(
+                    key: const Key('group-bill-warning-assign-equally'),
+                    label: 'Split equally',
+                    icon: Icons.group_add_outlined,
+                    variant: AppButtonVariant.soft,
+                    onPressed: canAssignAll
+                        ? onAssignAllUnassignedEqually
+                        : null,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillAssignableItemRow extends StatelessWidget {
+  const _GroupBillAssignableItemRow({
+    super.key,
+    required this.itemIndex,
+    required this.item,
+    required this.members,
+    required this.currency,
+    required this.onTap,
+  });
+
+  final int itemIndex;
+  final _GroupBillCreateItemControllers item;
+  final List<SettleoraGroupMember> members;
+  final String currency;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final assignedMembers = _groupBillAssignedMembers(item, members);
+    final isUnassigned = assignedMembers.isEmpty;
+    final title = item.name.text.trim().isEmpty
+        ? 'Item ${itemIndex + 1}'
+        : item.name.text.trim();
+    final quantityLabel = _groupBillQuantityLabel(item);
+    final markers = _groupBillItemMarkers(item);
+
+    return Material(
+      color: isUnassigned ? colors.warningSoft : colors.surface,
+      borderRadius: BorderRadius.circular(SettleoraRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(SettleoraRadius.md),
+            border: Border.all(
+              color: isUnassigned ? colors.borderStrong : colors.border,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              StatusChip(
+                                label: quantityLabel,
+                                icon: Icons.format_list_numbered_outlined,
+                                size: StatusChipSize.small,
+                              ),
+                              for (final marker in markers)
+                                StatusChip(
+                                  label: marker,
+                                  icon: Icons.percent_outlined,
+                                  variant: StatusChipVariant.info,
+                                  size: StatusChipSize.small,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _decimalPreviewMoney(
+                            double.tryParse(item.amount.text.trim()) ?? 0,
+                            item.currency.text.trim().isEmpty
+                                ? currency
+                                : item.currency.text,
+                          ),
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 5),
+                        StatusChip(
+                          label: isUnassigned ? 'Unassigned' : 'Assigned',
+                          variant: isUnassigned
+                              ? StatusChipVariant.warning
+                              : StatusChipVariant.success,
+                          size: StatusChipSize.small,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                assignedMembers.isEmpty
+                    ? Text(
+                        'Tap to assign this item.',
+                        style: TextStyle(color: colors.textMuted),
+                      )
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final member in assignedMembers)
+                            _AssignedMemberChip(member: member),
+                        ],
+                      ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssignedMemberChip extends StatelessWidget {
+  const _AssignedMemberChip({required this.member});
+
+  final SettleoraGroupMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = member.safeDisplayName;
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: CircleAvatar(
+        backgroundColor: context.settleoraColors.primary,
+        foregroundColor: context.settleoraColors.onPrimary,
+        child: Text(_memberInitial(label)),
+      ),
+      label: Text(label, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
+class _GroupBillTaxServiceAllocationControls extends StatelessWidget {
+  const _GroupBillTaxServiceAllocationControls({required this.currency});
+
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const Key('group-bill-tax-service-allocation'),
+      decoration: BoxDecoration(
+        color: context.settleoraColors.infoSoft,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Tax and service allocation',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Local preview only. Final tax, service, and fee allocation is validated by the server.',
+              style: TextStyle(color: context.settleoraColors.textMuted),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: const [
+                StatusChip(
+                  label: 'Proportional by assigned item total',
+                  icon: Icons.call_split_outlined,
+                  variant: StatusChipVariant.info,
+                ),
+                StatusChip(
+                  label: 'Equal across participants',
+                  icon: Icons.groups_outlined,
+                  variant: StatusChipVariant.neutral,
+                ),
+                StatusChip(
+                  label: 'Manual',
+                  icon: Icons.tune_outlined,
+                  variant: StatusChipVariant.neutral,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _InlineMetric(
+                  label: 'Tax preview',
+                  value: _decimalPreviewMoney(0, currency),
+                ),
+                _InlineMetric(
+                  label: 'Service preview',
+                  value: _decimalPreviewMoney(0, currency),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillAssignItemSheet extends StatefulWidget {
+  const _GroupBillAssignItemSheet({
+    required this.itemIndex,
+    required this.item,
+    required this.members,
+    required this.currency,
+  });
+
+  final int itemIndex;
+  final _GroupBillCreateItemControllers item;
+  final List<SettleoraGroupMember> members;
+  final String currency;
+
+  @override
+  State<_GroupBillAssignItemSheet> createState() =>
+      _GroupBillAssignItemSheetState();
+}
+
+class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
+  late final Set<String> _selectedMemberIds = {
+    for (final split in widget.item.splits)
+      if ((split.userProfileId ?? '').trim().isNotEmpty)
+        split.userProfileId!.trim(),
+  };
+  late _GroupBillAssignmentMethod _method = _initialMethod();
+  late final Map<String, int> _quantities = {
+    for (final member in widget.members)
+      member.userProfileId: _selectedMemberIds.contains(member.userProfileId)
+          ? 1
+          : 0,
+  };
+
+  _GroupBillAssignmentMethod _initialMethod() {
+    final method = widget.item.splits.isEmpty
+        ? null
+        : widget.item.splits.first.splitMethod.text.trim().toLowerCase();
+    return switch (method) {
+      'quantity' => _GroupBillAssignmentMethod.quantity,
+      'exact_amount' => _GroupBillAssignmentMethod.exactAmount,
+      'share' => _GroupBillAssignmentMethod.share,
+      _ => _GroupBillAssignmentMethod.equal,
+    };
+  }
+
+  void _toggleMember(String memberId, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedMemberIds.add(memberId);
+        _quantities[memberId] = _quantities[memberId] == 0
+            ? 1
+            : _quantities[memberId] ?? 1;
+      } else {
+        _selectedMemberIds.remove(memberId);
+        _quantities[memberId] = 0;
+      }
+    });
+  }
+
+  void _changeQuantity(String memberId, int delta) {
+    setState(() {
+      final current = _quantities[memberId] ?? 0;
+      final next = (current + delta).clamp(0, _quantitySplitTotal);
+      final otherTotal = _quantities.entries
+          .where((entry) => entry.key != memberId)
+          .fold<int>(0, (total, entry) => total + entry.value);
+      _quantities[memberId] = next > _quantitySplitTotal - otherTotal
+          ? _quantitySplitTotal - otherTotal
+          : next;
+      if ((_quantities[memberId] ?? 0) > 0) {
+        _selectedMemberIds.add(memberId);
+      } else {
+        _selectedMemberIds.remove(memberId);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = double.tryParse(widget.item.amount.text.trim()) ?? 0;
+    final itemName = widget.item.name.text.trim().isEmpty
+        ? 'Item ${widget.itemIndex + 1}'
+        : widget.item.name.text.trim();
+    final selectedMembers = [
+      for (final member in widget.members)
+        if (_selectedMemberIds.contains(member.userProfileId)) member,
+    ];
+    final selectedCount = selectedMembers.length;
+    final quantityTotal = _quantities.values.fold<int>(
+      0,
+      (total, value) => total + value,
+    );
+    final remainingQuantity = _quantitySplitTotal - quantityTotal;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.86,
+          ),
+          child: Column(
+            key: const Key('group-bill-assign-item-sheet'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Assign item',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              Text(
+                itemName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _decimalPreviewMoney(amount, widget.currency),
+                style: TextStyle(color: context.settleoraColors.textMuted),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                key: const Key('group-bill-assignment-method-selector'),
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final method in _GroupBillAssignmentMethod.values)
+                    ChoiceChip(
+                      key: ValueKey(
+                        'group-bill-assignment-method-${method.name}',
+                      ),
+                      selected: _method == method,
+                      avatar: Icon(method.icon, size: 16),
+                      label: Text(method.label),
+                      onSelected: (_) {
+                        setState(() {
+                          _method = method;
+                        });
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_method == _GroupBillAssignmentMethod.quantity) ...[
+                Text(
+                  'Remaining: $remainingQuantity',
+                  key: const Key('group-bill-quantity-remaining'),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+              ],
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final member in widget.members)
+                      CheckboxListTile(
+                        key: ValueKey(
+                          'group-bill-assign-item-member-${member.userProfileId}',
+                        ),
+                        value: _selectedMemberIds.contains(
+                          member.userProfileId,
+                        ),
+                        title: Text(member.safeDisplayName),
+                        subtitle: Text(
+                          _method == _GroupBillAssignmentMethod.quantity
+                              ? 'Quantity ${_quantities[member.userProfileId] ?? 0}'
+                              : selectedCount == 0
+                              ? 'Not included'
+                              : _decimalPreviewMoney(
+                                  amount / selectedCount,
+                                  widget.currency,
+                                ),
+                        ),
+                        onChanged: (value) =>
+                            _toggleMember(member.userProfileId, value ?? false),
+                      ),
+                    if (_method == _GroupBillAssignmentMethod.quantity) ...[
+                      const Divider(height: 20),
+                      Text(
+                        'Quantity split',
+                        key: const Key('group-bill-quantity-split-title'),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      for (final member in widget.members)
+                        _QuantitySplitControl(
+                          key: ValueKey(
+                            'group-bill-quantity-split-${member.userProfileId}',
+                          ),
+                          name: member.safeDisplayName,
+                          quantity: _quantities[member.userProfileId] ?? 0,
+                          previewAmount: _decimalPreviewMoney(
+                            amount *
+                                ((_quantities[member.userProfileId] ?? 0) /
+                                    _quantitySplitTotal),
+                            widget.currency,
+                          ),
+                          onDecrease: () =>
+                              _changeQuantity(member.userProfileId, -1),
+                          onIncrease: () =>
+                              _changeQuantity(member.userProfileId, 1),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: AppButton(
+                      key: const Key('group-bill-assign-item-cancel'),
+                      label: 'Cancel',
+                      variant: AppButtonVariant.secondary,
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: AppButton(
+                      key: const Key('group-bill-assign-item-apply'),
+                      label: 'Apply assignment',
+                      icon: Icons.check,
+                      onPressed:
+                          _selectedMemberIds.isEmpty ||
+                              (_method == _GroupBillAssignmentMethod.quantity &&
+                                  remainingQuantity != 0)
+                          ? null
+                          : () => Navigator.of(context).pop(
+                              _GroupBillItemAssignment(
+                                memberIds: [
+                                  for (final member in widget.members)
+                                    if (_selectedMemberIds.contains(
+                                      member.userProfileId,
+                                    ))
+                                      member.userProfileId,
+                                ],
+                                method: _method,
+                                quantities: Map<String, int>.of(_quantities),
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuantitySplitControl extends StatelessWidget {
+  const _QuantitySplitControl({
+    super.key,
+    required this.name,
+    required this.quantity,
+    required this.previewAmount,
+    required this.onDecrease,
+    required this.onIncrease,
+  });
+
+  final String name;
+  final int quantity;
+  final String previewAmount;
+  final VoidCallback onDecrease;
+  final VoidCallback onIncrease;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$name: $quantity',
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+          Text(previewAmount),
+          IconButton(
+            tooltip: 'Decrease quantity for $name',
+            onPressed: quantity == 0 ? null : onDecrease,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          IconButton(
+            tooltip: 'Increase quantity for $name',
+            onPressed: onIncrease,
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupBillItemAssignment {
+  const _GroupBillItemAssignment({
+    required this.memberIds,
+    required this.method,
+    required this.quantities,
+  });
+
+  final List<String> memberIds;
+  final _GroupBillAssignmentMethod method;
+  final Map<String, int> quantities;
+
+  String basisValueFor(String memberId) {
+    return switch (method) {
+      _GroupBillAssignmentMethod.quantity =>
+        (quantities[memberId] ?? 0).toString(),
+      _GroupBillAssignmentMethod.exactAmount => '',
+      _GroupBillAssignmentMethod.share => '1',
+      _GroupBillAssignmentMethod.equal => '',
+    };
+  }
+
+  String allocationOrderFor(String memberId) {
+    final index = memberIds.indexOf(memberId);
+    return index < 0 ? '' : index.toString();
+  }
+}
+
+const _quantitySplitTotal = 3;
 
 class _GroupBillPayerTotalsPreview extends StatelessWidget {
   const _GroupBillPayerTotalsPreview({
@@ -4162,6 +5098,107 @@ int _groupBillCreateMissingSplitMembers(
       .expand((item) => item.splits)
       .where((split) => (split.userProfileId ?? '').trim().isEmpty)
       .length;
+}
+
+bool _groupBillCreateItemIsUnassigned(_GroupBillCreateItemControllers item) {
+  return item.splits.isEmpty ||
+      item.splits.every((split) => (split.userProfileId ?? '').trim().isEmpty);
+}
+
+int _groupBillCreateAssignedItemCount(
+  List<_GroupBillCreateItemControllers> itemControllers,
+) {
+  return itemControllers
+      .where((item) => !_groupBillCreateItemIsUnassigned(item))
+      .length;
+}
+
+List<int> _filteredGroupBillAssignmentItems({
+  required List<_GroupBillCreateItemControllers> itemControllers,
+  required String selectedFilter,
+}) {
+  final indexes = <int>[];
+  for (var index = 0; index < itemControllers.length; index += 1) {
+    final item = itemControllers[index];
+    if (selectedFilter == _groupBillAssignmentFilterAll) {
+      indexes.add(index);
+      continue;
+    }
+    if (selectedFilter == _groupBillAssignmentFilterUnassigned) {
+      if (_groupBillCreateItemIsUnassigned(item)) {
+        indexes.add(index);
+      }
+      continue;
+    }
+    if (item.splits.any((split) => split.userProfileId == selectedFilter)) {
+      indexes.add(index);
+    }
+  }
+  return indexes;
+}
+
+int _groupBillAssignmentFilterCount(
+  List<_GroupBillCreateItemControllers> itemControllers,
+  String filter,
+) {
+  return _filteredGroupBillAssignmentItems(
+    itemControllers: itemControllers,
+    selectedFilter: filter,
+  ).length;
+}
+
+List<SettleoraGroupMember> _groupBillAssignedMembers(
+  _GroupBillCreateItemControllers item,
+  List<SettleoraGroupMember> members,
+) {
+  final assignedIds = <String>{
+    for (final split in item.splits)
+      if ((split.userProfileId ?? '').trim().isNotEmpty)
+        split.userProfileId!.trim(),
+  };
+  return [
+    for (final member in members)
+      if (assignedIds.contains(member.userProfileId)) member,
+  ];
+}
+
+String _groupBillQuantityLabel(_GroupBillCreateItemControllers item) {
+  final noteMatch = RegExp(
+    r'(?:qty|quantity)\s*[:=]\s*(\d+)',
+    caseSensitive: false,
+  ).firstMatch(item.note.text);
+  if (noteMatch != null) {
+    return 'Qty ${noteMatch.group(1)}';
+  }
+
+  for (final token in item.note.text.split(RegExp(r'[\s,;]+'))) {
+    final match = RegExp(
+      r'^(?:qty|quantity)[:=]?(\d+)$',
+      caseSensitive: false,
+    ).firstMatch(token.trim());
+    if (match != null) {
+      return 'Qty ${match.group(1)}';
+    }
+  }
+
+  return 'Qty preview';
+}
+
+List<String> _groupBillItemMarkers(_GroupBillCreateItemControllers item) {
+  final note = item.note.text.toLowerCase();
+  return [
+    if (note.contains('tax')) 'Tax',
+    if (note.contains('service') || note.contains('fee')) 'Service/fee',
+  ];
+}
+
+String _memberInitial(String label) {
+  final trimmed = label.trim();
+  if (trimmed.isEmpty) {
+    return '?';
+  }
+
+  return trimmed.substring(0, 1).toUpperCase();
 }
 
 double _groupBillCreateDecimalTotal(Iterable<String> values) {

@@ -2525,6 +2525,226 @@ void main() {
     expect(find.text('Removed Morgan'), findsNothing);
   });
 
+  testWidgets('group bill split assignment workspace renders item state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+              sampleMember(
+                userProfileId: 'priya-profile-id',
+                displayName: 'Priya',
+              ),
+              sampleMember(
+                userProfileId: 'jordan-profile-id',
+                displayName: 'Jordan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-item')));
+    await tester.tap(find.byKey(const Key('group-bill-add-item')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-name-1')),
+      'Tea',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-amount-1')),
+      '6.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-currency-1')),
+      'usd',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-note-1')),
+      'tax service qty:3',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-assignment-filters')),
+    );
+
+    expect(
+      find.byKey(const Key('group-bill-split-mode-selector')),
+      findsOneWidget,
+    );
+    expect(find.text('Equal'), findsWidgets);
+    expect(find.text('By item'), findsWidgets);
+    expect(find.text('Exact amount'), findsWidgets);
+    expect(find.text('Share'), findsWidgets);
+    expect(find.text('All (2)'), findsOneWidget);
+    expect(find.text('Taylor (1)'), findsOneWidget);
+    expect(find.text('Morgan (0)'), findsOneWidget);
+    expect(find.text('Priya (0)'), findsOneWidget);
+    expect(find.text('Jordan (0)'), findsOneWidget);
+    expect(find.text('Unassigned (1)'), findsOneWidget);
+    expect(find.text('Tea'), findsWidgets);
+    expect(find.text('Qty preview'), findsWidgets);
+    expect(
+      find.byKey(const Key('group-bill-unassigned-warning')),
+      findsOneWidget,
+    );
+    expect(find.text('1 item unassigned'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-tax-service-allocation')),
+      findsOneWidget,
+    );
+    expect(find.text('Proportional by assigned item total'), findsOneWidget);
+    expect(find.text('Equal across participants'), findsOneWidget);
+    expect(find.text('Manual'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+  });
+
+  testWidgets('group bill assign item sheet renders quantity split controls', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-assignable-item-0')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-assignable-item-0')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('group-bill-assign-item-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('Assign item'), findsOneWidget);
+    expect(find.text('Noodles'), findsWidgets);
+    expect(find.text('12.00 USD'), findsWidgets);
+    expect(find.text('Taylor'), findsWidgets);
+    expect(find.text('Morgan'), findsWidgets);
+    expect(find.text('Equal'), findsWidgets);
+    expect(find.text('Quantity'), findsOneWidget);
+    expect(find.text('Exact amount'), findsWidgets);
+    expect(find.text('Share'), findsWidgets);
+
+    await tester.tap(
+      find.byKey(const Key('group-bill-assignment-method-quantity')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('group-bill-quantity-split-title')),
+      findsOneWidget,
+    );
+    expect(find.text('Taylor: 1'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-quantity-remaining')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('group-bill-assign-item-apply')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('group bill assign item sheet applies selected members locally', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: FakeBillRepository(),
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-name-0')),
+      'Tea',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-amount-0')),
+      '6.00',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-assignable-item-0')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-assignable-item-0')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const Key(
+          'group-bill-assign-item-member-66666666-6666-6666-6666-666666666666',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-assign-item-apply')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Assigned'), findsOneWidget);
+    expect(find.text('Morgan'), findsWidgets);
+    expect(
+      find.byKey(const Key('group-bill-unassigned-warning')),
+      findsNothing,
+    );
+  });
+
   testWidgets('group bill create maps member split and payer draft strings', (
     tester,
   ) async {
