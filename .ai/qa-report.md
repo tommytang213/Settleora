@@ -56,6 +56,9 @@ Status: `M2-002 Home/dashboard shell polish completed; controller should select 
 
 ## Findings
 
+- `M2-001` reconciled the QA map against the current Flutter implementation. The authenticated Home is `SettleoraAuthenticatedServerShell`; `DashboardPreviewScreen` is a static preview/demo, not the runtime landing screen.
+- The shared bottom nav currently defines `Home`, `Bills`, `Groups`, `Settle`, `Receipts`, and `Profile`, but pushed screens use it mostly as fixed selected-context chrome without wired cross-tab `onSelected` behavior.
+- Home dashboard data is backed by existing personal bill, notification, settlement, recurring bill, and local personal-bill sync seams. Shared-bill global counts and receipt-review counts are not currently loaded into Home.
 - M2-002 updates the authenticated server-mode Home shell to show explicit server-mode context, an actionable empty state for Bills, Groups, and Settle routes, and honest receipt-review count unavailability copy.
 - Focused dashboard widget coverage was updated for the new empty-state actions, server-mode label, and receipt-review placeholder.
 - The pre-existing draft PR branch was updated with the current `origin/ai/integration` scope-guard fix before validation; PR #90 for M2-001 remains open, so PR ordering should be reviewed before merge.
