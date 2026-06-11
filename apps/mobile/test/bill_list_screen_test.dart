@@ -4330,7 +4330,7 @@ void main() {
     await tester.tap(find.byKey(const Key('server-shell-settlements')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Settlements'), findsOneWidget);
+    expect(find.text('Settlements'), findsWidgets);
     expect(find.text('No balances'), findsOneWidget);
     expect(settlementRepository.listBalancesCalls, 2);
     expect(settlementRepository.listRequestsCalls, 2);

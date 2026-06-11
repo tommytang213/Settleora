@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart';
 import 'settlement_repository.dart';
 
 class SettleoraSettlementListScreen extends StatefulWidget {
@@ -131,6 +132,9 @@ class _SettleoraSettlementListScreenState
             icon: const Icon(Icons.refresh),
           ),
         ],
+      ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.settle,
       ),
       body: SafeArea(
         child: Builder(

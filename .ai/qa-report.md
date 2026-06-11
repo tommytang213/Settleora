@@ -1,15 +1,15 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2-003 bottom navigation clarity polish completed; controller should select M2-004 next`
 
 ## Acceptance Checklist
 
 - [x] Current milestone goal is updated to M2 mobile navigation and Home/dashboard shell polish.
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
-- [ ] M2 current-state reconciliation completed.
-- [ ] Home/dashboard shell polish completed and validated.
-- [ ] Bottom navigation clarity polish completed and validated.
+- [x] M2 current-state reconciliation completed.
+- [x] Home/dashboard shell polish completed and validated.
+- [x] Bottom navigation clarity polish completed and validated.
 - [ ] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
 - [ ] Human UI testing checklist completed.
@@ -56,4 +56,10 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 
 ## Findings
 
-- No open M2 QA findings at kickoff.
+- `M2-003` added the shared bottom navigation to the authenticated Home shell and wired Home tab taps to existing implemented Bills, Groups, Settle, Receipts, and Profile surfaces only.
+- The shared bottom navigation now exposes labeled tab semantics and no longer styles the Settle destination as filled/active when another destination is selected.
+- Groups, Settlements, Receipt Reviews, and Profile list-level screens now render the shared bottom navigation with the matching selected top-level context.
+- Focused widget coverage now verifies Home bottom navigation labels, selected state, and route handoffs to the implemented top-level mobile surfaces.
+- Existing title-count and viewport-sensitive tests were updated for visible bottom navigation labels and the reduced dashboard viewport height.
+- Focused validation passed for `PATH=/opt/flutter/bin:$PATH flutter test test/server_mode_shell_dashboard_test.dart`.
+- Affected screen validation passed for `PATH=/opt/flutter/bin:$PATH flutter test test/settlement_list_screen_test.dart test/receipt_ocr_review_screen_test.dart test/widget_test.dart test/bill_list_screen_test.dart`.

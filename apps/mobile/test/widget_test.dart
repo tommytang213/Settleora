@@ -156,10 +156,10 @@ void main() {
     expect(storage.session?.refreshCredential, 'redacted-signed-in-refresh');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipts'), findsOneWidget);
     expect(repository.listCalls, 0);
 
-    await tester.tap(find.byKey(const Key('server-shell-receipt-reviews')));
+    await tester.tap(find.byKey(const Key('bottom-nav-receipts')));
     await tester.pumpAndSettle();
 
     expect(find.text('No receipt reviews'), findsOneWidget);
@@ -194,10 +194,10 @@ void main() {
     expect(authRepository.currentUserCalls, 1);
     expect(authRepository.lastAccessToken, 'saved-access-token');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipts'), findsOneWidget);
     expect(repository.listCalls, 0);
 
-    await tester.tap(find.byKey(const Key('server-shell-receipt-reviews')));
+    await tester.tap(find.byKey(const Key('bottom-nav-receipts')));
     await tester.pumpAndSettle();
 
     expect(find.text('No receipt reviews'), findsOneWidget);
@@ -245,7 +245,7 @@ void main() {
     expect(storage.session?.accessToken, 'rotated-access-token');
     expect(storage.session?.refreshCredential, 'rotated-refresh-token');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipts'), findsOneWidget);
   });
 
   testWidgets('denied sign-in maps to a safe UI failure', (tester) async {

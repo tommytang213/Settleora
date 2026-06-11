@@ -24,6 +24,7 @@ import '../reports/report_repository.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import '../sync/sync_queue_processor.dart';
+import '../ui/settleora_components.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
@@ -365,6 +366,30 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _handleBottomNavSelected(
+    SettleoraNavDestination destination,
+  ) async {
+    switch (destination) {
+      case SettleoraNavDestination.home:
+        break;
+      case SettleoraNavDestination.bills:
+        await _openBills();
+        break;
+      case SettleoraNavDestination.groups:
+        await _openGroups();
+        break;
+      case SettleoraNavDestination.settle:
+        await _openSettlements();
+        break;
+      case SettleoraNavDestination.receipts:
+        await _openReceiptReviews();
+        break;
+      case SettleoraNavDestination.profile:
+        await _openProfile();
+        break;
+    }
+  }
+
   Future<void> _openCreateGroup() async {
     await _openDashboardDestination(
       (_) => SettleoraGroupListScreen(
@@ -643,6 +668,10 @@ class _SettleoraAuthenticatedServerShellState
             ),
           ],
         ),
+      ),
+      bottomNavigationBar: SettleoraBottomNav(
+        selected: SettleoraNavDestination.home,
+        onSelected: _handleBottomNavSelected,
       ),
     );
   }

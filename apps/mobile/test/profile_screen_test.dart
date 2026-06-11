@@ -237,7 +237,10 @@ void main() {
       find.byKey(const Key('profile-payment-handle')),
       hiddenValue,
     );
-    await tester.tap(find.byKey(const Key('profile-payment-save')));
+    final paymentSave = find.byKey(const Key('profile-payment-save'));
+    await tester.ensureVisible(paymentSave);
+    await tester.pumpAndSettle();
+    await tester.tap(paymentSave);
     await tester.pumpAndSettle();
 
     expect(

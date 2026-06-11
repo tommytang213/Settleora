@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/auth_session_repository.dart';
+import '../ui/settleora_components.dart';
 import 'profile_repository.dart';
 
 const _paymentMethodMaxLength = 120;
@@ -259,6 +260,9 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
             icon: const Icon(Icons.refresh),
           ),
         ],
+      ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.profile,
       ),
       body: SafeArea(
         child: Builder(

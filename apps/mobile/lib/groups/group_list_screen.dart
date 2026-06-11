@@ -6,6 +6,7 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../ui/settleora_components.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -255,6 +256,9 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
             icon: const Icon(Icons.refresh),
           ),
         ],
+      ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.groups,
       ),
       body: SafeArea(
         child: Builder(

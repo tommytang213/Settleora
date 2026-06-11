@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,8 +19,90 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
+
+bool _semanticsSelected(WidgetTester tester, Key key) {
+  return tester.getSemantics(find.byKey(key)).flagsCollection.isSelected ==
+      Tristate.isTrue;
+}
 
 void main() {
+  testWidgets('home bottom navigation labels and active state are clear', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    final bottomNav = find.byType(SettleoraBottomNav);
+    expect(bottomNav, findsOneWidget);
+    for (final label in [
+      'Home',
+      'Bills',
+      'Groups',
+      'Settle',
+      'Receipts',
+      'Profile',
+    ]) {
+      expect(
+        find.descendant(of: bottomNav, matching: find.text(label)),
+        findsOneWidget,
+      );
+    }
+
+    expect(_semanticsSelected(tester, const Key('bottom-nav-home')), isTrue);
+    expect(_semanticsSelected(tester, const Key('bottom-nav-settle')), isFalse);
+  });
+
+  testWidgets('home bottom navigation opens implemented top-level routes', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    await tester.tap(find.byKey(const Key('bottom-nav-bills')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsWidgets);
+    expect(_semanticsSelected(tester, const Key('bottom-nav-bills')), isTrue);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom-nav-groups')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsWidgets);
+    expect(_semanticsSelected(tester, const Key('bottom-nav-groups')), isTrue);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom-nav-settle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settlements'), findsWidgets);
+    expect(_semanticsSelected(tester, const Key('bottom-nav-settle')), isTrue);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom-nav-receipts')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(
+      _semanticsSelected(tester, const Key('bottom-nav-receipts')),
+      isTrue,
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom-nav-profile')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Profile'), findsWidgets);
+    expect(_semanticsSelected(tester, const Key('bottom-nav-profile')), isTrue);
+  });
+
   testWidgets('dashboard overview renders repository summaries', (
     tester,
   ) async {
@@ -155,9 +238,12 @@ void main() {
 
       await pumpShell(tester, settlementRepository: settlementRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-settlement-actions-review')),
+      final reviewButton = find.byKey(
+        const Key('server-shell-settlement-actions-review'),
       );
+      await tester.ensureVisible(reviewButton);
+      await tester.pumpAndSettle();
+      await tester.tap(reviewButton);
       await tester.pumpAndSettle();
 
       expect(find.text('Settlements'), findsWidgets);
@@ -253,9 +339,12 @@ void main() {
 
       await pumpShell(tester, recurringRepository: recurringRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-recurring-drafts-review')),
+      final reviewDraftsButton = find.byKey(
+        const Key('server-shell-recurring-drafts-review'),
       );
+      await tester.ensureVisible(reviewDraftsButton);
+      await tester.pumpAndSettle();
+      await tester.tap(reviewDraftsButton);
       await tester.pumpAndSettle();
 
       expect(find.text('Recurring bills'), findsWidgets);
@@ -487,7 +576,7 @@ void main() {
       await tester.tap(find.byKey(const Key('server-shell-create-group')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Groups'), findsOneWidget);
+      expect(find.text('Groups'), findsWidgets);
       expect(find.text('Create Group'), findsOneWidget);
       expect(find.byKey(const Key('group-form-name')), findsOneWidget);
       expect(groupRepository.listCalls, 1);
@@ -531,7 +620,7 @@ void main() {
     await tester.tap(find.byKey(const Key('group-form-cancel')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Groups'), findsWidgets);
     expect(find.text('Create Group'), findsNothing);
     expect(groupRepository.createCalls, 0);
     expect(find.text('Group created.'), findsNothing);

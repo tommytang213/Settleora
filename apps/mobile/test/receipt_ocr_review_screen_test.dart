@@ -352,6 +352,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Corner Market'), findsOneWidget);
+      await tester.dragUntilVisible(
+        find.text('Team Dinner'),
+        find.byType(Scrollable).first,
+        const Offset(0, -200),
+      );
       expect(find.text('Team Dinner'), findsOneWidget);
 
       repository.listFailure = suspiciousFailure(
@@ -361,8 +366,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.listCalls, 2);
-      expect(find.text('Corner Market'), findsOneWidget);
-      expect(find.text('Team Dinner'), findsOneWidget);
       expect(find.text('Server unavailable'), findsOneWidget);
       expect(
         find.text(
@@ -370,6 +373,18 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.dragUntilVisible(
+        find.text('Corner Market'),
+        find.byType(Scrollable).first,
+        const Offset(0, 200),
+      );
+      expect(find.text('Corner Market'), findsOneWidget);
+      await tester.dragUntilVisible(
+        find.text('Team Dinner'),
+        find.byType(Scrollable).first,
+        const Offset(0, -200),
+      );
+      expect(find.text('Team Dinner'), findsOneWidget);
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
 
@@ -648,7 +663,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Receipt Review'), findsNothing);
-      expect(find.text('Receipt Reviews'), findsOneWidget);
+      expect(find.text('Receipt Reviews'), findsWidgets);
       expect(repository.listCalls, 2);
       expectIconButtonEnabled(
         tester,

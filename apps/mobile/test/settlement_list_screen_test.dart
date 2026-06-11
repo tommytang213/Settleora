@@ -27,7 +27,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Settlements'), findsOneWidget);
+    expect(find.text('Settlements'), findsWidgets);
     expect(find.text('Outgoing balance'), findsOneWidget);
     expect(find.text('7.50 USD'), findsOneWidget);
     expect(find.text('10.00 USD'), findsOneWidget);

@@ -321,23 +321,16 @@ class SettleoraBottomNav extends StatelessWidget {
       String label,
     ) {
       final active = selected == destination;
-      final isSettle = destination == SettleoraNavDestination.settle;
-      final foreground = isSettle
-          ? colors.onPrimary
-          : active
-          ? colors.primary
-          : colors.textSubtle;
-      final background = isSettle
-          ? colors.primary
-          : active
-          ? colors.primarySoft
-          : Colors.transparent;
+      final foreground = active ? colors.primary : colors.textSubtle;
+      final background = active ? colors.primarySoft : Colors.transparent;
 
       return Expanded(
         child: Semantics(
           key: Key('bottom-nav-${destination.name}'),
+          label: '$label tab',
           selected: active,
           button: true,
+          enabled: onSelected != null,
           child: InkWell(
             borderRadius: BorderRadius.circular(SettleoraRadius.md),
             onTap: onSelected == null ? null : () => onSelected!(destination),
@@ -364,9 +357,7 @@ class SettleoraBottomNav extends StatelessWidget {
                     label,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: active && !isSettle
-                          ? colors.primary
-                          : colors.textSubtle,
+                      color: active ? colors.primary : colors.textSubtle,
                       fontWeight: active ? FontWeight.w800 : FontWeight.w600,
                       letterSpacing: 0,
                     ),

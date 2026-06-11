@@ -4,7 +4,7 @@
     "title": "Reconcile mobile nav/home current state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
@@ -28,7 +28,7 @@
     "title": "Home dashboard useful shell and empty states",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
@@ -56,7 +56,7 @@
     "title": "Bottom navigation labels, active state, and route clarity",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
