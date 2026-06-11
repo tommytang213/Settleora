@@ -245,7 +245,8 @@ String _safeAttachmentFileInputFailureMessage(String message) {
 
 String _uploadSuccessMessage(SettleoraBillAttachmentPurpose purpose) {
   return switch (purpose) {
-    SettleoraBillAttachmentPurposeValues.receipt => 'Receipt uploaded.',
+    SettleoraBillAttachmentPurposeValues.receipt =>
+      'Receipt uploaded. Review OCR before applying it to a draft.',
     _ => 'Attachment uploaded.',
   };
 }

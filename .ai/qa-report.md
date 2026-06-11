@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1-003 validation passed; ready for PR merge gate`
+Status: `M1-004 validation passed; ready for PR merge gate`
 
 ## Acceptance Checklist
 
@@ -13,6 +13,22 @@ Status: `M1-003 validation passed; ready for PR merge gate`
 
 ## Validation
 
+- M1-004 dirty salvage: preserved the dirty M1-004 diff on `ai/task/m1-004-receipt-attachment-handoff-clarity`, confirmed dirty files were limited to the six expected mobile bill/test files, and completed focused receipt/supporting-attachment handoff copy polish without backend/API, generated-client, storage-policy, auth, schema, money, deployment, CI, or secret changes.
+- M1-004 implementation: clarified receipt versus supporting attachment upload choices, receipt upload success feedback, saved attachment row handoff copy, and group/personal bill create draft attachment copy so receipts remain evidence/input with provisional review-first OCR and supporting files remain bill evidence only.
+- M1-004 state repair: `M1-004` is marked completed, `lastCompletedTaskId` is `M1-004`, `currentTaskId` is `M1-005`, and human-review/blocker state remains clear.
+- `git status --short --branch` from repo root before salvage: passed; branch was `ai/task/m1-004-receipt-attachment-handoff-clarity` with only the six expected dirty mobile files.
+- `git diff --name-only` from repo root before salvage: passed; dirty files were `apps/mobile/lib/bills/bill_attachment_section.dart`, `apps/mobile/lib/bills/bill_attachment_section_accessibility.dart`, `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/bill_attachment_section_test.dart`, `apps/mobile/test/bill_list_screen_test.dart`, and `apps/mobile/test/group_bill_list_screen_test.dart`.
+- `git diff --stat` from repo root before salvage: passed; six files changed with 136 insertions and 20 deletions before final polish.
+- `git fetch origin ai/integration`: passed; `origin/ai/integration` fetched successfully and the task branch already contained the latest integration commit.
+- `git diff --check` from repo root after `.ai` updates: passed with no output.
+- `/opt/flutter/bin/dart format --set-exit-if-changed lib/bills/bill_attachment_section.dart lib/bills/bill_attachment_section_accessibility.dart lib/bills/bill_list_screen.dart test/bill_attachment_section_test.dart test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: first run formatted `lib/bills/bill_list_screen.dart` and exited nonzero as expected under `--set-exit-if-changed`; rerun passed with 6 files checked and 0 changed.
+- `/opt/flutter/bin/flutter pub get` from `apps/mobile`: passed; dependencies resolved, with dependency-update notices only.
+- `/opt/flutter/bin/flutter analyze` from `apps/mobile`: passed; no issues found.
+- `/opt/flutter/bin/flutter test test/bill_attachment_section_test.dart test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; 164 tests passed.
+- `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` from repo root: passed; mobile doctor passed with Flutter `3.44.0` and Dart `3.12.0`, `flutter pub get` passed, `flutter analyze` passed, and the full Flutter suite passed with 524 tests.
+- `git diff --check origin/ai/integration...HEAD`: passed after commit with no output.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit with changed files limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `apps/mobile/lib/bills/bill_attachment_section.dart`, `apps/mobile/lib/bills/bill_attachment_section_accessibility.dart`, `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/bill_attachment_section_test.dart`, `apps/mobile/test/bill_list_screen_test.dart`, and `apps/mobile/test/group_bill_list_screen_test.dart`.
+- `npm run validate:docs`: passed before and after commit; documentation validation passed.
 - M1-003 implementation: polished group bill create recovery so a transient detail reload failure after successful submit retries `getGroupBill` without duplicating `submitGroupBill`; added focused widget coverage in `apps/mobile/test/group_bill_list_screen_test.dart`.
 - `/opt/flutter/bin/dart format --set-exit-if-changed lib/bills/bill_list_screen.dart test/group_bill_list_screen_test.dart` from `apps/mobile`: passed; formatted 2 files, 0 changed.
 - `/opt/flutter/bin/flutter pub get` from `apps/mobile`: passed; dependencies resolved, with dependency-update notices only.
@@ -49,4 +65,4 @@ Status: `M1-003 validation passed; ready for PR merge gate`
 
 ## Findings
 
-- No open QA blockers for M1-003 after validation with the explicit Flutter SDK path.
+- No open QA blockers for M1-004 after validation with the explicit Flutter SDK path.
