@@ -20,6 +20,8 @@ This checklist covers the mobile server-mode owner path for M1 group bill create
 - Follow the manual create path: enter merchant/payee, date, currency, one item, one member split assignment, one payer contribution, and review.
 - Check the receipt/import path behavior: choose the receipt/import route, verify Back returns to Start, and verify attachments are optional for the review checklist.
 - If attaching files, verify receipt and supporting-file choices remain distinct and that receipt OCR review remains provisional rather than automatically finalizing a bill.
+- On `Receipt & Items`, verify item rows show name, line total amount, quantity/units, currency, and note only; raw split payload controls such as split method, basis value, allocation order, and add split are not shown there.
+- Confirm item quantity/units are local split guidance only and do not multiply the line total amount.
 - Complete the item/split assignment happy path and confirm selected member rows remain understandable in the review state.
 - Check exact amount assignment: enter member amounts in the assign sheet and verify invalid totals block applying the assignment.
 - Check share assignment: enter member share weights in the assign sheet and verify preview amounts and basis values remain understandable.

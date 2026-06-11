@@ -2714,6 +2714,9 @@ class _SettleoraGroupBillCreateScreenState
 
     setState(() {
       final item = _itemControllers[itemIndex];
+      if (assignment.method == _GroupBillAssignmentMethod.quantity) {
+        item.quantityUnits.text = assignment.unitTotal.toString();
+      }
       for (final split in item.splits) {
         split.dispose();
       }
@@ -2764,6 +2767,7 @@ class _SettleoraGroupBillCreateScreenState
     final item = _itemControllers.single;
     if (item.name.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
+        item.quantityUnits.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
         item.currency.text.trim().toUpperCase() != 'USD' ||
         item.splits.length != 1 ||
@@ -2988,6 +2992,24 @@ class _SettleoraGroupBillCreateScreenState
         _selectedStep = _itemControllers.isEmpty
             ? _GroupBillCreateStep.receiptItems
             : _firstGroupBillCreateInvalidStep();
+      });
+      return;
+    }
+
+    if (_groupBillCreateMissingSplitMembers(_itemControllers) > 0) {
+      setState(() {
+        _selectedStep = _GroupBillCreateStep.split;
+        _splitTotalError =
+            'Assign every item to at least one active member before saving.';
+      });
+      return;
+    }
+
+    if (_groupBillCreateInvalidSplitBasisValueCount(_itemControllers) > 0) {
+      setState(() {
+        _selectedStep = _GroupBillCreateStep.split;
+        _splitTotalError =
+            'Complete split assignment amounts or share values before saving.';
       });
       return;
     }
@@ -4848,6 +4870,11 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
   }
 
   int _initialUnitTotal() {
+    final itemQuantity = int.tryParse(widget.item.quantityUnits.text.trim());
+    if (itemQuantity != null && itemQuantity > 0) {
+      return itemQuantity;
+    }
+
     final explicit = _quantityFromItemNote(widget.item.note.text);
     if (explicit != null && explicit > 0) {
       return explicit;
@@ -4964,6 +4991,7 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
     final itemName = widget.item.name.text.trim().isEmpty
         ? 'Item ${widget.itemIndex + 1}'
         : widget.item.name.text.trim();
+    final itemQuantity = int.tryParse(widget.item.quantityUnits.text.trim());
     final selectedMembers = [
       for (final member in widget.members)
         if (_selectedMemberIds.contains(member.userProfileId)) member,
@@ -5027,6 +5055,14 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                 _decimalPreviewMoney(amount, widget.currency),
                 style: TextStyle(color: context.settleoraColors.textMuted),
               ),
+              if (itemQuantity != null && itemQuantity > 0) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Quantity guidance: $itemQuantity units',
+                  key: const Key('group-bill-assignment-quantity-guidance'),
+                  style: TextStyle(color: context.settleoraColors.textMuted),
+                ),
+              ],
               const SizedBox(height: 12),
               Wrap(
                 key: const Key('group-bill-assignment-method-selector'),
@@ -5181,6 +5217,7 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                                       member.userProfileId,
                                 ],
                                 method: _method,
+                                unitTotal: _unitTotal,
                                 quantities: Map<String, int>.of(_quantities),
                                 exactAmounts: {
                                   for (final entry
@@ -5387,6 +5424,7 @@ class _GroupBillItemAssignment {
   const _GroupBillItemAssignment({
     required this.memberIds,
     required this.method,
+    required this.unitTotal,
     required this.quantities,
     required this.exactAmounts,
     required this.shares,
@@ -5394,6 +5432,7 @@ class _GroupBillItemAssignment {
 
   final List<String> memberIds;
   final _GroupBillAssignmentMethod method;
+  final int unitTotal;
   final Map<String, int> quantities;
   final Map<String, String> exactAmounts;
   final Map<String, String> shares;
@@ -5696,17 +5735,9 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
         .expand((item) => item.splits)
         .where((split) => (split.userProfileId ?? '').trim().isEmpty)
         .length;
-    final invalidSplitBasisValues = itemControllers
-        .expand((item) => item.splits)
-        .where(
-          (split) =>
-              _splitBasisValueError(
-                splitMethod: split.splitMethod.text,
-                basisValue: split.basisValue.text,
-              ) !=
-              null,
-        )
-        .length;
+    final invalidSplitBasisValues = _groupBillCreateInvalidSplitBasisValueCount(
+      itemControllers,
+    );
     final missingPayerMembers = payerControllers
         .where((payer) => (payer.userProfileId ?? '').trim().isEmpty)
         .length;
@@ -5919,6 +5950,22 @@ int _groupBillCreateMissingSplitMembers(
       .length;
 }
 
+int _groupBillCreateInvalidSplitBasisValueCount(
+  List<_GroupBillCreateItemControllers> itemControllers,
+) {
+  return itemControllers
+      .expand((item) => item.splits)
+      .where(
+        (split) =>
+            _splitBasisValueError(
+              splitMethod: split.splitMethod.text,
+              basisValue: split.basisValue.text,
+            ) !=
+            null,
+      )
+      .length;
+}
+
 bool _groupBillCreateItemIsUnassigned(_GroupBillCreateItemControllers item) {
   return item.splits.isEmpty ||
       item.splits.every((split) => (split.userProfileId ?? '').trim().isEmpty);
@@ -6081,12 +6128,14 @@ class _GroupBillCreateItemControllers {
   _GroupBillCreateItemControllers({String? currency})
     : name = TextEditingController(),
       amount = TextEditingController(),
+      quantityUnits = TextEditingController(),
       currency = TextEditingController(text: currency ?? ''),
       note = TextEditingController(),
       splits = [_GroupBillCreateSplitControllers()];
 
   final TextEditingController name;
   final TextEditingController amount;
+  final TextEditingController quantityUnits;
   final TextEditingController currency;
   final TextEditingController note;
   final List<_GroupBillCreateSplitControllers> splits;
@@ -6107,6 +6156,7 @@ class _GroupBillCreateItemControllers {
   void dispose() {
     name.dispose();
     amount.dispose();
+    quantityUnits.dispose();
     currency.dispose();
     note.dispose();
     for (final split in splits) {
@@ -6151,7 +6201,7 @@ class _GroupBillCreatePayerControllers {
   }
 }
 
-class _GroupBillCreateItemCard extends StatefulWidget {
+class _GroupBillCreateItemCard extends StatelessWidget {
   const _GroupBillCreateItemCard({
     required this.index,
     required this.controllers,
@@ -6169,35 +6219,8 @@ class _GroupBillCreateItemCard extends StatefulWidget {
   final VoidCallback onDraftChanged;
 
   @override
-  State<_GroupBillCreateItemCard> createState() =>
-      _GroupBillCreateItemCardState();
-}
-
-class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
-  String? _splitListError;
-
-  void _addSplit() {
-    setState(() {
-      _splitListError = null;
-      widget.controllers.addSplit();
-    });
-    widget.onDraftChanged();
-  }
-
-  void _removeSplit(int index) {
-    setState(() {
-      widget.controllers.removeSplit(index);
-      _splitListError = widget.controllers.splits.isEmpty
-          ? 'Add at least one split before saving.'
-          : null;
-    });
-    widget.onDraftChanged();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final itemNumber = widget.index + 1;
-    final splitListError = _splitListError;
+    final itemNumber = index + 1;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -6218,8 +6241,8 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
                   ),
                 ),
                 IconButton(
-                  key: ValueKey('group-bill-item-remove-${widget.index}'),
-                  onPressed: widget.isSaving ? null : widget.onRemove,
+                  key: ValueKey('group-bill-item-remove-$index'),
+                  onPressed: isSaving ? null : onRemove,
                   tooltip: 'Remove item',
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
@@ -6227,10 +6250,10 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
             ),
             const SizedBox(height: 8),
             TextFormField(
-              key: ValueKey('group-bill-item-name-${widget.index}'),
-              controller: widget.controllers.name,
-              enabled: !widget.isSaving,
-              onChanged: (_) => widget.onDraftChanged(),
+              key: ValueKey('group-bill-item-name-$index'),
+              controller: controllers.name,
+              enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Name',
@@ -6241,14 +6264,14 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('group-bill-item-amount-${widget.index}'),
-              controller: widget.controllers.amount,
-              enabled: !widget.isSaving,
-              onChanged: (_) => widget.onDraftChanged(),
+              key: ValueKey('group-bill-item-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
-                labelText: 'Amount',
+                labelText: 'Line total amount',
                 border: OutlineInputBorder(),
               ),
               validator: (value) => _positiveMoneyAmountField(
@@ -6258,10 +6281,26 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('group-bill-item-currency-${widget.index}'),
-              controller: widget.controllers.currency,
-              enabled: !widget.isSaving,
-              onChanged: (_) => widget.onDraftChanged(),
+              key: ValueKey('group-bill-item-quantity-$index'),
+              controller: controllers.quantityUnits,
+              enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Quantity / units',
+                helperText:
+                    'Optional split guidance; line total stays the same.',
+                border: OutlineInputBorder(),
+              ),
+              validator: _optionalPositiveWholeNumberField,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-currency-$index'),
+              controller: controllers.currency,
+              enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textCapitalization: TextCapitalization.characters,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
@@ -6275,176 +6314,15 @@ class _GroupBillCreateItemCardState extends State<_GroupBillCreateItemCard> {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('group-bill-item-note-${widget.index}'),
-              controller: widget.controllers.note,
-              enabled: !widget.isSaving,
-              onChanged: (_) => widget.onDraftChanged(),
+              key: ValueKey('group-bill-item-note-$index'),
+              controller: controllers.note,
+              enabled: !isSaving,
+              onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Note',
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Splits',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                TextButton.icon(
-                  key: ValueKey('group-bill-item-add-split-${widget.index}'),
-                  onPressed: widget.isSaving ? null : _addSplit,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add split'),
-                ),
-              ],
-            ),
-            if (splitListError != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                splitListError,
-                key: ValueKey('group-bill-split-list-error-${widget.index}'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            for (
-              var splitIndex = 0;
-              splitIndex < widget.controllers.splits.length;
-              splitIndex += 1
-            )
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: _GroupBillCreateSplitCard(
-                  itemIndex: widget.index,
-                  splitIndex: splitIndex,
-                  controllers: widget.controllers.splits[splitIndex],
-                  members: widget.members,
-                  isSaving: widget.isSaving,
-                  onRemove: () => _removeSplit(splitIndex),
-                  onDraftChanged: widget.onDraftChanged,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GroupBillCreateSplitCard extends StatelessWidget {
-  const _GroupBillCreateSplitCard({
-    required this.itemIndex,
-    required this.splitIndex,
-    required this.controllers,
-    required this.members,
-    required this.isSaving,
-    required this.onRemove,
-    required this.onDraftChanged,
-  });
-
-  final int itemIndex;
-  final int splitIndex;
-  final _GroupBillCreateSplitControllers controllers;
-  final List<SettleoraGroupMember> members;
-  final bool isSaving;
-  final VoidCallback onRemove;
-  final VoidCallback onDraftChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Split ${splitIndex + 1}',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ),
-                IconButton(
-                  key: ValueKey(
-                    'group-bill-split-remove-$itemIndex-$splitIndex',
-                  ),
-                  onPressed: isSaving ? null : onRemove,
-                  tooltip: 'Remove split',
-                  icon: const Icon(Icons.remove_circle_outline),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _MemberPickerField(
-              key: ValueKey('group-bill-split-member-$itemIndex-$splitIndex'),
-              label: 'Member',
-              pickerTitle: 'Choose split member',
-              searchKey: ValueKey(
-                'group-bill-split-member-search-$itemIndex-$splitIndex',
-              ),
-              clearSearchKey: ValueKey(
-                'group-bill-split-member-clear-search-$itemIndex-$splitIndex',
-              ),
-              members: members,
-              value: controllers.userProfileId,
-              enabled: !isSaving,
-              requiredMessage: 'Choose a member for every split.',
-              onChanged: (value) {
-                controllers.userProfileId = value;
-                onDraftChanged();
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('group-bill-split-method-$itemIndex-$splitIndex'),
-              controller: controllers.splitMethod,
-              enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Split method',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) =>
-                  _requiredField(value, 'Enter a split method.'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('group-bill-split-basis-$itemIndex-$splitIndex'),
-              controller: controllers.basisValue,
-              enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Basis value',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) => _splitBasisValueError(
-                splitMethod: controllers.splitMethod.text,
-                basisValue: value,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('group-bill-split-order-$itemIndex-$splitIndex'),
-              controller: controllers.allocationOrder,
-              enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Allocation order',
-                border: OutlineInputBorder(),
-              ),
-              validator: _allocationOrderError,
             ),
           ],
         ),
@@ -10046,6 +9924,23 @@ String? _positiveMoneyAmountField(
   final hasNonZeroDigit = trimmed.contains(RegExp(r'[1-9]'));
   if (!hasNonZeroDigit) {
     return 'Enter an amount greater than zero.';
+  }
+
+  return null;
+}
+
+String? _optionalPositiveWholeNumberField(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+    return 'Enter whole units.';
+  }
+
+  if (!trimmed.contains(RegExp(r'[1-9]'))) {
+    return 'Enter units greater than zero.';
   }
 
   return null;

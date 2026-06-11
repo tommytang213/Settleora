@@ -19,5 +19,12 @@
     "source": "human_ui_testing",
     "summary": "Group bill submit showed an unsupported request validation failure from a locally ready-looking draft.",
     "resolution": "Mobile generated create mapping now omits blank equal-split basisValue keys instead of serializing explicit null values; widget and generated repository tests cover valid one-item split/payer create payloads."
+  },
+  {
+    "id": "M1-UI-004",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Receipt & Items exposed raw split payload controls and lacked clear quantity/units semantics.",
+    "resolution": "Mobile group bill create now keeps Receipt & Items focused on item details with a line-total amount label and local quantity/units guidance, removes raw split-entry controls from item cards, and keeps split assignment in the Split step."
   }
 ]

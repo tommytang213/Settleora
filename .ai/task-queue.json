@@ -173,6 +173,33 @@
     ]
   },
   {
+    "id": "M1-008",
+    "title": "M1 UI-test item quantity and split cleanup",
+    "risk": "medium",
+    "autoMergeAllowed": true,
+    "status": "completed",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**",
+      "apps/mobile/lib/bills/**",
+      "apps/mobile/test/**"
+    ],
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+    ],
+    "stopConditions": [
+      "Requires backend/API/OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires settlement/payment/bill calculation policy changes",
+      "Requires Docker/env/deployment/CI changes"
+    ]
+  },
+  {
     "id": "STOP-BE-001",
     "title": "Human-gated backend/API/schema/money/security blocker",
     "risk": "high",
