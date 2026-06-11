@@ -27,7 +27,7 @@
     "title": "Reconcile current milestone/docs state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "in_progress",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**"
