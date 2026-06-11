@@ -1046,6 +1046,22 @@ function runRealControllerIteration(selection, data, promptInfo, config, iterati
   assertSuccess(branch, `Expected task branch was not created: ${promptInfo.branchName}`);
 
   const files = changedFiles(`origin/${data.state.integrationBranch}`, promptInfo.branchName);
+  const currentHead = runCommand("git", ["rev-parse", promptInfo.branchName]);
+  assertSuccess(currentHead, "Unable to resolve task branch head");
+  const expectedHeadSha = currentHead.stdout.trim();
+
+  if (files.length === 0) {
+    return {
+      codexRun,
+      pr: null,
+      merged: false,
+      headSha: expectedHeadSha,
+      noChanges: true,
+      noCommit: true,
+      noChangesReason: `No changed files between origin/${data.state.integrationBranch} and ${promptInfo.branchName}; no PR needed.`,
+    };
+  }
+
   verifyChangedFilesWithinScope(files, selection.task);
 
   if (existsSync("scripts/ai/v3-scope-guard.mjs")) {
@@ -1061,9 +1077,6 @@ function runRealControllerIteration(selection, data, promptInfo, config, iterati
     );
   }
 
-  const currentHead = runCommand("git", ["rev-parse", promptInfo.branchName]);
-  assertSuccess(currentHead, "Unable to resolve task branch head");
-  const expectedHeadSha = currentHead.stdout.trim();
   assertSuccess(
     runCommand("git", ["push", "-u", "origin", promptInfo.branchName]),
     `Unable to push task branch ${promptInfo.branchName}`,
@@ -1152,6 +1165,11 @@ function main() {
 
       try {
         Object.assign(item, runRealControllerIteration(selection, data, promptInfo, config, iteration));
+        if (item.noChanges === true) {
+          run.stopReason = item.noChangesReason || "Selected task produced no changed files; no PR needed.";
+          console.log(`Controller stopped: ${run.stopReason}`);
+          break;
+        }
       } catch (error) {
         const key = `${selection.task.id}:${error.message.split("\n")[0]}`;
         run.validationFailures[key] = (run.validationFailures[key] || 0) + 1;

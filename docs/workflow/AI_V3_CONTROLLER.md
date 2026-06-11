@@ -62,6 +62,10 @@ Auto-merge is blocked when the task branch marks itself human-gated, records a s
 
 The controller reads `.ai/qa-report.md` and `.ai/qa-findings.json`. Open findings with `controllerAction: "create_bugfix_task"` can become bugfix prompts when their scope is safe. Findings that require forbidden paths or human-gated work stop the loop. Each finding is limited to two bugfix cycles, and each controller invocation is capped by `--max-iterations`.
 
+## No-Change Tasks
+
+After Codex returns, the controller compares `origin/<integrationBranch>` to the task branch before pushing or creating a PR. If there are zero changed files, the run log records `noChanges: true` and `noCommit: true`, skips PR creation, and stops with a clear `stopReason`. The controller must never fabricate an empty commit solely to create a PR.
+
 ## Human Stop Boundaries
 
 Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, database schema or migrations, settlement/payment/bill calculation logic, Docker/env/deployment/CI changes, secrets, ambiguous GitHub state, repeated validation failures, forbidden changed files, human-gated controller state, validation-blocked state, or UI testing readiness.

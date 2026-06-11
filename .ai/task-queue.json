@@ -130,7 +130,7 @@
     "title": "Milestone QA report and UI testing checklist",
     "risk": "low",
     "autoMergeAllowed": false,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",

@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1-005 group bill UI navigation and checklist polish passed validation; ready for PR merge gate`
+Status: `M1 milestone UI-test-ready; human UI testing required before any next milestone`
 
 ## Acceptance Checklist
 
@@ -9,7 +9,16 @@ Status: `M1-005 group bill UI navigation and checklist polish passed validation;
 - [x] Scope guard passes for the branch under review.
 - [x] Required validation commands pass or have documented blockers.
 - [x] No forbidden backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage/privacy, deployment/env, or secret changes are present.
-- [ ] UI testing checklist is ready when milestone work reaches QA.
+- [x] UI testing checklist is ready when milestone work reaches QA.
+
+## M1 Final Validation Summary
+
+- PR #83 (`M1-005`) was validated and merged into `ai/integration` at `64b3d324f9f140e991bb1f9c14fe8fa8d3eab3ae`.
+- M1 group bill create/list/detail readiness is now human-gated for server-mode owner UI testing.
+- UI testing checklist: `docs/qa/M1_GROUP_BILL_UI_TESTING_CHECKLIST.md`.
+- Last validated integration commit for M1 readiness: `64b3d324f9f140e991bb1f9c14fe8fa8d3eab3ae`.
+- No open QA findings are recorded in `.ai/qa-findings.json`.
+- No forbidden backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, storage/privacy policy, or secret changes are part of M1 finalization.
 
 ## Validation
 
