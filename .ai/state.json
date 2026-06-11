@@ -6,11 +6,11 @@
   "activeMilestoneId": "M1",
   "activeMilestoneName": "Mobile Group Bill Happy Path UI-Test Readiness",
   "status": "active",
-  "lastCompletedTaskId": "M1-001",
-  "currentTaskId": "M1-003",
-  "stopReason": "M1-003 implementation is prepared, but local mobile validation cannot run because flutter and dart are unavailable on PATH.",
-  "humanReviewRequired": true,
+  "lastCompletedTaskId": "M1-003",
+  "currentTaskId": "M1-004",
+  "stopReason": null,
+  "humanReviewRequired": false,
   "forbiddenChangeDetected": false,
-  "lastValidatedCommit": null,
+  "lastValidatedCommit": "4818dbee61f29005ba813c58f94b78966c627abe",
   "uiTestingReady": false
 }
