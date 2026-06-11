@@ -1,0 +1,32 @@
+name: AI Integration Scope Guard
+
+on:
+  pull_request:
+    branches:
+      - ai/integration
+
+permissions:
+  contents: read
+
+jobs:
+  scope-guard:
+    name: Scope guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch origin "${{ github.base_ref }}"
+
+      - name: Run scope guard
+        run: |
+          extra_args=()
+          if [ "${{ github.head_ref }}" = "ai/task/v3-pipeline-bootstrap-20260611-1704" ]; then
+            extra_args+=(--allow-bootstrap-workflow)
+          fi
+
+          node scripts/ai/v3-scope-guard.mjs --base "origin/${{ github.base_ref }}" --head HEAD "${extra_args[@]}"
