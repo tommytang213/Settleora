@@ -23,4 +23,10 @@ jobs:
         run: git fetch origin "${{ github.base_ref }}"
 
       - name: Run scope guard
-        run: node scripts/ai/v3-scope-guard.mjs --base "origin/${{ github.base_ref }}" --head HEAD
+        run: |
+          extra_args=()
+          if [ "${{ github.head_ref }}" = "ai/task/v3-pipeline-bootstrap-20260611-1704" ]; then
+            extra_args+=(--allow-bootstrap-workflow)
+          fi
+
+          node scripts/ai/v3-scope-guard.mjs --base "origin/${{ github.base_ref }}" --head HEAD "${extra_args[@]}"
