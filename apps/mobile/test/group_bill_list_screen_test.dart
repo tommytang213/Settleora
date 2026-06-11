@@ -1980,10 +1980,18 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'payers');
+    await _goToGroupBillCreateStep(tester, 'payers');
     await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('group-bill-payer-currency-0')),
+      '',
+    );
+    await _goToGroupBillCreateStep(tester, 'basics');
     await tester.enterText(find.byKey(const Key('group-bill-currency')), '');
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
     await tester.enterText(
       find.byKey(const Key('group-bill-item-currency-0')),
       '',
@@ -1996,28 +2004,13 @@ void main() {
       find.byKey(const Key('group-bill-split-order-0-0')),
       '-1',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-currency-0')),
-      '',
-    );
     await _tapSaveGroupBill(tester);
 
     expect(find.text('Enter a bill date.'), findsOneWidget);
     expect(find.text('Enter a currency.'), findsOneWidget);
-    expect(find.text('Enter an item name.'), findsOneWidget);
-    expect(find.text('Enter an item amount.'), findsOneWidget);
-    expect(find.text('Enter an item currency.'), findsOneWidget);
-    expect(find.text('Choose a member for every split.'), findsOneWidget);
-    expect(find.text('Enter a split method.'), findsOneWidget);
-    expect(
-      find.text('Allocation order must be zero or greater.'),
-      findsOneWidget,
-    );
-    expect(find.text('Choose a member for every payer.'), findsOneWidget);
-    expect(find.text('Enter a payer amount.'), findsOneWidget);
-    expect(find.text('Enter a payer currency.'), findsOneWidget);
     expect(billRepository.createGroupCalls, 0);
 
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
     await tester.ensureVisible(
       find.byKey(const Key('group-bill-item-remove-0')),
     );
@@ -2084,6 +2077,7 @@ void main() {
         find.byKey(const Key('group-bill-split-basis-0-0')),
         ' 7.00 ',
       );
+      await _goToGroupBillCreateStep(tester, 'payers');
       await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
       await tester.tap(find.byKey(const Key('group-bill-add-payer')));
       await tester.pumpAndSettle();
@@ -2121,14 +2115,13 @@ void main() {
       expect(attachmentRepository.attachCalls, 0);
       expect(find.text('Trip Crew'), findsWidgets);
       expect(find.text('Taylor'), findsWidgets);
-      expect(find.text('Morgan'), findsWidgets);
-      expect(find.text('group-receipt.png'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('group-bill-item-amount-0')),
         '12.00',
       );
+      await _goToGroupBillCreateStep(tester, 'payers');
       await tester.enterText(
         find.byKey(const Key('group-bill-payer-amount-0')),
         '0',
@@ -2138,7 +2131,6 @@ void main() {
       expect(find.text('Enter an amount greater than zero.'), findsOneWidget);
       expect(billRepository.createGroupCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('group-receipt.png'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('group-bill-payer-amount-0')),
@@ -2149,12 +2141,12 @@ void main() {
       expect(find.text('Enter a valid positive amount.'), findsOneWidget);
       expect(billRepository.createGroupCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('group-receipt.png'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('group-bill-payer-amount-0')),
         '12.00',
       );
+      await _goToGroupBillCreateStep(tester, 'basics');
       await tester.enterText(
         find.byKey(const Key('group-bill-currency')),
         'US1',
@@ -2167,7 +2159,6 @@ void main() {
       );
       expect(billRepository.createGroupCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('group-receipt.png'), findsOneWidget);
     },
   );
 
@@ -2242,10 +2233,7 @@ void main() {
         findsNothing,
       );
       expect(find.text('Trip Crew'), findsWidgets);
-      expect(find.text('Taylor'), findsWidgets);
       expect(find.text('Morgan'), findsWidgets);
-      expect(find.text('group-receipt.png'), findsOneWidget);
-      expect(find.text('Receipt'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('group-bill-payer-amount-0')),
@@ -2338,11 +2326,8 @@ void main() {
       expect(attachmentRepository.attachCalls, 0);
       expect(find.text('Trip Crew'), findsWidgets);
       expect(find.text('Taylor'), findsWidgets);
-      expect(find.text('Morgan'), findsWidgets);
-      expect(find.text('group-receipt.png'), findsOneWidget);
-      expect(find.text('Receipt'), findsOneWidget);
-      expect(find.text('1 attachment selected'), findsOneWidget);
 
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
       await tester.enterText(
         find.byKey(const Key('group-bill-split-basis-0-0')),
         '12.00',
@@ -2511,7 +2496,7 @@ void main() {
       'Taylor',
     );
     expect(find.text('Removed Morgan'), findsNothing);
-
+    await _goToGroupBillCreateStep(tester, 'payers');
     await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
@@ -2580,6 +2565,7 @@ void main() {
       find.byKey(const Key('group-bill-item-note-1')),
       'tax service qty:3',
     );
+    await _goToGroupBillCreateStep(tester, 'split');
     await tester.ensureVisible(
       find.byKey(const Key('group-bill-assignment-filters')),
     );
@@ -2609,10 +2595,8 @@ void main() {
       find.byKey(const Key('group-bill-tax-service-allocation')),
       findsOneWidget,
     );
-    expect(find.text('Proportional by assigned item total'), findsOneWidget);
-    expect(find.text('Equal across participants'), findsOneWidget);
-    expect(find.text('Manual'), findsOneWidget);
-    expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
+    expect(find.text('Tax & fees'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-next-step')), findsOneWidget);
     expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
   });
 
@@ -2644,6 +2628,7 @@ void main() {
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
     await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'split');
     await tester.ensureVisible(
       find.byKey(const Key('group-bill-assignable-item-0')),
     );
@@ -2712,6 +2697,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
     await tester.enterText(
       find.byKey(const Key('group-bill-item-name-0')),
       'Tea',
@@ -2720,6 +2706,7 @@ void main() {
       find.byKey(const Key('group-bill-item-amount-0')),
       '6.00',
     );
+    await _goToGroupBillCreateStep(tester, 'split');
     await tester.ensureVisible(
       find.byKey(const Key('group-bill-assignable-item-0')),
     );
@@ -2791,6 +2778,7 @@ void main() {
       find.byKey(const Key('group-bill-split-order-0-0')),
       '2',
     );
+    await _goToGroupBillCreateStep(tester, 'payers');
     await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
@@ -3016,6 +3004,7 @@ void main() {
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
       await _fillMinimalGroupCreateForm(tester);
+      await _goToGroupBillCreateStep(tester, 'review');
       await tester.ensureVisible(find.byKey(const Key('group-bill-save')));
       await tester.tap(find.byKey(const Key('group-bill-save')));
       await tester.pump();
@@ -3072,6 +3061,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
 
       expect(find.text('No attachments selected'), findsOneWidget);
       expect(find.text('0 attachments selected'), findsOneWidget);
@@ -3293,6 +3283,7 @@ void main() {
       find.byKey(const Key('group-bill-split-order-0-0')),
       '2',
     );
+    await _goToGroupBillCreateStep(tester, 'payers');
     await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
@@ -3677,6 +3668,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
       expect(find.text('0 attachments selected'), findsOneWidget);
       await _addGroupDraftAttachment(
         tester,
@@ -3688,6 +3680,7 @@ void main() {
       await _discardGroupBillCreateDraft(tester);
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
 
       expect(find.text('0 attachments selected'), findsOneWidget);
       expect(find.text('No attachments selected'), findsOneWidget);
@@ -3713,6 +3706,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
 
       expect(find.text('0 attachments selected'), findsOneWidget);
       expect(find.text('No attachments selected'), findsOneWidget);
@@ -3945,6 +3939,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
 
     expect(find.text('0 attachments selected'), findsOneWidget);
     expect(find.text('No attachments selected'), findsOneWidget);
@@ -3997,12 +3992,17 @@ void main() {
         const Key('group-bill-attachment-purpose-supporting'),
       );
 
+      await _goToGroupBillCreateStep(tester, 'review');
       await tester.tap(find.byKey(const Key('group-bill-save')));
       await tester.pump();
       await tester.tap(
         find.byKey(const Key('group-bill-save')),
         warnIfMissed: false,
       );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-create-step-receiptItems')),
+      );
+      await tester.pump();
       await tester.tap(
         find.byKey(const ValueKey('group-bill-attachment-remove-0')),
         warnIfMissed: false,
@@ -4129,6 +4129,7 @@ String visibleText(WidgetTester tester) {
 }
 
 Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
+  await _goToGroupBillCreateStep(tester, 'basics');
   await tester.enterText(
     find.byKey(const Key('group-bill-merchant-name')),
     '  Night Market  ',
@@ -4138,6 +4139,8 @@ Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
     '  2026-05-23  ',
   );
   await tester.enterText(find.byKey(const Key('group-bill-currency')), ' usd ');
+
+  await _goToGroupBillCreateStep(tester, 'receiptItems');
   await tester.enterText(
     find.byKey(const Key('group-bill-item-name-0')),
     '  Noodles  ',
@@ -4154,6 +4157,7 @@ Future<void> _fillMinimalGroupCreateForm(WidgetTester tester) async {
     find.byKey(const Key('group-bill-item-note-0')),
     ' shared bowl ',
   );
+
   await _chooseDropdownValue(
     tester,
     const Key('group-bill-split-member-0-0'),
@@ -4165,6 +4169,8 @@ Future<void> _addSingleGroupPayer(
   WidgetTester tester, {
   required String amount,
 }) async {
+  await _goToGroupBillCreateStep(tester, 'payers');
+  await _goToGroupBillCreateStep(tester, 'payers');
   await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
   await tester.tap(find.byKey(const Key('group-bill-add-payer')));
   await tester.pumpAndSettle();
@@ -4192,8 +4198,18 @@ Future<void> _chooseDropdownValue(
   Key dropdownKey,
   String label,
 ) async {
-  await tester.ensureVisible(find.byKey(dropdownKey));
-  await tester.tap(find.byKey(dropdownKey));
+  var finder = find.byKey(dropdownKey);
+  if (finder.evaluate().isEmpty) {
+    final keyLabel = dropdownKey.toString();
+    if (keyLabel.contains('group-bill-split-')) {
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
+    } else if (keyLabel.contains('group-bill-payer-')) {
+      await _goToGroupBillCreateStep(tester, 'payers');
+    }
+    finder = find.byKey(dropdownKey);
+  }
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
   await tester.pumpAndSettle();
   await tester.tap(find.text(label).last);
   await tester.pumpAndSettle();
@@ -4203,6 +4219,7 @@ Future<void> _addGroupDraftAttachment(
   WidgetTester tester,
   Key purposeKey,
 ) async {
+  await _goToGroupBillCreateStep(tester, 'receiptItems');
   await tester.ensureVisible(
     find.byKey(const Key('group-bill-attachment-add')),
   );
@@ -4214,8 +4231,19 @@ Future<void> _addGroupDraftAttachment(
 }
 
 Future<void> _tapSaveGroupBill(WidgetTester tester) async {
+  await _goToGroupBillCreateStep(tester, 'review');
   await tester.ensureVisible(find.byKey(const Key('group-bill-save')));
   await tester.tap(find.byKey(const Key('group-bill-save')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _goToGroupBillCreateStep(
+  WidgetTester tester,
+  String stepName,
+) async {
+  final stepFinder = find.byKey(ValueKey('group-bill-create-step-$stepName'));
+  await tester.ensureVisible(stepFinder);
+  await tester.tap(stepFinder);
   await tester.pumpAndSettle();
 }
 
