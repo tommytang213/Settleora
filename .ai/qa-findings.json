@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "id": "M1-UI-001",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill create assignment sheet did not make quantity/exact/share split basis editable or understandable.",
+    "resolution": "Mobile assignment sheet now exposes exact amount and share-weight inputs, relabels quantity as unit/share weights, and blocks invalid apply states locally."
+  },
+  {
+    "id": "M1-UI-002",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill payer step was unfriendly for the common one-person-paid-first flow.",
+    "resolution": "Mobile payer step now defaults the current active user to the full item total when available and adds payer quick actions."
+  },
+  {
+    "id": "M1-UI-003",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill submit showed an unsupported request validation failure from a locally ready-looking draft.",
+    "resolution": "Mobile generated create mapping now omits blank equal-split basisValue keys instead of serializing explicit null values; widget and generated repository tests cover valid one-item split/payer create payloads."
+  }
+]

@@ -2652,20 +2652,16 @@ void main() {
     expect(find.text('Taylor'), findsWidgets);
     expect(find.text('Morgan'), findsWidgets);
     expect(find.text('Equal'), findsWidgets);
-    expect(find.text('Quantity'), findsOneWidget);
+    expect(find.text('Units / shares'), findsOneWidget);
     expect(find.text('Exact amount'), findsWidgets);
-    expect(find.text('Share'), findsWidgets);
+    expect(find.text('Share weight'), findsWidgets);
 
     await tester.tap(
       find.byKey(const Key('group-bill-assignment-method-quantity')),
     );
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const Key('group-bill-quantity-split-title')),
-      findsOneWidget,
-    );
-    expect(find.text('Taylor: 1'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-quantity-total')), findsOneWidget);
     expect(
       find.byKey(const Key('group-bill-quantity-remaining')),
       findsOneWidget,
@@ -2736,6 +2732,200 @@ void main() {
     expect(
       find.byKey(const Key('group-bill-unassigned-warning')),
       findsNothing,
+    );
+  });
+
+  testWidgets('group bill assign item sheet applies exact amounts locally', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'split');
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-assignable-item-0')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-assignable-item-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-assignment-method-exactAmount')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Exact amount remaining'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(ValueKey('group-bill-assign-exact-$_profileId')),
+      '12.00',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-assign-item-apply')));
+    await tester.pumpAndSettle();
+    await _addSingleGroupPayer(tester, amount: '12.00');
+    await _tapSaveGroupBill(tester);
+
+    final splits = billRepository.lastGroupCreateDraft?.items.single.splits;
+    expect(splits, hasLength(1));
+    expect(splits?[0].userProfileId, _profileId);
+    expect(splits?[0].splitMethod, 'exact_amount');
+    expect(splits?[0].basisValue, '12.00');
+  });
+
+  testWidgets('group bill assign item sheet applies share weights locally', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'split');
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-assignable-item-0')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-assignable-item-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-assignment-method-share')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Share weight total'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(ValueKey('group-bill-assign-share-$_profileId')),
+      '3',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-assign-item-apply')));
+    await tester.pumpAndSettle();
+    await _addSingleGroupPayer(tester, amount: '12.00');
+    await _tapSaveGroupBill(tester);
+
+    final splits = billRepository.lastGroupCreateDraft?.items.single.splits;
+    expect(splits, hasLength(1));
+    expect(splits?[0].splitMethod, 'share_weight');
+    expect(splits?[0].basisValue, '3');
+  });
+
+  testWidgets('group bill payer step defaults to current user full total', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+          currentUserProfileId: _profileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'payers');
+
+    expect(find.byKey(const Key('group-bill-paid-by-me')), findsOneWidget);
+    expect(find.text('Paid by Taylor'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-split-payer')), findsOneWidget);
+    expect(find.text('Payer 1'), findsOneWidget);
+    expect(find.text('Taylor'), findsWidgets);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('group-bill-payer-amount-0')),
+          )
+          .controller
+          ?.text,
+      '12.00',
+    );
+
+    await _tapSaveGroupBill(tester);
+
+    final payer = billRepository.lastGroupCreateDraft?.payers.single;
+    expect(payer?.userProfileId, _profileId);
+    expect(payer?.amount, '12.00');
+    expect(
+      billRepository
+          .lastGroupCreateDraft
+          ?.items
+          .single
+          .splits
+          .single
+          .basisValue,
+      isNull,
     );
   });
 

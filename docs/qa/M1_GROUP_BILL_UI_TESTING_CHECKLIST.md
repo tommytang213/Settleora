@@ -21,7 +21,11 @@ This checklist covers the mobile server-mode owner path for M1 group bill create
 - Check the receipt/import path behavior: choose the receipt/import route, verify Back returns to Start, and verify attachments are optional for the review checklist.
 - If attaching files, verify receipt and supporting-file choices remain distinct and that receipt OCR review remains provisional rather than automatically finalizing a bill.
 - Complete the item/split assignment happy path and confirm selected member rows remain understandable in the review state.
-- Complete the payer contribution happy path and confirm payer totals match the item total before save.
+- Check exact amount assignment: enter member amounts in the assign sheet and verify invalid totals block applying the assignment.
+- Check share assignment: enter member share weights in the assign sheet and verify preview amounts and basis values remain understandable.
+- Check unit/share assignment: set total line units and claimed units, and confirm the UI explains that these are local share weights for the item rather than hidden extra item rows.
+- Complete the payer contribution happy path and confirm the current user defaults to the full bill total when available.
+- Use payer quick actions such as `Paid by me`, `Paid by selected member`, and `Split payer`, then confirm payer totals match the item total before save.
 - Try validation/recovery behavior for blank required fields, invalid money, split mismatch, and payer mismatch; each should block mutation and keep safe bounded copy.
 - Save/submit the bill and, if a safe transient retry case is available, verify retry does not duplicate the created bill or submit call.
 - Confirm the returned group bill detail opens with the created bill data.
