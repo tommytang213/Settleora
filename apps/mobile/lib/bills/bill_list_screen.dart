@@ -2096,6 +2096,9 @@ class _SettleoraGroupBillListScreenState
         icon: const Icon(Icons.add),
         label: const Text('Create group bill'),
       ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.groups,
+      ),
     );
   }
 
@@ -2435,6 +2438,8 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillFailure? _failure;
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
   SettleoraBillDetail? _createdBillAwaitingCompletion;
+  _GroupBillCreateEntryMode _entryMode = _GroupBillCreateEntryMode.manual;
+  _GroupBillCreateStep _selectedStep = _GroupBillCreateStep.start;
   String? _itemListError;
   String? _splitTotalError;
   String? _payerTotalError;
@@ -3078,6 +3083,15 @@ class _SettleoraGroupBillCreateScreenState
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _GroupBillContext(groupName: widget.groupName),
+                      const SizedBox(height: 14),
+                      _GroupBillCreateStepSelector(
+                        selectedStep: _selectedStep,
+                        onSelected: (step) {
+                          setState(() {
+                            _selectedStep = step;
+                          });
+                        },
+                      ),
                       if (failure != null) ...[
                         const SizedBox(height: 16),
                         _CreateBillFailureBanner(
@@ -3094,176 +3108,322 @@ class _SettleoraGroupBillCreateScreenState
                           ),
                         ),
                       ],
-                      const SizedBox(height: 18),
-                      Text(
-                        'Bill details',
-                        style: Theme.of(context).textTheme.titleMedium,
+                      const SizedBox(height: 14),
+                      _GroupBillCreateStartPanel(
+                        entryMode: _entryMode,
+                        onEntryModeChanged: (mode) {
+                          setState(() {
+                            _entryMode = mode;
+                            _selectedStep =
+                                mode == _GroupBillCreateEntryMode.receipt
+                                ? _GroupBillCreateStep.receiptItems
+                                : _GroupBillCreateStep.basics;
+                          });
+                        },
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('group-bill-merchant-name'),
-                        controller: _merchantController,
-                        enabled: !_isSaving,
-                        onChanged: (_) => _notifyDraftChanged(),
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Merchant name',
-                          border: OutlineInputBorder(),
+                      const SizedBox(height: 14),
+                      _GroupBillCreateSection(
+                        step: _GroupBillCreateStep.basics,
+                        selectedStep: _selectedStep,
+                        onSelected: () {
+                          setState(() {
+                            _selectedStep = _GroupBillCreateStep.basics;
+                          });
+                        },
+                        trailing: StatusChip(
+                          label: _currencyController.text.trim().isEmpty
+                              ? 'Currency needed'
+                              : _currencyController.text.trim().toUpperCase(),
+                          variant: StatusChipVariant.info,
+                          size: StatusChipSize.small,
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('group-bill-date'),
-                        controller: _billDateController,
-                        enabled: !_isSaving,
-                        onChanged: (_) => _notifyDraftChanged(),
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Bill date',
-                          hintText: 'YYYY-MM-DD',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) =>
-                            _requiredField(value, 'Enter a bill date.'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('group-bill-currency'),
-                        controller: _currencyController,
-                        enabled: !_isSaving,
-                        onChanged: (_) => _notifyDraftChanged(),
-                        textCapitalization: TextCapitalization.characters,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Currency',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) => _currencyCodeField(
-                          value,
-                          requiredMessage: 'Enter a currency.',
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Items',
-                              style: Theme.of(context).textTheme.titleMedium,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _GroupSelectorPreview(groupName: widget.groupName),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              key: const Key('group-bill-merchant-name'),
+                              controller: _merchantController,
+                              enabled: !_isSaving,
+                              onChanged: (_) => _notifyDraftChanged(),
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Merchant or payee',
+                                hintText: 'Restaurant, store, or bill title',
+                              ),
                             ),
-                          ),
-                          TextButton.icon(
-                            key: const Key('group-bill-add-item'),
-                            onPressed: _isSaving ? null : _addItem,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add item'),
-                          ),
-                        ],
-                      ),
-                      if (itemListError != null) ...[
-                        const SizedBox(height: 6),
-                        _CreateBillValidationMessage(
-                          message: itemListError,
-                          messageKey: const Key('group-bill-item-list-error'),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      for (
-                        var index = 0;
-                        index < _itemControllers.length;
-                        index += 1
-                      )
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _GroupBillCreateItemCard(
-                            index: index,
-                            controllers: _itemControllers[index],
-                            members: _members,
-                            isSaving: _isSaving,
-                            onRemove: () => _removeItem(index),
-                            onDraftChanged: _notifyDraftChanged,
-                          ),
-                        ),
-                      if (splitTotalError != null) ...[
-                        const SizedBox(height: 10),
-                        _CreateBillValidationMessage(
-                          message: splitTotalError,
-                          messageKey: const Key('group-bill-split-total-error'),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Payers',
-                              style: Theme.of(context).textTheme.titleMedium,
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              key: const Key('group-bill-date'),
+                              controller: _billDateController,
+                              enabled: !_isSaving,
+                              onChanged: (_) => _notifyDraftChanged(),
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Bill date',
+                                hintText: 'YYYY-MM-DD',
+                              ),
+                              validator: (value) =>
+                                  _requiredField(value, 'Enter a bill date.'),
                             ),
-                          ),
-                          TextButton.icon(
-                            key: const Key('group-bill-add-payer'),
-                            onPressed: _isSaving ? null : _addPayer,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add payer'),
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              key: const Key('group-bill-currency'),
+                              controller: _currencyController,
+                              enabled: !_isSaving,
+                              onChanged: (_) => _notifyDraftChanged(),
+                              textCapitalization: TextCapitalization.characters,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Currency',
+                                hintText: 'USD',
+                              ),
+                              validator: (value) => _currencyCodeField(
+                                value,
+                                requiredMessage: 'Enter a currency.',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _GroupBillCreateAmountPreview(
+                              itemControllers: _itemControllers,
+                              currency: _currencyController.text,
+                            ),
+                          ],
+                        ),
                       ),
-                      if (_payerControllers.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            'No payer rows added.',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 14),
+                      _GroupBillCreateSection(
+                        step: _GroupBillCreateStep.receiptItems,
+                        selectedStep: _selectedStep,
+                        onSelected: () {
+                          setState(() {
+                            _selectedStep = _GroupBillCreateStep.receiptItems;
+                          });
+                        },
+                        trailing: StatusChip(
+                          label: _draftAttachments.isEmpty
+                              ? 'No receipt'
+                              : 'Receipt attached',
+                          variant: _draftAttachments.isEmpty
+                              ? StatusChipVariant.neutral
+                              : StatusChipVariant.success,
+                          size: StatusChipSize.small,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _ReceiptOcrGuidanceCard(
+                              hasAttachment: _draftAttachments.isNotEmpty,
+                              isReceiptMode:
+                                  _entryMode ==
+                                  _GroupBillCreateEntryMode.receipt,
+                            ),
+                            const SizedBox(height: 14),
+                            _BillCreateDraftAttachmentSection(
+                              keyPrefix: 'group-bill',
+                              attachments: _draftAttachments,
+                              errorText: _attachmentDraftError,
+                              canAdd:
+                                  widget.attachmentFileInput != null &&
+                                  widget.attachmentRepository != null,
+                              isBusy: _isSaving || _isPickingAttachment,
+                              onAdd: _addDraftAttachment,
+                              onRemove: _removeDraftAttachment,
+                              onPurposeChanged: _changeDraftAttachmentPurpose,
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Editable items',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleMedium,
+                                  ),
                                 ),
-                          ),
-                        )
-                      else
-                        for (
-                          var index = 0;
-                          index < _payerControllers.length;
-                          index += 1
-                        )
-                          Padding(
-                            padding: const EdgeInsets.only(top: 10),
-                            child: _GroupBillCreatePayerCard(
-                              index: index,
-                              controllers: _payerControllers[index],
-                              members: _members,
-                              isSaving: _isSaving,
-                              onRemove: () => _removePayer(index),
-                              onDraftChanged: _notifyDraftChanged,
+                                TextButton.icon(
+                                  key: const Key('group-bill-add-item'),
+                                  onPressed: _isSaving ? null : _addItem,
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Add item'),
+                                ),
+                              ],
                             ),
-                          ),
-                      if (payerTotalError != null) ...[
-                        const SizedBox(height: 10),
-                        _CreateBillValidationMessage(
-                          message: payerTotalError,
-                          messageKey: const Key('group-bill-payer-total-error'),
+                            if (itemListError != null) ...[
+                              const SizedBox(height: 6),
+                              _CreateBillValidationMessage(
+                                message: itemListError,
+                                messageKey: const Key(
+                                  'group-bill-item-list-error',
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            for (
+                              var index = 0;
+                              index < _itemControllers.length;
+                              index += 1
+                            )
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _GroupBillCreateItemCard(
+                                  index: index,
+                                  controllers: _itemControllers[index],
+                                  members: _members,
+                                  isSaving: _isSaving,
+                                  onRemove: () => _removeItem(index),
+                                  onDraftChanged: _notifyDraftChanged,
+                                ),
+                              ),
+                          ],
                         ),
-                      ],
-                      const SizedBox(height: 22),
-                      _BillCreateDraftAttachmentSection(
-                        keyPrefix: 'group-bill',
-                        attachments: _draftAttachments,
-                        errorText: _attachmentDraftError,
-                        canAdd:
-                            widget.attachmentFileInput != null &&
-                            widget.attachmentRepository != null,
-                        isBusy: _isSaving || _isPickingAttachment,
-                        onAdd: _addDraftAttachment,
-                        onRemove: _removeDraftAttachment,
-                        onPurposeChanged: _changeDraftAttachmentPurpose,
                       ),
-                      const SizedBox(height: 22),
-                      _GroupBillCreateReviewChecklist(
-                        members: _members,
-                        itemControllers: _itemControllers,
-                        payerControllers: _payerControllers,
-                        attachmentCount: _draftAttachments.length,
+                      const SizedBox(height: 14),
+                      _GroupBillCreateSection(
+                        step: _GroupBillCreateStep.split,
+                        selectedStep: _selectedStep,
+                        onSelected: () {
+                          setState(() {
+                            _selectedStep = _GroupBillCreateStep.split;
+                          });
+                        },
+                        trailing: StatusChip(
+                          label:
+                              '${_groupBillCreateSplitCount(_itemControllers)} splits',
+                          variant:
+                              _groupBillCreateMissingSplitMembers(
+                                    _itemControllers,
+                                  ) ==
+                                  0
+                              ? StatusChipVariant.success
+                              : StatusChipVariant.warning,
+                          size: StatusChipSize.small,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _GroupBillSplitPreview(
+                              members: _members,
+                              itemControllers: _itemControllers,
+                            ),
+                            if (splitTotalError != null) ...[
+                              const SizedBox(height: 12),
+                              _CreateBillValidationMessage(
+                                message: splitTotalError,
+                                messageKey: const Key(
+                                  'group-bill-split-total-error',
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _GroupBillCreateSection(
+                        step: _GroupBillCreateStep.payers,
+                        selectedStep: _selectedStep,
+                        onSelected: () {
+                          setState(() {
+                            _selectedStep = _GroupBillCreateStep.payers;
+                          });
+                        },
+                        trailing: StatusChip(
+                          label: '${_payerControllers.length} payers',
+                          variant: _payerControllers.isEmpty
+                              ? StatusChipVariant.warning
+                              : StatusChipVariant.info,
+                          size: StatusChipSize.small,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _GroupBillPayerTotalsPreview(
+                              itemControllers: _itemControllers,
+                              payerControllers: _payerControllers,
+                              currency: _currencyController.text,
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                key: const Key('group-bill-add-payer'),
+                                onPressed: _isSaving ? null : _addPayer,
+                                icon: const Icon(Icons.add),
+                                label: const Text('Add payer'),
+                              ),
+                            ),
+                            if (_payerControllers.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'No payer rows added.',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color:
+                                            context.settleoraColors.textSubtle,
+                                      ),
+                                ),
+                              )
+                            else
+                              for (
+                                var index = 0;
+                                index < _payerControllers.length;
+                                index += 1
+                              )
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 10),
+                                  child: _GroupBillCreatePayerCard(
+                                    index: index,
+                                    controllers: _payerControllers[index],
+                                    members: _members,
+                                    isSaving: _isSaving,
+                                    onRemove: () => _removePayer(index),
+                                    onDraftChanged: _notifyDraftChanged,
+                                  ),
+                                ),
+                            if (payerTotalError != null) ...[
+                              const SizedBox(height: 10),
+                              _CreateBillValidationMessage(
+                                message: payerTotalError,
+                                messageKey: const Key(
+                                  'group-bill-payer-total-error',
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _GroupBillCreateSection(
+                        step: _GroupBillCreateStep.review,
+                        selectedStep: _selectedStep,
+                        onSelected: () {
+                          setState(() {
+                            _selectedStep = _GroupBillCreateStep.review;
+                          });
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _GroupBillReviewSummary(
+                              merchantName: _merchantController.text,
+                              billDate: _billDateController.text,
+                              currency: _currencyController.text,
+                              itemControllers: _itemControllers,
+                              payerControllers: _payerControllers,
+                              attachmentCount: _draftAttachments.length,
+                            ),
+                            const SizedBox(height: 14),
+                            _GroupBillCreateReviewChecklist(
+                              members: _members,
+                              itemControllers: _itemControllers,
+                              payerControllers: _payerControllers,
+                              attachmentCount: _draftAttachments.length,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -3274,25 +3434,512 @@ class _SettleoraGroupBillCreateScreenState
         ),
         bottomNavigationBar: memberFailure == null
             ? SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Tooltip(
-                    message: saveLabel,
-                    child: FilledButton.icon(
-                      key: const Key('group-bill-save'),
-                      onPressed: _isSaving || _isLoadingMembers ? null : _save,
-                      icon: _isSaving
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(saveLabel),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: Tooltip(
+                        message: saveLabel,
+                        child: FilledButton.icon(
+                          key: const Key('group-bill-save'),
+                          onPressed: _isSaving || _isLoadingMembers
+                              ? null
+                              : _save,
+                          icon: _isSaving
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.check),
+                          label: Text(saveLabel),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SettleoraBottomNav(
+                      selected: SettleoraNavDestination.groups,
+                    ),
+                  ],
                 ),
               )
             : null,
+      ),
+    );
+  }
+}
+
+enum _GroupBillCreateEntryMode { manual, receipt }
+
+enum _GroupBillCreateStep {
+  start('Start', Icons.add_circle_outline),
+  basics('Basics', Icons.edit_note_outlined),
+  receiptItems('Receipt & Items', Icons.receipt_long_outlined),
+  split('Split', Icons.call_split_outlined),
+  payers('Payers', Icons.payments_outlined),
+  review('Review', Icons.fact_check_outlined);
+
+  const _GroupBillCreateStep(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
+}
+
+class _GroupBillCreateStepSelector extends StatelessWidget {
+  const _GroupBillCreateStepSelector({
+    required this.selectedStep,
+    required this.onSelected,
+  });
+
+  final _GroupBillCreateStep selectedStep;
+  final ValueChanged<_GroupBillCreateStep> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: const Key('group-bill-create-stepper'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final step in _GroupBillCreateStep.values) ...[
+            ChoiceChip(
+              key: ValueKey('group-bill-create-step-${step.name}'),
+              selected: selectedStep == step,
+              avatar: Icon(step.icon, size: 16),
+              label: Text(step.label),
+              onSelected: (_) => onSelected(step),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupBillCreateStartPanel extends StatelessWidget {
+  const _GroupBillCreateStartPanel({
+    required this.entryMode,
+    required this.onEntryModeChanged,
+  });
+
+  final _GroupBillCreateEntryMode entryMode;
+  final ValueChanged<_GroupBillCreateEntryMode> onEntryModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Create group bill start',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                key: const Key('group-bill-create-mode-manual'),
+                selected: entryMode == _GroupBillCreateEntryMode.manual,
+                avatar: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Manual entry'),
+                onSelected: (_) =>
+                    onEntryModeChanged(_GroupBillCreateEntryMode.manual),
+              ),
+              ChoiceChip(
+                key: const Key('group-bill-create-mode-receipt'),
+                selected: entryMode == _GroupBillCreateEntryMode.receipt,
+                avatar: const Icon(Icons.document_scanner_outlined, size: 16),
+                label: const Text('Scan/import receipt'),
+                onSelected: (_) =>
+                    onEntryModeChanged(_GroupBillCreateEntryMode.receipt),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            entryMode == _GroupBillCreateEntryMode.receipt
+                ? 'Receipt OCR can seed editable item rows when that capture path is available. Review remains required before save.'
+                : 'Start from clean fields, then add items, split rows, payers, and optional receipt attachments.',
+            style: TextStyle(color: context.settleoraColors.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupBillCreateSection extends StatelessWidget {
+  const _GroupBillCreateSection({
+    required this.step,
+    required this.selectedStep,
+    required this.onSelected,
+    required this.child,
+    this.trailing,
+  });
+
+  final _GroupBillCreateStep step;
+  final _GroupBillCreateStep selectedStep;
+  final VoidCallback onSelected;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = selectedStep == step;
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      key: ValueKey('group-bill-create-section-${step.name}'),
+      color: isSelected ? colors.primarySoft : colors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(SettleoraRadius.md),
+            onTap: onSelected,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Icon(step.icon, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      step.label,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  ?trailing,
+                ],
+              ),
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupSelectorPreview extends StatelessWidget {
+  const _GroupSelectorPreview({required this.groupName});
+
+  final String groupName;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: context.settleoraColors.primarySoft,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.groups_outlined, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Group: ${_safeGroupName(groupName)}',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillCreateAmountPreview extends StatelessWidget {
+  const _GroupBillCreateAmountPreview({
+    required this.itemControllers,
+    required this.currency,
+  });
+
+  final List<_GroupBillCreateItemControllers> itemControllers;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _groupBillCreateDecimalTotal(
+      itemControllers.map((item) => item.amount.text),
+    );
+    return _CreatePreviewStrip(
+      label: 'Total amount preview',
+      value: _decimalPreviewMoney(total, currency),
+      icon: Icons.summarize_outlined,
+    );
+  }
+}
+
+class _ReceiptOcrGuidanceCard extends StatelessWidget {
+  const _ReceiptOcrGuidanceCard({
+    required this.hasAttachment,
+    required this.isReceiptMode,
+  });
+
+  final bool hasAttachment;
+  final bool isReceiptMode;
+
+  @override
+  Widget build(BuildContext context) {
+    return _CreatePreviewStrip(
+      label: hasAttachment
+          ? 'Receipt attached state'
+          : isReceiptMode
+          ? 'Ready for receipt import'
+          : 'No receipt attached',
+      value: hasAttachment
+          ? 'View, rescan, or remove the selected file before save.'
+          : 'OCR-derived rows are provisional until user review and server validation.',
+      icon: hasAttachment
+          ? Icons.attachment_outlined
+          : Icons.document_scanner_outlined,
+      variant: hasAttachment
+          ? StatusChipVariant.success
+          : StatusChipVariant.info,
+    );
+  }
+}
+
+class _GroupBillSplitPreview extends StatelessWidget {
+  const _GroupBillSplitPreview({
+    required this.members,
+    required this.itemControllers,
+  });
+
+  final List<SettleoraGroupMember> members;
+  final List<_GroupBillCreateItemControllers> itemControllers;
+
+  @override
+  Widget build(BuildContext context) {
+    final missing = _groupBillCreateMissingSplitMembers(itemControllers);
+    final selectedNames = _selectedGroupBillCreateMemberNames(
+      members: members,
+      itemControllers: itemControllers,
+      payerControllers: const [],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: const [
+            StatusChip(label: 'Equal', size: StatusChipSize.small),
+            StatusChip(label: 'By item', size: StatusChipSize.small),
+            StatusChip(label: 'Exact amount', size: StatusChipSize.small),
+            StatusChip(label: 'Share/ratio', size: StatusChipSize.small),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _CreatePreviewStrip(
+          label: 'Split assignment preview',
+          value: missing == 0
+              ? 'All item split rows have a selected member.'
+              : '${_pluralCount(missing, 'split row')} still needs a member.',
+          icon: missing == 0
+              ? Icons.check_circle_outline
+              : Icons.report_problem_outlined,
+          variant: missing == 0
+              ? StatusChipVariant.success
+              : StatusChipVariant.warning,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          selectedNames.isEmpty
+              ? 'Item assignment preview: no members selected yet.'
+              : 'Item assignment preview: ${selectedNames.join(', ')}.',
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupBillPayerTotalsPreview extends StatelessWidget {
+  const _GroupBillPayerTotalsPreview({
+    required this.itemControllers,
+    required this.payerControllers,
+    required this.currency,
+  });
+
+  final List<_GroupBillCreateItemControllers> itemControllers;
+  final List<_GroupBillCreatePayerControllers> payerControllers;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final billTotal = _groupBillCreateDecimalTotal(
+      itemControllers.map((item) => item.amount.text),
+    );
+    final paidTotal = _groupBillCreateDecimalTotal(
+      payerControllers.map((payer) => payer.amount.text),
+    );
+    final unmatched = billTotal - paidTotal;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _InlineMetric(
+          label: 'Bill total',
+          value: _decimalPreviewMoney(billTotal, currency),
+        ),
+        _InlineMetric(
+          label: 'Total paid',
+          value: _decimalPreviewMoney(paidTotal, currency),
+        ),
+        _InlineMetric(
+          label: 'Unmatched',
+          value: _decimalPreviewMoney(unmatched, currency),
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupBillReviewSummary extends StatelessWidget {
+  const _GroupBillReviewSummary({
+    required this.merchantName,
+    required this.billDate,
+    required this.currency,
+    required this.itemControllers,
+    required this.payerControllers,
+    required this.attachmentCount,
+  });
+
+  final String merchantName;
+  final String billDate;
+  final String currency;
+  final List<_GroupBillCreateItemControllers> itemControllers;
+  final List<_GroupBillCreatePayerControllers> payerControllers;
+  final int attachmentCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final warnings = _groupBillCreateWarnings(
+      merchantName: merchantName,
+      billDate: billDate,
+      itemControllers: itemControllers,
+      payerControllers: payerControllers,
+      attachmentCount: attachmentCount,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CreatePreviewStrip(
+          label: 'Summary before save',
+          value:
+              'Items ${itemControllers.length}, payers ${payerControllers.length}, attachments $attachmentCount',
+          icon: Icons.fact_check_outlined,
+        ),
+        const SizedBox(height: 10),
+        _CreatePreviewStrip(
+          label: 'Server validation still applies',
+          value:
+              'Final money, split, status, authorization, and policy checks remain API-authoritative.',
+          icon: Icons.verified_user_outlined,
+          variant: StatusChipVariant.info,
+        ),
+        const SizedBox(height: 12),
+        if (warnings.isEmpty)
+          const _ReviewChecklistHint(
+            text: 'No local review warnings.',
+            isReady: true,
+          )
+        else
+          for (final warning in warnings)
+            _ReviewChecklistHint(text: warning, isReady: false),
+      ],
+    );
+  }
+}
+
+class _CreatePreviewStrip extends StatelessWidget {
+  const _CreatePreviewStrip({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.variant = StatusChipVariant.neutral,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final StatusChipVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final background = switch (variant) {
+      StatusChipVariant.success => colors.successSoft,
+      StatusChipVariant.warning => colors.warningSoft,
+      StatusChipVariant.danger => colors.dangerSoft,
+      StatusChipVariant.info => colors.infoSoft,
+      StatusChipVariant.neutral => colors.primarySoft,
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 2),
+                  Text(value),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineMetric extends StatelessWidget {
+  const _InlineMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 118,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.settleoraColors.primarySoft,
+          borderRadius: BorderRadius.circular(SettleoraRadius.md),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(height: 4),
+              Text(value, style: Theme.of(context).textTheme.titleSmall),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3497,6 +4144,71 @@ List<String> _selectedGroupBillCreateMemberNames({
     for (final member in members)
       if (selectedIds.contains(member.userProfileId)) member.safeDisplayName,
   ];
+}
+
+int _groupBillCreateSplitCount(
+  List<_GroupBillCreateItemControllers> itemControllers,
+) {
+  return itemControllers.fold<int>(
+    0,
+    (count, item) => count + item.splits.length,
+  );
+}
+
+int _groupBillCreateMissingSplitMembers(
+  List<_GroupBillCreateItemControllers> itemControllers,
+) {
+  return itemControllers
+      .expand((item) => item.splits)
+      .where((split) => (split.userProfileId ?? '').trim().isEmpty)
+      .length;
+}
+
+double _groupBillCreateDecimalTotal(Iterable<String> values) {
+  var total = 0.0;
+  for (final value in values) {
+    total += double.tryParse(value.trim()) ?? 0;
+  }
+  return total;
+}
+
+String _decimalPreviewMoney(double amount, String currency) {
+  final code = currency.trim().isEmpty
+      ? 'currency'
+      : currency.trim().toUpperCase();
+  return '${amount.toStringAsFixed(2)} $code';
+}
+
+List<String> _groupBillCreateWarnings({
+  required String merchantName,
+  required String billDate,
+  required List<_GroupBillCreateItemControllers> itemControllers,
+  required List<_GroupBillCreatePayerControllers> payerControllers,
+  required int attachmentCount,
+}) {
+  final warnings = <String>[];
+  if (merchantName.trim().isEmpty) {
+    warnings.add('Missing merchant or payee.');
+  }
+  if (billDate.trim().isEmpty) {
+    warnings.add('Missing bill date.');
+  }
+  if (itemControllers.any(
+    (item) => item.name.text.trim().isEmpty || item.amount.text.trim().isEmpty,
+  )) {
+    warnings.add('One or more items need a name and amount.');
+  }
+  final missingSplits = _groupBillCreateMissingSplitMembers(itemControllers);
+  if (missingSplits > 0) {
+    warnings.add('${_pluralCount(missingSplits, 'split row')} unassigned.');
+  }
+  if (payerControllers.isEmpty) {
+    warnings.add('No payer rows added.');
+  }
+  if (attachmentCount == 0) {
+    warnings.add('No receipt attached.');
+  }
+  return warnings;
 }
 
 class _GroupBillCreateItemControllers {
@@ -5095,6 +5807,9 @@ class _SettleoraGroupBillDetailScreenState
           ),
         ],
       ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.groups,
+      ),
       body: SafeArea(
         child: Builder(
           builder: (context) {
@@ -5131,6 +5846,18 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillContext(groupName: widget.groupName),
                 const SizedBox(height: 20),
                 _BillDetailHeader(bill: bill),
+                if (_canAcknowledgeCurrentParticipant(
+                  bill,
+                  widget.currentUserProfileId,
+                )) ...[
+                  const SizedBox(height: 14),
+                  _GroupBillAcknowledgementActions(
+                    isBusy: _isAcknowledging || _isLoading,
+                    failure: _acknowledgementFailure,
+                    onAccept: _acceptParticipantShare,
+                    onReject: _rejectParticipantShare,
+                  ),
+                ],
                 if (_currentBillDetailParticipant(
                       bill,
                       widget.currentUserProfileId,
@@ -5142,16 +5869,22 @@ class _SettleoraGroupBillDetailScreenState
                     currentUserProfileId: widget.currentUserProfileId,
                   ),
                 ],
-                if (_canAcknowledgeCurrentParticipant(
-                  bill,
-                  widget.currentUserProfileId,
-                )) ...[
+                const SizedBox(height: 14),
+                _GroupBillParticipantStatusSummary(
+                  participants: bill.participants,
+                  currentUserProfileId: widget.currentUserProfileId,
+                  participantDisplayNames: _participantDisplayNames,
+                ),
+                if (_currentBillDetailParticipant(
+                      bill,
+                      widget.currentUserProfileId,
+                    ) !=
+                    null) ...[
                   const SizedBox(height: 14),
-                  _GroupBillAcknowledgementActions(
-                    isBusy: _isAcknowledging || _isLoading,
-                    failure: _acknowledgementFailure,
-                    onAccept: _acceptParticipantShare,
-                    onReject: _rejectParticipantShare,
+                  _GroupBillSharePanel(
+                    bill: bill,
+                    currentUserProfileId: widget.currentUserProfileId,
+                    participantDisplayNames: _participantDisplayNames,
                   ),
                 ],
                 if (_pendingRevision != null) ...[
@@ -5180,12 +5913,6 @@ class _SettleoraGroupBillDetailScreenState
                   const SizedBox(height: 14),
                   _CreateRevisionFailureBanner(failure: _createFailure!),
                 ],
-                const SizedBox(height: 20),
-                _GroupBillParticipantStatusSummary(
-                  participants: bill.participants,
-                  currentUserProfileId: widget.currentUserProfileId,
-                  participantDisplayNames: _participantDisplayNames,
-                ),
                 const SizedBox(height: 20),
                 _BillDetailDiscoveryControls(
                   searchController: _detailSearchController,
@@ -5819,6 +6546,123 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _GroupBillSharePanel extends StatelessWidget {
+  const _GroupBillSharePanel({
+    required this.bill,
+    required this.currentUserProfileId,
+    required this.participantDisplayNames,
+  });
+
+  final SettleoraBillDetail bill;
+  final String? currentUserProfileId;
+  final Map<String, String> participantDisplayNames;
+
+  @override
+  Widget build(BuildContext context) {
+    final participant = _currentBillDetailParticipant(
+      bill,
+      currentUserProfileId,
+    );
+    if (participant == null) {
+      return const SizedBox.shrink();
+    }
+
+    final accepted =
+        participant.status == SettleoraBillParticipantStatusValues.accepted;
+
+    return AppCard(
+      key: const Key('group-bill-current-share-panel'),
+      color: accepted
+          ? context.settleoraColors.successSoft
+          : context.settleoraColors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                accepted
+                    ? Icons.check_circle_outline
+                    : Icons.account_balance_wallet_outlined,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      accepted ? 'Accepted share' : 'Your portion',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      accepted
+                          ? 'Acknowledgement is complete. Settlement remains a separate action.'
+                          : 'Review this server-calculated participant share before acknowledgement.',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                _money(
+                  participant.resolvedShareAmount,
+                  participant.resolvedShareCurrency,
+                ),
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.end,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              StatusChip(
+                label: settleoraBillParticipantStatusLabel(participant.status),
+                variant: accepted
+                    ? StatusChipVariant.success
+                    : StatusChipVariant.warning,
+                size: StatusChipSize.small,
+              ),
+              StatusChip(
+                label: _pluralCount(bill.items.length, 'assigned item'),
+                icon: Icons.format_list_bulleted,
+                variant: StatusChipVariant.neutral,
+                size: StatusChipSize.small,
+              ),
+              if (bill.payers.isNotEmpty)
+                StatusChip(
+                  label: _pluralCount(bill.payers.length, 'payer'),
+                  icon: Icons.payments_outlined,
+                  variant: StatusChipVariant.info,
+                  size: StatusChipSize.small,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _KeyValueText(
+            label: 'Payer summary',
+            value: bill.payers.isEmpty
+                ? 'No payer rows visible'
+                : bill.payers
+                      .map((payer) => _money(payer.amount, payer.currency))
+                      .join(', '),
+          ),
+          _KeyValueText(
+            label: 'Assigned items',
+            value: bill.items.isEmpty
+                ? 'No items visible'
+                : bill.items.map((item) => item.name).join(', '),
+          ),
+        ],
       ),
     );
   }
