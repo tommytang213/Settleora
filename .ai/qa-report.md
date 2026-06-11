@@ -57,9 +57,10 @@ Status: `M2-003 bottom navigation clarity polish completed; controller should se
 ## Findings
 
 - `M2-003` added the shared bottom navigation to the authenticated Home shell and wired Home tab taps to existing implemented Bills, Groups, Settle, Receipts, and Profile surfaces only.
-- Existing destination screens retain their current route chrome; the task stays inside the active M2 scope guard by limiting runtime shell changes to `apps/mobile/lib/app/server_mode_shell.dart`.
+- The shared bottom navigation now reserves active visual styling for the selected destination, so `Settle` no longer appears primary-filled while Home or another route is selected.
+- Existing destination screens retain their current route chrome; runtime changes stay inside the active M2 mobile scope.
 - Focused widget coverage now verifies Home bottom navigation labels, selected Home/Bills state, and route handoffs to the implemented top-level mobile surfaces.
 - Existing title-count and viewport-sensitive tests were updated for visible bottom navigation labels and the reduced dashboard viewport height.
 - Focused validation passed for `PATH=/opt/flutter/bin:$PATH flutter test test/server_mode_shell_dashboard_test.dart`.
 - Affected screen validation passed for `PATH=/opt/flutter/bin:$PATH flutter test test/settlement_list_screen_test.dart test/receipt_ocr_review_screen_test.dart test/widget_test.dart test/bill_list_screen_test.dart`.
-- Final required validation passed for `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` with Flutter analyze and 533 tests.
+- Final required validation passed for `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` with Flutter analyze and 534 tests.
