@@ -8,8 +8,8 @@
   "status": "active",
   "lastCompletedTaskId": "M1-001",
   "currentTaskId": "M1-002",
-  "stopReason": null,
-  "humanReviewRequired": false,
+  "stopReason": "M1-002 implementation is prepared, but local mobile validation cannot run because flutter and dart are unavailable on PATH.",
+  "humanReviewRequired": true,
   "forbiddenChangeDetected": false,
   "lastValidatedCommit": null,
   "uiTestingReady": false
