@@ -26,5 +26,12 @@
     "source": "human_ui_testing",
     "summary": "Receipt & Items exposed raw split payload controls and lacked clear quantity/units semantics.",
     "resolution": "Mobile group bill create now keeps Receipt & Items focused on item details with a line-total amount label and local quantity/units guidance, removes raw split-entry controls from item cards, and keeps split assignment in the Split step."
+  },
+  {
+    "id": "M1-UI-005",
+    "status": "fixed_validated",
+    "source": "human_ui_testing",
+    "summary": "Group bill create date and currency fields still used free-text entry during M1 UI testing.",
+    "resolution": "Mobile group bill create now uses a mobile date picker affordance with a Today shortcut and dropdown/selectors for bill, item, and payer currency values while preserving uppercase 3-letter payload codes."
   }
 ]

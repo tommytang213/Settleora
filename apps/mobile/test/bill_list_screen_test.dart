@@ -4428,11 +4428,8 @@ Future<void> _fillMinimalGroupBillCreateForm(
   bool assignItem = true,
 }) async {
   await _goToGroupBillCreateStep(tester, 'basics');
-  await tester.enterText(
-    find.byKey(const Key('group-bill-date')),
-    '2026-05-23',
-  );
-  await tester.enterText(find.byKey(const Key('group-bill-currency')), 'USD');
+  await tester.tap(find.byKey(const Key('group-bill-date-today')));
+  await tester.pumpAndSettle();
   await _goToGroupBillCreateStep(tester, 'receiptItems');
   await tester.enterText(
     find.byKey(const ValueKey('group-bill-item-name-0')),
@@ -4441,10 +4438,6 @@ Future<void> _fillMinimalGroupBillCreateForm(
   await tester.enterText(
     find.byKey(const ValueKey('group-bill-item-amount-0')),
     '12.30',
-  );
-  await tester.enterText(
-    find.byKey(const ValueKey('group-bill-item-currency-0')),
-    'USD',
   );
   if (assignItem) {
     await _assignFirstGroupBillItem(tester, memberId: splitMemberId);

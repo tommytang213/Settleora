@@ -17,7 +17,9 @@ This checklist covers the mobile server-mode owner path for M1 group bill create
 - Open the group list, select the target group, and open the group bill list/detail surface.
 - Confirm the group context is visible and personal bill create controls are not shown in the group bill list/detail path.
 - Start `Create group bill`.
-- Follow the manual create path: enter merchant/payee, date, currency, one item, one member split assignment, one payer contribution, and review.
+- Follow the manual create path: enter merchant/payee, choose a date, choose currency, one item, one member split assignment, one payer contribution, and review.
+- Confirm the bill date uses a mobile date picker control and that `Today` sets the date directly without a confusing picker detour.
+- Confirm visible currency controls are dropdown/selectors for the bill, item rows, and payer rows, and that they keep 3-letter uppercase currency codes.
 - Check the receipt/import path behavior: choose the receipt/import route, verify Back returns to Start, and verify attachments are optional for the review checklist.
 - If attaching files, verify receipt and supporting-file choices remain distinct and that receipt OCR review remains provisional rather than automatically finalizing a bill.
 - On `Receipt & Items`, verify item rows show name, line total amount, quantity/units, currency, and note only; raw split payload controls such as split method, basis value, allocation order, and add split are not shown there.
@@ -40,6 +42,7 @@ This checklist covers the mobile server-mode owner path for M1 group bill create
 - Do not validate settlement/payment/bill calculation policy changes in this milestone; mobile should only render and submit through existing server-owned behavior.
 - Do not treat receipt/OCR/import UI as automatic OCR-to-bill finalization.
 - Do not treat local/offline group bill create lifecycle, recurring bill lifecycle, web/admin UI, push notifications, or broad sync cache hydration as M1 acceptance criteria.
+- Future web UX should support keyboard/manual date entry as well as picker and today behavior; this is not a mobile M1 acceptance requirement unless web runtime is implemented in a later task.
 
 ## Stop And Escalate
 
