@@ -1,18 +1,18 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI testing ready`
 
 ## Acceptance Checklist
 
 - [x] Current milestone goal is updated to M2 mobile navigation and Home/dashboard shell polish.
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
-- [ ] M2 current-state reconciliation completed.
-- [ ] Home/dashboard shell polish completed and validated.
-- [ ] Bottom navigation clarity polish completed and validated.
-- [ ] Groups and Settle landing handoff polish completed and validated.
-- [ ] Full relevant mobile validation completed.
-- [ ] Human UI testing checklist completed.
+- [x] M2 current-state reconciliation completed.
+- [x] Home/dashboard shell polish completed and validated.
+- [x] Bottom navigation clarity polish completed and validated.
+- [x] Groups and Settle landing handoff polish completed and validated.
+- [x] Full relevant mobile validation completed.
+- [x] Human UI testing checklist completed.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
 
 ## M2 Kickoff Summary
@@ -56,4 +56,9 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 
 ## Findings
 
-- No open M2 QA findings at kickoff.
+- Human UI testing checklist added at `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
+- Milestone QA report added at `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`.
+- Automated coverage is present for Home/dashboard, dashboard preview variants, Groups, group bills, Bills, and Settlements/Settle through the focused mobile widget tests.
+- Required validation passed, including `npm run validate:docs`, `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, and `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`.
+- M2 is marked UI-testing ready and human-review required because `M2-005` does not allow auto-merge.
+- No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, local storage policy, or secret changes were made.
