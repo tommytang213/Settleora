@@ -53,6 +53,8 @@ const m1AllowedPatterns = [
   /^\.ai(?:\/|$)/,
   /^AGENTS\.md$/,
   /^docs\//,
+  /^scripts\/ai\/v3-controller\.mjs$/,
+  /^scripts\/ai\/v3-scope-guard\.mjs$/,
   /^apps\/mobile\/lib\/bills\//,
   /^apps\/mobile\/test\//,
 ];
