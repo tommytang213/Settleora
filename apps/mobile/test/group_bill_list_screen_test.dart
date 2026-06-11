@@ -1980,6 +1980,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('group-bill-currency')), '');
@@ -2017,6 +2018,9 @@ void main() {
     expect(find.text('Enter a payer currency.'), findsOneWidget);
     expect(billRepository.createGroupCalls, 0);
 
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-item-remove-0')),
+    );
     await tester.tap(find.byKey(const Key('group-bill-item-remove-0')));
     await tester.pumpAndSettle();
     await _tapSaveGroupBill(tester);
@@ -2080,6 +2084,7 @@ void main() {
         find.byKey(const Key('group-bill-split-basis-0-0')),
         ' 7.00 ',
       );
+      await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
       await tester.tap(find.byKey(const Key('group-bill-add-payer')));
       await tester.pumpAndSettle();
       await _chooseDropdownValue(
@@ -2507,6 +2512,7 @@ void main() {
     );
     expect(find.text('Removed Morgan'), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
@@ -2565,6 +2571,7 @@ void main() {
       find.byKey(const Key('group-bill-split-order-0-0')),
       '2',
     );
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
     await _chooseDropdownValue(
@@ -3066,6 +3073,7 @@ void main() {
       find.byKey(const Key('group-bill-split-order-0-0')),
       '2',
     );
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
     await _chooseDropdownValue(
@@ -3094,6 +3102,9 @@ void main() {
       const Key('group-bill-attachment-purpose-supporting'),
     );
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+    );
     await tester.tap(
       find.byKey(const ValueKey('group-bill-attachment-remove-0')),
     );
@@ -3934,6 +3945,7 @@ Future<void> _addSingleGroupPayer(
   WidgetTester tester, {
   required String amount,
 }) async {
+  await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
   await tester.tap(find.byKey(const Key('group-bill-add-payer')));
   await tester.pumpAndSettle();
   await _chooseDropdownValue(

@@ -1686,6 +1686,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
@@ -1693,6 +1694,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
   });
 
   testWidgets('group bill create exits without prompt when unchanged', (
@@ -1742,12 +1744,16 @@ void main() {
         find.byKey(const ValueKey('group-bill-item-name-0')),
         'Eggs',
       );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('group-bill-split-member-0-0')),
+      );
       await tester.tap(
         find.byKey(const ValueKey('group-bill-split-member-0-0')),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Taylor'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
       await tester.tap(find.byKey(const Key('group-bill-add-payer')));
       await tester.pumpAndSettle();
 
@@ -1807,6 +1813,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-split-member-0-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-split-member-0-0')));
     await tester.pumpAndSettle();
 
@@ -1831,11 +1840,15 @@ void main() {
     expect(find.text('Choose member'), findsNothing);
 
     await _fillMinimalGroupBillCreateForm(tester);
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('group-bill-payer-amount-0')),
       '12.30',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-payer-member-0')),
     );
     await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
     await tester.pumpAndSettle();
@@ -1876,8 +1889,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('group-bill-list-create')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('group-bill-add-payer')));
     await tester.tap(find.byKey(const Key('group-bill-add-payer')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-payer-member-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -1970,12 +1987,18 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-item-remove-1')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-item-remove-1')));
     await tester.pumpAndSettle();
 
     expect(find.text('1 item row'), findsOneWidget);
     expect(find.text('1 split row'), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-item-add-split-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-item-add-split-0')));
     await tester.pumpAndSettle();
 
@@ -1985,6 +2008,9 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-split-remove-0-1')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-split-remove-0-1')));
     await tester.pumpAndSettle();
 
@@ -1997,6 +2023,9 @@ void main() {
     expect(find.text('1 payer row'), findsOneWidget);
     expect(find.text('1 payer row without a selected member.'), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-split-member-0-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-split-member-0-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Taylor'));
@@ -2007,6 +2036,9 @@ void main() {
     expect(find.text('1 split row without a selected member.'), findsNothing);
     expect(visibleText(tester), isNot(contains('member-taylor-id')));
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-payer-member-0')),
+    );
     await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Alex'));
@@ -2028,6 +2060,9 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('group-bill-attachment-remove-0')),
+    );
     await tester.tap(
       find.byKey(const ValueKey('group-bill-attachment-remove-0')),
     );
@@ -2035,6 +2070,101 @@ void main() {
 
     expect(find.text('0 attachments'), findsOneWidget);
     expect(find.text('No attachments selected.'), findsOneWidget);
+  });
+
+  testWidgets('group bill create exposes guided sections and groups nav', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('group-bill-create-stepper')), findsOneWidget);
+    expect(find.text('Create group bill start'), findsOneWidget);
+    expect(find.text('Manual entry'), findsOneWidget);
+    expect(find.text('Scan/import receipt'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-basics')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-receiptItems')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-split')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-payers')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('group-bill-create-section-review')),
+      findsOneWidget,
+    );
+    expect(find.text('Server validation still applies'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+  });
+
+  testWidgets('group bill detail accepted share uses dedicated panel', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'confirmed')],
+      detail: sampleBillDetail(
+        status: 'confirmed',
+        participants: const [
+          SettleoraBillParticipant(
+            userProfileId: _userProfileId,
+            status: SettleoraBillParticipantStatusValues.accepted,
+            resolvedShareAmount: '10.80',
+            resolvedShareCurrency: 'USD',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          groupId: _groupId,
+          groupName: 'Trip',
+          currentUserProfileId: _userProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('group-bill-current-share-panel')),
+      findsOneWidget,
+    );
+    expect(find.text('Accepted share'), findsOneWidget);
+    expect(find.text('10.80 USD'), findsWidgets);
+    expect(
+      find.text(
+        'Acknowledgement is complete. Settlement remains a separate action.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
   });
 
   testWidgets(
@@ -2051,6 +2181,9 @@ void main() {
 
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('group-bill-split-member-0-0')),
+      );
       await tester.tap(
         find.byKey(const ValueKey('group-bill-split-member-0-0')),
       );
@@ -5131,6 +5264,7 @@ SettleoraBillDetail sampleBillDetail({
   String id = _billId,
   String? merchantName = 'Corner Market',
   String billDate = '2026-05-17',
+  String status = 'draft',
   String totalAmount = '10.80',
   String totalCurrency = 'USD',
   bool canCreateRevision = false,
@@ -5175,7 +5309,7 @@ SettleoraBillDetail sampleBillDetail({
     id: id,
     merchantName: merchantName,
     billDate: billDate,
-    status: 'draft',
+    status: status,
     reconciliationStatus: 'unreconciled',
     reconciliationNote: null,
     revisionCreationActions: SettleoraBillRevisionCreationActions(
