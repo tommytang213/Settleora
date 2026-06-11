@@ -5,12 +5,12 @@
   "integrationBranch": "ai/integration",
   "activeMilestoneId": "M1",
   "activeMilestoneName": "Mobile Group Bill Happy Path UI-Test Readiness",
-  "status": "m1_ui_test_bugfix_validated",
-  "lastCompletedTaskId": "M1-007",
+  "status": "m1_ui_test_item_quantity_split_cleanup_validated",
+  "lastCompletedTaskId": "M1-008",
   "currentTaskId": null,
-  "stopReason": "m1_ui_test_bugfix_ready_for_human_review",
+  "stopReason": "m1_ui_test_item_quantity_split_cleanup_ready_for_human_review",
   "humanReviewRequired": true,
   "forbiddenChangeDetected": false,
-  "lastValidatedCommit": "fb19242a3ae5aa57a6be34daf053a3461e106078",
+  "lastValidatedCommit": null,
   "uiTestingReady": true
 }

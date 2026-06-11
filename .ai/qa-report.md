@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1 UI-test bugfix validated; human review required before merge`
+Status: `M1 UI-test item quantity/split cleanup validated locally; human review required before merge`
 
 ## Acceptance Checklist
 
@@ -13,6 +13,11 @@ Status: `M1 UI-test bugfix validated; human review required before merge`
 
 ## M1 Final Validation Summary
 
+- M1-008 UI-test item quantity/split cleanup is validated locally on `ai/task/m1-ui-test-item-quantity-split-cleanup-20260611-2058`.
+- The group bill create `Receipt & Items` item card no longer exposes raw split-entry controls (`Splits`, `Add split`, member dropdown, split method, basis value, or allocation order); split assignment remains in the `Split` step assignment workspace and sheet.
+- Item entry now labels the amount as line total and adds local quantity/units guidance that initializes unit/share assignment guidance without multiplying or changing the submitted line total amount.
+- Focused validation: `/opt/flutter/bin/dart format --set-exit-if-changed apps/mobile/lib/bills/bill_list_screen.dart apps/mobile/test/group_bill_list_screen_test.dart apps/mobile/test/bill_list_screen_test.dart` passed, and `flutter test test/group_bill_list_screen_test.dart test/bill_list_screen_test.dart` passed with 143 tests.
+- Full mobile validation: `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed; mobile doctor passed, `flutter pub get` passed with dependency-update notices only, `flutter analyze` found no issues, and the full Flutter suite passed with 530 tests.
 - M1-007 UI-test bugfix loop is validated on `ai/task/m1-ui-test-group-bill-create-fixes-20260611-2021` at implementation commit `fb19242a3ae5aa57a6be34daf053a3461e106078`.
 - Human UI testing found group bill create UX/product bugs in split assignment, payer defaults, and submit payload handling.
 - Mobile-side fixes now make unit/share assignment use supported `share_weight` payloads with explicit line-unit copy, expose exact amount inputs, expose share-weight inputs, default current-user payer rows when safe, and omit blank equal-split `basisValue` keys from generated create payloads.
