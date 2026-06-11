@@ -21,6 +21,7 @@ function readOption(name, defaultValue) {
 
 const baseRef = readOption("--base", "origin/ai/integration");
 const headRef = readOption("--head", "HEAD");
+const stateFile = readOption("--state-file", ".ai/state.json");
 const milestoneFile = readOption("--milestone-file", ".ai/current-milestone.md");
 const allowBootstrapWorkflow = args.includes("--allow-bootstrap-workflow");
 
@@ -34,14 +35,45 @@ const changedFiles = execFileSync(
   .filter(Boolean)
   .sort();
 
+let stateText = "";
 let milestoneText = "";
+try {
+  stateText = readFileSync(stateFile, "utf8");
+} catch {
+  stateText = "";
+}
+
 try {
   milestoneText = readFileSync(milestoneFile, "utf8");
 } catch {
   milestoneText = "";
 }
 
-const activeMilestone = /ID:\s*`?M1`?/i.test(milestoneText) ? "M1" : "unknown";
+function normalizeMilestoneId(value) {
+  const milestoneId = String(value || "").trim().toUpperCase();
+  return /^M\d+$/.test(milestoneId) ? milestoneId : null;
+}
+
+function parseStateMilestone(text) {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const state = JSON.parse(text);
+    return normalizeMilestoneId(state.activeMilestoneId);
+  } catch {
+    return null;
+  }
+}
+
+function parseMarkdownMilestone(text) {
+  const match = String(text || "").match(/ID:\s*`?(M\d+)`?/i);
+  return match ? normalizeMilestoneId(match[1]) : null;
+}
+
+const activeMilestone =
+  parseStateMilestone(stateText) || parseMarkdownMilestone(milestoneText) || "unknown";
 
 const bootstrapAllowedPaths = new Set([
   ".github/workflows/ai-integration-scope-guard.yml",
@@ -57,6 +89,19 @@ const m1AllowedPatterns = [
   /^scripts\/ai\/run-v3-milestone\.sh$/,
   /^scripts\/ai\/v3-scope-guard\.mjs$/,
   /^apps\/mobile\/lib\/bills\//,
+  /^apps\/mobile\/test\//,
+];
+
+const m2AllowedPatterns = [
+  /^\.ai(?:\/|$)/,
+  /^docs\/qa\//,
+  /^docs\/workflow\/AI_V3_CONTROLLER\.md$/,
+  /^docs\/workflow\/AI_V3_PIPELINE\.md$/,
+  /^scripts\/ai\//,
+  /^apps\/mobile\/lib\/app\//,
+  /^apps\/mobile\/lib\/bills\/bill_list_screen\.dart$/,
+  /^apps\/mobile\/lib\/groups\/group_list_screen\.dart$/,
+  /^apps\/mobile\/lib\/settlements\/settlement_list_screen\.dart$/,
   /^apps\/mobile\/test\//,
 ];
 
@@ -80,6 +125,20 @@ function isAllowedForM1(file) {
   return m1AllowedPatterns.some((pattern) => pattern.test(file));
 }
 
+function isAllowedForM2(file) {
+  return m2AllowedPatterns.some((pattern) => pattern.test(file));
+}
+
+function isAllowedForMilestone(file, milestone) {
+  if (milestone === "M1") {
+    return isAllowedForM1(file);
+  }
+  if (milestone === "M2") {
+    return isAllowedForM2(file);
+  }
+  return false;
+}
+
 function forbiddenReason(file) {
   if (allowBootstrapWorkflow && bootstrapAllowedPaths.has(file)) {
     return null;
@@ -92,7 +151,7 @@ function forbiddenReason(file) {
 const classifications = changedFiles.map((file) => {
   const forbidden = forbiddenReason(file);
   const bootstrapAllowed = allowBootstrapWorkflow && bootstrapAllowedPaths.has(file);
-  const allowed = (activeMilestone === "M1" && isAllowedForM1(file)) || bootstrapAllowed;
+  const allowed = isAllowedForMilestone(file, activeMilestone) || bootstrapAllowed;
 
   if (forbidden) {
     return { file, classification: "forbidden", reason: forbidden };
