@@ -150,7 +150,7 @@
     "title": "M1 UI-test group bill create fixes",
     "risk": "medium",
     "autoMergeAllowed": false,
-    "status": "in_progress",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

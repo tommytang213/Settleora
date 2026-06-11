@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1 UI-test bugfix in progress; human review required before any merge`
+Status: `M1 UI-test bugfix validated; human review required before merge`
 
 ## Acceptance Checklist
 
@@ -13,15 +13,16 @@ Status: `M1 UI-test bugfix in progress; human review required before any merge`
 
 ## M1 Final Validation Summary
 
-- M1-007 UI-test bugfix loop is in progress on `ai/task/m1-ui-test-group-bill-create-fixes-20260611-2021`.
+- M1-007 UI-test bugfix loop is validated on `ai/task/m1-ui-test-group-bill-create-fixes-20260611-2021` at implementation commit `fb19242a3ae5aa57a6be34daf053a3461e106078`.
 - Human UI testing found group bill create UX/product bugs in split assignment, payer defaults, and submit payload handling.
 - Mobile-side fixes now make unit/share assignment use supported `share_weight` payloads with explicit line-unit copy, expose exact amount inputs, expose share-weight inputs, default current-user payer rows when safe, and omit blank equal-split `basisValue` keys from generated create payloads.
-- Focused validation so far: `flutter analyze` passed, `flutter test test/bill_generated_repository_test.dart` passed with 28 tests, and `flutter test test/group_bill_list_screen_test.dart` passed with 68 tests.
+- Focused validation: `flutter analyze` passed, `flutter test test/bill_generated_repository_test.dart` passed with 28 tests, `flutter test test/group_bill_list_screen_test.dart` passed with 68 tests, and the focused combined command over `group_bill_list_screen_test.dart`, `bill_list_screen_test.dart`, and `bill_generated_repository_test.dart` passed with 169 tests.
+- Full mobile validation: `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed; mobile doctor passed, `flutter pub get` passed with dependency-update notices only, `flutter analyze` found no issues, and the full Flutter suite passed with 529 tests.
 - PR #83 (`M1-005`) was validated and merged into `ai/integration` at `64b3d324f9f140e991bb1f9c14fe8fa8d3eab3ae`.
 - M1 group bill create/list/detail readiness is now human-gated for server-mode owner UI testing.
 - UI testing checklist: `docs/qa/M1_GROUP_BILL_UI_TESTING_CHECKLIST.md`.
 - Last validated integration commit for M1 readiness: `64b3d324f9f140e991bb1f9c14fe8fa8d3eab3ae`.
-- No open QA findings are recorded in `.ai/qa-findings.json`.
+- Human UI-testing findings are recorded in `.ai/qa-findings.json` as `fixed_validated`.
 - No forbidden backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, storage/privacy policy, or secret changes are part of M1 finalization.
 
 ## Validation
