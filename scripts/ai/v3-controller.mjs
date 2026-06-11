@@ -2,8 +2,11 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -14,6 +17,7 @@ import process from "node:process";
 const repoRoot = process.cwd();
 const logsRoot = "/workspace/logs/ai-v3-controller";
 const taskPromptDir = path.join(logsRoot, "tasks");
+const codexRunDir = path.join(logsRoot, "codex-runs");
 const lockPath = path.join(logsRoot, "controller.lock");
 
 const requiredFiles = {
@@ -145,6 +149,7 @@ function ensureWorkspace() {
     throw new Error("Run this controller from the repository root");
   }
   mkdirSync(taskPromptDir, { recursive: true });
+  mkdirSync(codexRunDir, { recursive: true });
 }
 
 function processAppearsActive(pid) {
@@ -485,6 +490,38 @@ function formatCommandFailure(result) {
   return lines.join("\n");
 }
 
+function tailText(filePath, maxLines = 80) {
+  if (!existsSync(filePath)) {
+    return "";
+  }
+
+  const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
+  return lines.slice(-maxLines).join("\n").trim();
+}
+
+function formatCodexFailure(result) {
+  const lines = [
+    `Command: ${attemptedCommand(result.command, result.args)}`,
+    `Source: ${result.source}`,
+    `Status: ${result.status === null ? "null" : result.status}`,
+    `Codex log path: ${result.logPath}`,
+  ];
+
+  if (result.signal) {
+    lines.push(`Signal: ${result.signal}`);
+  }
+  if (result.error) {
+    lines.push(`Launch error: ${result.error.name || "Error"} ${result.error.code || ""} ${result.error.message || ""}`.trim());
+  }
+
+  const tail = tailText(result.logPath);
+  if (tail) {
+    lines.push(`Codex log tail:\n${tail}`);
+  }
+
+  return lines.join("\n");
+}
+
 function assertSuccess(result, message) {
   if (result.error || result.status !== 0) {
     throw new Error(`${message}\n${formatCommandFailure(result)}`);
@@ -531,6 +568,76 @@ function resolveCodexCommand() {
       formatCommandFailure(result),
     ].join("\n"),
   );
+}
+
+function runCodexCommand(codexCommand, prompt, promptInfo, iteration) {
+  const logPath = path.join(
+    codexRunDir,
+    `${safeTimestamp()}-iteration-${iteration}-${selectionSafeId(promptInfo.branchName)}.log`,
+  );
+  const args = [];
+  const header = [
+    `Settleora AI V3 Codex run`,
+    `Started: ${new Date().toISOString()}`,
+    `Started HKT: ${hktTimestamp()}`,
+    `Command: ${attemptedCommand(codexCommand.command, args)}`,
+    `Source: ${codexCommand.source}`,
+    `Prompt path: ${promptInfo.promptPath}`,
+    `Target branch: ${promptInfo.branchName}`,
+    "",
+    "----- codex output -----",
+    "",
+  ].join("\n");
+  writeFileSync(logPath, header);
+
+  const outputFd = openSync(logPath, "a");
+  let result;
+  try {
+    result = spawnSync(codexCommand.command, args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["pipe", outputFd, outputFd],
+      input: prompt,
+    });
+  } finally {
+    closeSync(outputFd);
+  }
+
+  appendFileSync(
+    logPath,
+    [
+      "",
+      "----- codex process result -----",
+      `Finished: ${new Date().toISOString()}`,
+      `Finished HKT: ${hktTimestamp()}`,
+      `Status: ${result.status === null ? "null" : result.status}`,
+      `Signal: ${result.signal || ""}`,
+      result.error
+        ? `Launch error: ${result.error.name || "Error"} ${result.error.code || ""} ${result.error.message || ""}`.trim()
+        : "Launch error: none",
+      "",
+    ].join("\n"),
+  );
+
+  return {
+    command: codexCommand.command,
+    args,
+    source: codexCommand.source,
+    status: result.status,
+    signal: result.signal || null,
+    error: result.error
+      ? {
+          code: result.error.code,
+          name: result.error.name,
+          message: result.error.message,
+        }
+      : null,
+    logPath,
+  };
+}
+
+function selectionSafeId(value) {
+  return slugify(String(value).replace(/^ai\/task\//, ""));
 }
 
 function changedFiles(baseRef, headRef) {
@@ -921,11 +1028,19 @@ function mergePr(pr, expectedHeadSha) {
   assertSuccess(merged, "Unable to merge PR");
 }
 
-function runRealControllerIteration(selection, data, promptInfo, config) {
+function runRealControllerIteration(selection, data, promptInfo, config, iteration) {
   const prompt = readFileSync(promptInfo.promptPath, "utf8");
   const codexCommand = resolveCodexCommand();
-  const codex = runCommand(codexCommand.command, [], { input: prompt });
-  assertSuccess(codex, `${defaultCodexCommand} task execution failed (${codexCommand.source}: ${codexCommand.command})`);
+  const codex = runCodexCommand(codexCommand, prompt, promptInfo, iteration);
+  if (codex.error || codex.status !== 0) {
+    throw new Error(`${defaultCodexCommand} task execution failed\n${formatCodexFailure(codex)}`);
+  }
+  const codexRun = {
+    command: codex.command,
+    source: codex.source,
+    status: codex.status,
+    logPath: codex.logPath,
+  };
 
   const branch = runCommand("git", ["rev-parse", "--verify", promptInfo.branchName]);
   assertSuccess(branch, `Expected task branch was not created: ${promptInfo.branchName}`);
@@ -970,6 +1085,7 @@ function runRealControllerIteration(selection, data, promptInfo, config) {
     );
     if (blockReason) {
       return {
+        codexRun,
         pr,
         merged: false,
         headSha: expectedHeadSha,
@@ -978,10 +1094,10 @@ function runRealControllerIteration(selection, data, promptInfo, config) {
       };
     }
     mergePr(pr, expectedHeadSha);
-    return { pr, merged: true, headSha: expectedHeadSha };
+    return { codexRun, pr, merged: true, headSha: expectedHeadSha };
   }
 
-  return { pr, merged: false, headSha: expectedHeadSha };
+  return { codexRun, pr, merged: false, headSha: expectedHeadSha };
 }
 
 function writeRunLog(payload) {
@@ -1035,7 +1151,7 @@ function main() {
       }
 
       try {
-        Object.assign(item, runRealControllerIteration(selection, data, promptInfo, config));
+        Object.assign(item, runRealControllerIteration(selection, data, promptInfo, config, iteration));
       } catch (error) {
         const key = `${selection.task.id}:${error.message.split("\n")[0]}`;
         run.validationFailures[key] = (run.validationFailures[key] || 0) + 1;

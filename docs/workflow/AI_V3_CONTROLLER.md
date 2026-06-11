@@ -10,6 +10,7 @@ GitHub Actions does not call GPT or Codex directly in v0. Actions only provide r
 - Worktrees can be added later when the controller needs concurrent task branches.
 - Multi-VM coordination is deferred until the single-VM loop is stable.
 - Real runs resolve `codex-vm-full` from the DevBox login-shell `PATH` with `bash -lc 'command -v codex-vm-full'`, then call the resolved command with the generated task prompt as stdin. Do not pass shell commands to `codex-vm-full`.
+- Codex stdout and stderr are redirected to a per-iteration file under `/workspace/logs/ai-v3-controller/codex-runs/`. The controller does not buffer full Codex output in Node memory; run logs record the Codex command source, exit status, and log path, and failures include a short tail of the Codex log.
 - Set `SETTLEORA_AI_V3_CODEX_COMMAND` to an explicit command path to override `codex-vm-full` during controller launch debugging.
 - If Codex cannot be found or launched, the controller run log records the attempted command, launch error details, stdout/stderr when present, resolver details, and the current `PATH`.
 
@@ -36,6 +37,21 @@ cd /workspace/repos/Settleora
 node scripts/ai/v3-controller.mjs --run --max-iterations 8 --allow-auto-merge
 ```
 
+Preferred milestone runner wrapper:
+
+```bash
+cd /workspace/repos/Settleora
+scripts/ai/run-v3-milestone.sh 8
+```
+
+The wrapper starts from the repository root, refuses to run from `main`, refuses a `main` integration branch in `.ai/state.json`, exports a stable `PATH` containing `/opt/flutter/bin`, `${HOME}/bin`, `${HOME}/.local/bin`, and `/home/tommytang213/bin`, verifies `node` and `codex-vm-full`, then runs:
+
+```bash
+node scripts/ai/v3-controller.mjs --run --allow-auto-merge --max-iterations <N>
+```
+
+Pass the bounded iteration count as the first argument or set `SETTLEORA_AI_V3_MAX_ITERATIONS`; the default is `8`.
+
 ## Auto-Merge Constraints
 
 The controller may only auto-merge into `ai/integration`. It rechecks PR base branch, draft state, merge state, checks, changed-file scope, forbidden paths, scope guard output, updated task-branch `.ai` state, GitHub review state, and the expected head SHA before merge. It must never merge into `main`, force push, delete branches, or bypass failing or ambiguous checks.
@@ -54,6 +70,7 @@ Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/se
 
 - Controller logs: `/workspace/logs/ai-v3-controller/`
 - Generated task prompts: `/workspace/logs/ai-v3-controller/tasks/`
+- Full per-iteration Codex output: `/workspace/logs/ai-v3-controller/codex-runs/`
 - Per-run JSON logs: `/workspace/logs/ai-v3-controller/run-*.json`
 - Current Codex task report copy: `.codex/last-report.md`
 

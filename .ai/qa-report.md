@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1-004 validation passed; ready for PR merge gate`
+Status: `AI V3 controller hardening validation passed; ready for PR merge gate`
 
 ## Acceptance Checklist
 
@@ -13,6 +13,19 @@ Status: `M1-004 validation passed; ready for PR merge gate`
 
 ## Validation
 
+- AI V3 controller hardening: Codex real-run output is redirected to per-iteration logs under `/workspace/logs/ai-v3-controller/codex-runs/` instead of being buffered in Node memory, preserving command/source/status/log-path diagnostics and a short failure tail.
+- AI V3 milestone runner wrapper added at `scripts/ai/run-v3-milestone.sh`; it starts from the repo root, refuses `main`, exports the stable Flutter/user-bin PATH, and runs the controller with `--run --allow-auto-merge` plus a bounded max iteration count.
+- Scope guard path allowance updated for the new AI controller runner wrapper so controller-only hardening can pass the same PR gate as other AI workflow changes.
+- `git status --short`: passed before commit; changed files were limited to `.ai/qa-report.md`, `docs/workflow/AI_V3_CONTROLLER.md`, `scripts/ai/v3-controller.mjs`, `scripts/ai/v3-scope-guard.mjs`, and `scripts/ai/run-v3-milestone.sh`.
+- `git diff --name-only origin/ai/integration...HEAD`: passed before commit with no output because the task changes were not committed yet; rerun required after commit.
+- `git diff --check origin/ai/integration...HEAD`: passed before commit with no output.
+- `node --check scripts/ai/v3-controller.mjs`: passed with no output.
+- `bash -n scripts/ai/run-v3-milestone.sh`: passed with no output.
+- `bash -lc 'command -v node && command -v /home/tommytang213/bin/codex-vm-full && command -v /opt/flutter/bin/flutter'`: passed; resolved `/usr/bin/node`, `/home/tommytang213/bin/codex-vm-full`, and `/opt/flutter/bin/flutter`.
+- `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`: passed; selected `M1-005 - Group bill UI navigation and checklist polish`, wrote a prompt under `/workspace/logs/ai-v3-controller/tasks/`, wrote a run log under `/workspace/logs/ai-v3-controller/`, and did not invoke Codex.
+- `npm run validate:docs`: passed; documentation validation passed.
+- `npm run validate:scaffold`: passed; scaffold validation passed for 19 paths.
+- `npm run validate:openapi`: passed; Redocly validated `packages/contracts/openapi/settleora.v1.yaml`.
 - M1-004 dirty salvage: preserved the dirty M1-004 diff on `ai/task/m1-004-receipt-attachment-handoff-clarity`, confirmed dirty files were limited to the six expected mobile bill/test files, and completed focused receipt/supporting-attachment handoff copy polish without backend/API, generated-client, storage-policy, auth, schema, money, deployment, CI, or secret changes.
 - M1-004 implementation: clarified receipt versus supporting attachment upload choices, receipt upload success feedback, saved attachment row handoff copy, and group/personal bill create draft attachment copy so receipts remain evidence/input with provisional review-first OCR and supporting files remain bill evidence only.
 - M1-004 state repair: `M1-004` is marked completed, `lastCompletedTaskId` is `M1-004`, `currentTaskId` is `M1-005`, and human-review/blocker state remains clear.
