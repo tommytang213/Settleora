@@ -74,6 +74,61 @@ void main() {
     expect(find.text('Residual confirmed.'), findsOneWidget);
   });
 
+  testWidgets('settlement landing summary shortcuts filter requests', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      requests: [
+        sampleRequest(amount: '10.00', currency: 'USD'),
+        sampleRequest(
+          id: _secondSettlementId,
+          amount: '25.00',
+          currency: 'EUR',
+          status: SettleoraSettlementRequestStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _debtorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await scrollTo(
+      tester,
+      find.byKey(const Key('settlement-list-landing-summary')),
+    );
+    expect(find.text('Settle landing'), findsOneWidget);
+    expect(find.text('1 needing action'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('settlement-list-summary-needs-action')),
+    );
+    await tester.pumpAndSettle();
+
+    await scrollListBy(tester, 500);
+    await tester.pumpAndSettle();
+    expect(find.text('10.00 USD'), findsOneWidget);
+    expect(find.text('25.00 EUR'), findsNothing);
+
+    await scrollTo(
+      tester,
+      find.byKey(const Key('settlement-list-landing-summary')),
+    );
+    await tester.tap(find.byKey(const Key('settlement-list-summary-all')));
+    await tester.pumpAndSettle();
+
+    await scrollListBy(tester, 500);
+    await tester.pumpAndSettle();
+    expect(find.text('10.00 USD'), findsOneWidget);
+    expect(find.text('25.00 EUR'), findsOneWidget);
+  });
+
   testWidgets(
     'settlement list search filters requests by safe visible values',
     (tester) async {

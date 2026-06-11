@@ -1,16 +1,16 @@
 # AI QA Report
 
-Status: `M2 kickoff ready; controller should select M2-001 next`
+Status: `M2-004 groups and settle landing handoff polish completed; controller should select M2-005 next`
 
 ## Acceptance Checklist
 
 - [x] Current milestone goal is updated to M2 mobile navigation and Home/dashboard shell polish.
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
-- [ ] M2 current-state reconciliation completed.
-- [ ] Home/dashboard shell polish completed and validated.
-- [ ] Bottom navigation clarity polish completed and validated.
-- [ ] Groups and Settle landing handoff polish completed and validated.
+- [x] M2 current-state reconciliation completed.
+- [x] Home/dashboard shell polish completed and validated.
+- [x] Bottom navigation clarity polish completed and validated.
+- [x] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
 - [ ] Human UI testing checklist completed.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
@@ -56,4 +56,9 @@ Status: `M2 kickoff ready; controller should select M2-001 next`
 
 ## Findings
 
-- No open M2 QA findings at kickoff.
+- `M2-004` added an explicit no-groups empty-state action that opens the existing group creation flow without adding backend, auth, storage, or sync behavior.
+- Group detail now exposes a compact `Shared bill workspace` handoff into the existing group-bill list/create/review flow while preserving current group/member repository boundaries.
+- Group bill list empty state now offers `Create group bill`, and the group context copy clarifies that loaded group bills can be filtered for user response needs.
+- Settlement list now includes a bounded `Settle landing` summary using already loaded server-returned balances and settlement requests, with shortcuts that only update existing local list filters.
+- Focused widget coverage was updated for group empty/action handoff, group detail bill handoff, group bill empty handoff, and settlement summary filter shortcuts.
+- No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes were made.
