@@ -339,7 +339,8 @@ void main() {
     await tester.tap(find.byKey(const Key('server-shell-bills')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Bills'), findsOneWidget);
+    expect(find.text('Bills'), findsWidgets);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
 
     await tester.pageBack();
@@ -621,7 +622,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final callsAfterOpeningBills = billRepository.listCalls;
-    expect(find.text('Bills'), findsOneWidget);
+    expect(find.text('Bills'), findsWidgets);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -849,7 +851,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Bills'), findsOneWidget);
+      expect(find.text('Bills'), findsWidgets);
+      expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
       expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     },
   );
@@ -920,7 +923,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Bills'), findsOneWidget);
+    expect(find.text('Bills'), findsWidgets);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
   });
 

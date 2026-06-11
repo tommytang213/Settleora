@@ -27,6 +27,7 @@ void main() {
   testWidgets('bill list queues archive and flushes through sync', (
     tester,
   ) async {
+    await useLargeSurface(tester);
     final store = MemorySyncQueueStore();
     final syncRepository = FakeSyncRepository([sampleOperationResult()]);
     final controller = SettleoraBillSyncController(
@@ -77,9 +78,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
-    expect(find.text('Create bill'), findsOneWidget);
+    expect(find.text('Create bill'), findsWidgets);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
     expect(find.text('Create group bill'), findsNothing);
+  });
+
+  testWidgets('personal bill empty state keeps bills tab active', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No bills'), findsOneWidget);
+    expect(find.byKey(const Key('bill-list-empty-create')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
+  });
+
+  testWidgets('personal bill needs review filter shows review bills', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          id: 'review-bill-id',
+          merchantName: 'Receipt Review',
+          status: 'needs_review',
+        ),
+        sampleBillSummary(
+          id: 'active-bill-id',
+          merchantName: 'Settled Lunch',
+          status: 'confirmed',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Needs review (1)'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('bill-list-filter-needsReview')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Receipt Review'), findsOneWidget);
+    expect(find.text('Settled Lunch'), findsNothing);
   });
 
   testWidgets('personal bill search filters clear to the loaded bill list', (
