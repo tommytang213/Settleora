@@ -300,7 +300,7 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-enum SettleoraNavDestination { home, groups, settle, receipts, profile }
+enum SettleoraNavDestination { home, bills, groups, settle, receipts, profile }
 
 class SettleoraBottomNav extends StatelessWidget {
   const SettleoraBottomNav({
@@ -391,6 +391,11 @@ class SettleoraBottomNav extends StatelessWidget {
           child: Row(
             children: [
               item(SettleoraNavDestination.home, Icons.home_rounded, 'Home'),
+              item(
+                SettleoraNavDestination.bills,
+                Icons.receipt_long_rounded,
+                'Bills',
+              ),
               item(
                 SettleoraNavDestination.groups,
                 Icons.groups_rounded,

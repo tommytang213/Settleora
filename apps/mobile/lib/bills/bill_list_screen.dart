@@ -4,6 +4,8 @@ import '../groups/group_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
+import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 import 'bill_attachment_section.dart';
@@ -297,8 +299,13 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 112),
                 children: [
+                  _BillsListHeader(
+                    onCreateBill: _isLoading ? null : _openCreateBill,
+                    onScanReceipt: null,
+                  ),
+                  const SizedBox(height: 14),
                   if (snapshot != null)
                     _SyncStatusPanel(
                       snapshot: snapshot,
@@ -317,11 +324,17 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                   ],
                   if (_bills.isEmpty) ...[
                     const SizedBox(height: 56),
-                    const _StatePanel(
+                    _StatePanel(
                       icon: Icons.receipt_long_outlined,
                       title: 'No bills',
                       message:
                           'Personal bills visible to this account will appear here.',
+                      action: AppButton(
+                        key: const Key('bill-list-empty-create'),
+                        label: 'Create bill',
+                        icon: Icons.add_rounded,
+                        onPressed: _openCreateBill,
+                      ),
                     ),
                   ] else ...[
                     const SizedBox(height: 12),
@@ -381,11 +394,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const Key('bill-list-create'),
-        onPressed: _isLoading ? null : _openCreateBill,
-        icon: const Icon(Icons.add),
-        label: const Text('Create bill'),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.bills,
       ),
     );
   }
@@ -409,13 +419,14 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   }
 }
 
-enum _PersonalBillListFilter { all, active, archived }
+enum _PersonalBillListFilter { all, active, needsReview, archived }
 
 extension _PersonalBillListFilterText on _PersonalBillListFilter {
   String get label {
     return switch (this) {
       _PersonalBillListFilter.all => 'All',
       _PersonalBillListFilter.active => 'Active',
+      _PersonalBillListFilter.needsReview => 'Needs review',
       _PersonalBillListFilter.archived => 'Archived',
     };
   }
@@ -428,8 +439,60 @@ extension _PersonalBillListFilterText on _PersonalBillListFilter {
     return switch (this) {
       _PersonalBillListFilter.all => true,
       _PersonalBillListFilter.active => !bill.isArchived,
+      _PersonalBillListFilter.needsReview => _billNeedsReview(bill),
       _PersonalBillListFilter.archived => bill.isArchived,
     };
+  }
+}
+
+class _BillsListHeader extends StatelessWidget {
+  const _BillsListHeader({
+    required this.onCreateBill,
+    required this.onScanReceipt,
+  });
+
+  final VoidCallback? onCreateBill;
+  final VoidCallback? onScanReceipt;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: const EdgeInsets.all(SettleoraSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 19,
+            backgroundColor: colors.accentSoft,
+            foregroundColor: colors.accent,
+            child: const Icon(Icons.receipt_long_rounded, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: AppButton(
+              key: const Key('bill-list-create'),
+              label: 'Create bill',
+              icon: Icons.add_rounded,
+              onPressed: onCreateBill,
+              expanded: true,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: AppButton(
+              key: const Key('bill-list-scan-receipt'),
+              label: 'Scan receipt',
+              icon: Icons.document_scanner_outlined,
+              variant: AppButtonVariant.secondary,
+              onPressed: onScanReceipt,
+              expanded: true,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -910,52 +973,64 @@ class _SettleoraPersonalBillCreateScreenState
                     ),
                     const SizedBox(height: 16),
                   ],
-                  Text(
-                    'Bill details',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('personal-bill-merchant-name'),
-                    controller: _merchantController,
-                    enabled: !_isSaving,
-                    onChanged: (_) => _notifyDraftChanged(),
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Merchant name',
-                      border: OutlineInputBorder(),
+                  _CreateBillHeader(
+                    hasReceiptAttachment: _draftAttachments.any(
+                      (attachment) =>
+                          attachment.purpose ==
+                          SettleoraBillAttachmentPurposeValues.receipt,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('personal-bill-date'),
-                    controller: _billDateController,
-                    enabled: !_isSaving,
-                    onChanged: (_) => _notifyDraftChanged(),
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Bill date',
-                      hintText: 'YYYY-MM-DD',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) =>
-                        _requiredField(value, 'Enter a bill date.'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('personal-bill-currency'),
-                    controller: _currencyController,
-                    enabled: !_isSaving,
-                    onChanged: (_) => _notifyDraftChanged(),
-                    textCapitalization: TextCapitalization.characters,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Currency',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) => _currencyCodeField(
-                      value,
-                      requiredMessage: 'Enter a currency.',
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Bill details',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          key: const Key('personal-bill-merchant-name'),
+                          controller: _merchantController,
+                          enabled: !_isSaving,
+                          onChanged: (_) => _notifyDraftChanged(),
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Merchant name',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          key: const Key('personal-bill-date'),
+                          controller: _billDateController,
+                          enabled: !_isSaving,
+                          onChanged: (_) => _notifyDraftChanged(),
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Bill date',
+                            hintText: 'YYYY-MM-DD',
+                          ),
+                          validator: (value) =>
+                              _requiredField(value, 'Enter a bill date.'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          key: const Key('personal-bill-currency'),
+                          controller: _currencyController,
+                          enabled: !_isSaving,
+                          onChanged: (_) => _notifyDraftChanged(),
+                          textCapitalization: TextCapitalization.characters,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Currency',
+                          ),
+                          validator: (value) => _currencyCodeField(
+                            value,
+                            requiredMessage: 'Enter a currency.',
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 22),
@@ -1041,11 +1116,66 @@ class _SettleoraPersonalBillCreateScreenState
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check),
-                label: Text(saveLabel),
+                label: FittedBox(child: Text(saveLabel)),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CreateBillHeader extends StatelessWidget {
+  const _CreateBillHeader({required this.hasReceiptAttachment});
+
+  final bool hasReceiptAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: const EdgeInsets.all(SettleoraSpacing.lg),
+      color: hasReceiptAttachment ? colors.successSoft : colors.surface,
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: hasReceiptAttachment
+                ? colors.surface
+                : colors.primarySoft,
+            foregroundColor: hasReceiptAttachment
+                ? colors.onSuccessSoft
+                : colors.primary,
+            child: Icon(
+              hasReceiptAttachment
+                  ? Icons.check_circle_outline
+                  : Icons.edit_note_outlined,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Create bill',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  hasReceiptAttachment
+                      ? 'Receipt attached. Review receipt data before saving.'
+                      : 'Manual entry. Add receipt files when available.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1507,13 +1637,9 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final itemNumber = index + 1;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return AppCard(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1540,10 +1666,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               enabled: !isSaving,
               onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Name'),
               validator: (value) =>
                   _requiredField(value, 'Enter an item name.'),
             ),
@@ -1555,10 +1678,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               onChanged: (_) => onDraftChanged(),
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Amount'),
               validator: (value) => _positiveMoneyAmountField(
                 value,
                 requiredMessage: 'Enter an item amount.',
@@ -1572,10 +1692,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               onChanged: (_) => onDraftChanged(),
               textCapitalization: TextCapitalization.characters,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Currency',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Currency'),
               validator: (value) => _currencyCodeField(
                 value,
                 requiredMessage: 'Enter an item currency.',
@@ -1588,10 +1705,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               enabled: !isSaving,
               onChanged: (_) => onDraftChanged(),
               textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Note',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Note'),
             ),
           ],
         ),
@@ -4473,7 +4587,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
             );
 
             return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
               children: [
                 _BillDetailHeader(bill: bill),
                 if (_pendingRevision != null) ...[
@@ -4560,6 +4674,9 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
             );
           },
         ),
+      ),
+      bottomNavigationBar: const SettleoraBottomNav(
+        selected: SettleoraNavDestination.bills,
       ),
     );
   }
@@ -5160,87 +5277,155 @@ class _BillSummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
     final syncItem = this.syncItem;
     final actionTooltip = bill.isArchived ? 'Queue restore' : 'Queue archive';
     final actionIcon = bill.isArchived
         ? Icons.unarchive_outlined
         : Icons.archive_outlined;
     final nextStepLabel = _personalBillNextStepLabel(bill);
+    final needsReview = _billNeedsReview(bill);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        enabled: !bill.isArchived,
-        onTap: bill.isArchived ? null : onTap,
-        title: Text(
-          bill.displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${bill.billDate} - ${_money(bill.totalAmount, bill.totalCurrency)}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  _SoftChip(
-                    label: settleoraBillStatusLabel(bill.status),
-                    icon: Icons.assignment_outlined,
-                  ),
-                  _SoftChip(
-                    label: settleoraBillArchiveStateLabel(bill.archiveState),
-                    icon: bill.isArchived
-                        ? Icons.inventory_2_outlined
-                        : Icons.check_circle_outline,
-                  ),
-                  _SoftChip(
-                    label: settleoraBillReconciliationStatusLabel(
-                      bill.reconciliationStatus,
+    return Semantics(
+      container: true,
+      button: !bill.isArchived,
+      label:
+          '${bill.displayName}, ${_money(bill.totalAmount, bill.totalCurrency)}, ${settleoraBillStatusLabel(bill.status)}',
+      child: AppCard(
+        color: needsReview ? colors.warningSoft : colors.surface,
+        padding: EdgeInsets.zero,
+        child: Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            enabled: !bill.isArchived,
+            onTap: bill.isArchived ? null : onTap,
+            contentPadding: const EdgeInsets.all(SettleoraSpacing.md),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bill.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            bill.billDate,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colors.textMuted),
+                          ),
+                        ],
+                      ),
                     ),
-                    icon: Icons.fact_check_outlined,
-                  ),
-                  _SoftChip(
-                    label: _billCountSummary(bill),
-                    icon: Icons.format_list_bulleted_outlined,
-                  ),
-                  if (syncItem != null)
-                    _SoftChip(
-                      label:
-                          '${settleoraBillSyncOperationLabel(syncItem)} - ${settleoraBillSyncStateLabel(syncItem)}',
-                      icon: _syncIcon(syncItem.state),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _money(bill.totalAmount, bill.totalCurrency),
+                          style: Theme.of(context).textTheme.titleMedium,
+                          textAlign: TextAlign.end,
+                        ),
+                        const SizedBox(height: 6),
+                        StatusChip(
+                          label: settleoraBillStatusLabel(bill.status),
+                          variant: _billStatusVariant(bill.status),
+                          size: StatusChipSize.small,
+                        ),
+                      ],
                     ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    StatusChip(
+                      label: 'Personal',
+                      icon: Icons.person_outline,
+                      variant: StatusChipVariant.info,
+                      size: StatusChipSize.small,
+                    ),
+                    StatusChip(
+                      label: _billCountSummary(bill),
+                      icon: Icons.group_outlined,
+                      size: StatusChipSize.small,
+                    ),
+                    StatusChip(
+                      label: settleoraBillArchiveStateLabel(bill.archiveState),
+                      icon: bill.isArchived
+                          ? Icons.inventory_2_outlined
+                          : Icons.check_circle_outline,
+                      variant: bill.isArchived
+                          ? StatusChipVariant.neutral
+                          : StatusChipVariant.success,
+                      size: StatusChipSize.small,
+                    ),
+                    StatusChip(
+                      label: settleoraBillReconciliationStatusLabel(
+                        bill.reconciliationStatus,
+                      ),
+                      icon: Icons.fact_check_outlined,
+                      variant: StatusChipVariant.neutral,
+                      size: StatusChipSize.small,
+                    ),
+                    if (syncItem != null)
+                      StatusChip(
+                        label:
+                            '${settleoraBillSyncOperationLabel(syncItem)} - ${settleoraBillSyncStateLabel(syncItem)}',
+                        icon: _syncIcon(syncItem.state),
+                        variant:
+                            syncItem.state ==
+                                SettleoraSyncQueueItemStateValues.conflict
+                            ? StatusChipVariant.warning
+                            : StatusChipVariant.info,
+                        size: StatusChipSize.small,
+                      ),
+                  ],
+                ),
+                if (syncItem?.safeMessage != null) ...[
+                  const SizedBox(height: 10),
+                  Text(syncItem!.safeMessage!),
                 ],
-              ),
-              if (syncItem?.safeMessage != null) ...[
-                const SizedBox(height: 6),
-                Text(syncItem!.safeMessage!),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        nextStepLabel,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.textMuted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      key: bill.isArchived
+                          ? restoreButtonKey
+                          : archiveButtonKey,
+                      tooltip: actionTooltip,
+                      onPressed: isBusy || hasOpenOperation ? null : onQueue,
+                      icon: isBusy
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(actionIcon),
+                    ),
+                  ],
+                ),
               ],
-              const SizedBox(height: 6),
-              Text(nextStepLabel),
-            ],
+            ),
           ),
-        ),
-        trailing: IconButton(
-          key: bill.isArchived ? restoreButtonKey : archiveButtonKey,
-          tooltip: actionTooltip,
-          onPressed: isBusy || hasOpenOperation ? null : onQueue,
-          icon: isBusy
-              ? const SizedBox.square(
-                  dimension: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(actionIcon),
         ),
       ),
     );
@@ -6047,29 +6232,64 @@ class _BillDetailHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(bill.displayName, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 10),
-        _KeyValueText(label: 'Bill date', value: bill.billDate),
-        _KeyValueText(
-          label: 'Status',
-          value: settleoraBillStatusLabel(bill.status),
-        ),
-        _KeyValueText(
-          label: 'Reconciliation',
-          value: settleoraBillReconciliationStatusLabel(
-            bill.reconciliationStatus,
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: const EdgeInsets.all(SettleoraSpacing.lg),
+      color: _billDetailNeedsReview(bill) ? colors.warningSoft : colors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  bill.displayName,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                _money(bill.totalAmount, bill.totalCurrency),
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.end,
+              ),
+            ],
           ),
-        ),
-        _KeyValueText(
-          label: 'Total',
-          value: _money(bill.totalAmount, bill.totalCurrency),
-        ),
-        if (bill.reconciliationNote != null)
-          _KeyValueText(label: 'Note', value: bill.reconciliationNote!),
-      ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              StatusChip(
+                label: settleoraBillStatusLabel(bill.status),
+                variant: _billStatusVariant(bill.status),
+                icon: Icons.assignment_outlined,
+                size: StatusChipSize.small,
+              ),
+              StatusChip(
+                label: bill.billDate,
+                icon: Icons.calendar_today_outlined,
+                variant: StatusChipVariant.neutral,
+                size: StatusChipSize.small,
+              ),
+              StatusChip(
+                label: settleoraBillReconciliationStatusLabel(
+                  bill.reconciliationStatus,
+                ),
+                icon: Icons.fact_check_outlined,
+                variant: StatusChipVariant.info,
+                size: StatusChipSize.small,
+              ),
+            ],
+          ),
+          if (bill.reconciliationNote != null) ...[
+            const SizedBox(height: 12),
+            Text(bill.reconciliationNote!),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -6097,11 +6317,57 @@ class _BillItems extends StatelessWidget {
       title: 'Items',
       children: [
         for (final item in sorted)
-          _KeyValueText(
-            label: item.name,
-            value: _money(item.amount, item.currency),
+          _BillItemRow(
+            name: item.name,
+            amount: _money(item.amount, item.currency),
+            note: item.note,
           ),
       ],
+    );
+  }
+}
+
+class _BillItemRow extends StatelessWidget {
+  const _BillItemRow({required this.name, required this.amount, this.note});
+
+  final String name;
+  final String amount;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: Theme.of(context).textTheme.titleSmall),
+                if (note != null && note!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    note!,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            amount,
+            style: Theme.of(context).textTheme.titleSmall,
+            textAlign: TextAlign.end,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -6862,13 +7128,15 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        ...children,
-      ],
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
     );
   }
 }
@@ -6976,6 +7244,52 @@ String _billCountSummary(SettleoraBillSummary bill) {
   ];
 
   return parts.join(' - ');
+}
+
+bool _billNeedsReview(SettleoraBillSummary bill) {
+  if (bill.isArchived) {
+    return false;
+  }
+
+  final status = bill.status.trim().toLowerCase();
+  return status == 'needs_review' ||
+      status == 'pending_confirmation' ||
+      status == 'rejected' ||
+      status == 'disputed';
+}
+
+bool _billDetailNeedsReview(SettleoraBillDetail bill) {
+  final summary = SettleoraBillSummary(
+    id: bill.id,
+    merchantName: bill.merchantName,
+    billDate: bill.billDate,
+    status: bill.status,
+    reconciliationStatus: bill.reconciliationStatus,
+    totalAmount: bill.totalAmount,
+    totalCurrency: bill.totalCurrency,
+    archiveState: SettleoraBillArchiveStateValues.active,
+    itemCount: bill.items.length,
+    participantCount: bill.participants.length,
+    payerCount: bill.payers.length,
+    createdAtUtc: bill.createdAtUtc,
+    updatedAtUtc: bill.updatedAtUtc,
+    participants: bill.participants,
+    displayNameFallback: bill.displayNameFallback,
+  );
+  return _billNeedsReview(summary);
+}
+
+StatusChipVariant _billStatusVariant(String status) {
+  return switch (status.trim().toLowerCase()) {
+    'confirmed' || 'finalized' => StatusChipVariant.success,
+    'needs_review' ||
+    'pending_confirmation' ||
+    'rejected' ||
+    'disputed' => StatusChipVariant.warning,
+    'cancelled' => StatusChipVariant.danger,
+    'draft' => StatusChipVariant.info,
+    _ => StatusChipVariant.neutral,
+  };
 }
 
 String _pluralCount(int count, String singular) {
