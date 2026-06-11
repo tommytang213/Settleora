@@ -1950,6 +1950,7 @@ class _SettleoraGroupBillListScreenState
           groupRepository: widget.groupRepository,
           groupId: widget.groupId,
           groupName: widget.groupName,
+          currentUserProfileId: widget.currentUserProfileId,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
         ),
@@ -2414,6 +2415,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.currentUserProfileId,
     this.attachmentRepository,
     this.attachmentFileInput,
   });
@@ -2422,6 +2424,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
 
@@ -2552,6 +2555,73 @@ class _SettleoraGroupBillCreateScreenState
         _GroupBillCreatePayerControllers(currency: _currencyController.text),
       );
     });
+  }
+
+  void _setSinglePayer(String? memberId) {
+    final trimmedMemberId = memberId?.trim();
+    if (_isSaving || trimmedMemberId == null || trimmedMemberId.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      for (final payer in _payerControllers) {
+        payer.dispose();
+      }
+      _payerControllers
+        ..clear()
+        ..add(
+          _GroupBillCreatePayerControllers(currency: _currencyController.text)
+            ..userProfileId = trimmedMemberId
+            ..amount.text = _groupBillCreateDecimalTotal(
+              _itemControllers.map((item) => item.amount.text),
+            ).toStringAsFixed(2),
+        );
+      _payerTotalError = null;
+    });
+  }
+
+  void _splitPayersEqually() {
+    if (_isSaving || _members.isEmpty) {
+      return;
+    }
+
+    final billTotal = _groupBillCreateDecimalTotal(
+      _itemControllers.map((item) => item.amount.text),
+    );
+    final perMember = _members.isEmpty ? 0.0 : billTotal / _members.length;
+
+    setState(() {
+      for (final payer in _payerControllers) {
+        payer.dispose();
+      }
+      _payerControllers
+        ..clear()
+        ..addAll([
+          for (final member in _members)
+            _GroupBillCreatePayerControllers(currency: _currencyController.text)
+              ..userProfileId = member.userProfileId
+              ..amount.text = perMember.toStringAsFixed(2),
+        ]);
+      _payerTotalError = null;
+    });
+  }
+
+  void _defaultPayerIfEmpty() {
+    if (_payerControllers.isNotEmpty || _members.isEmpty) {
+      return;
+    }
+
+    final currentUserProfileId = widget.currentUserProfileId?.trim();
+    if (currentUserProfileId == null || currentUserProfileId.isEmpty) {
+      return;
+    }
+
+    final currentMember = _memberForValue(_members, currentUserProfileId);
+    if (currentMember == null) {
+      return;
+    }
+
+    _setSinglePayer(currentMember.userProfileId);
   }
 
   void _removePayer(int index) {
@@ -2970,7 +3040,7 @@ class _SettleoraGroupBillCreateScreenState
                     (split) => SettleoraGroupBillCreateItemSplitDraft(
                       userProfileId: split.userProfileId ?? '',
                       splitMethod: split.splitMethod.text,
-                      basisValue: split.basisValue.text,
+                      basisValue: _optionalControllerText(split.basisValue),
                       allocationOrder: _parseAllocationOrder(
                         split.allocationOrder.text,
                       ),
@@ -3229,6 +3299,11 @@ class _SettleoraGroupBillCreateScreenState
             .any(
               (split) =>
                   split.splitMethod.text.trim().isEmpty ||
+                  _splitBasisValueError(
+                        splitMethod: split.splitMethod.text,
+                        basisValue: split.basisValue.text,
+                      ) !=
+                      null ||
                   _allocationOrderError(split.allocationOrder.text) != null,
             )) {
       return _GroupBillCreateStep.receiptItems;
@@ -3255,6 +3330,10 @@ class _SettleoraGroupBillCreateScreenState
   }
 
   void _selectStep(_GroupBillCreateStep step) {
+    if (step == _GroupBillCreateStep.payers) {
+      _defaultPayerIfEmpty();
+    }
+
     setState(() {
       _selectedStep = step;
     });
@@ -3270,7 +3349,11 @@ class _SettleoraGroupBillCreateScreenState
     final steps = _GroupBillCreateStep.values;
     final index = steps.indexOf(_selectedStep);
     if (index < steps.length - 1) {
-      _selectStep(steps[index + 1]);
+      final nextStep = steps[index + 1];
+      if (nextStep == _GroupBillCreateStep.payers) {
+        _defaultPayerIfEmpty();
+      }
+      _selectStep(nextStep);
     }
   }
 
@@ -3657,6 +3740,15 @@ class _SettleoraGroupBillCreateScreenState
                                     itemControllers: _itemControllers,
                                     payerControllers: _payerControllers,
                                     currency: _currencyController.text,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _GroupBillPayerQuickActions(
+                                    members: _members,
+                                    currentUserProfileId:
+                                        widget.currentUserProfileId,
+                                    isSaving: _isSaving,
+                                    onPaidByMember: _setSinglePayer,
+                                    onSplitPayers: _splitPayersEqually,
                                   ),
                                   const SizedBox(height: 12),
                                   Align(
@@ -4096,7 +4188,7 @@ enum _GroupBillSplitMode {
   equal('Equal', 'equal'),
   byItem('By item', 'equal'),
   exact('Exact amount', 'exact_amount'),
-  share('Share', 'share');
+  share('Share', 'share_weight');
 
   const _GroupBillSplitMode(this.label, this.apiValue);
 
@@ -4106,9 +4198,9 @@ enum _GroupBillSplitMode {
 
 enum _GroupBillAssignmentMethod {
   equal('Equal', 'equal', Icons.splitscreen_outlined),
-  quantity('Quantity', 'quantity', Icons.exposure_plus_1_outlined),
+  quantity('Units / shares', 'share_weight', Icons.exposure_plus_1_outlined),
   exactAmount('Exact amount', 'exact_amount', Icons.payments_outlined),
-  share('Share', 'share', Icons.pie_chart_outline);
+  share('Share weight', 'share_weight', Icons.pie_chart_outline);
 
   const _GroupBillAssignmentMethod(this.label, this.apiValue, this.icon);
 
@@ -4678,9 +4770,31 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
   late _GroupBillAssignmentMethod _method = _initialMethod();
   late final Map<String, int> _quantities = {
     for (final member in widget.members)
-      member.userProfileId: _selectedMemberIds.contains(member.userProfileId)
-          ? 1
-          : 0,
+      member.userProfileId: _initialQuantityFor(member.userProfileId),
+  };
+  late int _unitTotal = _initialUnitTotal();
+  late final Map<String, TextEditingController> _exactAmountControllers = {
+    for (final member in widget.members)
+      member.userProfileId: TextEditingController(
+        text: _initialBasisFor(
+          member.userProfileId,
+          methods: const {_GroupBillAssignmentMethod.exactAmount},
+        ),
+      ),
+  };
+  late final Map<String, TextEditingController> _shareControllers = {
+    for (final member in widget.members)
+      member.userProfileId: TextEditingController(
+        text:
+            _initialBasisFor(
+              member.userProfileId,
+              methods: const {
+                _GroupBillAssignmentMethod.share,
+                _GroupBillAssignmentMethod.quantity,
+              },
+            ) ??
+            (_selectedMemberIds.contains(member.userProfileId) ? '1' : ''),
+      ),
   };
 
   _GroupBillAssignmentMethod _initialMethod() {
@@ -4690,9 +4804,71 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
     return switch (method) {
       'quantity' => _GroupBillAssignmentMethod.quantity,
       'exact_amount' => _GroupBillAssignmentMethod.exactAmount,
-      'share' => _GroupBillAssignmentMethod.share,
+      'share' || 'share_weight' => _GroupBillAssignmentMethod.share,
       _ => _GroupBillAssignmentMethod.equal,
     };
+  }
+
+  String? _initialBasisFor(
+    String memberId, {
+    required Set<_GroupBillAssignmentMethod> methods,
+  }) {
+    for (final split in widget.item.splits) {
+      final splitMethod = split.splitMethod.text.trim().toLowerCase();
+      final assignmentMethod = switch (splitMethod) {
+        'quantity' => _GroupBillAssignmentMethod.quantity,
+        'exact_amount' => _GroupBillAssignmentMethod.exactAmount,
+        'share' || 'share_weight' => _GroupBillAssignmentMethod.share,
+        _ => _GroupBillAssignmentMethod.equal,
+      };
+      if (split.userProfileId == memberId &&
+          methods.contains(assignmentMethod)) {
+        final trimmed = split.basisValue.text.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
+    }
+
+    return null;
+  }
+
+  int _initialQuantityFor(String memberId) {
+    final basis = _initialBasisFor(
+      memberId,
+      methods: const {
+        _GroupBillAssignmentMethod.quantity,
+        _GroupBillAssignmentMethod.share,
+      },
+    );
+    final parsed = int.tryParse(basis ?? '');
+    if (parsed != null && parsed > 0) {
+      return parsed;
+    }
+
+    return _selectedMemberIds.contains(memberId) ? 1 : 0;
+  }
+
+  int _initialUnitTotal() {
+    final explicit = _quantityFromItemNote(widget.item.note.text);
+    if (explicit != null && explicit > 0) {
+      return explicit;
+    }
+
+    final quantityTotal = _quantities.values.fold<int>(
+      0,
+      (total, value) => total + value,
+    );
+    return quantityTotal > 0 ? quantityTotal : 1;
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _exactAmountControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _shareControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
   }
 
   void _toggleMember(String memberId, bool selected) {
@@ -4702,6 +4878,10 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
         _quantities[memberId] = _quantities[memberId] == 0
             ? 1
             : _quantities[memberId] ?? 1;
+        final shareController = _shareControllers[memberId];
+        if (shareController != null && shareController.text.trim().isEmpty) {
+          shareController.text = '1';
+        }
       } else {
         _selectedMemberIds.remove(memberId);
         _quantities[memberId] = 0;
@@ -4712,18 +4892,69 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
   void _changeQuantity(String memberId, int delta) {
     setState(() {
       final current = _quantities[memberId] ?? 0;
-      final next = (current + delta).clamp(0, _quantitySplitTotal);
+      final next = (current + delta).clamp(0, _unitTotal);
       final otherTotal = _quantities.entries
           .where((entry) => entry.key != memberId)
           .fold<int>(0, (total, entry) => total + entry.value);
-      _quantities[memberId] = next > _quantitySplitTotal - otherTotal
-          ? _quantitySplitTotal - otherTotal
+      _quantities[memberId] = next > _unitTotal - otherTotal
+          ? _unitTotal - otherTotal
           : next;
       if ((_quantities[memberId] ?? 0) > 0) {
         _selectedMemberIds.add(memberId);
       } else {
         _selectedMemberIds.remove(memberId);
       }
+    });
+  }
+
+  void _changeUnitTotal(int delta) {
+    setState(() {
+      final selectedQuantityTotal = _selectedQuantityTotal;
+      final next = (_unitTotal + delta).clamp(1, 999);
+      _unitTotal = next < selectedQuantityTotal ? selectedQuantityTotal : next;
+    });
+  }
+
+  int get _selectedQuantityTotal {
+    return _selectedMemberIds.fold<int>(
+      0,
+      (total, memberId) => total + (_quantities[memberId] ?? 0),
+    );
+  }
+
+  double get _exactAssignedTotal {
+    return _groupBillCreateDecimalTotal(
+      _selectedMemberIds.map(
+        (memberId) => _exactAmountControllers[memberId]?.text ?? '',
+      ),
+    );
+  }
+
+  double get _shareWeightTotal {
+    return _groupBillCreateDecimalTotal(
+      _selectedMemberIds.map(
+        (memberId) => _shareControllers[memberId]?.text ?? '',
+      ),
+    );
+  }
+
+  bool get _hasInvalidExactAmounts {
+    return _selectedMemberIds.any((memberId) {
+      return _positiveMoneyAmountField(
+            _exactAmountControllers[memberId]?.text,
+            requiredMessage: 'Enter an amount.',
+          ) !=
+          null;
+    });
+  }
+
+  bool get _hasInvalidShareWeights {
+    return _selectedMemberIds.any((memberId) {
+      return _positiveMoneyAmountField(
+            _shareControllers[memberId]?.text,
+            requiredMessage: 'Enter a share.',
+          ) !=
+          null;
     });
   }
 
@@ -4742,7 +4973,16 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
       0,
       (total, value) => total + value,
     );
-    final remainingQuantity = _quantitySplitTotal - quantityTotal;
+    final remainingQuantity = _unitTotal - quantityTotal;
+    final exactAssignedTotal = _exactAssignedTotal;
+    final exactRemaining = amount - exactAssignedTotal;
+    final shareWeightTotal = _shareWeightTotal;
+    final canApply = _canApplyAssignment(
+      amount: amount,
+      exactRemaining: exactRemaining,
+      shareWeightTotal: shareWeightTotal,
+      remainingQuantity: remainingQuantity,
+    );
 
     return SafeArea(
       child: Padding(
@@ -4811,10 +5051,50 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
               ),
               const SizedBox(height: 12),
               if (_method == _GroupBillAssignmentMethod.quantity) ...[
+                _CreatePreviewStrip(
+                  label: 'Unit/share split',
+                  value:
+                      'Set the receipt line unit count, then assign units. Units become share weights for this item.',
+                  icon: Icons.exposure_plus_1_outlined,
+                  variant: StatusChipVariant.info,
+                ),
+                const SizedBox(height: 10),
+                _QuantitySplitControl(
+                  key: const Key('group-bill-quantity-total'),
+                  name: 'Line total units',
+                  quantity: _unitTotal,
+                  previewAmount: _decimalPreviewMoney(amount, widget.currency),
+                  onDecrease: () => _changeUnitTotal(-1),
+                  onIncrease: () => _changeUnitTotal(1),
+                ),
+                const SizedBox(height: 8),
                 Text(
                   'Remaining: $remainingQuantity',
                   key: const Key('group-bill-quantity-remaining'),
                   style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+              ] else if (_method == _GroupBillAssignmentMethod.exactAmount) ...[
+                _CreatePreviewStrip(
+                  label: 'Exact amount remaining',
+                  value: _decimalPreviewMoney(exactRemaining, widget.currency),
+                  icon: exactRemaining.abs() < 0.000001
+                      ? Icons.check_circle_outline
+                      : Icons.report_problem_outlined,
+                  variant: exactRemaining.abs() < 0.000001
+                      ? StatusChipVariant.success
+                      : StatusChipVariant.warning,
+                ),
+                const SizedBox(height: 8),
+              ] else if (_method == _GroupBillAssignmentMethod.share) ...[
+                _CreatePreviewStrip(
+                  label: 'Share weight total',
+                  value:
+                      '${shareWeightTotal.toStringAsFixed(2)} total shares. Preview amounts update locally.',
+                  icon: Icons.pie_chart_outline,
+                  variant: shareWeightTotal > 0
+                      ? StatusChipVariant.info
+                      : StatusChipVariant.warning,
                 ),
                 const SizedBox(height: 8),
               ],
@@ -4823,31 +5103,29 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                   shrinkWrap: true,
                   children: [
                     for (final member in widget.members)
-                      CheckboxListTile(
-                        key: ValueKey(
-                          'group-bill-assign-item-member-${member.userProfileId}',
-                        ),
-                        value: _selectedMemberIds.contains(
+                      _GroupBillAssignmentMemberRow(
+                        member: member,
+                        isSelected: _selectedMemberIds.contains(
                           member.userProfileId,
                         ),
-                        title: Text(member.safeDisplayName),
-                        subtitle: Text(
-                          _method == _GroupBillAssignmentMethod.quantity
-                              ? 'Quantity ${_quantities[member.userProfileId] ?? 0}'
-                              : selectedCount == 0
-                              ? 'Not included'
-                              : _decimalPreviewMoney(
-                                  amount / selectedCount,
-                                  widget.currency,
-                                ),
-                        ),
-                        onChanged: (value) =>
-                            _toggleMember(member.userProfileId, value ?? false),
+                        method: _method,
+                        amount: amount,
+                        currency: widget.currency,
+                        selectedCount: selectedCount,
+                        quantity: _quantities[member.userProfileId] ?? 0,
+                        exactAmountController:
+                            _exactAmountControllers[member.userProfileId],
+                        shareController:
+                            _shareControllers[member.userProfileId],
+                        shareWeightTotal: shareWeightTotal,
+                        onSelectedChanged: (value) =>
+                            _toggleMember(member.userProfileId, value),
+                        onFieldChanged: (_) => setState(() {}),
                       ),
                     if (_method == _GroupBillAssignmentMethod.quantity) ...[
                       const Divider(height: 20),
                       Text(
-                        'Quantity split',
+                        'Unit assignment',
                         key: const Key('group-bill-quantity-split-title'),
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
@@ -4862,7 +5140,7 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                           previewAmount: _decimalPreviewMoney(
                             amount *
                                 ((_quantities[member.userProfileId] ?? 0) /
-                                    _quantitySplitTotal),
+                                    _unitTotal),
                             widget.currency,
                           ),
                           onDecrease: () =>
@@ -4891,10 +5169,7 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                       key: const Key('group-bill-assign-item-apply'),
                       label: 'Apply assignment',
                       icon: Icons.check,
-                      onPressed:
-                          _selectedMemberIds.isEmpty ||
-                              (_method == _GroupBillAssignmentMethod.quantity &&
-                                  remainingQuantity != 0)
+                      onPressed: !canApply
                           ? null
                           : () => Navigator.of(context).pop(
                               _GroupBillItemAssignment(
@@ -4907,6 +5182,15 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
                                 ],
                                 method: _method,
                                 quantities: Map<String, int>.of(_quantities),
+                                exactAmounts: {
+                                  for (final entry
+                                      in _exactAmountControllers.entries)
+                                    entry.key: entry.value.text,
+                                },
+                                shares: {
+                                  for (final entry in _shareControllers.entries)
+                                    entry.key: entry.value.text,
+                                },
                               ),
                             ),
                     ),
@@ -4918,6 +5202,27 @@ class _GroupBillAssignItemSheetState extends State<_GroupBillAssignItemSheet> {
         ),
       ),
     );
+  }
+
+  bool _canApplyAssignment({
+    required double amount,
+    required double exactRemaining,
+    required double shareWeightTotal,
+    required int remainingQuantity,
+  }) {
+    if (_selectedMemberIds.isEmpty) {
+      return false;
+    }
+
+    return switch (_method) {
+      _GroupBillAssignmentMethod.quantity =>
+        remainingQuantity == 0 && _selectedQuantityTotal > 0,
+      _GroupBillAssignmentMethod.exactAmount =>
+        !_hasInvalidExactAmounts && exactRemaining.abs() < 0.000001,
+      _GroupBillAssignmentMethod.share =>
+        !_hasInvalidShareWeights && shareWeightTotal > 0,
+      _GroupBillAssignmentMethod.equal => true,
+    };
   }
 }
 
@@ -4967,23 +5272,138 @@ class _QuantitySplitControl extends StatelessWidget {
   }
 }
 
+class _GroupBillAssignmentMemberRow extends StatelessWidget {
+  const _GroupBillAssignmentMemberRow({
+    required this.member,
+    required this.isSelected,
+    required this.method,
+    required this.amount,
+    required this.currency,
+    required this.selectedCount,
+    required this.quantity,
+    required this.exactAmountController,
+    required this.shareController,
+    required this.shareWeightTotal,
+    required this.onSelectedChanged,
+    required this.onFieldChanged,
+  });
+
+  final SettleoraGroupMember member;
+  final bool isSelected;
+  final _GroupBillAssignmentMethod method;
+  final double amount;
+  final String currency;
+  final int selectedCount;
+  final int quantity;
+  final TextEditingController? exactAmountController;
+  final TextEditingController? shareController;
+  final double shareWeightTotal;
+  final ValueChanged<bool> onSelectedChanged;
+  final ValueChanged<String> onFieldChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = switch (method) {
+      _GroupBillAssignmentMethod.quantity => 'Units assigned: $quantity',
+      _GroupBillAssignmentMethod.exactAmount =>
+        isSelected ? 'Enter this member amount below' : 'Not included',
+      _GroupBillAssignmentMethod.share =>
+        isSelected ? _sharePreview() : 'Not included',
+      _GroupBillAssignmentMethod.equal =>
+        selectedCount == 0
+            ? 'Not included'
+            : _decimalPreviewMoney(amount / selectedCount, currency),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+          child: Column(
+            children: [
+              CheckboxListTile(
+                key: ValueKey(
+                  'group-bill-assign-item-member-${member.userProfileId}',
+                ),
+                value: isSelected,
+                title: Text(member.safeDisplayName),
+                subtitle: Text(subtitle),
+                onChanged: (value) => onSelectedChanged(value ?? false),
+              ),
+              if (isSelected &&
+                  method == _GroupBillAssignmentMethod.exactAmount)
+                TextField(
+                  key: ValueKey(
+                    'group-bill-assign-exact-${member.userProfileId}',
+                  ),
+                  controller: exactAmountController,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount for this member',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: onFieldChanged,
+                )
+              else if (isSelected && method == _GroupBillAssignmentMethod.share)
+                TextField(
+                  key: ValueKey(
+                    'group-bill-assign-share-${member.userProfileId}',
+                  ),
+                  controller: shareController,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Share weight',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: onFieldChanged,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _sharePreview() {
+    final share = double.tryParse(shareController?.text.trim() ?? '') ?? 0;
+    if (share <= 0 || shareWeightTotal <= 0) {
+      return 'Enter a positive share';
+    }
+
+    return 'Preview ${_decimalPreviewMoney(amount * share / shareWeightTotal, currency)}';
+  }
+}
+
 class _GroupBillItemAssignment {
   const _GroupBillItemAssignment({
     required this.memberIds,
     required this.method,
     required this.quantities,
+    required this.exactAmounts,
+    required this.shares,
   });
 
   final List<String> memberIds;
   final _GroupBillAssignmentMethod method;
   final Map<String, int> quantities;
+  final Map<String, String> exactAmounts;
+  final Map<String, String> shares;
 
   String basisValueFor(String memberId) {
     return switch (method) {
       _GroupBillAssignmentMethod.quantity =>
         (quantities[memberId] ?? 0).toString(),
-      _GroupBillAssignmentMethod.exactAmount => '',
-      _GroupBillAssignmentMethod.share => '1',
+      _GroupBillAssignmentMethod.exactAmount => exactAmounts[memberId] ?? '',
+      _GroupBillAssignmentMethod.share => shares[memberId] ?? '1',
       _GroupBillAssignmentMethod.equal => '',
     };
   }
@@ -4994,7 +5414,83 @@ class _GroupBillItemAssignment {
   }
 }
 
-const _quantitySplitTotal = 3;
+class _GroupBillPayerQuickActions extends StatelessWidget {
+  const _GroupBillPayerQuickActions({
+    required this.members,
+    required this.currentUserProfileId,
+    required this.isSaving,
+    required this.onPaidByMember,
+    required this.onSplitPayers,
+  });
+
+  final List<SettleoraGroupMember> members;
+  final String? currentUserProfileId;
+  final bool isSaving;
+  final ValueChanged<String?> onPaidByMember;
+  final VoidCallback onSplitPayers;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentMember = _memberForValue(members, currentUserProfileId);
+    final fallbackMember = members.isEmpty ? null : members.first;
+    final selectedMember = currentMember ?? fallbackMember;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: context.settleoraColors.infoSoft,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Who paid first?',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                AppButton(
+                  key: const Key('group-bill-paid-by-me'),
+                  label: 'Paid by me',
+                  icon: Icons.person_outline,
+                  variant: AppButtonVariant.secondary,
+                  onPressed: !isSaving && currentMember != null
+                      ? () => onPaidByMember(currentMember.userProfileId)
+                      : null,
+                ),
+                AppButton(
+                  key: const Key('group-bill-paid-by-selected-member'),
+                  label: selectedMember == null
+                      ? 'Paid by selected member'
+                      : 'Paid by ${selectedMember.safeDisplayName}',
+                  icon: Icons.account_circle_outlined,
+                  variant: AppButtonVariant.soft,
+                  onPressed: !isSaving && selectedMember != null
+                      ? () => onPaidByMember(selectedMember.userProfileId)
+                      : null,
+                ),
+                AppButton(
+                  key: const Key('group-bill-split-payer'),
+                  label: 'Split payer',
+                  icon: Icons.call_split_outlined,
+                  variant: AppButtonVariant.soft,
+                  onPressed: !isSaving && members.isNotEmpty
+                      ? onSplitPayers
+                      : null,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _GroupBillPayerTotalsPreview extends StatelessWidget {
   const _GroupBillPayerTotalsPreview({
@@ -5200,6 +5696,17 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
         .expand((item) => item.splits)
         .where((split) => (split.userProfileId ?? '').trim().isEmpty)
         .length;
+    final invalidSplitBasisValues = itemControllers
+        .expand((item) => item.splits)
+        .where(
+          (split) =>
+              _splitBasisValueError(
+                splitMethod: split.splitMethod.text,
+                basisValue: split.basisValue.text,
+              ) !=
+              null,
+        )
+        .length;
     final missingPayerMembers = payerControllers
         .where((payer) => (payer.userProfileId ?? '').trim().isEmpty)
         .length;
@@ -5288,6 +5795,12 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
                     ? 'All split rows have selected members.'
                     : '${_pluralCount(missingSplitMembers, 'split row')} without a selected member.',
                 isReady: missingSplitMembers == 0,
+              ),
+              _ReviewChecklistHint(
+                text: invalidSplitBasisValues == 0
+                    ? 'Split basis values match their selected methods.'
+                    : '${_pluralCount(invalidSplitBasisValues, 'split row')} missing a required amount or share basis.',
+                isReady: invalidSplitBasisValues == 0,
               ),
               _ReviewChecklistHint(
                 text: payerControllers.isEmpty
@@ -5469,22 +5982,9 @@ List<SettleoraGroupMember> _groupBillAssignedMembers(
 }
 
 String _groupBillQuantityLabel(_GroupBillCreateItemControllers item) {
-  final noteMatch = RegExp(
-    r'(?:qty|quantity)\s*[:=]\s*(\d+)',
-    caseSensitive: false,
-  ).firstMatch(item.note.text);
-  if (noteMatch != null) {
-    return 'Qty ${noteMatch.group(1)}';
-  }
-
-  for (final token in item.note.text.split(RegExp(r'[\s,;]+'))) {
-    final match = RegExp(
-      r'^(?:qty|quantity)[:=]?(\d+)$',
-      caseSensitive: false,
-    ).firstMatch(token.trim());
-    if (match != null) {
-      return 'Qty ${match.group(1)}';
-    }
+  final quantity = _quantityFromItemNote(item.note.text);
+  if (quantity != null) {
+    return 'Qty $quantity';
   }
 
   return 'Qty preview';
@@ -5545,11 +6045,34 @@ List<String> _groupBillCreateWarnings({
   if (missingSplits > 0) {
     warnings.add('${_pluralCount(missingSplits, 'split row')} unassigned.');
   }
+  final invalidSplitBasisValues = itemControllers
+      .expand((item) => item.splits)
+      .where(
+        (split) =>
+            _splitBasisValueError(
+              splitMethod: split.splitMethod.text,
+              basisValue: split.basisValue.text,
+            ) !=
+            null,
+      )
+      .length;
+  if (invalidSplitBasisValues > 0) {
+    warnings.add(
+      '${_pluralCount(invalidSplitBasisValues, 'split row')} needs a required amount or share basis.',
+    );
+  }
   if (payerControllers.isEmpty) {
     warnings.add('No payer rows added.');
   }
+  if (payerControllers.isNotEmpty &&
+      !_decimalAmountTotalsMatch(
+        itemControllers.map((item) => item.amount.text),
+        payerControllers.map((payer) => payer.amount.text),
+      )) {
+    warnings.add('Payer rows do not match the current item total.');
+  }
   if (attachmentCount == 0) {
-    warnings.add('No receipt attached.');
+    warnings.add('No receipt attached; attachments are optional.');
   }
   return warnings;
 }
@@ -5904,13 +6427,10 @@ class _GroupBillCreateSplitCard extends StatelessWidget {
                 labelText: 'Basis value',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  _isExactAmountSplitMethod(controllers.splitMethod.text)
-                  ? _positiveMoneyAmountField(
-                      value,
-                      requiredMessage: 'Enter a split amount.',
-                    )
-                  : null,
+              validator: (value) => _splitBasisValueError(
+                splitMethod: controllers.splitMethod.text,
+                basisValue: value,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -9533,6 +10053,54 @@ String? _positiveMoneyAmountField(
 
 bool _isExactAmountSplitMethod(String value) =>
     value.trim().toLowerCase() == 'exact_amount';
+
+bool _splitMethodRequiresBasisValue(String value) {
+  return switch (value.trim().toLowerCase()) {
+    'exact_amount' || 'percentage' || 'ratio' || 'share_weight' => true,
+    _ => false,
+  };
+}
+
+String? _splitBasisValueError({
+  required String splitMethod,
+  required String? basisValue,
+}) {
+  if (!_splitMethodRequiresBasisValue(splitMethod)) {
+    return null;
+  }
+
+  return _positiveMoneyAmountField(
+    basisValue,
+    requiredMessage: 'Enter a split basis value.',
+  );
+}
+
+String? _optionalControllerText(TextEditingController controller) {
+  final trimmed = controller.text.trim();
+  return trimmed.isEmpty ? null : controller.text;
+}
+
+int? _quantityFromItemNote(String note) {
+  final noteMatch = RegExp(
+    r'(?:qty|quantity)\s*[:=]\s*(\d+)',
+    caseSensitive: false,
+  ).firstMatch(note);
+  if (noteMatch != null) {
+    return int.tryParse(noteMatch.group(1)!);
+  }
+
+  for (final token in note.split(RegExp(r'[\s,;]+'))) {
+    final match = RegExp(
+      r'^(?:qty|quantity)[:=]?(\d+)$',
+      caseSensitive: false,
+    ).firstMatch(token.trim());
+    if (match != null) {
+      return int.tryParse(match.group(1)!);
+    }
+  }
+
+  return null;
+}
 
 bool _decimalAmountTotalsMatch(
   Iterable<String> expectedAmounts,

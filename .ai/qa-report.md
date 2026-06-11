@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M1 milestone UI-test-ready; human UI testing required before any next milestone`
+Status: `M1 UI-test bugfix in progress; human review required before any merge`
 
 ## Acceptance Checklist
 
@@ -13,6 +13,10 @@ Status: `M1 milestone UI-test-ready; human UI testing required before any next m
 
 ## M1 Final Validation Summary
 
+- M1-007 UI-test bugfix loop is in progress on `ai/task/m1-ui-test-group-bill-create-fixes-20260611-2021`.
+- Human UI testing found group bill create UX/product bugs in split assignment, payer defaults, and submit payload handling.
+- Mobile-side fixes now make unit/share assignment use supported `share_weight` payloads with explicit line-unit copy, expose exact amount inputs, expose share-weight inputs, default current-user payer rows when safe, and omit blank equal-split `basisValue` keys from generated create payloads.
+- Focused validation so far: `flutter analyze` passed, `flutter test test/bill_generated_repository_test.dart` passed with 28 tests, and `flutter test test/group_bill_list_screen_test.dart` passed with 68 tests.
 - PR #83 (`M1-005`) was validated and merged into `ai/integration` at `64b3d324f9f140e991bb1f9c14fe8fa8d3eab3ae`.
 - M1 group bill create/list/detail readiness is now human-gated for server-mode owner UI testing.
 - UI testing checklist: `docs/qa/M1_GROUP_BILL_UI_TESTING_CHECKLIST.md`.

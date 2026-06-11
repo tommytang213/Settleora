@@ -539,7 +539,7 @@ void main() {
       expect(item['note'], isNull);
       expect(item['currency'], 'USD');
       final split = (item['splits'] as List).single as Map;
-      expect(split['basisValue'], isNull);
+      expect(split.containsKey('basisValue'), isFalse);
       final adjustment = (payload['adjustments'] as List).single as Map;
       expect(adjustment['reasonNote'], isNull);
       expect(adjustment['currency'], 'USD');
