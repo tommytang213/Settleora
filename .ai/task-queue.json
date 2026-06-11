@@ -28,7 +28,7 @@
     "title": "Home dashboard useful shell and empty states",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "blocked",
     "allowedAreas": [
       ".ai/**",
       "docs/**",

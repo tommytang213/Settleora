@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2-002 Home/dashboard shell polish completed; controller should select M2-003 next after PR merge`
+Status: `M2-002 Home/dashboard shell polish implemented; human review required for stale M1-only scope guard`
 
 ## Acceptance Checklist
 
@@ -8,7 +8,7 @@ Status: `M2-002 Home/dashboard shell polish completed; controller should select 
 - [x] Task queue reflects a small, safe M2 sequence.
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
 - [x] M2 current-state reconciliation completed.
-- [x] Home/dashboard shell polish completed and validated.
+- [ ] Home/dashboard shell polish completed and validated.
 - [ ] Bottom navigation clarity polish completed and validated.
 - [ ] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
@@ -56,6 +56,7 @@ Status: `M2-002 Home/dashboard shell polish completed; controller should select 
 
 ## Findings
 
-- No open M2 QA findings after M2-002.
 - M2-002 updates the authenticated server-mode Home shell to show explicit server-mode context, an actionable empty state for Bills, Groups, and Settle routes, and honest receipt-review count unavailability copy.
 - Focused dashboard widget coverage was updated for the new empty-state actions, server-mode label, and receipt-review placeholder.
+- `git diff --check`, `npm run validate:docs`, `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, and `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD` failed because the current guard only recognizes M1 paths and rejects `apps/mobile/lib/app/server_mode_shell.dart`, which is explicitly allowed by M2-002.
