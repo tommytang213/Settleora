@@ -94,6 +94,8 @@ const m1AllowedPatterns = [
 
 const m2AllowedPatterns = [
   /^\.ai(?:\/|$)/,
+  // Human-approved M2 architecture guardrail doc for visual theme/color settings.
+  /^docs\/architecture\/VISUAL_THEME_COLOR_SETTINGS_ARCHITECTURE\.md$/,
   /^docs\/qa\//,
   /^docs\/workflow\/AI_V3_CONTROLLER\.md$/,
   /^docs\/workflow\/AI_V3_PIPELINE\.md$/,
