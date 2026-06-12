@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 Home dashboard bottom nav and Create bill picker fixed in code; human PC UI retest required`
+Status: `M2 bottom navigation DSL/Figma parity follow-up fixed in code; human PC UI retest required`
 
 ## Acceptance Checklist
 
@@ -59,6 +59,7 @@ Status: `M2 Home dashboard bottom nav and Create bill picker fixed in code; huma
 
 - `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The latest follow-up keeps Home constrained to a centered phone-width dashboard surface on wide test windows, adds `You owe` and `You're owed` metric cards with honest zero or server-provided balance values, changes `Upcoming bills` into bill-like rows or a compact empty state, changes `Group activity` into feed-style rows or a compact empty state, demotes route access to compact actions, removes the shared-bill seam copy, and adds focused widget coverage that rejects the old route-card primary content. M2 remains human-review required until a PC UI retest confirms the visible change.
 - `M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358`: fixed pending human retest. Human PC UI retest found that Home was missing the persistent M2 bottom navigation and that Create bill routed straight to personal bill creation. Home now uses the app scaffold `NavigationBar` with Home, Bills, Groups, Settle, and Settings labels, with Home selected on the dashboard. The Create bill quick action now opens a chooser with `Personal bill` and `Group bill`; Personal bill preserves the existing personal creation screen, and Group bill routes to Groups so the user can choose a group and use the existing group-bill flow. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
+- `M2-BOTTOM-NAV-DSL-PARITY-20260612-1426`: fixed pending human retest. Human PC UI retest found another page showing bottom navigation drift with extra `Receipts` and `Profile` tabs. The mobile shell now uses one shared bottom navigation widget for the canonical Day 1 set and order: `Home`, `Bills`, `Groups`, `Settle`, and `Settings`. Bills, Groups, Settle, and Settings/Profile top-level routes now keep the same constrained, safe-area-aware, rounded active-chip nav treatment as Home. Receipt review, profile/session, report, notification, and recurring routes remain secondary routes/actions instead of bottom-nav tabs. Focused widget coverage asserts the canonical labels/order, rejects `Receipts` and `Profile` as tab labels, validates active tab state across all five tabs, preserves the Create bill personal/group chooser, and rejects old debug/widget dump text. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
 
 ## Home Dashboard Redesign Fix
 
@@ -72,8 +73,8 @@ Status: `M2 Home dashboard bottom nav and Create bill picker fixed in code; huma
 ## Required Human UI Retest
 
 - Confirm the Home screen visibly differs from the previous menu-list page.
-- Confirm the bottom navigation is visible on Home in PC/wide and narrow/mobile-sized windows with Home selected.
-- Confirm bottom navigation labels are Home, Bills, Groups, Settle, and Settings, and they hand off to existing mobile surfaces.
+- Confirm the bottom navigation is visible on Home, Bills, Groups, Settle, and Settings/Profile in PC/wide and narrow/mobile-sized windows with the correct active tab selected.
+- Confirm bottom navigation labels are exactly Home, Bills, Groups, Settle, and Settings in that order, with no Receipts or Profile bottom-nav tabs.
 - Confirm `You owe`, `You're owed`, `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and compact `More` sections are visible and understandable.
 - Confirm `Upcoming bills` and `Group activity` no longer read primarily as route-card shortcut lists.
 - Confirm no user-facing copy mentions implementation seams, API limitations, generated clients, or unavailable global shared-bill counts.

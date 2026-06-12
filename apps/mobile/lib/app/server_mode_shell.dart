@@ -28,6 +28,8 @@ import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
     Future<void> Function(String? noticeMessage);
+typedef _ServerShellDestinationSelected =
+    void Function(BuildContext context, int index);
 
 class SettleoraAuthenticatedServerShell extends StatefulWidget {
   const SettleoraAuthenticatedServerShell({
@@ -192,17 +194,137 @@ class _SettleoraAuthenticatedServerShellState
     await _loadOverview();
   }
 
-  Future<void> _openBills() async {
-    await _openDashboardDestination(
-      (_) => SettleoraBillListScreen(
-        repository: widget.billRepository,
-        syncController: widget.billSyncController,
-        attachmentRepository: widget.billAttachmentRepository,
-        attachmentFileInput: widget.billAttachmentFileInput,
-        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
-        revisionRepository: widget.billRevisionRepository,
+  Future<void> _openTopLevelDestination(
+    int selectedIndex,
+    WidgetBuilder builder,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _ServerShellTopLevelDestination(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: _handleTopLevelDestinationSelected,
+          child: Builder(builder: builder),
+        ),
       ),
     );
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadOverview();
+  }
+
+  void _handleTopLevelDestinationSelected(
+    BuildContext navigatorContext,
+    int index,
+  ) {
+    switch (index) {
+      case 0:
+        Navigator.of(navigatorContext).popUntil((route) => route.isFirst);
+        return;
+      case 1:
+        unawaited(
+          _replaceTopLevelDestination(
+            navigatorContext,
+            index,
+            _buildBillsScreen,
+          ),
+        );
+        return;
+      case 2:
+        unawaited(
+          _replaceTopLevelDestination(
+            navigatorContext,
+            index,
+            _buildGroupsScreen,
+          ),
+        );
+        return;
+      case 3:
+        unawaited(
+          _replaceTopLevelDestination(
+            navigatorContext,
+            index,
+            _buildSettlementsScreen,
+          ),
+        );
+        return;
+      case 4:
+        unawaited(
+          _replaceTopLevelDestination(
+            navigatorContext,
+            index,
+            _buildProfileScreen,
+          ),
+        );
+        return;
+    }
+  }
+
+  Future<void> _replaceTopLevelDestination(
+    BuildContext navigatorContext,
+    int selectedIndex,
+    WidgetBuilder builder,
+  ) async {
+    await Navigator.of(navigatorContext).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => _ServerShellTopLevelDestination(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: _handleTopLevelDestinationSelected,
+          child: Builder(builder: builder),
+        ),
+      ),
+      (route) => route.isFirst,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadOverview();
+  }
+
+  Widget _buildBillsScreen(BuildContext context) {
+    return SettleoraBillListScreen(
+      repository: widget.billRepository,
+      syncController: widget.billSyncController,
+      attachmentRepository: widget.billAttachmentRepository,
+      attachmentFileInput: widget.billAttachmentFileInput,
+      receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+      revisionRepository: widget.billRevisionRepository,
+    );
+  }
+
+  Widget _buildGroupsScreen(BuildContext context) {
+    return SettleoraGroupListScreen(
+      repository: widget.groupRepository,
+      billRepository: widget.billRepository,
+      currentUserProfileId: widget.currentUser.userProfileId,
+      billAttachmentRepository: widget.billAttachmentRepository,
+      billAttachmentFileInput: widget.billAttachmentFileInput,
+      receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+      billRevisionRepository: widget.billRevisionRepository,
+    );
+  }
+
+  Widget _buildSettlementsScreen(BuildContext context) {
+    return SettleoraSettlementListScreen(
+      repository: widget.settlementRepository,
+      currentUserProfileId: widget.currentUser.userProfileId,
+    );
+  }
+
+  Widget _buildProfileScreen(BuildContext context) {
+    return SettleoraProfileScreen(
+      repository: widget.profileRepository,
+      currentUser: widget.currentUser,
+      onSessionEnded: widget.onSessionEnded,
+    );
+  }
+
+  Future<void> _openBills() async {
+    await _openTopLevelDestination(1, _buildBillsScreen);
   }
 
   Future<void> _flushBillSyncNow() async {
@@ -286,15 +408,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openProfile() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettleoraProfileScreen(
-          repository: widget.profileRepository,
-          currentUser: widget.currentUser,
-          onSessionEnded: widget.onSessionEnded,
-        ),
-      ),
-    );
+    await _openTopLevelDestination(4, _buildProfileScreen);
   }
 
   Future<void> _openNotifications() async {
@@ -335,12 +449,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openSettlements() async {
-    await _openDashboardDestination(
-      (_) => SettleoraSettlementListScreen(
-        repository: widget.settlementRepository,
-        currentUserProfileId: widget.currentUser.userProfileId,
-      ),
-    );
+    await _openTopLevelDestination(3, _buildSettlementsScreen);
   }
 
   Future<void> _openSettlementActions() async {
@@ -371,17 +480,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openGroups() async {
-    await _openDashboardDestination(
-      (_) => SettleoraGroupListScreen(
-        repository: widget.groupRepository,
-        billRepository: widget.billRepository,
-        currentUserProfileId: widget.currentUser.userProfileId,
-        billAttachmentRepository: widget.billAttachmentRepository,
-        billAttachmentFileInput: widget.billAttachmentFileInput,
-        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
-        billRevisionRepository: widget.billRevisionRepository,
-      ),
-    );
+    await _openTopLevelDestination(2, _buildGroupsScreen);
   }
 
   Future<void> _openCreateGroup() async {
@@ -619,59 +718,113 @@ class _SettleoraAuthenticatedServerShellState
           },
         ),
       ),
-      bottomNavigationBar: NavigationBar(
-        key: const Key('server-shell-bottom-nav'),
+      bottomNavigationBar: _ServerShellBottomNavigation(
         selectedIndex: 0,
-        onDestinationSelected: (index) {
-          switch (index) {
-            case 0:
-              return;
-            case 1:
-              unawaited(_openBills());
-              return;
-            case 2:
-              unawaited(_openGroups());
-              return;
-            case 3:
-              unawaited(_openSettlements());
-              return;
-            case 4:
-              unawaited(_openProfile());
-              return;
-          }
-        },
-        destinations: const [
-          NavigationDestination(
-            key: Key('bottom-nav-home'),
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+        onDestinationSelected: (index) =>
+            _handleTopLevelDestinationSelected(context, index),
+      ),
+    );
+  }
+}
+
+class _ServerShellTopLevelDestination extends StatelessWidget {
+  const _ServerShellTopLevelDestination({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.child,
+  });
+
+  final int selectedIndex;
+  final _ServerShellDestinationSelected onDestinationSelected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: child,
+      bottomNavigationBar: _ServerShellBottomNavigation(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (index) => onDestinationSelected(context, index),
+      ),
+    );
+  }
+}
+
+class _ServerShellBottomNavigation extends StatelessWidget {
+  const _ServerShellBottomNavigation({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: NavigationBar(
+              key: const Key('server-shell-bottom-nav'),
+              height: 64,
+              selectedIndex: selectedIndex,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+              onDestinationSelected: (index) {
+                if (index == selectedIndex) {
+                  return;
+                }
+
+                onDestinationSelected(index);
+              },
+              destinations: const [
+                NavigationDestination(
+                  key: Key('bottom-nav-home'),
+                  icon: Icon(Icons.home_outlined, size: 22),
+                  selectedIcon: Icon(Icons.home, size: 22),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  key: Key('bottom-nav-bills'),
+                  icon: Icon(Icons.receipt_long_outlined, size: 22),
+                  selectedIcon: Icon(Icons.receipt_long, size: 22),
+                  label: 'Bills',
+                ),
+                NavigationDestination(
+                  key: Key('bottom-nav-groups'),
+                  icon: Icon(Icons.groups_outlined, size: 22),
+                  selectedIcon: Icon(Icons.groups, size: 22),
+                  label: 'Groups',
+                ),
+                NavigationDestination(
+                  key: Key('bottom-nav-settle'),
+                  icon: Icon(Icons.account_balance_wallet_outlined, size: 22),
+                  selectedIcon: Icon(Icons.account_balance_wallet, size: 22),
+                  label: 'Settle',
+                ),
+                NavigationDestination(
+                  key: Key('bottom-nav-settings'),
+                  icon: Icon(Icons.settings_outlined, size: 22),
+                  selectedIcon: Icon(Icons.settings, size: 22),
+                  label: 'Settings',
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            key: Key('bottom-nav-bills'),
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Bills',
-          ),
-          NavigationDestination(
-            key: Key('bottom-nav-groups'),
-            icon: Icon(Icons.groups_outlined),
-            selectedIcon: Icon(Icons.groups),
-            label: 'Groups',
-          ),
-          NavigationDestination(
-            key: Key('bottom-nav-settle'),
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Settle',
-          ),
-          NavigationDestination(
-            key: Key('bottom-nav-settings'),
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
+        ),
       ),
     );
   }

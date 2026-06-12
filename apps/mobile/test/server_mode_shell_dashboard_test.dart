@@ -54,11 +54,20 @@ void main() {
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
     expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-settings')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-home')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(
+      bottomNavDestination(const Key('bottom-nav-groups')),
+      findsOneWidget,
+    );
+    expect(
+      bottomNavDestination(const Key('bottom-nav-settle')),
+      findsOneWidget,
+    );
+    expect(
+      bottomNavDestination(const Key('bottom-nav-settings')),
+      findsOneWidget,
+    );
     expect(
       tester
           .widget<NavigationBar>(
@@ -108,6 +117,49 @@ void main() {
     expect(notificationRepository.summaryCalls, 1);
     expect(settlementRepository.listBalanceCalls, 1);
     expect(recurringRepository.listForecastCalls, 1);
+  });
+
+  testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {
+    await pumpShell(tester);
+
+    expectCanonicalBottomNav(tester, selectedIndex: 0);
+  });
+
+  testWidgets('bottom nav stays canonical across top-level shell routes', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      groupRepository: FakeGroupRepository(groups: [sampleGroup()]),
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-bills')));
+    await tester.pumpAndSettle();
+    expect(find.text('Bills'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 1);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-groups')));
+    await tester.pumpAndSettle();
+    expect(find.text('Groups'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 2);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-settle')));
+    await tester.pumpAndSettle();
+    expect(find.text('Settlements'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 3);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-settings')));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 4);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-dashboard-surface')),
+      findsOneWidget,
+    );
+    expectCanonicalBottomNav(tester, selectedIndex: 0);
   });
 
   testWidgets('dashboard keeps visible sections on narrow and wide viewports', (
@@ -490,7 +542,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
 
     await tester.pageBack();
@@ -577,7 +629,7 @@ void main() {
     await tester.tap(find.byKey(const Key('create-bill-choice-group')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Groups'), findsWidgets);
     expect(find.text('Trip Crew'), findsOneWidget);
     expect(find.byKey(const Key('group-list-create')), findsOneWidget);
     expect(groupRepository.listCalls, 1);
@@ -805,7 +857,7 @@ void main() {
 
     final callsAfterOpeningBills = billRepository.listCalls;
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -1035,7 +1087,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bills'), findsWidgets);
-      expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+      expect(
+        bottomNavDestination(const Key('bottom-nav-bills')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     },
   );
@@ -1111,7 +1166,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
   });
 
@@ -1215,6 +1270,38 @@ Future<void> scrollToAndTap(WidgetTester tester, Key key) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
+}
+
+Finder bottomNavDestination(Key key) {
+  return find.byWidgetPredicate(
+    (widget) => widget is NavigationDestination && widget.key == key,
+  );
+}
+
+void expectCanonicalBottomNav(
+  WidgetTester tester, {
+  required int selectedIndex,
+}) {
+  final nav = tester.widget<NavigationBar>(
+    find.byKey(const Key('server-shell-bottom-nav')),
+  );
+  final labels = [
+    for (final destination in nav.destinations)
+      (destination as NavigationDestination).label,
+  ];
+
+  expect(labels, const ['Home', 'Bills', 'Groups', 'Settle', 'Settings']);
+  expect(labels, isNot(contains('Receipts')));
+  expect(labels, isNot(contains('Profile')));
+  expect(nav.selectedIndex, selectedIndex);
+  expect(bottomNavDestination(const Key('bottom-nav-home')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-groups')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-settle')), findsOneWidget);
+  expect(
+    bottomNavDestination(const Key('bottom-nav-settings')),
+    findsOneWidget,
+  );
 }
 
 Future<void> pumpShell(

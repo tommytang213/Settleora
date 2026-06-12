@@ -54,5 +54,31 @@
     ],
     "knownLimitation": "Home does not preselect a group for group bill creation because the current mobile shell has no safe group-selection/preselection API; the Group bill choice routes to Groups for explicit group selection.",
     "forbiddenChangeDetected": false
+  },
+  {
+    "id": "M2-BOTTOM-NAV-DSL-PARITY-20260612-1426",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human PC UI retest",
+    "summary": "A non-Home page showed bottom navigation drift with extra Receipts and Profile tabs instead of the canonical M2 five-tab shell.",
+    "details": [
+      "The observed bottom navigation used Home, Bills, Groups, Settle, Receipts, and Profile.",
+      "The M2 Day 1 shell direction expects Home, Bills, Groups, Settle, and Settings only.",
+      "Receipts, Profile, sessions, reports, and receipt reviews should remain secondary routes/actions rather than bottom navigation tabs."
+    ],
+    "fixSummary": [
+      "The mobile shell now uses one shared bottom navigation widget with Home, Bills, Groups, Settle, and Settings in that order.",
+      "Home, Bills, Groups, Settle, and Settings/Profile top-level routes share the same constrained safe-area nav layout, icon size, label behavior, and rounded active indicator.",
+      "Receipts and Profile are not bottom-nav tab labels.",
+      "Top-level tab active state is covered for Home, Bills, Groups, Settle, and Settings.",
+      "The Create bill chooser still exposes Personal bill and Group bill."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "forbiddenChangeDetected": false
   }
 ]
