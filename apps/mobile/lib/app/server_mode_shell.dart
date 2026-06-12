@@ -25,6 +25,7 @@ import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
@@ -214,6 +215,11 @@ class _SettleoraAuthenticatedServerShellState
     }
   }
 
+  void _openNestedTopLevelDestination(SettleoraNavDestination destination) {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _selectTopLevelDestination(destination);
+  }
+
   Widget _buildBillsScreen(BuildContext context) {
     return SettleoraBillListScreen(
       repository: widget.billRepository,
@@ -223,6 +229,7 @@ class _SettleoraAuthenticatedServerShellState
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       revisionRepository: widget.billRevisionRepository,
       showBottomNav: false,
+      onTopLevelDestinationSelected: _openNestedTopLevelDestination,
     );
   }
 
@@ -235,6 +242,7 @@ class _SettleoraAuthenticatedServerShellState
       billAttachmentFileInput: widget.billAttachmentFileInput,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       billRevisionRepository: widget.billRevisionRepository,
+      onTopLevelDestinationSelected: _openNestedTopLevelDestination,
     );
   }
 
@@ -700,33 +708,91 @@ class _CreateBillChooserSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Create bill', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            ListTile(
+            const SizedBox(height: 6),
+            Text(
+              'Choose the bill type to start.',
+              style: TextStyle(color: colors.textMuted),
+            ),
+            const SizedBox(height: 14),
+            _CreateBillChoiceCard(
               key: const Key('create-bill-choice-personal'),
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Personal bill'),
-              subtitle: const Text('Track a bill for your own account.'),
+              icon: Icons.person_outline,
+              title: 'Personal bill',
+              subtitle: 'Track a bill for your own account.',
               onTap: () =>
                   Navigator.of(context).pop(_CreateBillChoice.personal),
             ),
-            ListTile(
+            const SizedBox(height: 10),
+            _CreateBillChoiceCard(
               key: const Key('create-bill-choice-group'),
-              leading: const Icon(Icons.groups_outlined),
-              title: const Text('Group bill'),
-              subtitle: const Text(
-                'Choose a group, then create a shared bill.',
-              ),
+              icon: Icons.groups_outlined,
+              title: 'Group bill',
+              subtitle: 'Choose a group, then create a shared bill.',
               onTap: () => Navigator.of(context).pop(_CreateBillChoice.group),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateBillChoiceCard extends StatelessWidget {
+  const _CreateBillChoiceCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(SettleoraSpacing.md),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: colors.primarySoft,
+                foregroundColor: colors.primary,
+                child: Icon(icon),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: TextStyle(color: colors.textMuted)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+            ],
+          ),
         ),
       ),
     );

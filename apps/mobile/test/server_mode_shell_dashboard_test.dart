@@ -171,6 +171,76 @@ void main() {
     expectSingleCanonicalBottomNav(tester);
   });
 
+  testWidgets('bottom nav switches from group bills list to Home', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(groupBills: [sampleBill()]);
+    final groupRepository = FakeGroupRepository(
+      groups: [sampleGroup()],
+      members: [sampleGroupMember()],
+    );
+
+    await pumpShell(
+      tester,
+      billRepository: billRepository,
+      groupRepository: groupRepository,
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-groups')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trip Crew'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-detail-bills')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group bills'), findsOneWidget);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expectCanonicalBottomNav(tester, selectedIndex: 2);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('server-shell-dashboard-surface')),
+      findsOneWidget,
+    );
+    expect(find.text('Group bills'), findsNothing);
+    expectCanonicalBottomNav(tester, selectedIndex: 0);
+    expectSingleCanonicalBottomNav(tester);
+  });
+
+  testWidgets('bottom nav switches from bill detail to Groups', (tester) async {
+    final billRepository = FakeBillRepository(
+      bills: [sampleBill()],
+      detail: sampleBillDetail(),
+    );
+    final groupRepository = FakeGroupRepository(groups: [sampleGroup()]);
+
+    await pumpShell(
+      tester,
+      billRepository: billRepository,
+      groupRepository: groupRepository,
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-bills')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bill'), findsWidgets);
+    expect(find.text('Lunch'), findsOneWidget);
+    expectCanonicalBottomNav(tester, selectedIndex: 1);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-groups')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsWidgets);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.text('Bill'), findsNothing);
+    expectCanonicalBottomNav(tester, selectedIndex: 2);
+    expectSingleCanonicalBottomNav(tester);
+  });
+
   testWidgets('dashboard keeps visible sections on narrow and wide viewports', (
     tester,
   ) async {
@@ -1610,6 +1680,20 @@ SettleoraGroup sampleGroup({String id = _groupId, String name = 'Trip Crew'}) {
   );
 }
 
+SettleoraGroupMember sampleGroupMember({
+  String userProfileId = _profileId,
+  String displayName = 'Taylor',
+}) {
+  return SettleoraGroupMember(
+    userProfileId: userProfileId,
+    displayName: displayName,
+    role: SettleoraGroupRoleValues.owner,
+    status: SettleoraGroupMembershipStatusValues.active,
+    joinedAtUtc: DateTime.utc(2026, 6, 7, 12),
+    updatedAtUtc: DateTime.utc(2026, 6, 7, 12),
+  );
+}
+
 SettleoraBillSyncController sampleBillSyncController({
   SettleoraSyncQueueStore? store,
   SettleoraSyncRepository? repository,
@@ -1655,15 +1739,23 @@ SettleoraSyncQueueItem sampleSyncItem({
 class FakeBillRepository implements SettleoraBillRepository {
   FakeBillRepository({
     this.bills = const [],
+    this.groupBills = const [],
     this.failures = const [],
+    SettleoraBillDetail? detail,
     SettleoraBillDetail? createdDetail,
-  }) : createdDetail = createdDetail ?? sampleBillDetail();
+  }) : detail = detail ?? sampleBillDetail(),
+       createdDetail = createdDetail ?? sampleBillDetail();
 
   List<SettleoraBillSummary> bills;
+  List<SettleoraBillSummary> groupBills;
   final List<SettleoraBillFailure> failures;
+  final SettleoraBillDetail detail;
   final SettleoraBillDetail createdDetail;
   Completer<void>? nextListPersonalBillsGate;
   int listCalls = 0;
+  int listGroupCalls = 0;
+  int getPersonalCalls = 0;
+  int getGroupCalls = 0;
   int createCalls = 0;
   SettleoraPersonalBillCreateDraft? lastCreateDraft;
 
@@ -1682,8 +1774,9 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
-  Future<SettleoraBillDetail> getPersonalBill(String billId) {
-    throw UnimplementedError();
+  Future<SettleoraBillDetail> getPersonalBill(String billId) async {
+    getPersonalCalls += 1;
+    return detail;
   }
 
   @override
@@ -1717,8 +1810,9 @@ class FakeBillRepository implements SettleoraBillRepository {
   Future<List<SettleoraBillSummary>> listGroupBills(
     String groupId, {
     int limit = 50,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    listGroupCalls += 1;
+    return groupBills;
   }
 
   @override
@@ -1754,8 +1848,12 @@ class FakeBillRepository implements SettleoraBillRepository {
   }
 
   @override
-  Future<SettleoraBillDetail> getGroupBill(String groupId, String billId) {
-    throw UnimplementedError();
+  Future<SettleoraBillDetail> getGroupBill(
+    String groupId,
+    String billId,
+  ) async {
+    getGroupCalls += 1;
+    return detail;
   }
 }
 
@@ -1994,12 +2092,18 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
-  FakeGroupRepository({List<SettleoraGroup>? groups})
-    : groups = groups ?? const [];
+  FakeGroupRepository({
+    List<SettleoraGroup>? groups,
+    List<SettleoraGroupMember>? members,
+  }) : groups = groups ?? const [],
+       members = members ?? const [];
 
   List<SettleoraGroup> groups;
+  List<SettleoraGroupMember> members;
   int listCalls = 0;
   int createCalls = 0;
+  int getCalls = 0;
+  int listMemberCalls = 0;
   SettleoraGroupSaveRequest? lastGroupSave;
 
   @override
@@ -2018,8 +2122,12 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<SettleoraGroup> getGroup(String groupId) {
-    throw UnimplementedError();
+  Future<SettleoraGroup> getGroup(String groupId) async {
+    getCalls += 1;
+    return groups.firstWhere(
+      (group) => group.id == groupId,
+      orElse: () => sampleGroup(id: groupId),
+    );
   }
 
   @override
@@ -2031,8 +2139,9 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) {
-    throw UnimplementedError();
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMemberCalls += 1;
+    return members;
   }
 
   @override

@@ -6,6 +6,7 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../ui/settleora_components.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
@@ -29,6 +31,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupListScreen> createState() =>
@@ -213,6 +216,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           billRevisionRepository: widget.billRevisionRepository,
           currentUserProfileId: widget.currentUserProfileId,
           groupId: group.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -348,6 +352,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
@@ -356,6 +361,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
   final String? currentUserProfileId;
   final String groupId;
 
@@ -632,6 +638,7 @@ class _SettleoraGroupDetailScreenState
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );

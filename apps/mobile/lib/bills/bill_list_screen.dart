@@ -35,6 +35,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.receiptOcrReviewRepository,
     this.revisionRepository,
     this.showBottomNav = true,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -44,6 +45,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final bool showBottomNav;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraBillListScreen> createState() =>
@@ -215,6 +217,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: bill.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -254,6 +257,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           revisionRepository: widget.revisionRepository,
           billId: createdBill.id,
           initialBill: createdBill,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -406,8 +410,12 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           },
         ),
       ),
-      bottomNavigationBar: widget.showBottomNav
-          ? const SettleoraBottomNav(selected: SettleoraNavDestination.bills)
+      bottomNavigationBar:
+          widget.showBottomNav && widget.onTopLevelDestinationSelected != null
+          ? SettleoraBottomNav(
+              selected: SettleoraNavDestination.bills,
+              onSelected: widget.onTopLevelDestinationSelected,
+            )
           : null,
     );
   }
@@ -1855,6 +1863,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -1867,6 +1876,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupBillListScreen> createState() =>
@@ -1945,6 +1955,7 @@ class _SettleoraGroupBillListScreenState
           currentUserProfileId: widget.currentUserProfileId,
           participantDisplayNames: _participantDisplayNames,
           billId: bill.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -1995,6 +2006,7 @@ class _SettleoraGroupBillListScreenState
           participantDisplayNames: _participantDisplayNames,
           billId: createdBill.id,
           initialBill: createdBill,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -2124,9 +2136,12 @@ class _SettleoraGroupBillListScreenState
         icon: const Icon(Icons.add),
         label: const Text('Create group bill'),
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.groups,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.groups,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
     );
   }
 
@@ -3990,9 +4005,6 @@ class _SettleoraGroupBillCreateScreenState
                           ),
                         ),
                       ),
-                    ),
-                    const SettleoraBottomNav(
-                      selected: SettleoraNavDestination.groups,
                     ),
                   ],
                 ),
@@ -6984,6 +6996,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -6993,6 +7006,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraBillDetailScreen> createState() =>
@@ -7329,9 +7343,12 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
           },
         ),
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.bills,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.bills,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
     );
   }
 }
@@ -7350,6 +7367,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -7363,6 +7381,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
   final SettleoraBillDetail? initialBill;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupBillDetailScreen> createState() =>
@@ -7749,9 +7768,12 @@ class _SettleoraGroupBillDetailScreenState
           ),
         ],
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.groups,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.groups,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
       body: SafeArea(
         child: Builder(
           builder: (context) {

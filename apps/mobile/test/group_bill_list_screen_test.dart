@@ -2594,7 +2594,7 @@ void main() {
     );
     expect(find.text('Tax & fees'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-next-step')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill assign item sheet renders quantity split controls', (

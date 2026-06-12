@@ -79,12 +79,12 @@ void main() {
 
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     expect(find.text('Create bill'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
     expect(find.text('Create group bill'), findsNothing);
   });
 
-  testWidgets('personal bill empty state keeps bills tab active', (
+  testWidgets('personal bill empty state omits standalone global nav', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -99,8 +99,8 @@ void main() {
 
     expect(find.text('No bills'), findsOneWidget);
     expect(find.byKey(const Key('bill-list-empty-create')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsNothing);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsNothing);
   });
 
   testWidgets('personal bill needs review filter shows review bills', (
@@ -1674,7 +1674,7 @@ void main() {
     expect(repository.listCalls, 1);
   });
 
-  testWidgets('group bill list and detail do not show personal create entry', (
+  testWidgets('group bill list and detail omit standalone global nav', (
     tester,
   ) async {
     final repository = FakeBillRepository(groupBills: [sampleBillSummary()]);
@@ -1694,7 +1694,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
@@ -1702,7 +1702,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill create exits without prompt when unchanged', (
@@ -2118,7 +2118,7 @@ void main() {
     await _goToGroupBillCreateStep(tester, 'review');
     expect(find.text('Server validation still applies'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill receipt mode back returns to start', (tester) async {
@@ -2201,7 +2201,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets(
