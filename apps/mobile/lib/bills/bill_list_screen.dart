@@ -2078,7 +2078,13 @@ class _SettleoraGroupBillListScreenState
                       icon: Icons.receipt_long_outlined,
                       title: 'No group bills',
                       message:
-                          'Bills visible in ${_safeGroupName(widget.groupName)} will appear here.',
+                          'Bills visible in ${_safeGroupName(widget.groupName)} will appear here. Create a group bill to use the existing shared bill review flow.',
+                      action: FilledButton.icon(
+                        key: const Key('group-bill-list-empty-create'),
+                        onPressed: _openCreateGroupBill,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create group bill'),
+                      ),
                     ),
                   ] else if (visibleBills.isEmpty) ...[
                     const SizedBox(height: 56),
@@ -8742,7 +8748,7 @@ class _GroupBillContext extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Group bills',
+                'Create a shared bill, or filter loaded group bills that need your response.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
