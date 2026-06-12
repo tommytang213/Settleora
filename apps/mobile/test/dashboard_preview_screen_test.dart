@@ -23,15 +23,18 @@ void main() {
   ) async {
     await pumpPreview(tester);
 
-    final home = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-home')),
+    final nav = tester.widget<NavigationBar>(
+      find.byKey(const Key('server-shell-bottom-nav')),
     );
-    final settle = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-settle')),
-    );
+    final labels = [
+      for (final destination in nav.destinations)
+        (destination as NavigationDestination).label,
+    ];
 
-    expect(home.properties.selected, isTrue);
-    expect(settle.properties.selected, isFalse);
+    expect(labels, const ['Home', 'Bills', 'Groups', 'Settle', 'Settings']);
+    expect(nav.selectedIndex, 0);
+    expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
     expect(find.text('Upcoming Bills'), findsOneWidget);
     expect(find.text(r'$128.40'), findsOneWidget);
     expect(find.text(r'$284.15'), findsOneWidget);

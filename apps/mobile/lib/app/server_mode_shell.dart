@@ -24,6 +24,7 @@ import '../reports/report_repository.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import '../sync/sync_queue_processor.dart';
+import '../ui/settleora_components.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
@@ -762,72 +763,31 @@ class _ServerShellBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
-      ),
-      child: SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-        child: Center(
-          heightFactor: 1,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 430),
-            child: NavigationBar(
-              key: const Key('server-shell-bottom-nav'),
-              height: 64,
-              selectedIndex: selectedIndex,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              indicatorShape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(999),
-              ),
-              onDestinationSelected: (index) {
-                if (index == selectedIndex) {
-                  return;
-                }
-
-                onDestinationSelected(index);
-              },
-              destinations: const [
-                NavigationDestination(
-                  key: Key('bottom-nav-home'),
-                  icon: Icon(Icons.home_outlined, size: 22),
-                  selectedIcon: Icon(Icons.home, size: 22),
-                  label: 'Home',
-                ),
-                NavigationDestination(
-                  key: Key('bottom-nav-bills'),
-                  icon: Icon(Icons.receipt_long_outlined, size: 22),
-                  selectedIcon: Icon(Icons.receipt_long, size: 22),
-                  label: 'Bills',
-                ),
-                NavigationDestination(
-                  key: Key('bottom-nav-groups'),
-                  icon: Icon(Icons.groups_outlined, size: 22),
-                  selectedIcon: Icon(Icons.groups, size: 22),
-                  label: 'Groups',
-                ),
-                NavigationDestination(
-                  key: Key('bottom-nav-settle'),
-                  icon: Icon(Icons.account_balance_wallet_outlined, size: 22),
-                  selectedIcon: Icon(Icons.account_balance_wallet, size: 22),
-                  label: 'Settle',
-                ),
-                NavigationDestination(
-                  key: Key('bottom-nav-settings'),
-                  icon: Icon(Icons.settings_outlined, size: 22),
-                  selectedIcon: Icon(Icons.settings, size: 22),
-                  label: 'Settings',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return SettleoraBottomNav(
+      selected: _destinationForIndex(selectedIndex),
+      onSelected: (destination) =>
+          onDestinationSelected(_indexForDestination(destination)),
     );
+  }
+
+  SettleoraNavDestination _destinationForIndex(int index) {
+    return switch (index) {
+      1 => SettleoraNavDestination.bills,
+      2 => SettleoraNavDestination.groups,
+      3 => SettleoraNavDestination.settle,
+      4 => SettleoraNavDestination.settings,
+      _ => SettleoraNavDestination.home,
+    };
+  }
+
+  int _indexForDestination(SettleoraNavDestination destination) {
+    return switch (destination) {
+      SettleoraNavDestination.home => 0,
+      SettleoraNavDestination.bills => 1,
+      SettleoraNavDestination.groups => 2,
+      SettleoraNavDestination.settle => 3,
+      SettleoraNavDestination.settings => 4,
+    };
   }
 }
 

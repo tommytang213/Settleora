@@ -226,6 +226,7 @@ void main() {
     expect(find.textContaining('No global shared-bill count'), findsNothing);
     expect(find.textContaining('_DashboardBillRow'), findsNothing);
     expect(find.textContaining('dependencies:'), findsNothing);
+    expectSingleCanonicalBottomNav(tester);
     expect(tester.takeException(), isNull);
   });
 
@@ -1314,7 +1315,7 @@ void expectCanonicalBottomNav(
 void expectSingleCanonicalBottomNav(WidgetTester tester) {
   expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
   expect(find.byType(NavigationBar), findsOneWidget);
-  expect(find.byType(SettleoraBottomNav), findsNothing);
+  expect(find.byType(SettleoraBottomNav), findsOneWidget);
   expect(
     find.descendant(
       of: find.byType(SettleoraBottomNav),
