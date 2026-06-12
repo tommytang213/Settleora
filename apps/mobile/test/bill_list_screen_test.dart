@@ -220,7 +220,7 @@ void main() {
       expect(find.text('Merchant candidate'), findsOneWidget);
       expect(find.text('2 item candidates'), findsOneWidget);
       expect(find.text('Review line totals before saving.'), findsOneWidget);
-      expect(find.text('Corner Market'), findsNothing);
+      expect(find.text('Merchant: Corner Market'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
       await tester.pumpAndSettle();
@@ -2782,6 +2782,251 @@ void main() {
     );
   });
 
+  testWidgets('group bill receipt scan shows unsupported manual path', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.unsupported(
+        'On-device receipt text extraction is not available on this device yet. You can still enter the bill manually.',
+      ),
+    );
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [9, 8, 7],
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(receiptOcrProvider.calls, 1);
+    expect(receiptOcrProvider.lastRequest?.bytes, const [9, 8, 7]);
+    expect(
+      find.byKey(const Key('group-bill-ocr-preview-panel')),
+      findsOneWidget,
+    );
+    expect(find.text('Manual entry'), findsOneWidget);
+    expect(
+      find.textContaining('You can still enter the bill manually'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-bill-ocr-apply')), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-item-name-0')),
+      'Manual noodles',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual noodles',
+    );
+  });
+
+  testWidgets(
+    'group bill OCR review cancel leaves draft unchanged and apply preserves assignments',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository();
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Dim Sum House',
+            receiptDate: '2026-06-11',
+            currency: 'HKD',
+            total: '68.00',
+            rawTextLineCount: 6,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Dumplings',
+                quantity: '2',
+                unitPrice: '18.00',
+                lineTotal: '36.00',
+                currency: 'HKD',
+              ),
+              ReceiptOcrItemCandidate(
+                description: 'Tea',
+                quantity: '1',
+                lineTotal: '32.00',
+                currency: 'HKD',
+              ),
+            ],
+          ),
+        ),
+      );
+      await _pumpGroupBillCreate(
+        tester,
+        repository: repository,
+        groupRepository: FakeGroupRepository(
+          members: [
+            sampleGroupMember(displayName: 'Alex'),
+            sampleGroupMember(
+              userProfileId: 'member-taylor-id',
+              displayName: 'Taylor',
+            ),
+          ],
+        ),
+        attachmentRepository: FakeBillAttachmentRepository(),
+        attachmentFileInput: FakeBillAttachmentFileInput(
+          pickedFile: samplePickedAttachmentFile(
+            filename: 'shared-receipt.png',
+            contentType: 'image/png',
+            bytes: const [4, 5, 6],
+          ),
+        ),
+        receiptOcrProvider: receiptOcrProvider,
+      );
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'basics');
+      await tester.enterText(
+        find.byKey(const Key('group-bill-merchant-name')),
+        'Manual Cafe',
+      );
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-item-name-0')),
+        'Manual bun',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-item-amount-0')),
+        '12.00',
+      );
+      await _assignFirstGroupBillItem(tester, memberId: 'member-taylor-id');
+      await _goToGroupBillCreateStep(tester, 'payers');
+      await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-member-picker-member-taylor-id')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-payer-amount-0')),
+        '12.00',
+      );
+
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
+      await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Merchant: Dim Sum House'), findsOneWidget);
+      expect(find.text('Date: 2026-06-11'), findsOneWidget);
+      expect(find.text('Currency: HKD'), findsOneWidget);
+      expect(find.text('Item: Dumplings - 36.00'), findsOneWidget);
+      expect(find.text('Item: Tea - 32.00'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(
+                const Key('group-bill-merchant-name'),
+                skipOffstage: false,
+              ),
+            )
+            .controller
+            ?.text,
+        'Manual Cafe',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-name-0')),
+            )
+            .controller
+            ?.text,
+        'Manual bun',
+      );
+
+      await tester.tap(find.byKey(const Key('group-bill-ocr-apply')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Suggestions applied'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(
+                const Key('group-bill-merchant-name'),
+                skipOffstage: false,
+              ),
+            )
+            .controller
+            ?.text,
+        'Dim Sum House',
+      );
+      expect(find.text('2026-06-11', skipOffstage: false), findsWidgets);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-name-0')),
+            )
+            .controller
+            ?.text,
+        'Dumplings',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-quantity-0')),
+            )
+            .controller
+            ?.text,
+        '2',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-name-1')),
+            )
+            .controller
+            ?.text,
+        'Tea',
+      );
+
+      await _goToGroupBillCreateStep(tester, 'split');
+      expect(find.textContaining('Taylor'), findsWidgets);
+      expect(
+        find.text('All item split rows have a selected member.'),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('split row still needs a member'),
+        findsOneWidget,
+      );
+
+      await _goToGroupBillCreateStep(tester, 'payers');
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-payer-amount-0')),
+            )
+            .controller
+            ?.text,
+        '12.00',
+      );
+    },
+  );
+
   testWidgets('group bill detail accepted share uses dedicated panel', (
     tester,
   ) async {
@@ -5049,6 +5294,7 @@ Future<void> _pumpGroupBillCreate(
   required FakeGroupRepository groupRepository,
   FakeBillAttachmentRepository? attachmentRepository,
   FakeBillAttachmentFileInput? attachmentFileInput,
+  ReceiptOcrProvider? receiptOcrProvider,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -5059,6 +5305,7 @@ Future<void> _pumpGroupBillCreate(
         groupName: 'Trip',
         attachmentRepository: attachmentRepository,
         attachmentFileInput: attachmentFileInput,
+        receiptOcrProvider: receiptOcrProvider,
       ),
     ),
   );
