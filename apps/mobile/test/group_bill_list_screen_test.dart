@@ -31,9 +31,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Trip Crew'), findsOneWidget);
+    expect(
+      find.text(
+        'Create a shared bill, or filter loaded group bills that need your response.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('No group bills'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
-    expect(find.text('Create group bill'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-list-empty-create')),
+      findsOneWidget,
+    );
+    expect(find.text('Create group bill'), findsWidgets);
     expect(find.byKey(const Key('group-bill-list-filters')), findsOneWidget);
     expect(find.text('All (0)'), findsOneWidget);
     expect(find.text('Needs your response (0)'), findsOneWidget);
@@ -210,6 +220,12 @@ void main() {
       await tester.tap(find.text('Corner Market'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Participant status'),
+        220,
+        scrollable: find.byType(Scrollable).last,
+      );
+
       expect(find.text('Participant status'), findsOneWidget);
       expect(find.text('Your status'), findsOneWidget);
       expect(find.text('Pending acceptance'), findsWidgets);
@@ -278,6 +294,12 @@ void main() {
 
       await tester.tap(find.text('Corner Market'));
       await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Taylor (you)'),
+        220,
+        scrollable: find.byType(Scrollable).last,
+      );
 
       expect(groupRepository.listMemberCalls, 1);
       expect(find.text('Taylor (you)'), findsWidgets);
@@ -2560,7 +2582,7 @@ void main() {
     expect(find.text('Jordan (0)'), findsOneWidget);
     expect(find.text('Unassigned (1)'), findsOneWidget);
     expect(find.text('Tea'), findsWidgets);
-    expect(find.text('Qty preview'), findsWidgets);
+    expect(find.text('Qty 1'), findsWidgets);
     expect(
       find.byKey(const Key('group-bill-unassigned-warning')),
       findsOneWidget,
@@ -2572,7 +2594,7 @@ void main() {
     );
     expect(find.text('Tax & fees'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-next-step')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill assign item sheet renders quantity split controls', (
@@ -2681,10 +2703,10 @@ void main() {
         '3',
       );
 
-      expect(find.text('Line total amount'), findsOneWidget);
-      expect(find.text('Quantity / units'), findsOneWidget);
+      expect(find.text('Line total'), findsOneWidget);
+      expect(find.text('Quantity'), findsOneWidget);
       expect(
-        find.text('Optional split guidance; line total stays the same.'),
+        find.text('Defaults to 1 for a single line total.'),
         findsOneWidget,
       );
       expect(find.text('Splits'), findsNothing);
@@ -3040,6 +3062,51 @@ void main() {
     },
   );
 
+  testWidgets('group bill item currency dropdown follows bill currency', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'basics');
+    await _chooseDropdownValue(tester, const Key('group-bill-currency'), 'EUR');
+    await _addSingleGroupPayer(tester, amount: '12.00');
+    await _tapSaveGroupBill(tester);
+
+    final draft = billRepository.lastGroupCreateDraft;
+    expect(draft?.currency, 'EUR');
+    expect(draft?.items.single.currency, 'EUR');
+    expect(draft?.payers.single.currency, 'HKD');
+  });
+
   testWidgets('group bill create maps member split and payer draft strings', (
     tester,
   ) async {
@@ -3118,6 +3185,109 @@ void main() {
     expect(draft?.payers.single.amount, ' 12.00 ');
     expect(draft?.payers.single.currency, 'HKD');
     expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
+  });
+
+  testWidgets('group bill item derives unit and line total as currency units', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'basics');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-merchant-name')),
+      'Night Market',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-date-today')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-name-0')),
+      'Noodles',
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-quantity-0')),
+      '2',
+    );
+
+    Future<void> expectDerivedLineTotal(
+      String currency,
+      String unitAmount,
+      String expectedLineTotal,
+    ) async {
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-item-currency-0'),
+        currency,
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-item-unit-amount-0')),
+        unitAmount,
+      );
+      await tester.pumpAndSettle();
+
+      final lineTotal = tester.widget<TextFormField>(
+        find.byKey(const Key('group-bill-item-amount-0')),
+      );
+      expect(lineTotal.controller?.text, expectedLineTotal);
+    }
+
+    await expectDerivedLineTotal('USD', '50', '100.00');
+    await expectDerivedLineTotal('HKD', '50', '100.00');
+    await expectDerivedLineTotal('EUR', '50', '100.00');
+    await expectDerivedLineTotal('GBP', '50', '100.00');
+    await expectDerivedLineTotal('JPY', '50', '100');
+    await expectDerivedLineTotal('KWD', '1.234', '2.468');
+    await expectDerivedLineTotal('BHD', '1.234', '2.468');
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+      '',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+    final unitAmount = tester.widget<TextFormField>(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+    );
+    expect(unitAmount.controller?.text, '50.000');
+
+    await _assignFirstGroupBillItem(tester, exactAmount: '100');
+    await _addSingleGroupPayer(tester, amount: '100');
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.lastGroupCreateDraft?.items.single.amount, '100');
   });
 
   testWidgets(
@@ -4739,7 +4909,7 @@ Future<void> _chooseDropdownValue(
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).last);
+  await tester.tap(find.text(label).hitTestable().last);
   await tester.pumpAndSettle();
 }
 

@@ -1,247 +1,189 @@
 [
   {
-    "id": "AI-V3-001",
-    "title": "Add AI pipeline brain files",
+    "id": "M2-HOME-DASHBOARD-VISIBLE-REDESIGN-20260612-0118",
+    "title": "Human-review fix: make Home visibly dashboard-like with bottom nav and bill picker",
     "risk": "medium",
     "autoMergeAllowed": false,
-    "status": "completed",
+    "status": "human_review_required",
     "allowedAreas": [
-      "AGENTS.md",
-      "docs/**",
       ".ai/**",
-      "scripts/ai/**",
-      ".github/workflows/ai-integration-scope-guard.yml"
+      "docs/qa/**",
+      "apps/mobile/lib/app/**",
+      "apps/mobile/test/**"
     ],
+    "goal": "Address the human screenshot and PC UI retest findings by keeping Home visibly dashboard-like, restoring persistent bottom navigation, and making Create bill choose between personal and group bill paths without inventing backend behavior.",
     "validation": [
-      "git diff --check",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD --allow-bootstrap-workflow"
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "cd apps/mobile && /opt/flutter/bin/dart format --set-exit-if-changed lib/app test",
+      "cd apps/mobile && /opt/flutter/bin/flutter pub get",
+      "cd apps/mobile && /opt/flutter/bin/flutter analyze",
+      "cd apps/mobile && /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Requires product runtime behavior changes",
-      "Requires branch protection or repository settings changes",
-      "Scope guard fails for reasons other than the explicit bootstrap workflow allowance"
+      "Human PC UI retest has not confirmed the dashboard is visibly improved",
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires settlement/payment/bill calculation logic",
+      "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M1-001",
-    "title": "Reconcile current milestone/docs state",
+    "id": "M2-001",
+    "title": "Reconcile mobile nav/home current state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
     "status": "completed",
     "allowedAreas": [
       ".ai/**",
-      "docs/**"
+      "docs/**",
+      "apps/mobile/test/**"
     ],
+    "goal": "Capture current bottom navigation, Home/dashboard, and top-level route behavior, then define M2 acceptance criteria and focused QA coverage.",
     "validation": [
-      "git diff --check",
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
       "npm run validate:docs"
     ],
     "stopConditions": [
-      "Requires MVP scope reduction",
-      "Requires backend/API/schema/money/security/deployment changes"
-    ]
-  },
-  {
-    "id": "M1-002",
-    "title": "Group bill create QA map and smoke tests",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/**",
-      "apps/mobile/test/**"
-    ],
-    "validation": [
-      "npm run doctor:mobile",
-      "npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API/OpenAPI/generated-client changes",
-      "Requires money calculation behavior changes"
-    ]
-  },
-  {
-    "id": "M1-003",
-    "title": "Group bill create validation/recovery polish",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/test/**"
-    ],
-    "validation": [
-      "npm run doctor:mobile",
-      "npm run validate:mobile"
-    ],
-    "stopConditions": [
       "Requires backend/API/OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
-      "Requires bill calculation logic changes"
+      "Requires settlement/payment/bill calculation logic changes",
+      "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M1-004",
-    "title": "Receipt/attachment handoff clarity",
+    "id": "M2-002",
+    "title": "Home dashboard useful shell and empty states",
     "risk": "medium",
     "autoMergeAllowed": true,
     "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
-      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/**",
       "apps/mobile/test/**"
     ],
+    "goal": "Make Home show useful next actions, current server-mode context, recent/pending sections where existing data supports them, and honest placeholder or empty states where runtime data is not implemented.",
     "validation": [
-      "npm run doctor:mobile",
-      "npm run validate:mobile"
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Requires storage/file privacy policy changes",
-      "Requires backend attachment behavior changes"
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires local storage or offline sync policy changes",
+      "Requires money, settlement, or bill calculation behavior changes"
     ]
   },
   {
-    "id": "M1-005",
-    "title": "Group bill UI navigation and checklist polish",
-    "risk": "low",
+    "id": "M2-003",
+    "title": "Bottom navigation labels, active state, and route clarity",
+    "risk": "medium",
     "autoMergeAllowed": true,
     "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/**",
-      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/**",
       "apps/mobile/test/**"
     ],
+    "goal": "Make bottom navigation behavior obvious and stable across Home, Groups, Bills, Settlements/Settle, and related routes without inventing backend behavior.",
     "validation": [
-      "npm run doctor:mobile",
-      "npm run validate:mobile"
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Requires non-mobile product runtime changes",
-      "Requires backend/API behavior changes"
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires web/admin runtime UI changes",
+      "Requires deployment, CI, or environment changes"
     ]
   },
   {
-    "id": "M1-006",
-    "title": "Milestone QA report and UI testing checklist",
+    "id": "M2-004",
+    "title": "Groups and Settle landing handoff polish",
+    "risk": "medium",
+    "autoMergeAllowed": true,
+    "status": "completed",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/**",
+      "apps/mobile/lib/**",
+      "apps/mobile/test/**"
+    ],
+    "goal": "Improve top-level entry points and handoffs into group bills, group details, settlement views, and safe quick actions using existing repositories and APIs only.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+    ],
+    "stopConditions": [
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires settlement/payment/bill calculation policy changes",
+      "Requires local storage or offline sync policy changes"
+    ]
+  },
+  {
+    "id": "M2-005",
+    "title": "Mobile nav/home UI testing checklist and milestone QA report",
     "risk": "low",
     "autoMergeAllowed": false,
     "status": "completed",
     "allowedAreas": [
       ".ai/**",
-      "docs/**",
+      "docs/qa/**",
       "apps/mobile/test/**"
     ],
+    "goal": "Complete full relevant mobile validation and produce the human UI testing checklist and milestone QA report for mobile navigation and Home/dashboard readiness.",
     "validation": [
-      "npm run doctor:mobile",
-      "npm run validate:mobile"
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
       "Mobile validation cannot run",
-      "Human-gated blocker remains"
+      "Human-gated blocker remains",
+      "Requires backend/API/OpenAPI/generated-client/auth/schema/money/deployment changes"
     ]
   },
   {
-    "id": "M1-007",
-    "title": "M1 UI-test group bill create fixes",
-    "risk": "medium",
-    "autoMergeAllowed": false,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/test/**"
-    ],
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API/OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires settlement/payment/bill calculation policy changes",
-      "Requires Docker/env/deployment/CI changes"
-    ]
-  },
-  {
-    "id": "M1-008",
-    "title": "M1 UI-test item quantity and split cleanup",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/test/**"
-    ],
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API/OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires settlement/payment/bill calculation policy changes",
-      "Requires Docker/env/deployment/CI changes"
-    ]
-  },
-  {
-    "id": "M1-009",
-    "title": "M1 UI-test date and currency input polish",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "docs/ux/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/test/**"
-    ],
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API/OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires settlement/payment/bill calculation policy changes",
-      "Requires Docker/env/deployment/CI changes",
-      "Requires web runtime changes"
-    ]
-  },
-  {
-    "id": "STOP-BE-001",
-    "title": "Human-gated backend/API/schema/money/security blocker",
+    "id": "STOP-M2-001",
+    "title": "Human-gated backend/API/auth/schema/money/deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
+    "goal": "Stop M2 immediately if mobile navigation or Home/dashboard work requires forbidden backend, API, auth, schema, money, deployment, or secret changes.",
     "validation": [],
     "stopConditions": [
-      "Any task requires backend/API behavior",
-      "Any task requires OpenAPI/generated-client changes",
-      "Any task requires auth/session/security changes",
-      "Any task requires database schema/migrations",
-      "Any task requires settlement/payment/bill calculation logic"
+      "Any M2 task requires backend/API behavior",
+      "Any M2 task requires OpenAPI/generated-client changes",
+      "Any M2 task requires auth/session/security changes",
+      "Any M2 task requires database schema/migrations",
+      "Any M2 task requires settlement/payment/bill calculation logic",
+      "Any M2 task requires Docker/env/deployment/CI changes",
+      "Any M2 task requires secrets, tokens, credentials, or local auth/session config"
     ]
   }
 ]

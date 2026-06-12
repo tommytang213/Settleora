@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/dashboard/dashboard_preview_screen.dart';
 import 'package:mobile/main.dart';
+import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
 void main() {
@@ -23,15 +24,28 @@ void main() {
   ) async {
     await pumpPreview(tester);
 
-    final home = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-home')),
+    final nav = tester.widget<SettleoraBottomNav>(
+      find.byType(SettleoraBottomNav),
     );
-    final settle = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-settle')),
-    );
-
-    expect(home.properties.selected, isTrue);
-    expect(settle.properties.selected, isFalse);
+    expect(nav.selected, SettleoraNavDestination.home);
+    for (final label in const [
+      'Home',
+      'Bills',
+      'Groups',
+      'Settle',
+      'Receipts',
+      'Profile',
+    ]) {
+      expect(
+        find.descendant(
+          of: find.byType(SettleoraBottomNav),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
     expect(find.text('Upcoming Bills'), findsOneWidget);
     expect(find.text(r'$128.40'), findsOneWidget);
     expect(find.text(r'$284.15'), findsOneWidget);

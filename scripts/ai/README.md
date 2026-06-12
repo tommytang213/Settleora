@@ -14,9 +14,16 @@ Options:
 
 - `--base <git-ref>` defaults to `origin/ai/integration`.
 - `--head <git-ref>` defaults to `HEAD`.
+- `--state-file <path>` defaults to `.ai/state.json`.
 - `--milestone-file <path>` defaults to `.ai/current-milestone.md`.
 - `--allow-bootstrap-workflow` permits only `.github/workflows/ai-integration-scope-guard.yml` for this bootstrap self-test.
 
-For M1, the guard allows `.ai/**`, `AGENTS.md`, `docs/**`, `apps/mobile/lib/bills/**`, and `apps/mobile/test/**`. It forbids backend/API, worker, contracts, generated clients, infrastructure, GitHub workflow/settings, Docker/compose/env-looking files, and migration-looking paths.
+The guard resolves the active milestone from `.ai/state.json` `activeMilestoneId`, then falls back to `.ai/current-milestone.md`.
+
+For M1, the guard allows `.ai/**`, `AGENTS.md`, `docs/**`, `apps/mobile/lib/bills/**`, and `apps/mobile/test/**`.
+
+For M2, the guard allows `.ai/**`, `docs/qa/**`, the AI V3 controller/pipeline workflow docs, `scripts/ai/**`, `apps/mobile/lib/app/**`, exact top-level landing/handoff screens for bills, groups, and settlements, and `apps/mobile/test/**`.
+
+All milestones still forbid backend/API, worker, contracts, generated clients, infrastructure, GitHub workflow/settings, Docker/compose/env-looking files, and migration-looking paths.
 
 This script is not a background service and does not merge branches. It is a local and CI validation helper.

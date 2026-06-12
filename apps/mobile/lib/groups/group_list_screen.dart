@@ -6,6 +6,7 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../ui/settleora_components.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -14,21 +15,25 @@ class SettleoraGroupListScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     this.openCreateOnStart = false,
+    this.openGroupBillCreateOnPick = false,
     this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
   final bool openCreateOnStart;
+  final bool openGroupBillCreateOnPick;
   final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupListScreen> createState() =>
@@ -202,6 +207,31 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   }
 
   Future<void> _openGroup(SettleoraGroup group) async {
+    if (widget.openGroupBillCreateOnPick) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraGroupBillListScreen(
+            repository: widget.billRepository,
+            groupRepository: widget.repository,
+            currentUserProfileId: widget.currentUserProfileId,
+            attachmentRepository: widget.billAttachmentRepository,
+            attachmentFileInput: widget.billAttachmentFileInput,
+            receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+            revisionRepository: widget.billRevisionRepository,
+            groupId: group.id,
+            groupName: group.displayName,
+            openCreateOnStart: true,
+            onTopLevelDestinationSelected: null,
+          ),
+        ),
+      );
+
+      if (mounted) {
+        await _load();
+      }
+      return;
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupDetailScreen(
@@ -213,6 +243,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           billRevisionRepository: widget.billRevisionRepository,
           currentUserProfileId: widget.currentUserProfileId,
           groupId: group.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -279,11 +310,18 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                   ],
                   if (_groups.isEmpty) ...[
                     const SizedBox(height: 56),
-                    const _StatePanel(
+                    _StatePanel(
                       icon: Icons.groups_outlined,
                       title: 'No groups',
-                      message:
-                          'Groups visible to this account will appear here.',
+                      message: widget.openGroupBillCreateOnPick
+                          ? 'Create a group first, then pick it to start a group bill.'
+                          : 'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+                      action: FilledButton.icon(
+                        key: const Key('group-list-empty-create'),
+                        onPressed: _isCreating ? null : _createGroup,
+                        icon: const Icon(Icons.group_add_outlined),
+                        label: const Text('Create group'),
+                      ),
                     ),
                   ] else ...[
                     _GroupDiscoveryControls(
@@ -342,6 +380,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
@@ -350,6 +389,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
   final String? currentUserProfileId;
   final String groupId;
 
@@ -626,6 +666,7 @@ class _SettleoraGroupDetailScreenState
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -787,11 +828,10 @@ class _SettleoraGroupDetailScreenState
                     _InlineFailure(failure: actionFailure),
                   ],
                   const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    key: const Key('group-detail-bills'),
-                    onPressed: () => _openGroupBills(group),
-                    icon: const Icon(Icons.receipt_long_outlined),
-                    label: const Text('Group bills'),
+                  _GroupBillsHandoffCard(
+                    group: group,
+                    memberCount: _members.length,
+                    onOpenGroupBills: () => _openGroupBills(group),
                   ),
                   const SizedBox(height: 22),
                   _Section(
@@ -919,6 +959,41 @@ class _SettleoraGroupDetailScreenState
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupBillsHandoffCard extends StatelessWidget {
+  const _GroupBillsHandoffCard({
+    required this.group,
+    required this.memberCount,
+    required this.onOpenGroupBills,
+  });
+
+  final SettleoraGroup group;
+  final int memberCount;
+  final VoidCallback onOpenGroupBills;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = group.displayName;
+    final safeName = name.trim().isEmpty ? 'this group' : name.trim();
+
+    return Card(
+      key: const Key('group-detail-bills-handoff'),
+      child: ListTile(
+        leading: const Icon(Icons.receipt_long_outlined),
+        title: const Text('Shared bill workspace'),
+        subtitle: Text(
+          '$memberCount loaded member${_plural(memberCount)} - Open group bills for $safeName to create, review, or respond.',
+        ),
+        trailing: FilledButton.icon(
+          key: const Key('group-detail-bills'),
+          onPressed: onOpenGroupBills,
+          icon: const Icon(Icons.arrow_forward),
+          label: const Text('Open'),
         ),
       ),
     );
@@ -1430,6 +1505,8 @@ class _KeyValueText extends StatelessWidget {
     );
   }
 }
+
+String _plural(int count) => count == 1 ? '' : 's';
 
 Future<SettleoraGroupSaveRequest?> _showGroupForm(
   BuildContext context, {

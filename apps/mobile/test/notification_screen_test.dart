@@ -588,6 +588,11 @@ void main() {
     expect(billRepository.lastBillId, _billId);
     expect(find.text('Group bill'), findsWidgets);
     expect(find.text('Trip Crew'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Taylor (you)'),
+      220,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Taylor (you)'), findsWidgets);
     expect(find.text('Morgan'), findsWidgets);
   });
@@ -628,6 +633,11 @@ void main() {
 
     expect(groupRepository.listMemberCalls, 1);
     expect(find.text('Group bill'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Participant 1 (you)'),
+      220,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Participant 1 (you)'), findsWidgets);
     expect(find.text('Member names are unavailable.'), findsNothing);
   });

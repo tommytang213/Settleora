@@ -314,113 +314,215 @@ class SettleoraBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const destinations = <SettleoraNavDestination>[
+      SettleoraNavDestination.home,
+      SettleoraNavDestination.bills,
+      SettleoraNavDestination.groups,
+      SettleoraNavDestination.settle,
+      SettleoraNavDestination.receipts,
+      SettleoraNavDestination.profile,
+    ];
     final colors = context.settleoraColors;
-    Widget item(
-      SettleoraNavDestination destination,
-      IconData icon,
-      String label,
-    ) {
-      final active = selected == destination;
-      final isSettle = destination == SettleoraNavDestination.settle;
-      final foreground = isSettle
-          ? colors.onPrimary
-          : active
-          ? colors.primary
-          : colors.textSubtle;
-      final background = isSettle
-          ? colors.primary
-          : active
-          ? colors.primarySoft
-          : Colors.transparent;
 
-      return Expanded(
-        child: Semantics(
-          key: Key('bottom-nav-${destination.name}'),
-          selected: active,
-          button: true,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(SettleoraRadius.md),
-            onTap: onSelected == null ? null : () => onSelected!(destination),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: background,
-                      borderRadius: BorderRadius.circular(999),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.border)),
+        boxShadow: [
+          BoxShadow(
+            color: colors.primary.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, -6),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = constraints.maxWidth >= 640
+                ? 560.0
+                : constraints.maxWidth;
+
+            return Center(
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: DecoratedBox(
+                  key: const Key('server-shell-bottom-nav'),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(SettleoraRadius.xxl),
+                    border: Border.all(color: colors.border),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 6,
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 13,
-                        vertical: 7,
-                      ),
-                      child: Icon(icon, size: 21, color: foreground),
+                    child: Row(
+                      children: [
+                        for (final destination in destinations)
+                          Expanded(
+                            child: _SettleoraBottomNavItem(
+                              key: _keyForDestination(destination),
+                              destination: destination,
+                              selected: selected == destination,
+                              enabled: onSelected != null,
+                              onTap: () {
+                                if (destination == selected) {
+                                  return;
+                                }
+                                onSelected?.call(destination);
+                              },
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Key _keyForDestination(SettleoraNavDestination destination) {
+    return switch (destination) {
+      SettleoraNavDestination.home => const Key('bottom-nav-home'),
+      SettleoraNavDestination.bills => const Key('bottom-nav-bills'),
+      SettleoraNavDestination.groups => const Key('bottom-nav-groups'),
+      SettleoraNavDestination.settle => const Key('bottom-nav-settle'),
+      SettleoraNavDestination.receipts => const Key('bottom-nav-receipts'),
+      SettleoraNavDestination.profile => const Key('bottom-nav-profile'),
+    };
+  }
+}
+
+class _SettleoraBottomNavItem extends StatelessWidget {
+  const _SettleoraBottomNavItem({
+    super.key,
+    required this.destination,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final SettleoraNavDestination destination;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final label = _label(destination);
+    final isPrimaryAction = destination == SettleoraNavDestination.settle;
+    final foreground = selected ? colors.primary : colors.textMuted;
+    final icon = selected ? _selectedIcon(destination) : _icon(destination);
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(SettleoraRadius.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 58),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isPrimaryAction)
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.primary,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: colors.primary.withValues(alpha: 0.22),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: SizedBox.square(
+                      dimension: 42,
+                      child: Icon(icon, color: colors.onPrimary, size: 21),
+                    ),
+                  )
+                else
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: selected ? colors.primarySoft : Colors.transparent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: SizedBox(
+                      width: 50,
+                      height: 30,
+                      child: Icon(icon, color: foreground, size: 21),
+                    ),
+                  ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
                     label,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: active && !isSettle
+                      color: isPrimaryAction && selected
                           ? colors.primary
-                          : colors.textSubtle,
-                      fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                          : foreground,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
                       letterSpacing: 0,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-        ),
-      );
-    }
-
-    return SafeArea(
-      top: false,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.surface,
-          border: Border(top: BorderSide(color: colors.border)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-          child: Row(
-            children: [
-              item(SettleoraNavDestination.home, Icons.home_rounded, 'Home'),
-              item(
-                SettleoraNavDestination.bills,
-                Icons.receipt_long_rounded,
-                'Bills',
-              ),
-              item(
-                SettleoraNavDestination.groups,
-                Icons.groups_rounded,
-                'Groups',
-              ),
-              item(
-                SettleoraNavDestination.settle,
-                Icons.handshake_rounded,
-                'Settle',
-              ),
-              item(
-                SettleoraNavDestination.receipts,
-                Icons.receipt_long_rounded,
-                'Receipts',
-              ),
-              item(
-                SettleoraNavDestination.profile,
-                Icons.person_rounded,
-                'Profile',
-              ),
-            ],
           ),
         ),
       ),
     );
+  }
+
+  String _label(SettleoraNavDestination destination) {
+    return switch (destination) {
+      SettleoraNavDestination.home => 'Home',
+      SettleoraNavDestination.bills => 'Bills',
+      SettleoraNavDestination.groups => 'Groups',
+      SettleoraNavDestination.settle => 'Settle',
+      SettleoraNavDestination.receipts => 'Receipts',
+      SettleoraNavDestination.profile => 'Profile',
+    };
+  }
+
+  IconData _icon(SettleoraNavDestination destination) {
+    return switch (destination) {
+      SettleoraNavDestination.home => Icons.home_outlined,
+      SettleoraNavDestination.bills => Icons.receipt_long_outlined,
+      SettleoraNavDestination.groups => Icons.groups_outlined,
+      SettleoraNavDestination.settle => Icons.add,
+      SettleoraNavDestination.receipts => Icons.document_scanner_outlined,
+      SettleoraNavDestination.profile => Icons.person_outline,
+    };
+  }
+
+  IconData _selectedIcon(SettleoraNavDestination destination) {
+    return switch (destination) {
+      SettleoraNavDestination.home => Icons.home,
+      SettleoraNavDestination.bills => Icons.receipt_long,
+      SettleoraNavDestination.groups => Icons.groups,
+      SettleoraNavDestination.settle => Icons.add,
+      SettleoraNavDestination.receipts => Icons.document_scanner,
+      SettleoraNavDestination.profile => Icons.person,
+    };
   }
 }
 
