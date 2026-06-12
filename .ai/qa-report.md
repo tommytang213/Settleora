@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 Home dashboard content-rich redesign fixed in code; human PC UI retest required`
+Status: `M2 Home dashboard bottom nav and Create bill picker fixed in code; human PC UI retest required`
 
 ## Acceptance Checklist
 
@@ -9,7 +9,7 @@ Status: `M2 Home dashboard content-rich redesign fixed in code; human PC UI rete
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
 - [ ] M2 current-state reconciliation completed.
 - [x] Home/dashboard visible redesign implemented and focused-test validated.
-- [ ] Bottom navigation clarity polish completed and validated.
+- [x] Bottom navigation clarity polish completed and focused-test validated for Home.
 - [ ] Groups and Settle landing handoff polish completed and validated.
 - [ ] Full relevant mobile validation completed.
 - [x] Human UI retest checklist updated for Home dashboard regression.
@@ -58,6 +58,7 @@ Status: `M2 Home dashboard content-rich redesign fixed in code; human PC UI rete
 ## Findings
 
 - `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The latest follow-up keeps Home constrained to a centered phone-width dashboard surface on wide test windows, adds `You owe` and `You're owed` metric cards with honest zero or server-provided balance values, changes `Upcoming bills` into bill-like rows or a compact empty state, changes `Group activity` into feed-style rows or a compact empty state, demotes route access to compact actions, removes the shared-bill seam copy, and adds focused widget coverage that rejects the old route-card primary content. M2 remains human-review required until a PC UI retest confirms the visible change.
+- `M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358`: fixed pending human retest. Human PC UI retest found that Home was missing the persistent M2 bottom navigation and that Create bill routed straight to personal bill creation. Home now uses the app scaffold `NavigationBar` with Home, Bills, Groups, Settle, and Settings labels, with Home selected on the dashboard. The Create bill quick action now opens a chooser with `Personal bill` and `Group bill`; Personal bill preserves the existing personal creation screen, and Group bill routes to Groups so the user can choose a group and use the existing group-bill flow. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
 
 ## Home Dashboard Redesign Fix
 
@@ -71,9 +72,14 @@ Status: `M2 Home dashboard content-rich redesign fixed in code; human PC UI rete
 ## Required Human UI Retest
 
 - Confirm the Home screen visibly differs from the previous menu-list page.
+- Confirm the bottom navigation is visible on Home in PC/wide and narrow/mobile-sized windows with Home selected.
+- Confirm bottom navigation labels are Home, Bills, Groups, Settle, and Settings, and they hand off to existing mobile surfaces.
 - Confirm `You owe`, `You're owed`, `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and compact `More` sections are visible and understandable.
 - Confirm `Upcoming bills` and `Group activity` no longer read primarily as route-card shortcut lists.
 - Confirm no user-facing copy mentions implementation seams, API limitations, generated clients, or unavailable global shared-bill counts.
 - Confirm narrow/mobile and wide desktop/test viewport layouts avoid awkward empty space, horizontal overflow, and clipped text.
-- Confirm `Create bill` and `Create group` still open their existing flows.
+- Confirm `Create bill` opens a chooser with `Personal bill` and `Group bill`.
+- Confirm `Personal bill` still opens the existing personal bill creation flow.
+- Confirm `Group bill` opens Groups for group selection before the existing group-bill flow.
+- Confirm `Create group` still opens its existing flow.
 - Confirm Home cards still navigate to Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report as applicable.

@@ -1,7 +1,7 @@
 [
   {
     "id": "M2-HOME-DASHBOARD-VISIBLE-REDESIGN-20260612-0118",
-    "title": "Human-review fix: make Home visibly dashboard-like",
+    "title": "Human-review fix: make Home visibly dashboard-like with bottom nav and bill picker",
     "risk": "medium",
     "autoMergeAllowed": false,
     "status": "human_review_required",
@@ -11,7 +11,7 @@
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Address the human screenshot finding that Home still looked like a plain menu list by making it a visibly distinct dashboard with user-facing sections, responsive wide/narrow layout, and no implementation-seam copy.",
+    "goal": "Address the human screenshot and PC UI retest findings by keeping Home visibly dashboard-like, restoring persistent bottom navigation, and making Create bill choose between personal and group bill paths without inventing backend behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",

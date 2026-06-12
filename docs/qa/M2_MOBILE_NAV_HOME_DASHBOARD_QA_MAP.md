@@ -78,7 +78,9 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 - Absence of implementation-seam copy on the Home dashboard.
 - Narrow/mobile and wide desktop/test viewport Home dashboard behavior.
 - Bottom navigation labels and active-state behavior.
+- Home bottom navigation remains visible as a scaffold-level control on phone and desktop test windows, with Home selected.
 - Navigation from Home to Groups, Bills, and Settlements/Settle.
+- Home Create bill opens a chooser with `Personal bill` and `Group bill`; personal creation remains available without selecting a group, and group bill routes only through existing group/shared-bill surfaces.
 - Handoffs from Groups into group detail and group bill surfaces.
 - Safe quick actions that route to implemented screens only.
 
@@ -87,11 +89,15 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 The M2 Home/dashboard fix remains human-review required until a tester verifies:
 
 - The Home screen visibly changed from the previous profile-plus-menu-list page.
+- The Home screen shows a persistent bottom navigation bar with Home, Bills, Groups, Settle, and Settings, and Home is selected.
 - `You owe` and `You're owed` appear as the primary balance metric cards with honest zero or server-provided balance values.
 - `Upcoming bills` uses bill-like rows or a compact honest empty state, not `Personal bills` and `Recurring bills` route cards as the main content.
 - `Group activity` uses feed-style rows or a compact honest empty state, not `Shared bills` and `Notifications` route cards as the main content.
 - `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More` appear as meaningful user-facing sections.
-- `Create bill` and `Create group` still open their existing flows.
+- `Create bill` opens a chooser with `Personal bill` and `Group bill`.
+- `Personal bill` still opens the existing personal bill create flow without requiring a group.
+- `Group bill` opens Groups for explicit group selection before the existing group-bill flow; no group is silently preselected from Home.
+- `Create group` still opens its existing flow.
 - Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report routes still work from Home where present.
 - No Home copy mentions implementation seams, API seams, generated clients, or missing global shared-bill counts.
 - A narrow/mobile viewport remains clean and scrollable with no clipped text or horizontal overflow.

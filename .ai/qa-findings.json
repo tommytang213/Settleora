@@ -27,5 +27,32 @@
       "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
     ],
     "forbiddenChangeDetected": false
+  },
+  {
+    "id": "M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human PC UI retest",
+    "summary": "Home dashboard was missing persistent bottom navigation and Create bill routed directly to personal bill creation.",
+    "details": [
+      "The M2 reference direction expects Home to show a persistent bottom navigation with Home, Bills, Groups, Settle, and Settings.",
+      "Home Create bill should ask whether the user wants a personal bill or group bill.",
+      "Group selection must be optional and must not break the personal bill path."
+    ],
+    "fixSummary": [
+      "Home now uses the scaffold bottom navigation bar with Home, Bills, Groups, Settle, and Settings labels.",
+      "Home is selected while the dashboard is visible.",
+      "Create bill now opens a chooser with Personal bill and Group bill choices.",
+      "Personal bill keeps the existing personal bill create screen.",
+      "Group bill opens Groups so the user can choose a group and continue through the existing group bill list/create flow."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "knownLimitation": "Home does not preselect a group for group bill creation because the current mobile shell has no safe group-selection/preselection API; the Group bill choice routes to Groups for explicit group selection.",
+    "forbiddenChangeDetected": false
   }
 ]

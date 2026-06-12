@@ -266,6 +266,25 @@ class _SettleoraAuthenticatedServerShellState
     await _loadOverview();
   }
 
+  Future<void> _openCreateBillChooser() async {
+    final choice = await showModalBottomSheet<_CreateBillChoice>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => const _CreateBillChooserSheet(),
+    );
+
+    if (!mounted || choice == null) {
+      return;
+    }
+
+    switch (choice) {
+      case _CreateBillChoice.personal:
+        await _openCreatePersonalBill();
+      case _CreateBillChoice.group:
+        await _openGroups();
+    }
+  }
+
   Future<void> _openProfile() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -552,7 +571,7 @@ class _SettleoraAuthenticatedServerShellState
                       ],
                       const SizedBox(height: 16),
                       _DashboardQuickActions(
-                        onCreatePersonalBill: _openCreatePersonalBill,
+                        onCreateBill: _openCreateBillChooser,
                         onCreateGroup: _openCreateGroup,
                       ),
                       const SizedBox(height: 16),
@@ -598,6 +617,100 @@ class _SettleoraAuthenticatedServerShellState
               ),
             );
           },
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        key: const Key('server-shell-bottom-nav'),
+        selectedIndex: 0,
+        onDestinationSelected: (index) {
+          switch (index) {
+            case 0:
+              return;
+            case 1:
+              unawaited(_openBills());
+              return;
+            case 2:
+              unawaited(_openGroups());
+              return;
+            case 3:
+              unawaited(_openSettlements());
+              return;
+            case 4:
+              unawaited(_openProfile());
+              return;
+          }
+        },
+        destinations: const [
+          NavigationDestination(
+            key: Key('bottom-nav-home'),
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            key: Key('bottom-nav-bills'),
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Bills',
+          ),
+          NavigationDestination(
+            key: Key('bottom-nav-groups'),
+            icon: Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups),
+            label: 'Groups',
+          ),
+          NavigationDestination(
+            key: Key('bottom-nav-settle'),
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet),
+            label: 'Settle',
+          ),
+          NavigationDestination(
+            key: Key('bottom-nav-settings'),
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _CreateBillChoice { personal, group }
+
+class _CreateBillChooserSheet extends StatelessWidget {
+  const _CreateBillChooserSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Create bill', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            ListTile(
+              key: const Key('create-bill-choice-personal'),
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Personal bill'),
+              subtitle: const Text('Track a bill for your own account.'),
+              onTap: () =>
+                  Navigator.of(context).pop(_CreateBillChoice.personal),
+            ),
+            ListTile(
+              key: const Key('create-bill-choice-group'),
+              leading: const Icon(Icons.groups_outlined),
+              title: const Text('Group bill'),
+              subtitle: const Text(
+                'Choose a group, then create a shared bill.',
+              ),
+              onTap: () => Navigator.of(context).pop(_CreateBillChoice.group),
+            ),
+          ],
         ),
       ),
     );
@@ -1122,11 +1235,11 @@ class _DashboardMetricChip extends StatelessWidget {
 
 class _DashboardQuickActions extends StatelessWidget {
   const _DashboardQuickActions({
-    required this.onCreatePersonalBill,
+    required this.onCreateBill,
     required this.onCreateGroup,
   });
 
-  final VoidCallback onCreatePersonalBill;
+  final VoidCallback onCreateBill;
   final VoidCallback onCreateGroup;
 
   @override
@@ -1139,7 +1252,7 @@ class _DashboardQuickActions extends StatelessWidget {
           final buttons = [
             FilledButton.icon(
               key: const Key('server-shell-create-personal-bill'),
-              onPressed: onCreatePersonalBill,
+              onPressed: onCreateBill,
               icon: const Icon(Icons.add),
               label: const Text('Create bill'),
             ),

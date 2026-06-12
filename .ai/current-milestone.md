@@ -33,7 +33,8 @@ Make the mobile app feel coherent after the M1 group-bill flow by improving the 
 ## Done Criteria
 
 - Home/dashboard shell exposes useful next actions and honest empty/unavailable states without inventing backend behavior.
-- Bottom navigation labels, active state, and route handoffs are clear across Home, Groups, Bills, Settlements/Settle, and related routes.
+- Bottom navigation labels, active state, and route handoffs are clear across Home, Groups, Bills, Settlements/Settle, and related routes; Home keeps the persistent nav visible with Home selected.
+- Home Create bill offers personal and group choices, with group bill routed through existing group selection/shared-bill surfaces only.
 - Groups and settlement landing paths work coherently with existing repositories and APIs only.
 - Relevant mobile validation and UI testing checklist are completed.
 - No human-gated blocker remains.

@@ -53,6 +53,20 @@ void main() {
     expect(find.text('Secure & synced - USD'), findsOneWidget);
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-settings')), findsOneWidget);
+    expect(
+      tester
+          .widget<NavigationBar>(
+            find.byKey(const Key('server-shell-bottom-nav')),
+          )
+          .selectedIndex,
+      0,
+    );
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
     expect(find.text('No balances yet'), findsNothing);
@@ -115,6 +129,15 @@ void main() {
     expect(find.text('This month'), findsOneWidget);
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+    expect(
+      tester
+          .widget<NavigationBar>(
+            find.byKey(const Key('server-shell-bottom-nav')),
+          )
+          .selectedIndex,
+      0,
+    );
     expect(find.text('Create bill'), findsOneWidget);
     expect(find.text('Create group'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -524,9 +547,40 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create-bill-choice-personal')));
+    await tester.pumpAndSettle();
+
     expect(find.text('Create bill'), findsWidgets);
     expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
     expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
+  });
+
+  testWidgets('dashboard create bill group choice opens groups surface', (
+    tester,
+  ) async {
+    final groupRepository = FakeGroupRepository(groups: [sampleGroup()]);
+
+    await pumpShell(tester, groupRepository: groupRepository);
+
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create-bill-choice-group')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.byKey(const Key('group-list-create')), findsOneWidget);
+    expect(groupRepository.listCalls, 1);
   });
 
   testWidgets(
@@ -548,6 +602,9 @@ void main() {
         tester,
         const Key('server-shell-create-personal-bill'),
       );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('create-bill-choice-personal')));
       await tester.pumpAndSettle();
 
       await fillMinimalPersonalBillCreateForm(tester);
@@ -579,7 +636,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.pageBack();
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
     expect(
