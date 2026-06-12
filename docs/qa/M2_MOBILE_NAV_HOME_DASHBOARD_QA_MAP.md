@@ -90,6 +90,9 @@ The M2 Home/dashboard fix remains human-review required until a tester verifies:
 
 - The Home screen visibly changed from the previous profile-plus-menu-list page.
 - The Home screen shows a persistent bottom navigation bar with Home, Bills, Groups, Settle, Receipts, and Profile, and Home is selected.
+- Bills, Groups, Settle, Receipts, and Profile are reachable from Home and from each other through the persistent shell bottom navigation without adding duplicate nested nav bars.
+- Tapping the already-selected top-level destination leaves the selected state stable and does not add a route-stack entry.
+- Secondary/detail routes opened from top-level destinations may hide bottom navigation intentionally; top-level destination screens should not lose their bottom navigation.
 - `You owe` and `You're owed` appear as the primary balance metric cards with honest zero or server-provided balance values.
 - `Upcoming bills` uses bill-like rows or a compact honest empty state, not `Personal bills` and `Recurring bills` route cards as the main content.
 - `Group activity` uses feed-style rows or a compact honest empty state, not `Shared bills` and `Notifications` route cards as the main content.
@@ -102,6 +105,7 @@ The M2 Home/dashboard fix remains human-review required until a tester verifies:
 - No Home copy mentions implementation seams, API seams, generated clients, or missing global shared-bill counts.
 - A narrow/mobile viewport remains clean and scrollable with no clipped text or horizontal overflow.
 - A wide desktop/test Flutter window presents Home as a centered phone-first dashboard surface or an otherwise balanced responsive dashboard, not a lopsided desktop menu page.
+- The bottom navigation uses the Figma-style Settleora treatment: soft active icon pills for standard destinations and a primary circular Settle action, while preserving the six approved product labels.
 - Nav and landing handoffs still behave as expected after returning from destination screens.
 
 Full mobile validation is required by the final QA task:

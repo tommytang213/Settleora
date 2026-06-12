@@ -73,14 +73,7 @@ void main() {
       bottomNavDestination(const Key('bottom-nav-profile')),
       findsOneWidget,
     );
-    expect(
-      tester
-          .widget<NavigationBar>(
-            find.byKey(const Key('server-shell-bottom-nav')),
-          )
-          .selectedIndex,
-      0,
-    );
+    expectSelectedBottomNav(tester, SettleoraNavDestination.home);
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
     expect(find.text('No balances yet'), findsNothing);
@@ -198,14 +191,7 @@ void main() {
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
     expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
-    expect(
-      tester
-          .widget<NavigationBar>(
-            find.byKey(const Key('server-shell-bottom-nav')),
-          )
-          .selectedIndex,
-      0,
-    );
+    expectSelectedBottomNav(tester, SettleoraNavDestination.home);
     expect(find.text('Create bill'), findsOneWidget);
     expect(find.text('Create group'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -563,7 +549,7 @@ void main() {
     expectSingleCanonicalBottomNav(tester);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
     await tester.pumpAndSettle();
 
     await scrollToAndTap(tester, const Key('server-shell-notifications'));
@@ -877,7 +863,7 @@ void main() {
     expect(find.text('Bills'), findsWidgets);
     expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
     await tester.pumpAndSettle();
 
     expect(billRepository.listCalls, callsAfterOpeningBills + 1);
@@ -1216,7 +1202,7 @@ void main() {
       ],
     );
 
-    await tester.pageBack();
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
     await tester.pumpAndSettle();
 
     expect(
@@ -1290,33 +1276,39 @@ Future<void> scrollToAndTap(WidgetTester tester, Key key) async {
   await tester.tap(finder);
 }
 
-Finder bottomNavDestination(Key key) {
-  return find.byWidgetPredicate(
-    (widget) => widget is NavigationDestination && widget.key == key,
-  );
-}
+Finder bottomNavDestination(Key key) => find.byKey(key);
 
 void expectCanonicalBottomNav(
   WidgetTester tester, {
   required int selectedIndex,
 }) {
-  final nav = tester.widget<NavigationBar>(
-    find.byKey(const Key('server-shell-bottom-nav')),
+  expectSelectedBottomNav(
+    tester,
+    const [
+      SettleoraNavDestination.home,
+      SettleoraNavDestination.bills,
+      SettleoraNavDestination.groups,
+      SettleoraNavDestination.settle,
+      SettleoraNavDestination.receipts,
+      SettleoraNavDestination.profile,
+    ][selectedIndex],
   );
-  final labels = [
-    for (final destination in nav.destinations)
-      (destination as NavigationDestination).label,
-  ];
-
-  expect(labels, const [
+  for (final label in const [
     'Home',
     'Bills',
     'Groups',
     'Settle',
     'Receipts',
     'Profile',
-  ]);
-  expect(nav.selectedIndex, selectedIndex);
+  ]) {
+    expect(
+      find.descendant(
+        of: find.byType(SettleoraBottomNav),
+        matching: find.text(label),
+      ),
+      findsOneWidget,
+    );
+  }
   expect(bottomNavDestination(const Key('bottom-nav-home')), findsOneWidget);
   expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
   expect(bottomNavDestination(const Key('bottom-nav-groups')), findsOneWidget);
@@ -1330,7 +1322,7 @@ void expectCanonicalBottomNav(
 
 void expectSingleCanonicalBottomNav(WidgetTester tester) {
   expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
-  expect(find.byType(NavigationBar), findsOneWidget);
+  expect(find.byType(SettleoraBottomNav), findsOneWidget);
   expect(find.byType(SettleoraBottomNav), findsOneWidget);
   expect(
     find.descendant(
@@ -1339,6 +1331,16 @@ void expectSingleCanonicalBottomNav(WidgetTester tester) {
     ),
     findsNothing,
   );
+}
+
+void expectSelectedBottomNav(
+  WidgetTester tester,
+  SettleoraNavDestination selected,
+) {
+  final nav = tester.widget<SettleoraBottomNav>(
+    find.byType(SettleoraBottomNav),
+  );
+  expect(nav.selected, selected);
 }
 
 Future<void> pumpShell(

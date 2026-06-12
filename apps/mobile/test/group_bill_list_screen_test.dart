@@ -220,6 +220,12 @@ void main() {
       await tester.tap(find.text('Corner Market'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Participant status'),
+        220,
+        scrollable: find.byType(Scrollable).last,
+      );
+
       expect(find.text('Participant status'), findsOneWidget);
       expect(find.text('Your status'), findsOneWidget);
       expect(find.text('Pending acceptance'), findsWidgets);
@@ -288,6 +294,12 @@ void main() {
 
       await tester.tap(find.text('Corner Market'));
       await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Taylor (you)'),
+        220,
+        scrollable: find.byType(Scrollable).last,
+      );
 
       expect(groupRepository.listMemberCalls, 1);
       expect(find.text('Taylor (you)'), findsWidgets);

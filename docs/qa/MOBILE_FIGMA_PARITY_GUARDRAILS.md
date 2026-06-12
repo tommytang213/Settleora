@@ -29,7 +29,7 @@ Shared mobile theme and component files:
   - `MetricCard`
   - `AmountStatusRow`
   - `AppTextField`
-  - `SettleoraBottomNav`
+  - `SettleoraBottomNav` custom responsive bottom navigation
   - `SettleoraScreenScaffold`
   - `EmptyState`
   - `LoadingState`
@@ -96,6 +96,9 @@ Current dashboard/component consumers include:
 - Promote reusable private dashboard or screen widgets into shared components when they appear in more than one screen or represent a Figma Make common component.
 - Keep common states consistent across screens: empty, loading, error, offline, review-needed, and pending-sync.
 - New screens must consider both narrow/mobile and wider Flutter viewports. Avoid layouts that only work on one phone size or desktop test surface.
+- Bottom navigation keeps the approved product destinations `Home`, `Bills`, `Groups`, `Settle`, `Receipts`, and `Profile`; do not reduce it to Figma Make's five-tab Settings model without explicit product approval.
+- Top-level server-mode destinations use one root shell bottom nav with stable selected state. Secondary/detail routes such as bill detail/create, recurring bills, notifications, sessions, monthly reports, and nested settlement/group detail screens may hide the bottom nav intentionally while they are pushed flows.
+- The shared bottom nav uses a Figma-style treatment: soft active icon pills for standard tabs, a primary circular Settle action, stable labels, safe-area padding, and responsive width constraints for narrow mobile and wider Flutter windows.
 - Keep test coverage for user-visible labels, route handoffs, bottom nav selected state, and the absence of implementation-seam copy visible to users.
 - Do not expose implementation labels such as repository names, generated-client seams, exception class names, debug state, direct storage paths, or sync internals in user-facing UI.
 - Treat Figma Make names as component intent, not generated Flutter source. Do not paste generated Figma code into the app.
