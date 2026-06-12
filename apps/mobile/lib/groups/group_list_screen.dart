@@ -17,6 +17,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     this.openCreateOnStart = false,
     this.openGroupBillCreateOnPick = false,
     this.currentUserProfileId,
+    this.defaultCurrency,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -29,6 +30,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
   final bool openCreateOnStart;
   final bool openGroupBillCreateOnPick;
   final String? currentUserProfileId;
+  final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -220,6 +222,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
             revisionRepository: widget.billRevisionRepository,
             groupId: group.id,
             groupName: group.displayName,
+            defaultCurrency: widget.defaultCurrency,
             openCreateOnStart: true,
             onTopLevelDestinationSelected: null,
           ),
@@ -242,6 +245,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
           currentUserProfileId: widget.currentUserProfileId,
+          defaultCurrency: widget.defaultCurrency,
           groupId: group.id,
           onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
@@ -376,6 +380,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     required this.billRepository,
     required this.groupId,
     this.currentUserProfileId,
+    this.defaultCurrency,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -391,6 +396,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
   final String? currentUserProfileId;
+  final String? defaultCurrency;
   final String groupId;
 
   @override
@@ -666,6 +672,7 @@ class _SettleoraGroupDetailScreenState
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
+          defaultCurrency: widget.defaultCurrency,
           onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),

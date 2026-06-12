@@ -2018,8 +2018,9 @@ void main() {
     await _goToGroupBillCreateStep(tester, 'receiptItems');
     await _tapSaveGroupBill(tester);
 
-    expect(find.text('Enter a bill date.'), findsOneWidget);
+    expect(find.text('Enter a bill date.'), findsNothing);
     await _goToGroupBillCreateStep(tester, 'basics');
+    expect(find.text(_todayBillDate()), findsOneWidget);
     expect(find.byKey(const Key('group-bill-currency')), findsOneWidget);
     await _goToGroupBillCreateStep(tester, 'receiptItems');
     expect(find.byKey(const Key('group-bill-item-currency-0')), findsOneWidget);
@@ -2413,6 +2414,7 @@ void main() {
             ),
             groupId: _groupId,
             groupName: 'Trip Crew',
+            defaultCurrency: 'kwd',
           ),
         ),
       );
@@ -3028,6 +3030,7 @@ void main() {
             ),
             groupId: _groupId,
             groupName: 'Trip Crew',
+            defaultCurrency: 'kwd',
           ),
         ),
       );
@@ -3035,6 +3038,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
       await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'basics');
+      expect(find.text('KWD'), findsWidgets);
       await _fillMinimalGroupCreateForm(tester);
       await _goToGroupBillCreateStep(tester, 'basics');
       await _chooseDropdownValue(
@@ -3049,6 +3054,12 @@ void main() {
         'GBP',
       );
       await _goToGroupBillCreateStep(tester, 'basics');
+      expect(
+        find.text(
+          'Mixed item currencies prevent a same-currency local total preview.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text(_todayBillDate()), findsOneWidget);
       expect(find.byKey(const Key('group-bill-date-picker')), findsOneWidget);
       await _addSingleGroupPayer(tester, amount: '12.00');
@@ -3097,6 +3108,7 @@ void main() {
     await tester.pumpAndSettle();
     await _fillMinimalGroupCreateForm(tester);
     await _goToGroupBillCreateStep(tester, 'basics');
+    expect(find.text('1 item row - 12.00 USD'), findsOneWidget);
     await _chooseDropdownValue(tester, const Key('group-bill-currency'), 'EUR');
     await _addSingleGroupPayer(tester, amount: '12.00');
     await _tapSaveGroupBill(tester);
@@ -3288,6 +3300,54 @@ void main() {
 
     expect(billRepository.createGroupCalls, 1);
     expect(billRepository.lastGroupCreateDraft?.items.single.amount, '100');
+  });
+
+  testWidgets('group bill item rejects contradictory amount pairs', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-name-0')),
+      'Noodles',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+      '3.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-amount-0')),
+      '7.50',
+    );
+    await _tapSaveGroupBill(tester);
+
+    expect(
+      find.text('Unit amount and line total must match quantity.'),
+      findsOneWidget,
+    );
+    expect(billRepository.createGroupCalls, 0);
   });
 
   testWidgets(

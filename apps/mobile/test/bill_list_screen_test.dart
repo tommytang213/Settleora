@@ -117,7 +117,7 @@ void main() {
     expect(find.text('Add another receipt'), findsOneWidget);
     expect(
       find.text(
-        'Receipt selected. It uploads after save; OCR remains review-first.',
+        'Receipt selected. It uploads after save; OCR review remains provisional.',
       ),
       findsOneWidget,
     );
@@ -473,10 +473,10 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('1 item row'), findsWidgets);
     expect(find.text('0 attachments'), findsOneWidget);
     expect(
-      find.text('Missing local details: merchant, bill date.'),
+      find.text('Missing local details: merchant.'),
       findsOneWidget,
     );
     expect(
@@ -488,7 +488,7 @@ void main() {
     await tester.tap(find.byKey(const Key('personal-bill-add-item')));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 item rows'), findsOneWidget);
+    expect(find.text('2 item rows'), findsWidgets);
     expect(
       find.text('Missing local item fields: 2 item names, 2 item amounts.'),
       findsOneWidget,
@@ -497,7 +497,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('personal-bill-item-remove-1')));
     await tester.pumpAndSettle();
 
-    expect(find.text('1 item row'), findsOneWidget);
+    expect(find.text('1 item row'), findsWidgets);
     expect(
       find.text('Missing local item fields: 1 item name, 1 item amount.'),
       findsOneWidget,
@@ -571,7 +571,8 @@ void main() {
     await tester.pumpAndSettle();
     await _tapSaveBill(tester);
 
-    expect(find.text('Enter a bill date.'), findsOneWidget);
+    expect(find.text(_formatTestBillDate(DateTime.now())), findsOneWidget);
+    expect(find.text('Enter a bill date.'), findsNothing);
     expect(find.text('Enter an item name.'), findsOneWidget);
     expect(find.text('Enter a unit amount or line total.'), findsOneWidget);
     expect(repository.createCalls, 0);
@@ -612,6 +613,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
+      expect(find.text(_formatTestBillDate(DateTime.now())), findsOneWidget);
       expect(find.byKey(const Key('personal-bill-date-today')), findsOneWidget);
       expect(
         find.byKey(const Key('personal-bill-date-picker')),
@@ -633,6 +635,49 @@ void main() {
       expect(find.text('Quantity'), findsOneWidget);
       expect(find.text('Unit amount'), findsOneWidget);
       expect(find.text('Line total'), findsOneWidget);
+      expect(
+        find.byKey(const Key('personal-bill-total-preview')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'personal bill create defaults to current user currency when provided',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(),
+            syncController: sampleBillSyncController(),
+            defaultCurrency: 'hkd',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('HKD'), findsWidgets);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-name-0')),
+        'Coffee',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-unit-amount-0')),
+        '100',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 item row - 100.00 HKD'), findsOneWidget);
+      expect(
+        find.text(
+          'Local preview only. Server validation remains authoritative for money, rounding, shares, and persistence.',
+        ),
+        findsOneWidget,
+      );
     },
   );
 
@@ -691,6 +736,13 @@ void main() {
       await tester.enterText(
         find.byKey(const Key('personal-bill-item-amount-1')),
         '8.00',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Mixed item currencies prevent a same-currency local total preview.',
+        ),
+        findsOneWidget,
       );
       await _tapSaveBill(tester);
 
@@ -2544,7 +2596,7 @@ void main() {
     expect(find.byKey(const Key('group-bill-create-stepper')), findsOneWidget);
     expect(find.text('Create group bill start'), findsOneWidget);
     expect(find.text('Manual entry'), findsOneWidget);
-    expect(find.text('Scan/import receipt'), findsOneWidget);
+    expect(find.text('Scan receipt'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('group-bill-create-section-basics')),
       findsNothing,
