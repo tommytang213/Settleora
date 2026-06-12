@@ -96,6 +96,9 @@ const m2AllowedPatterns = [
   /^\.ai(?:\/|$)/,
   // Human-approved M2 architecture guardrail doc for visual theme/color settings.
   /^docs\/architecture\/VISUAL_THEME_COLOR_SETTINGS_ARCHITECTURE\.md$/,
+  // Human-approved mobile OCR native dependency decision gate docs.
+  /^docs\/architecture\/MOBILE_OCR_IMPLEMENTATION_DECISION\.md$/,
+  /^docs\/architecture\/OCR_ARCHITECTURE\.md$/,
   /^docs\/qa\//,
   /^docs\/workflow\/AI_V3_CONTROLLER\.md$/,
   /^docs\/workflow\/AI_V3_PIPELINE\.md$/,

@@ -118,7 +118,8 @@ Money must remain decimal-safe. Currency must always be attached to monetary val
 
 ## Future Decisions
 
-- On-device OCR technology choice for iOS and Android.
+- On-device OCR technology choice for iOS and Android is tracked in
+  [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md).
 - Whether to use platform-native OCR APIs, Flutter plugins, or platform channels.
 - Server OCR engine choice.
 - Confidence scoring model.
