@@ -15,6 +15,8 @@ import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/recurring_bills/recurring_bill_repository.dart';
 import 'package:mobile/reports/report_repository.dart';
@@ -141,6 +143,138 @@ void main() {
       ),
     );
   });
+
+  testWidgets(
+    'personal bill scan receipt reviews and applies OCR suggestions',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Corner Market',
+          billDate: '2026-06-12',
+          totalAmount: '43.00',
+          totalCurrency: 'HKD',
+        ),
+      );
+      final fileInput = FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'receipt.png',
+          contentType: 'image/png',
+          bytes: const [1, 2, 3],
+        ),
+      );
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Corner Market',
+            receiptDate: '2026-06-12',
+            currency: 'HKD',
+            subtotal: '43.00',
+            total: '43.00',
+            rawTextLineCount: 8,
+            warnings: ['Review line totals before saving.'],
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Milk',
+                quantity: '2',
+                unitPrice: '12.50',
+                lineTotal: '25.00',
+                currency: 'HKD',
+              ),
+              ReceiptOcrItemCandidate(
+                description: 'Bread',
+                quantity: '1',
+                lineTotal: '18.00',
+                currency: 'HKD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: fileInput,
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(receiptOcrProvider.calls, 1);
+      expect(receiptOcrProvider.lastRequest?.bytes, const [1, 2, 3]);
+      expect(receiptOcrProvider.lastRequest?.contentType, 'image/png');
+      expect(
+        find.byKey(const Key('personal-bill-ocr-preview-panel')),
+        findsOneWidget,
+      );
+      expect(find.text('Review'), findsOneWidget);
+      expect(find.text('Merchant candidate'), findsOneWidget);
+      expect(find.text('2 item candidates'), findsOneWidget);
+      expect(find.text('Review line totals before saving.'), findsOneWidget);
+      expect(find.text('Corner Market'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Suggestions applied'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('personal-bill-merchant-name')),
+            )
+            .controller
+            ?.text,
+        'Corner Market',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-name-0')),
+            )
+            .controller
+            ?.text,
+        'Milk',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+            )
+            .controller
+            ?.text,
+        '2',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-1')),
+            )
+            .controller
+            ?.text,
+        '18.00',
+      );
+
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(repository.lastCreateDraft?.merchantName, 'Corner Market');
+      expect(repository.lastCreateDraft?.billDate, '2026-06-12');
+      expect(repository.lastCreateDraft?.currency, 'HKD');
+      expect(repository.lastCreateDraft?.items.map((item) => item.name), [
+        'Milk',
+        'Bread',
+      ]);
+    },
+  );
 
   testWidgets('personal bill create explains receipt unavailable seam safely', (
     tester,
@@ -475,10 +609,7 @@ void main() {
     );
     expect(find.text('1 item row'), findsWidgets);
     expect(find.text('0 attachments'), findsOneWidget);
-    expect(
-      find.text('Missing local details: merchant.'),
-      findsOneWidget,
-    );
+    expect(find.text('Missing local details: merchant.'), findsOneWidget);
     expect(
       find.text('Missing local item fields: 1 item name, 1 item amount.'),
       findsOneWidget,
@@ -5346,6 +5477,21 @@ class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
     }
 
     return pickedFile;
+  }
+}
+
+class FakeReceiptOcrProvider implements ReceiptOcrProvider {
+  FakeReceiptOcrProvider(this.result);
+
+  final ReceiptOcrResult result;
+  int calls = 0;
+  ReceiptOcrRequest? lastRequest;
+
+  @override
+  Future<ReceiptOcrResult> extractReceipt(ReceiptOcrRequest request) async {
+    calls += 1;
+    lastRequest = request;
+    return result;
   }
 }
 

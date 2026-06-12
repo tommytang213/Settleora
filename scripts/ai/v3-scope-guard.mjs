@@ -101,6 +101,8 @@ const m2AllowedPatterns = [
   /^docs\/workflow\/AI_V3_PIPELINE\.md$/,
   /^scripts\/ai\//,
   /^apps\/mobile\/lib\/app\//,
+  // Mobile-only on-device OCR foundation: provider/model/parser seam, no backend or worker runtime.
+  /^apps\/mobile\/lib\/receipt_ocr_capture\//,
   /^apps\/mobile\/lib\/ui\/settleora_components\.dart$/,
   // Shared mobile theme tokens are allowed for M2 visual parity; this is not a broad UI directory allowance.
   /^apps\/mobile\/lib\/ui\/settleora_theme\.dart$/,

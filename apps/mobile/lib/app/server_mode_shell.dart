@@ -15,6 +15,8 @@ import '../notifications/notification_repository.dart';
 import '../notifications/notification_screen.dart';
 import '../profile/profile_repository.dart';
 import '../profile/profile_screen.dart';
+import '../receipt_ocr_capture/receipt_ocr_provider.dart';
+import '../receipt_ocr_capture/unsupported_receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../recurring_bills/recurring_bill_repository.dart';
@@ -39,6 +41,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.billRepository,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
+    this.receiptOcrProvider = const UnsupportedReceiptOcrProvider(),
     this.billRevisionRepository,
     required this.settlementRepository,
     required this.recurringBillRepository,
@@ -57,6 +60,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptOcrProvider receiptOcrProvider;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSettlementRepository settlementRepository;
   final SettleoraRecurringBillRepository recurringBillRepository;
@@ -226,6 +230,7 @@ class _SettleoraAuthenticatedServerShellState
       syncController: widget.billSyncController,
       attachmentRepository: widget.billAttachmentRepository,
       attachmentFileInput: widget.billAttachmentFileInput,
+      receiptOcrProvider: widget.receiptOcrProvider,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       revisionRepository: widget.billRevisionRepository,
       defaultCurrency: widget.currentUser.defaultCurrency,
