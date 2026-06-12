@@ -15,7 +15,7 @@ import 'bill_revision_review_screen.dart';
 import 'bill_repository.dart';
 import 'bill_sync_controller.dart';
 
-const List<String> _supportedGroupBillCurrencyCodes = <String>[
+const List<String> _supportedBillCurrencyCodes = <String>[
   'USD',
   'EUR',
   'GBP',
@@ -642,6 +642,7 @@ class _SettleoraPersonalBillCreateScreenState
         final itemCurrency = item.currency.text.trim().toUpperCase();
         if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
           item.currency.text = normalizedCurrency;
+          item.syncAfterCurrencyChanged();
         }
       }
     });
@@ -1212,6 +1213,12 @@ class _SettleoraPersonalBillCreateScreenState
                         isSaving: _isSaving,
                         onRemove: () => _removeItem(index),
                         onDraftChanged: _notifyDraftChanged,
+                        onCurrencyChanged: (currency) {
+                          setState(() {
+                            _itemControllers[index].currency.text = currency;
+                            _itemControllers[index].syncAfterCurrencyChanged();
+                          });
+                        },
                       ),
                     ),
                   const SizedBox(height: 10),
@@ -1412,6 +1419,10 @@ class _PersonalBillCreateItemControllers {
     if (!_unitAmountEditedByUser || unitAmount.text.trim().isEmpty) {
       _setUnitAmountFromLineTotal(quantityValue);
     }
+  }
+
+  void syncAfterCurrencyChanged() {
+    syncAfterQuantityEdited();
   }
 
   void _setLineTotalFromUnitAmount(int quantityValue) {
@@ -1879,6 +1890,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
     required this.isSaving,
     required this.onRemove,
     required this.onDraftChanged,
+    required this.onCurrencyChanged,
   });
 
   final int index;
@@ -1886,6 +1898,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onRemove;
   final VoidCallback onDraftChanged;
+  final ValueChanged<String> onCurrencyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1970,14 +1983,15 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               validator: (_) => _billCreateItemAmountModelError(controllers),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            _CurrencyPickerField(
               key: ValueKey('personal-bill-item-currency-$index'),
               controller: controllers.currency,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Currency'),
+              label: 'Currency',
+              onChanged: (currency) {
+                onCurrencyChanged(currency);
+                onDraftChanged();
+              },
               validator: (value) => _currencyCodeField(
                 value,
                 requiredMessage: 'Enter an item currency.',
@@ -2867,6 +2881,7 @@ class _SettleoraGroupBillCreateScreenState
         final itemCurrency = item.currency.text.trim().toUpperCase();
         if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
           item.currency.text = normalizedCurrency;
+          item.syncAfterCurrencyChanged();
         }
       }
       for (final payer in _payerControllers) {
@@ -4007,6 +4022,8 @@ class _SettleoraGroupBillCreateScreenState
                                                     .currency
                                                     .text =
                                                 currency;
+                                            _itemControllers[index]
+                                                .syncAfterCurrencyChanged();
                                           });
                                         },
                                       ),
@@ -6519,6 +6536,10 @@ class _GroupBillCreateItemControllers {
     }
   }
 
+  void syncAfterCurrencyChanged() {
+    syncAfterQuantityEdited();
+  }
+
   void _setLineTotalFromUnitAmount(int quantityValue) {
     final unit = _parseCurrencyAmount(unitAmount.text, currency.text);
     if (unit == null || !_currencyAmountIsPositive(unit)) {
@@ -6880,21 +6901,22 @@ class _CurrencyPickerField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final normalizedValue = controller.text.trim().toUpperCase();
-    final value = _supportedGroupBillCurrencyCodes.contains(normalizedValue)
+    final value = _supportedBillCurrencyCodes.contains(normalizedValue)
         ? normalizedValue
-        : _supportedGroupBillCurrencyCodes.first;
+        : _supportedBillCurrencyCodes.first;
     if (controller.text != value) {
       controller.text = value;
     }
 
     return DropdownButtonFormField<String>(
+      key: ValueKey('currency-picker-$label-$value'),
       initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
       ),
       items: [
-        for (final currency in _supportedGroupBillCurrencyCodes)
+        for (final currency in _supportedBillCurrencyCodes)
           DropdownMenuItem<String>(value: currency, child: Text(currency)),
       ],
       onChanged: enabled

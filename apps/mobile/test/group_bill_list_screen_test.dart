@@ -3062,6 +3062,51 @@ void main() {
     },
   );
 
+  testWidgets('group bill item currency dropdown follows bill currency', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _goToGroupBillCreateStep(tester, 'basics');
+    await _chooseDropdownValue(tester, const Key('group-bill-currency'), 'EUR');
+    await _addSingleGroupPayer(tester, amount: '12.00');
+    await _tapSaveGroupBill(tester);
+
+    final draft = billRepository.lastGroupCreateDraft;
+    expect(draft?.currency, 'EUR');
+    expect(draft?.items.single.currency, 'EUR');
+    expect(draft?.payers.single.currency, 'HKD');
+  });
+
   testWidgets('group bill create maps member split and payer draft strings', (
     tester,
   ) async {
@@ -3190,31 +3235,38 @@ void main() {
 
     await tester.enterText(
       find.byKey(const Key('group-bill-item-quantity-0')),
-      '1',
-    );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-item-unit-amount-0')),
-      '100',
-    );
-    await tester.pumpAndSettle();
-    var lineTotal = tester.widget<TextFormField>(
-      find.byKey(const Key('group-bill-item-amount-0')),
-    );
-    expect(lineTotal.controller?.text, '100.00');
-
-    await tester.enterText(
-      find.byKey(const Key('group-bill-item-quantity-0')),
       '2',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-item-unit-amount-0')),
-      '50',
-    );
-    await tester.pumpAndSettle();
-    lineTotal = tester.widget<TextFormField>(
-      find.byKey(const Key('group-bill-item-amount-0')),
-    );
-    expect(lineTotal.controller?.text, '100.00');
+
+    Future<void> expectDerivedLineTotal(
+      String currency,
+      String unitAmount,
+      String expectedLineTotal,
+    ) async {
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-item-currency-0'),
+        currency,
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-item-unit-amount-0')),
+        unitAmount,
+      );
+      await tester.pumpAndSettle();
+
+      final lineTotal = tester.widget<TextFormField>(
+        find.byKey(const Key('group-bill-item-amount-0')),
+      );
+      expect(lineTotal.controller?.text, expectedLineTotal);
+    }
+
+    await expectDerivedLineTotal('USD', '50', '100.00');
+    await expectDerivedLineTotal('HKD', '50', '100.00');
+    await expectDerivedLineTotal('EUR', '50', '100.00');
+    await expectDerivedLineTotal('GBP', '50', '100.00');
+    await expectDerivedLineTotal('JPY', '50', '100');
+    await expectDerivedLineTotal('KWD', '1.234', '2.468');
+    await expectDerivedLineTotal('BHD', '1.234', '2.468');
 
     await tester.enterText(
       find.byKey(const Key('group-bill-item-unit-amount-0')),
@@ -3228,7 +3280,7 @@ void main() {
     final unitAmount = tester.widget<TextFormField>(
       find.byKey(const Key('group-bill-item-unit-amount-0')),
     );
-    expect(unitAmount.controller?.text, '50.00');
+    expect(unitAmount.controller?.text, '50.000');
 
     await _assignFirstGroupBillItem(tester, exactAmount: '100');
     await _addSingleGroupPayer(tester, amount: '100');
@@ -4857,7 +4909,7 @@ Future<void> _chooseDropdownValue(
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).last);
+  await tester.tap(find.text(label).hitTestable().last);
   await tester.pumpAndSettle();
 }
 

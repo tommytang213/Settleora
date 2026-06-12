@@ -618,10 +618,86 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const Key('personal-bill-currency')), findsOneWidget);
+      expect(
+        find.byKey(const Key('personal-bill-item-currency-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('personal-bill-item-currency-0')),
+          matching: find.byType(TextFormField),
+        ),
+        findsNothing,
+      );
       expect(find.text('USD'), findsWidgets);
       expect(find.text('Quantity'), findsOneWidget);
       expect(find.text('Unit amount'), findsOneWidget);
       expect(find.text('Line total'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'personal bill item currency dropdown defaults and follows bill currency until changed',
+    (tester) async {
+      final repository = FakeBillRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-currency'),
+        'EUR',
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-add-item')));
+      await tester.pumpAndSettle();
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-item-currency-0'),
+        'GBP',
+      );
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-currency'),
+        'HKD',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-date-today')),
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-name-0')),
+        'Coffee',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '7.50',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-name-1')),
+        'Tea',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-1')),
+        '8.00',
+      );
+      await _tapSaveBill(tester);
+
+      final draft = repository.lastCreateDraft;
+      expect(draft?.currency, 'HKD');
+      expect(draft?.items[0].currency, 'GBP');
+      expect(draft?.items[1].currency, 'HKD');
     },
   );
 
@@ -819,38 +895,39 @@ void main() {
     await tester.tap(find.byKey(const Key('bill-list-create')));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.byKey(const Key('personal-bill-item-currency-0')),
-      'JPY',
-    );
-    await tester.enterText(
       find.byKey(const Key('personal-bill-item-quantity-0')),
       '2',
     );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-item-unit-amount-0')),
-      '100',
-    );
-    await tester.pumpAndSettle();
 
-    var lineTotal = tester.widget<TextFormField>(
-      find.byKey(const Key('personal-bill-item-amount-0')),
-    );
-    expect(lineTotal.controller?.text, '200');
+    Future<void> expectDerivedLineTotal(
+      String currency,
+      String unitAmount,
+      String expectedLineTotal,
+    ) async {
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-item-currency-0'),
+        currency,
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-unit-amount-0')),
+        unitAmount,
+      );
+      await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-item-currency-0')),
-      'KWD',
-    );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-item-unit-amount-0')),
-      '1.234',
-    );
-    await tester.pumpAndSettle();
+      final lineTotal = tester.widget<TextFormField>(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+      );
+      expect(lineTotal.controller?.text, expectedLineTotal);
+    }
 
-    lineTotal = tester.widget<TextFormField>(
-      find.byKey(const Key('personal-bill-item-amount-0')),
-    );
-    expect(lineTotal.controller?.text, '2.468');
+    await expectDerivedLineTotal('USD', '100', '200.00');
+    await expectDerivedLineTotal('HKD', '100', '200.00');
+    await expectDerivedLineTotal('EUR', '100', '200.00');
+    await expectDerivedLineTotal('GBP', '100', '200.00');
+    await expectDerivedLineTotal('JPY', '100', '200');
+    await expectDerivedLineTotal('KWD', '1.234', '2.468');
+    await expectDerivedLineTotal('BHD', '1.234', '2.468');
   });
 
   testWidgets('personal bill item rejects contradictory amount pairs', (
@@ -4760,6 +4837,19 @@ String _formatTestBillDate(DateTime value) {
 Future<void> _tapSaveBill(WidgetTester tester) async {
   final saveButton = find.byKey(const Key('personal-bill-save'));
   await tester.tap(saveButton);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _chooseDropdownValue(
+  WidgetTester tester,
+  Key dropdownKey,
+  String label,
+) async {
+  final finder = find.byKey(dropdownKey);
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).hitTestable().last);
   await tester.pumpAndSettle();
 }
 
