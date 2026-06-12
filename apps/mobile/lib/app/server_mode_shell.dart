@@ -256,6 +256,15 @@ class _SettleoraAuthenticatedServerShellState
           _replaceTopLevelDestination(
             navigatorContext,
             index,
+            _buildReceiptReviewsScreen,
+          ),
+        );
+        return;
+      case 5:
+        unawaited(
+          _replaceTopLevelDestination(
+            navigatorContext,
+            index,
             _buildProfileScreen,
           ),
         );
@@ -322,6 +331,12 @@ class _SettleoraAuthenticatedServerShellState
       repository: widget.profileRepository,
       currentUser: widget.currentUser,
       onSessionEnded: widget.onSessionEnded,
+    );
+  }
+
+  Widget _buildReceiptReviewsScreen(BuildContext context) {
+    return ReceiptOcrReviewQueueScreen(
+      repository: widget.receiptOcrReviewRepository,
     );
   }
 
@@ -410,7 +425,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openProfile() async {
-    await _openTopLevelDestination(4, _buildProfileScreen);
+    await _openTopLevelDestination(5, _buildProfileScreen);
   }
 
   Future<void> _openNotifications() async {
@@ -443,11 +458,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openReceiptReviews() async {
-    await _openDashboardDestination(
-      (_) => ReceiptOcrReviewQueueScreen(
-        repository: widget.receiptOcrReviewRepository,
-      ),
-    );
+    await _openTopLevelDestination(4, _buildReceiptReviewsScreen);
   }
 
   Future<void> _openSettlements() async {
@@ -775,7 +786,8 @@ class _ServerShellBottomNavigation extends StatelessWidget {
       1 => SettleoraNavDestination.bills,
       2 => SettleoraNavDestination.groups,
       3 => SettleoraNavDestination.settle,
-      4 => SettleoraNavDestination.settings,
+      4 => SettleoraNavDestination.receipts,
+      5 => SettleoraNavDestination.profile,
       _ => SettleoraNavDestination.home,
     };
   }
@@ -786,7 +798,8 @@ class _ServerShellBottomNavigation extends StatelessWidget {
       SettleoraNavDestination.bills => 1,
       SettleoraNavDestination.groups => 2,
       SettleoraNavDestination.settle => 3,
-      SettleoraNavDestination.settings => 4,
+      SettleoraNavDestination.receipts => 4,
+      SettleoraNavDestination.profile => 5,
     };
   }
 }

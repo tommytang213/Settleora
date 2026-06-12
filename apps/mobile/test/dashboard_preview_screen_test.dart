@@ -31,7 +31,14 @@ void main() {
         (destination as NavigationDestination).label,
     ];
 
-    expect(labels, const ['Home', 'Bills', 'Groups', 'Settle', 'Settings']);
+    expect(labels, const [
+      'Home',
+      'Bills',
+      'Groups',
+      'Settle',
+      'Receipts',
+      'Profile',
+    ]);
     expect(nav.selectedIndex, 0);
     expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
     expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);

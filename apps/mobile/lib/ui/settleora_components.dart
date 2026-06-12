@@ -300,7 +300,7 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-enum SettleoraNavDestination { home, bills, groups, settle, settings }
+enum SettleoraNavDestination { home, bills, groups, settle, receipts, profile }
 
 class SettleoraBottomNav extends StatelessWidget {
   const SettleoraBottomNav({
@@ -320,7 +320,8 @@ class SettleoraBottomNav extends StatelessWidget {
       SettleoraNavDestination.bills,
       SettleoraNavDestination.groups,
       SettleoraNavDestination.settle,
-      SettleoraNavDestination.settings,
+      SettleoraNavDestination.receipts,
+      SettleoraNavDestination.profile,
     ];
     final selectedIndex = destinations.indexOf(selected);
 
@@ -380,10 +381,16 @@ class SettleoraBottomNav extends StatelessWidget {
                   label: 'Settle',
                 ),
                 NavigationDestination(
-                  key: Key('bottom-nav-settings'),
-                  icon: Icon(Icons.settings_outlined, size: 22),
-                  selectedIcon: Icon(Icons.settings, size: 22),
-                  label: 'Settings',
+                  key: Key('bottom-nav-receipts'),
+                  icon: Icon(Icons.document_scanner_outlined, size: 22),
+                  selectedIcon: Icon(Icons.document_scanner, size: 22),
+                  label: 'Receipts',
+                ),
+                NavigationDestination(
+                  key: Key('bottom-nav-profile'),
+                  icon: Icon(Icons.person_outline, size: 22),
+                  selectedIcon: Icon(Icons.person, size: 22),
+                  label: 'Profile',
                 ),
               ],
             ),

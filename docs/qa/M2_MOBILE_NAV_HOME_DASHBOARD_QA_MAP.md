@@ -89,7 +89,7 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 The M2 Home/dashboard fix remains human-review required until a tester verifies:
 
 - The Home screen visibly changed from the previous profile-plus-menu-list page.
-- The Home screen shows a persistent bottom navigation bar with Home, Bills, Groups, Settle, and Settings, and Home is selected.
+- The Home screen shows a persistent bottom navigation bar with Home, Bills, Groups, Settle, Receipts, and Profile, and Home is selected.
 - `You owe` and `You're owed` appear as the primary balance metric cards with honest zero or server-provided balance values.
 - `Upcoming bills` uses bill-like rows or a compact honest empty state, not `Personal bills` and `Recurring bills` route cards as the main content.
 - `Group activity` uses feed-style rows or a compact honest empty state, not `Shared bills` and `Notifications` route cards as the main content.
