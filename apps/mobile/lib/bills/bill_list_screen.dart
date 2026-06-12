@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
+import '../receipt_ocr_capture/receipt_ocr_preview.dart';
+import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
@@ -41,6 +43,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     required this.syncController,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
     this.defaultCurrency,
@@ -52,6 +55,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillSyncController syncController;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final String? defaultCurrency;
@@ -251,6 +255,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
         ),
@@ -550,6 +555,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptOcrProvider,
     this.defaultCurrency,
     this.scanReceiptOnStart = false,
   });
@@ -557,6 +563,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
   final bool scanReceiptOnStart;
 
@@ -575,7 +582,10 @@ class _SettleoraPersonalBillCreateScreenState
   final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
   bool _isPickingAttachment = false;
+  bool _isExtractingReceiptOcr = false;
   bool _didScanReceiptOnStart = false;
+  bool _receiptOcrApplied = false;
+  ReceiptOcrResult? _receiptOcrResult;
   String? _itemListError;
   String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
@@ -868,6 +878,10 @@ class _SettleoraPersonalBillCreateScreenState
       );
       _nextDraftAttachmentId += 1;
     });
+
+    if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+      await _runReceiptOcrPreview(validatedFile);
+    }
   }
 
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
@@ -947,6 +961,94 @@ class _SettleoraPersonalBillCreateScreenState
       _draftAttachments[index] = _draftAttachments[index].copyWith(
         purpose: purpose,
       );
+    });
+  }
+
+  Future<void> _runReceiptOcrPreview(
+    SettleoraPickedBillAttachmentFile pickedFile,
+  ) async {
+    final receiptOcrProvider = widget.receiptOcrProvider;
+    if (!mounted || receiptOcrProvider == null) {
+      return;
+    }
+
+    setState(() {
+      _isExtractingReceiptOcr = true;
+      _receiptOcrApplied = false;
+      _receiptOcrResult = null;
+    });
+
+    try {
+      final result = await receiptOcrProvider.extractReceipt(
+        ReceiptOcrRequest(
+          bytes: pickedFile.bytes,
+          contentType: pickedFile.contentType,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _receiptOcrResult = result;
+        _isExtractingReceiptOcr = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _receiptOcrResult = const ReceiptOcrResult.failed(
+          'Receipt text extraction failed. You can still enter the bill manually.',
+        );
+        _isExtractingReceiptOcr = false;
+      });
+    }
+  }
+
+  void _applyReceiptOcrPreview() {
+    final preview = _receiptOcrResult?.preview;
+    if (preview == null || _isSaving) {
+      return;
+    }
+
+    setState(() {
+      final merchant = preview.merchant?.trim();
+      if (merchant != null && merchant.isNotEmpty) {
+        _merchantController.text = merchant;
+      }
+
+      final receiptDate = preview.receiptDate?.trim();
+      if (receiptDate != null && receiptDate.isNotEmpty) {
+        _billDateController.text = receiptDate;
+      }
+
+      final currency = preview.currency?.trim().toUpperCase();
+      if (currency != null && currency.isNotEmpty) {
+        _currencyController.text = currency;
+      }
+
+      if (preview.items.isNotEmpty) {
+        for (final item in _itemControllers) {
+          item.dispose();
+        }
+        _itemControllers
+          ..clear()
+          ..addAll([
+            for (final candidate in preview.items)
+              _PersonalBillCreateItemControllers(
+                  currency: candidate.currency ?? _currencyController.text,
+                )
+                ..name.text = candidate.description
+                ..quantity.text = candidate.quantity ?? '1'
+                ..unitAmount.text = candidate.unitPrice ?? ''
+                ..amount.text = candidate.lineTotal ?? '',
+          ]);
+      }
+
+      _itemListError = null;
+      _receiptOcrApplied = true;
     });
   }
 
@@ -1143,6 +1245,13 @@ class _SettleoraPersonalBillCreateScreenState
                     canAddReceipt: canAddAttachments,
                     isBusy: _isSaving || _isPickingAttachment,
                     onAddReceipt: _addReceiptDraftAttachment,
+                  ),
+                  const SizedBox(height: 12),
+                  _ReceiptOcrPreviewPanel(
+                    result: _receiptOcrResult,
+                    isExtracting: _isExtractingReceiptOcr,
+                    wasApplied: _receiptOcrApplied,
+                    onApply: _isSaving ? null : _applyReceiptOcrPreview,
                   ),
                   const SizedBox(height: 12),
                   AppCard(
@@ -1389,6 +1498,161 @@ class _CreateBillHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReceiptOcrPreviewPanel extends StatelessWidget {
+  const _ReceiptOcrPreviewPanel({
+    required this.result,
+    required this.isExtracting,
+    required this.wasApplied,
+    required this.onApply,
+  });
+
+  final ReceiptOcrResult? result;
+  final bool isExtracting;
+  final bool wasApplied;
+  final VoidCallback? onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final ocrResult = result;
+    if (!isExtracting && ocrResult == null) {
+      return const SizedBox.shrink();
+    }
+
+    final colors = context.settleoraColors;
+    final preview = ocrResult?.preview;
+    final statusLabel = _receiptOcrStatusLabel(
+      isExtracting: isExtracting,
+      result: ocrResult,
+      wasApplied: wasApplied,
+    );
+
+    return AppCard(
+      key: const Key('personal-bill-ocr-preview-panel'),
+      color: wasApplied ? colors.successSoft : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              isExtracting
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      wasApplied
+                          ? Icons.check_circle_outline
+                          : Icons.fact_check_outlined,
+                    ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Receipt OCR review',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              StatusChip(
+                key: const Key('personal-bill-ocr-status'),
+                label: statusLabel,
+                variant: wasApplied
+                    ? StatusChipVariant.success
+                    : StatusChipVariant.info,
+                size: StatusChipSize.small,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _receiptOcrSummaryText(
+              isExtracting: isExtracting,
+              result: ocrResult,
+              preview: preview,
+            ),
+            key: const Key('personal-bill-ocr-summary'),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+          ),
+          if (preview != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (preview.merchant != null)
+                  _ReviewChecklistChip(label: 'Merchant candidate'),
+                if (preview.receiptDate != null)
+                  _ReviewChecklistChip(label: 'Date candidate'),
+                if (preview.currency != null)
+                  _ReviewChecklistChip(label: preview.currency!),
+                _ReviewChecklistChip(
+                  label: _pluralCount(preview.items.length, 'item candidate'),
+                ),
+                if (preview.total != null)
+                  _ReviewChecklistChip(label: 'Total candidate'),
+              ],
+            ),
+            if (preview.warnings.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              for (final warning in preview.warnings.take(3))
+                _ReviewChecklistHint(text: warning, isReady: false),
+            ],
+            const SizedBox(height: 12),
+            AppButton(
+              key: const Key('personal-bill-ocr-apply'),
+              label: wasApplied ? 'Suggestions applied' : 'Apply suggestions',
+              icon: wasApplied
+                  ? Icons.check_circle_outline
+                  : Icons.playlist_add_check_outlined,
+              onPressed: preview.hasApplyableFields && !wasApplied
+                  ? onApply
+                  : null,
+              expanded: true,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _receiptOcrStatusLabel({
+  required bool isExtracting,
+  required ReceiptOcrResult? result,
+  required bool wasApplied,
+}) {
+  if (isExtracting) {
+    return 'Reading';
+  }
+  if (wasApplied) {
+    return 'Applied';
+  }
+
+  return switch (result?.status) {
+    ReceiptOcrStatus.extracted => 'Review',
+    ReceiptOcrStatus.unsupported => 'Manual entry',
+    ReceiptOcrStatus.failed => 'Manual entry',
+    null => 'Idle',
+  };
+}
+
+String _receiptOcrSummaryText({
+  required bool isExtracting,
+  required ReceiptOcrResult? result,
+  required ReceiptOcrPreview? preview,
+}) {
+  if (isExtracting) {
+    return 'Reading the selected receipt on device. Review and apply suggestions before saving.';
+  }
+
+  if (preview != null) {
+    return 'Suggestions are provisional. Review them here, apply them to editable fields, then edit anything that looks wrong before saving.';
+  }
+
+  return result?.message ??
+      'Receipt OCR is unavailable right now. Manual entry remains available.';
 }
 
 class _PersonalBillCreateItemControllers {
