@@ -4,10 +4,11 @@
 
 - Milestone: `M2` - Mobile Navigation + Home Dashboard Shell Polish.
 - Task: `M2-005` - Mobile nav/home UI testing checklist and milestone QA report.
-- Status: human UI testing checklist complete; required automated validation passed.
+- Status: human UI testing checklist complete; required automated validation passed; human PC UI retest still required.
 - Base branch: `ai/integration`.
 - Task branch: `ai/task/m2-005-mobile-nav-home-ui-testing-checklist-and-milesto`.
 - Auto-merge: not allowed for this task.
+- Latest integration context: PR #95 group/settle handoff polish, PR #97 Home/dashboard redesign, and PR #98 mobile Figma parity guardrails are included.
 
 ## QA Artifacts
 
@@ -30,7 +31,7 @@
 - Groups and group bill handoffs: ready for human UI testing.
 - Bills and personal bill handoffs: ready for human UI testing.
 - Settlements/Settle handoffs: ready for human UI testing.
-- Stop condition status: no human-gated blocker identified by the QA artifact pass.
+- Stop condition status: no forbidden-scope blocker identified by the QA artifact pass; human PC UI retest remains required before M2 is considered human-approved.
 
 ## Validation Results
 
@@ -39,7 +40,7 @@
 - `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit; scope guard reported 5 changed files, all allowed for M2: `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`, and `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
 - `npm run validate:docs`: passed; documentation validation passed.
 - `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`: passed; validation doctor passed with Flutter 3.44.0 and Dart 3.12.0.
-- `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`: passed; validation doctor passed, `flutter pub get` completed, `flutter analyze` reported no issues, and `flutter test` passed all 531 tests.
+- `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`: passed; validation doctor passed, `flutter pub get` completed, `flutter analyze` reported no issues, and `flutter test` passed all 539 tests.
 
 ## Scope Confirmation
 

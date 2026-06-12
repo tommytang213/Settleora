@@ -18,6 +18,7 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('dashboard overview renders repository summaries', (
@@ -48,23 +49,71 @@ void main() {
       recurringRepository: recurringRepository,
     );
 
-    expect(find.text('Today'), findsOneWidget);
-    expect(find.text('Personal bills'), findsOneWidget);
-    expect(find.textContaining('1 recent active bill'), findsOneWidget);
-    expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
-    expect(find.text('Shared bills'), findsOneWidget);
+    expect(find.text('Good morning'), findsOneWidget);
+    expect(find.text('Welcome back, Taylor'), findsOneWidget);
+    expect(find.text('Secure & synced - USD'), findsOneWidget);
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-home')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
     expect(
-      find.textContaining(
-        'No global shared-bill count is exposed by this mobile seam yet.',
-      ),
+      bottomNavDestination(const Key('bottom-nav-groups')),
       findsOneWidget,
     );
+    expect(
+      bottomNavDestination(const Key('bottom-nav-settle')),
+      findsOneWidget,
+    );
+    expect(
+      bottomNavDestination(const Key('bottom-nav-receipts')),
+      findsOneWidget,
+    );
+    expect(
+      bottomNavDestination(const Key('bottom-nav-profile')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<NavigationBar>(
+            find.byKey(const Key('server-shell-bottom-nav')),
+          )
+          .selectedIndex,
+      0,
+    );
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('No balances yet'), findsNothing);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-notifications-header')),
+      findsOneWidget,
+    );
+    expect(find.text('Active bills'), findsOneWidget);
+    expect(find.text('All bills'), findsNothing);
+    expect(find.text('Recurring forecast'), findsNothing);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('USD 24.50'), findsOneWidget);
+    expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
+    expect(find.text('Open groups'), findsOneWidget);
+    expect(
+      find.textContaining('Create a group or shared bill to see activity here'),
+      findsNothing,
+    );
+    expect(
+      find.textContaining('No global shared-bill count is exposed'),
+      findsNothing,
+    );
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
     expect(find.textContaining('1 request may need review'), findsWidgets);
     expect(
       find.textContaining('1 forecast item ready for draft review'),
       findsWidgets,
     );
-    expect(find.textContaining('2 unread notifications'), findsOneWidget);
+    expect(find.textContaining('2 unread update'), findsOneWidget);
     expect(
       find.byKey(const Key('server-shell-sync-status-card')),
       findsNothing,
@@ -73,6 +122,169 @@ void main() {
     expect(notificationRepository.summaryCalls, 1);
     expect(settlementRepository.listBalanceCalls, 1);
     expect(recurringRepository.listForecastCalls, 1);
+  });
+
+  testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {
+    await pumpShell(tester);
+
+    expectCanonicalBottomNav(tester, selectedIndex: 0);
+  });
+
+  testWidgets('bottom nav stays canonical across top-level shell routes', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      groupRepository: FakeGroupRepository(groups: [sampleGroup()]),
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-bills')));
+    await tester.pumpAndSettle();
+    expect(find.text('Bills'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 1);
+    expectSingleCanonicalBottomNav(tester);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-groups')));
+    await tester.pumpAndSettle();
+    expect(find.text('Groups'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 2);
+    expectSingleCanonicalBottomNav(tester);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-settle')));
+    await tester.pumpAndSettle();
+    expect(find.text('Settlements'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 3);
+    expectSingleCanonicalBottomNav(tester);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-receipts')));
+    await tester.pumpAndSettle();
+    expect(find.text('Receipt Reviews'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 4);
+    expectSingleCanonicalBottomNav(tester);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-profile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile'), findsWidgets);
+    expectCanonicalBottomNav(tester, selectedIndex: 5);
+    expectSingleCanonicalBottomNav(tester);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-dashboard-surface')),
+      findsOneWidget,
+    );
+    expectCanonicalBottomNav(tester, selectedIndex: 0);
+    expectSingleCanonicalBottomNav(tester);
+  });
+
+  testWidgets('dashboard keeps visible sections on narrow and wide viewports', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 820);
+    await pumpShell(tester, billRepository: FakeBillRepository());
+
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+    expect(
+      tester
+          .widget<NavigationBar>(
+            find.byKey(const Key('server-shell-bottom-nav')),
+          )
+          .selectedIndex,
+      0,
+    );
+    expect(find.text('Create bill'), findsOneWidget);
+    expect(find.text('Create group'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    tester.view.physicalSize = const Size(1120, 820);
+    await pumpShell(
+      tester,
+      billRepository: FakeBillRepository(bills: [sampleBill()]),
+      settlementRepository: FakeSettlementRepository(
+        requests: [sampleSettlementRequest()],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    expect(find.text('Welcome back, Taylor'), findsOneWidget);
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    final surfaceWidth = tester
+        .getSize(find.byKey(const Key('server-shell-dashboard-surface')))
+        .width;
+    expect(surfaceWidth, lessThanOrEqualTo(430));
+    expect(find.textContaining('No global shared-bill count'), findsNothing);
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
+    expectSingleCanonicalBottomNav(tester);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dashboard replaces route cards with metric and content rows', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      billRepository: FakeBillRepository(bills: [sampleBill()]),
+      notificationRepository: FakeNotificationRepository(
+        summary: const SettleoraNotificationSummary(
+          unreadCount: 2,
+          attentionCount: 1,
+          urgentCount: 1,
+        ),
+      ),
+      settlementRepository: FakeSettlementRepository(
+        balances: [
+          sampleBalance(),
+          sampleBalance(
+            direction: SettleoraSettlementBalanceDirectionValues.incoming,
+            amount: '18.00',
+          ),
+        ],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('No balances yet'), findsNothing);
+    expect(find.text('USD 10.00'), findsOneWidget);
+    expect(find.text('USD 18.00'), findsOneWidget);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Rent'), findsOneWidget);
+    expect(find.text('Personal bills'), findsNothing);
+    expect(find.text('Shared bills'), findsNothing);
+    expect(find.text('All bills'), findsNothing);
+    expect(find.text('Recurring forecast'), findsNothing);
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
+    expect(find.text('Open notifications'), findsOneWidget);
+    expect(find.text('Open groups'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bills')), findsWidgets);
+    expect(find.byKey(const Key('server-shell-groups')), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-notifications')), findsOneWidget);
   });
 
   testWidgets(
@@ -155,8 +367,9 @@ void main() {
 
       await pumpShell(tester, settlementRepository: settlementRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-settlement-actions-review')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-settlement-actions-review'),
       );
       await tester.pumpAndSettle();
 
@@ -192,7 +405,7 @@ void main() {
 
     await pumpShell(tester, settlementRepository: settlementRepository);
 
-    await tester.tap(find.byKey(const Key('server-shell-settlements')));
+    await scrollToAndTap(tester, const Key('server-shell-settlements'));
     await tester.pumpAndSettle();
 
     expect(find.text('Settlements'), findsWidgets);
@@ -253,8 +466,9 @@ void main() {
 
       await pumpShell(tester, recurringRepository: recurringRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-recurring-drafts-review')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-recurring-drafts-review'),
       );
       await tester.pumpAndSettle();
 
@@ -327,6 +541,11 @@ void main() {
   ) async {
     final billRepository = FakeBillRepository(bills: [sampleBill()]);
     final notificationRepository = FakeNotificationRepository(
+      summary: const SettleoraNotificationSummary(
+        unreadCount: 1,
+        attentionCount: 0,
+        urgentCount: 0,
+      ),
       notifications: [sampleNotification()],
     );
 
@@ -336,27 +555,18 @@ void main() {
       notificationRepository: notificationRepository,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
+    expectSingleCanonicalBottomNav(tester);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    final notificationsTile = find.byKey(
-      const Key('server-shell-notifications'),
-    );
-    await tester.dragUntilVisible(
-      notificationsTile,
-      find.byType(Scrollable).first,
-      const Offset(0, -300),
-    );
-    await tester.ensureVisible(notificationsTile);
-    await tester.pumpAndSettle();
-    await tester.tap(notificationsTile);
+    await scrollToAndTap(tester, const Key('server-shell-notifications'));
     await tester.pumpAndSettle();
 
     expect(find.text('Notifications'), findsOneWidget);
@@ -379,20 +589,21 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('USD 0.00'), findsNWidgets(2));
+    expect(find.text('No upcoming due bills'), findsOneWidget);
     expect(
-      find.textContaining('Open bills to create or review personal records'),
+      find.text('Create a bill to start tracking upcoming payments'),
       findsOneWidget,
     );
+    expect(find.text('No recent group activity'), findsOneWidget);
     expect(
-      find.textContaining('Open groups to review shared bill activity'),
+      find.text('Create a group or shared bill to see activity here'),
       findsOneWidget,
     );
-    expect(
-      find.textContaining(
-        'Open recurring bills to review templates and forecast',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Personal bills'), findsNothing);
+    expect(find.text('Shared bills'), findsNothing);
   });
 
   testWidgets('dashboard quick action opens personal bill create screen', (
@@ -400,14 +611,46 @@ void main() {
   ) async {
     await pumpShell(tester);
 
-    await tester.tap(
-      find.byKey(const Key('server-shell-create-personal-bill')),
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
     );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create-bill-choice-personal')));
     await tester.pumpAndSettle();
 
     expect(find.text('Create bill'), findsWidgets);
     expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
     expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
+  });
+
+  testWidgets('dashboard create bill group choice opens groups surface', (
+    tester,
+  ) async {
+    final groupRepository = FakeGroupRepository(groups: [sampleGroup()]);
+
+    await pumpShell(tester, groupRepository: groupRepository);
+
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create-bill-choice-group')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groups'), findsWidgets);
+    expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.byKey(const Key('group-list-create')), findsOneWidget);
+    expect(groupRepository.listCalls, 1);
   });
 
   testWidgets(
@@ -425,21 +668,26 @@ void main() {
 
       expect(billRepository.listCalls, 1);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-create-personal-bill')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-create-personal-bill'),
       );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('create-bill-choice-personal')));
       await tester.pumpAndSettle();
 
       await fillMinimalPersonalBillCreateForm(tester);
       await tester.tap(find.byKey(const Key('personal-bill-save')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Good morning'), findsOneWidget);
       expect(find.byKey(const Key('personal-bill-date')), findsNothing);
       expect(billRepository.createCalls, 1);
       expect(billRepository.lastCreateDraft?.merchantName, 'Quick Cafe');
       expect(billRepository.listCalls, 2);
       expect(find.textContaining('Latest: Quick Cafe'), findsOneWidget);
+      expect(find.text('Quick Cafe'), findsOneWidget);
     },
   );
 
@@ -452,12 +700,16 @@ void main() {
 
     expect(billRepository.listCalls, 1);
 
-    await tester.tap(
-      find.byKey(const Key('server-shell-create-personal-bill')),
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
     );
     await tester.pumpAndSettle();
 
-    await tester.pageBack();
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Group bill'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
     expect(
@@ -484,7 +736,7 @@ void main() {
 
       expect(billRepository.listCalls, 1);
 
-      await tester.tap(find.byKey(const Key('server-shell-create-group')));
+      await scrollToAndTap(tester, const Key('server-shell-create-group'));
       await tester.pumpAndSettle();
 
       expect(find.text('Groups'), findsOneWidget);
@@ -525,7 +777,7 @@ void main() {
       groupRepository: groupRepository,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-create-group')));
+    await scrollToAndTap(tester, const Key('server-shell-create-group'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('group-form-cancel')));
@@ -566,10 +818,10 @@ void main() {
     );
     expect(find.byKey(const Key('dashboard-overview-retry')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('dashboard-overview-retry')));
+    await scrollToAndTap(tester, const Key('dashboard-overview-retry'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Personal bills'), findsOneWidget);
+    expect(find.text('Active bills'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 2);
   });
@@ -618,12 +870,12 @@ void main() {
 
     expect(billRepository.listCalls, 1);
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     final callsAfterOpeningBills = billRepository.listCalls;
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -742,7 +994,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+      await scrollToAndTap(tester, const Key('server-shell-sync-now'));
       await tester.pumpAndSettle();
 
       expect(syncRepository.submitCalls, 2);
@@ -793,7 +1045,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await scrollToAndTap(tester, const Key('server-shell-sync-now'));
     await tester.pump();
 
     expect(syncRepository.submitCalls, 1);
@@ -846,13 +1098,17 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-sync-status-open-bills')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-sync-status-open-bills'),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Bills'), findsWidgets);
-      expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+      expect(
+        bottomNavDestination(const Key('bottom-nav-bills')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     },
   );
@@ -890,7 +1146,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await scrollToAndTap(tester, const Key('server-shell-sync-now'));
     await tester.pumpAndSettle();
 
     expect(syncRepository.submitCalls, 1);
@@ -918,13 +1174,17 @@ void main() {
       billSyncController: sampleBillSyncController(store: store),
     );
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-sync-status-open-bills')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const Key('server-shell-sync-status-open-bills')),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
   });
 
@@ -943,7 +1203,7 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-bills')));
+    await scrollToAndTap(tester, const Key('server-shell-bills'));
     await tester.pumpAndSettle();
 
     store.state = SettleoraSyncQueueState(
@@ -979,7 +1239,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Personal bills'), findsOneWidget);
+    expect(find.text('Active bills'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(
       find.byKey(const Key('server-shell-sync-status-card')),
@@ -999,17 +1259,10 @@ void main() {
 
     expect(notificationRepository.summaryCalls, 1);
 
-    final notificationsTile = find.byKey(
-      const Key('server-shell-notifications'),
+    final notificationsButton = find.byKey(
+      const Key('server-shell-notifications-header'),
     );
-    await tester.dragUntilVisible(
-      notificationsTile,
-      find.byType(Scrollable).first,
-      const Offset(0, -300),
-    );
-    await tester.ensureVisible(notificationsTile);
-    await tester.pumpAndSettle();
-    await tester.tap(notificationsTile);
+    await tester.tap(notificationsButton);
     await tester.pumpAndSettle();
 
     final callsAfterOpeningNotifications = notificationRepository.summaryCalls;
@@ -1023,6 +1276,69 @@ void main() {
       callsAfterOpeningNotifications + 1,
     );
   });
+}
+
+Future<void> scrollToAndTap(WidgetTester tester, Key key) async {
+  final finder = find.byKey(key);
+  await tester.dragUntilVisible(
+    finder,
+    find.byType(Scrollable).first,
+    const Offset(0, -300),
+  );
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+}
+
+Finder bottomNavDestination(Key key) {
+  return find.byWidgetPredicate(
+    (widget) => widget is NavigationDestination && widget.key == key,
+  );
+}
+
+void expectCanonicalBottomNav(
+  WidgetTester tester, {
+  required int selectedIndex,
+}) {
+  final nav = tester.widget<NavigationBar>(
+    find.byKey(const Key('server-shell-bottom-nav')),
+  );
+  final labels = [
+    for (final destination in nav.destinations)
+      (destination as NavigationDestination).label,
+  ];
+
+  expect(labels, const [
+    'Home',
+    'Bills',
+    'Groups',
+    'Settle',
+    'Receipts',
+    'Profile',
+  ]);
+  expect(nav.selectedIndex, selectedIndex);
+  expect(bottomNavDestination(const Key('bottom-nav-home')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-groups')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-settle')), findsOneWidget);
+  expect(
+    bottomNavDestination(const Key('bottom-nav-receipts')),
+    findsOneWidget,
+  );
+  expect(bottomNavDestination(const Key('bottom-nav-profile')), findsOneWidget);
+}
+
+void expectSingleCanonicalBottomNav(WidgetTester tester) {
+  expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+  expect(find.byType(NavigationBar), findsOneWidget);
+  expect(find.byType(SettleoraBottomNav), findsOneWidget);
+  expect(
+    find.descendant(
+      of: find.byType(SettleoraBottomNav),
+      matching: find.text('Settings'),
+    ),
+    findsNothing,
+  );
 }
 
 Future<void> pumpShell(
@@ -1157,16 +1473,20 @@ SettleoraBillDetail sampleBillDetail({
   );
 }
 
-SettleoraSettlementBalance sampleBalance() {
-  return const SettleoraSettlementBalance(
+SettleoraSettlementBalance sampleBalance({
+  String direction = SettleoraSettlementBalanceDirectionValues.outgoing,
+  String amount = '10.00',
+  String currency = 'USD',
+}) {
+  return SettleoraSettlementBalance(
     counterpartyUserProfileId: 'counterparty-1',
     groupId: null,
-    direction: SettleoraSettlementBalanceDirectionValues.outgoing,
-    currency: 'USD',
-    selectedLineAmount: '10.00',
+    direction: direction,
+    currency: currency,
+    selectedLineAmount: amount,
     pendingClaimedAmount: '0.00',
     confirmedClearedAmount: '0.00',
-    remainingUnclaimedAmount: '10.00',
+    remainingUnclaimedAmount: amount,
     confirmedRemainingResidualAmount: '0.00',
     waivedResidualAmount: '0.00',
     creditResidualAmount: '0.00',

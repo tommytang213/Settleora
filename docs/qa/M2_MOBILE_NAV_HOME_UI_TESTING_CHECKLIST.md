@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checklist covers human UI testing for M2 mobile navigation, Home/dashboard shell readiness, and top-level handoffs across Home, Groups, Bills, and Settlements. It is a QA artifact only and does not authorize backend/API behavior, OpenAPI or generated-client changes, auth/session/security changes, schema/migration changes, settlement/payment/bill calculation changes, Docker/env/deployment/CI changes, local storage policy changes, or secrets.
+This checklist covers human UI testing for M2 mobile navigation, Home/dashboard shell readiness, and top-level handoffs across Home, Bills, Groups, Settle, and Settings. It is a QA artifact only and does not authorize backend/API behavior, OpenAPI or generated-client changes, auth/session/security changes, schema/migration changes, settlement/payment/bill calculation changes, Docker/env/deployment/CI changes, local storage policy changes, or secrets.
 
 ## Preconditions
 
@@ -25,11 +25,13 @@ This checklist covers human UI testing for M2 mobile navigation, Home/dashboard 
 
 ## Bottom Navigation
 
-- Confirm bottom navigation labels are Home, Groups, Bills, and Settle.
+- Confirm bottom navigation labels are exactly Home, Bills, Groups, Settle, and Settings in that order.
 - Tap each bottom navigation item and confirm the reached screen matches the label.
 - Confirm the selected state stays stable for the active top-level destination.
+- Confirm Receipts and Profile are not bottom navigation tab labels; those surfaces remain secondary routes/actions.
 - Confirm personal bill empty state keeps the Bills tab active.
 - Confirm settlement filters opened from Home keep the Settle destination context.
+- Confirm Settings opens the existing profile/settings surface without changing auth/session behavior.
 - Confirm detail routes keep enough title/context for the user to understand the current area.
 
 ## Home Quick Actions
@@ -41,6 +43,16 @@ This checklist covers human UI testing for M2 mobile navigation, Home/dashboard 
 - If a recurring draft-ready forecast is available, open the recurring draft shortcut and confirm the forecast screen is filtered to draft-needed items.
 - If actionable settlement requests are available, open the settlement action shortcut and confirm the settlement list is filtered to needs-action items.
 - Confirm quick actions do not imply push notifications, offline sync policy changes, automatic settlement simplification, refunds, broad credit ledgers, or unavailable OCR finalization.
+
+## Required Home/Nav Retest
+
+- Confirm the Home screen visibly differs from the previous profile-plus-menu-list page.
+- Confirm Home, Bills, Groups, Settle, and Settings/Profile show the persistent bottom navigation in both PC/wide and narrow/mobile-sized windows.
+- Confirm `You owe`, `You're owed`, `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and compact `More` sections are visible and understandable.
+- Confirm `Create bill` opens a chooser with `Personal bill` and `Group bill`.
+- Confirm `Personal bill` opens the existing personal bill create flow.
+- Confirm `Group bill` opens Groups for explicit group selection before the existing group-bill flow.
+- Confirm no user-facing copy mentions implementation seams, API limitations, generated clients, or unavailable global shared-bill counts.
 
 ## Groups And Group Bills
 

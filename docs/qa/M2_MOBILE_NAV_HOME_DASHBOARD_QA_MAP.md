@@ -33,6 +33,8 @@ M2 should make the mobile app feel coherent after the M1 group-bill flow by impr
 - Home uses honest empty, unavailable, or placeholder states where runtime data does not exist.
 - Home does not present unimplemented widgets as live data.
 - Home does not compute authoritative money, settlement state, sync acceptance, authorization, or policy decisions client-side.
+- Home must look materially different from the previous plain menu-list version at both mobile and wider desktop/test viewport sizes.
+- Home must not expose implementation wording such as mobile seams, generated clients, unavailable API fields, or internal limitations to normal users.
 
 ### Bottom Navigation
 
@@ -69,10 +71,38 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 
 - Home/dashboard shell rendering in server-mode-ready app state.
 - Empty/unavailable dashboard states.
+- Visible dashboard section labels such as `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More`.
+- Balance metric cards such as `You owe` and `You're owed` that use existing mobile data or honest neutral zero states.
+- `Upcoming bills` content rows or honest empty states instead of route-card shortcuts as primary content.
+- `Group activity` feed rows or honest empty states instead of route-card shortcuts as primary content.
+- Absence of implementation-seam copy on the Home dashboard.
+- Narrow/mobile and wide desktop/test viewport Home dashboard behavior.
 - Bottom navigation labels and active-state behavior.
+- Home bottom navigation remains visible as a scaffold-level control on phone and desktop test windows, with Home selected.
 - Navigation from Home to Groups, Bills, and Settlements/Settle.
+- Home Create bill opens a chooser with `Personal bill` and `Group bill`; personal creation remains available without selecting a group, and group bill routes only through existing group/shared-bill surfaces.
 - Handoffs from Groups into group detail and group bill surfaces.
 - Safe quick actions that route to implemented screens only.
+
+## Human PC UI Retest Checklist
+
+The M2 Home/dashboard fix remains human-review required until a tester verifies:
+
+- The Home screen visibly changed from the previous profile-plus-menu-list page.
+- The Home screen shows a persistent bottom navigation bar with Home, Bills, Groups, Settle, Receipts, and Profile, and Home is selected.
+- `You owe` and `You're owed` appear as the primary balance metric cards with honest zero or server-provided balance values.
+- `Upcoming bills` uses bill-like rows or a compact honest empty state, not `Personal bills` and `Recurring bills` route cards as the main content.
+- `Group activity` uses feed-style rows or a compact honest empty state, not `Shared bills` and `Notifications` route cards as the main content.
+- `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More` appear as meaningful user-facing sections.
+- `Create bill` opens a chooser with `Personal bill` and `Group bill`.
+- `Personal bill` still opens the existing personal bill create flow without requiring a group.
+- `Group bill` opens Groups for explicit group selection before the existing group-bill flow; no group is silently preselected from Home.
+- `Create group` still opens its existing flow.
+- Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report routes still work from Home where present.
+- No Home copy mentions implementation seams, API seams, generated clients, or missing global shared-bill counts.
+- A narrow/mobile viewport remains clean and scrollable with no clipped text or horizontal overflow.
+- A wide desktop/test Flutter window presents Home as a centered phone-first dashboard surface or an otherwise balanced responsive dashboard, not a lopsided desktop menu page.
+- Nav and landing handoffs still behave as expected after returning from destination screens.
 
 Full mobile validation is required by the final QA task:
 

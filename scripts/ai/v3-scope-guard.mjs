@@ -99,6 +99,7 @@ const m2AllowedPatterns = [
   /^docs\/workflow\/AI_V3_PIPELINE\.md$/,
   /^scripts\/ai\//,
   /^apps\/mobile\/lib\/app\//,
+  /^apps\/mobile\/lib\/ui\/settleora_components\.dart$/,
   /^apps\/mobile\/lib\/bills\/bill_list_screen\.dart$/,
   /^apps\/mobile\/lib\/groups\/group_list_screen\.dart$/,
   /^apps\/mobile\/lib\/settlements\/settlement_list_screen\.dart$/,

@@ -173,6 +173,16 @@ class _SettleoraSettlementListScreenState
                     hasActiveDiscovery: hasActiveDiscovery,
                     onTap: _openRequest,
                   ),
+                  const SizedBox(height: 20),
+                  _SettlementLandingSummary(
+                    balanceSnapshot: balanceSnapshot,
+                    requests: _requests,
+                    currentUserProfileId: widget.currentUserProfileId,
+                    onShowNeedsAction: () =>
+                        _selectFilter(_SettlementRequestFilter.needsAction),
+                    onShowAll: () =>
+                        _selectFilter(_SettlementRequestFilter.all),
+                  ),
                 ],
               ),
             );
@@ -207,6 +217,115 @@ class _SettleoraSettlementListScreenState
           return queryTerms.every(searchText.contains);
         })
         .toList(growable: false);
+  }
+}
+
+class _SettlementLandingSummary extends StatelessWidget {
+  const _SettlementLandingSummary({
+    required this.balanceSnapshot,
+    required this.requests,
+    required this.currentUserProfileId,
+    required this.onShowNeedsAction,
+    required this.onShowAll,
+  });
+
+  final SettleoraSettlementBalanceSnapshot? balanceSnapshot;
+  final List<SettleoraSettlementRequest> requests;
+  final String currentUserProfileId;
+  final VoidCallback onShowNeedsAction;
+  final VoidCallback onShowAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final balances =
+        balanceSnapshot?.balances ?? const <SettleoraSettlementBalance>[];
+    final openBalanceCount = balances
+        .where(
+          (balance) =>
+              _amountStringLooksNonZero(balance.remainingUnclaimedAmount),
+        )
+        .length;
+    final needsActionCount = requests
+        .where((request) => _requestNeedsAction(request, currentUserProfileId))
+        .length;
+    final openRequestCount = requests.where(_isOpenRequest).length;
+
+    return Card(
+      key: const Key('settlement-list-landing-summary'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.handshake_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Settle landing',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Review server-returned balances, settlement requests, and payment actions from this screen.',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _SoftChip(
+                  label:
+                      '$openBalanceCount open balance${_plural(openBalanceCount)}',
+                  icon: Icons.account_balance_wallet_outlined,
+                ),
+                _SoftChip(
+                  label: needsActionCount == 1
+                      ? '1 needing action'
+                      : '$needsActionCount needing action',
+                  icon: Icons.rule_outlined,
+                ),
+                _SoftChip(
+                  label:
+                      '$openRequestCount open request${_plural(openRequestCount)}',
+                  icon: Icons.request_quote_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  key: const Key('settlement-list-summary-all'),
+                  onPressed: onShowAll,
+                  icon: const Icon(Icons.list_alt_outlined),
+                  label: const Text('All settlements'),
+                ),
+                FilledButton.icon(
+                  key: const Key('settlement-list-summary-needs-action'),
+                  onPressed: onShowNeedsAction,
+                  icon: const Icon(Icons.rule_outlined),
+                  label: const Text('Needs action'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -2336,6 +2455,13 @@ bool _requestNeedsAction(
   }
 
   return false;
+}
+
+String _plural(int count) => count == 1 ? '' : 's';
+
+bool _amountStringLooksNonZero(String value) {
+  final normalized = value.trim().replaceAll('-', '').replaceAll('.', '');
+  return normalized.runes.any((codeUnit) => codeUnit >= 49 && codeUnit <= 57);
 }
 
 String _requestSearchText({

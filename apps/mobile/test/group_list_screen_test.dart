@@ -35,6 +35,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No groups'), findsOneWidget);
+    expect(
+      find.text(
+        'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('group-list-empty-create')), findsOneWidget);
     expect(find.byKey(const Key('group-list-search')), findsNothing);
     expect(repository.listCalls, 1);
 
@@ -331,6 +338,12 @@ void main() {
 
     expect(repository.getCalls, 1);
     expect(repository.listMemberCalls, 1);
+    expect(find.byKey(const Key('group-detail-bills-handoff')), findsOneWidget);
+    expect(find.text('Shared bill workspace'), findsOneWidget);
+    expect(
+      find.textContaining('1 loaded member - Open group bills for Trip Crew'),
+      findsOneWidget,
+    );
     expect(find.text('Members'), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_profileId)));
@@ -822,6 +835,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.byKey(const Key('server-shell-groups')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-groups')));
     await tester.pumpAndSettle();
 

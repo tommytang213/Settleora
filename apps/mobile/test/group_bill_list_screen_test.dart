@@ -31,9 +31,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Trip Crew'), findsOneWidget);
+    expect(
+      find.text(
+        'Create a shared bill, or filter loaded group bills that need your response.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('No group bills'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
-    expect(find.text('Create group bill'), findsOneWidget);
+    expect(
+      find.byKey(const Key('group-bill-list-empty-create')),
+      findsOneWidget,
+    );
+    expect(find.text('Create group bill'), findsWidgets);
     expect(find.byKey(const Key('group-bill-list-filters')), findsOneWidget);
     expect(find.text('All (0)'), findsOneWidget);
     expect(find.text('Needs your response (0)'), findsOneWidget);
