@@ -5,6 +5,8 @@ import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
+import '../receipt_ocr_capture/receipt_image_intake.dart';
+import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../ui/settleora_components.dart';
 import 'group_repository.dart';
@@ -20,6 +22,8 @@ class SettleoraGroupListScreen extends StatefulWidget {
     this.defaultCurrency,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
+    this.receiptImageIntake,
+    this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
     this.onTopLevelDestinationSelected,
@@ -33,6 +37,8 @@ class SettleoraGroupListScreen extends StatefulWidget {
   final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
@@ -218,6 +224,8 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
             currentUserProfileId: widget.currentUserProfileId,
             attachmentRepository: widget.billAttachmentRepository,
             attachmentFileInput: widget.billAttachmentFileInput,
+            receiptImageIntake: widget.receiptImageIntake,
+            receiptOcrProvider: widget.receiptOcrProvider,
             receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
             revisionRepository: widget.billRevisionRepository,
             groupId: group.id,
@@ -242,6 +250,8 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           billRepository: widget.billRepository,
           billAttachmentRepository: widget.billAttachmentRepository,
           billAttachmentFileInput: widget.billAttachmentFileInput,
+          receiptImageIntake: widget.receiptImageIntake,
+          receiptOcrProvider: widget.receiptOcrProvider,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           billRevisionRepository: widget.billRevisionRepository,
           currentUserProfileId: widget.currentUserProfileId,
@@ -383,6 +393,8 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     this.defaultCurrency,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
+    this.receiptImageIntake,
+    this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
     this.onTopLevelDestinationSelected,
@@ -392,6 +404,8 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
@@ -668,6 +682,8 @@ class _SettleoraGroupDetailScreenState
           currentUserProfileId: widget.currentUserProfileId,
           attachmentRepository: widget.billAttachmentRepository,
           attachmentFileInput: widget.billAttachmentFileInput,
+          receiptImageIntake: widget.receiptImageIntake,
+          receiptOcrProvider: widget.receiptOcrProvider,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,

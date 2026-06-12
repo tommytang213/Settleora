@@ -5,11 +5,15 @@ abstract interface class ReceiptOcrProvider {
 }
 
 class ReceiptOcrRequest {
-  ReceiptOcrRequest({required List<int> bytes, required this.contentType})
-    : bytes = List.unmodifiable(bytes);
+  ReceiptOcrRequest({
+    required List<int> bytes,
+    required this.contentType,
+    this.imagePath,
+  }) : bytes = List.unmodifiable(bytes);
 
   final List<int> bytes;
   final String contentType;
+  final String? imagePath;
 }
 
 class ReceiptOcrResult {
