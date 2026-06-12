@@ -1415,24 +1415,24 @@ class _PersonalBillCreateItemControllers {
   }
 
   void _setLineTotalFromUnitAmount(int quantityValue) {
-    final unit = _parseExactDecimalAmount(unitAmount.text);
-    if (unit == null || !_exactDecimalIsPositive(unit)) {
+    final unit = _parseCurrencyAmount(unitAmount.text, currency.text);
+    if (unit == null || !_currencyAmountIsPositive(unit)) {
       return;
     }
 
-    amount.text = _formatExactDecimalAmount(
-      _multiplyExactDecimalByWhole(unit, quantityValue),
+    amount.text = _formatCurrencyAmount(
+      _multiplyCurrencyAmountByWhole(unit, quantityValue),
     );
   }
 
   void _setUnitAmountFromLineTotal(int quantityValue) {
-    final lineTotal = _parseExactDecimalAmount(amount.text);
-    if (lineTotal == null || !_exactDecimalIsPositive(lineTotal)) {
+    final lineTotal = _parseCurrencyAmount(amount.text, currency.text);
+    if (lineTotal == null || !_currencyAmountIsPositive(lineTotal)) {
       return;
     }
 
-    unitAmount.text = _formatExactDecimalAmount(
-      _divideExactDecimalByWhole(lineTotal, quantityValue),
+    unitAmount.text = _formatCurrencyAmount(
+      _divideCurrencyAmountByWhole(lineTotal, quantityValue),
     );
   }
 
@@ -6520,24 +6520,24 @@ class _GroupBillCreateItemControllers {
   }
 
   void _setLineTotalFromUnitAmount(int quantityValue) {
-    final unit = _parseExactDecimalAmount(unitAmount.text);
-    if (unit == null || !_exactDecimalIsPositive(unit)) {
+    final unit = _parseCurrencyAmount(unitAmount.text, currency.text);
+    if (unit == null || !_currencyAmountIsPositive(unit)) {
       return;
     }
 
-    amount.text = _formatExactDecimalAmount(
-      _multiplyExactDecimalByWhole(unit, quantityValue),
+    amount.text = _formatCurrencyAmount(
+      _multiplyCurrencyAmountByWhole(unit, quantityValue),
     );
   }
 
   void _setUnitAmountFromLineTotal(int quantityValue) {
-    final lineTotal = _parseExactDecimalAmount(amount.text);
-    if (lineTotal == null || !_exactDecimalIsPositive(lineTotal)) {
+    final lineTotal = _parseCurrencyAmount(amount.text, currency.text);
+    if (lineTotal == null || !_currencyAmountIsPositive(lineTotal)) {
       return;
     }
 
-    unitAmount.text = _formatExactDecimalAmount(
-      _divideExactDecimalByWhole(lineTotal, quantityValue),
+    unitAmount.text = _formatCurrencyAmount(
+      _divideCurrencyAmountByWhole(lineTotal, quantityValue),
     );
   }
 
@@ -10555,6 +10555,7 @@ String? _billCreateItemAmountModelError(Object item) {
   final quantityText = _billCreateItemQuantityText(item);
   final unitAmountText = _billCreateItemUnitAmountText(item);
   final lineTotalText = _billCreateItemLineTotalText(item);
+  final currencyText = _billCreateItemCurrencyText(item);
 
   final quantityError = _requiredPositiveWholeNumberField(quantityText);
   if (quantityError != null) {
@@ -10571,8 +10572,14 @@ String? _billCreateItemAmountModelError(Object item) {
     return lineError;
   }
 
-  final unitAmount = _parseExactDecimalAmount(unitAmountText);
-  final lineTotal = _parseExactDecimalAmount(lineTotalText);
+  final unitAmount = _parseCurrencyAmount(unitAmountText, currencyText);
+  final lineTotal = _parseCurrencyAmount(lineTotalText, currencyText);
+  if (unitAmount == null && unitAmountText.trim().isNotEmpty) {
+    return _currencyAmountScaleMessage(currencyText);
+  }
+  if (lineTotal == null && lineTotalText.trim().isNotEmpty) {
+    return _currencyAmountScaleMessage(currencyText);
+  }
   if (unitAmount == null && lineTotal == null) {
     return 'Enter a unit amount or line total.';
   }
@@ -10603,19 +10610,20 @@ String _resolvedItemLineTotal(Object item) {
   final quantityText = _billCreateItemQuantityText(item);
   final unitAmountText = _billCreateItemUnitAmountText(item);
   final lineTotalText = _billCreateItemLineTotalText(item);
+  final currencyText = _billCreateItemCurrencyText(item);
   final trimmedLineTotal = lineTotalText.trim();
   if (trimmedLineTotal.isNotEmpty) {
     return lineTotalText;
   }
 
   final quantity = _positiveWholeNumber(quantityText) ?? 1;
-  final unitAmount = _parseExactDecimalAmount(unitAmountText);
+  final unitAmount = _parseCurrencyAmount(unitAmountText, currencyText);
   if (unitAmount == null) {
     return lineTotalText;
   }
 
-  return _formatExactDecimalAmount(
-    _multiplyExactDecimalByWhole(unitAmount, quantity),
+  return _formatCurrencyAmount(
+    _multiplyCurrencyAmountByWhole(unitAmount, quantity),
   );
 }
 
@@ -10647,6 +10655,16 @@ String _billCreateItemLineTotalText(Object item) {
     return item.amount.text;
   }
   return '';
+}
+
+String _billCreateItemCurrencyText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.currency.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.currency.text;
+  }
+  return 'USD';
 }
 
 bool _isExactAmountSplitMethod(String value) =>
@@ -10755,73 +10773,86 @@ int? _positiveWholeNumber(String value) {
   return parsed;
 }
 
-bool _exactDecimalIsPositive(_ExactDecimalAmount amount) {
+bool _lineTotalMatchesUnitAmount({
+  required _CurrencyAmount unitAmount,
+  required _CurrencyAmount lineTotal,
+  required int quantity,
+}) {
+  final expected = _multiplyCurrencyAmountByWhole(unitAmount, quantity);
+  return expected.value == lineTotal.value && expected.scale == lineTotal.scale;
+}
+
+_CurrencyAmount? _parseCurrencyAmount(String value, String currency) {
+  final scale = _currencyScale(currency);
+  final parsed = _parseExactDecimalAmount(value);
+  if (parsed == null || parsed.scale > scale) {
+    return null;
+  }
+
+  return _CurrencyAmount(
+    value: parsed.value * _bigIntPow10(scale - parsed.scale),
+    scale: scale,
+  );
+}
+
+bool _currencyAmountIsPositive(_CurrencyAmount amount) {
   return amount.value > BigInt.zero;
 }
 
-_ExactDecimalAmount _multiplyExactDecimalByWhole(
-  _ExactDecimalAmount amount,
+_CurrencyAmount _multiplyCurrencyAmountByWhole(
+  _CurrencyAmount amount,
   int multiplier,
 ) {
-  return _ExactDecimalAmount(
+  return _CurrencyAmount(
     value: amount.value * BigInt.from(multiplier),
     scale: amount.scale,
   );
 }
 
-_ExactDecimalAmount _divideExactDecimalByWhole(
-  _ExactDecimalAmount amount,
+_CurrencyAmount _divideCurrencyAmountByWhole(
+  _CurrencyAmount amount,
   int divisor,
 ) {
-  final outputScale = amount.scale < 2 ? 2 : amount.scale;
-  final scaledValue = amount.value * _bigIntPow10(outputScale - amount.scale);
   final divisorValue = BigInt.from(divisor);
-  final quotient = scaledValue ~/ divisorValue;
-  final remainder = scaledValue.remainder(divisorValue);
+  final quotient = amount.value ~/ divisorValue;
+  final remainder = amount.value.remainder(divisorValue);
   final rounded = remainder.abs() * BigInt.from(2) >= divisorValue
       ? quotient + BigInt.one
       : quotient;
 
-  return _ExactDecimalAmount(value: rounded, scale: outputScale);
+  return _CurrencyAmount(value: rounded, scale: amount.scale);
 }
 
-bool _lineTotalMatchesUnitAmount({
-  required _ExactDecimalAmount unitAmount,
-  required _ExactDecimalAmount lineTotal,
-  required int quantity,
-}) {
-  final expected = _multiplyExactDecimalByWhole(unitAmount, quantity);
-  final scale = [
-    expected.scale,
-    lineTotal.scale,
-    2,
-  ].fold<int>(0, (current, next) => next > current ? next : current);
-  final expectedValue = expected.value * _bigIntPow10(scale - expected.scale);
-  final lineValue = lineTotal.value * _bigIntPow10(scale - lineTotal.scale);
-  final tolerance = _bigIntPow10(scale - 2);
-  return (expectedValue - lineValue).abs() <= tolerance;
-}
-
-String _formatExactDecimalAmount(_ExactDecimalAmount amount) {
+String _formatCurrencyAmount(_CurrencyAmount amount) {
   var digits = amount.value.abs().toString();
-  final outputScale = amount.scale < 2 ? 2 : amount.scale;
-  if (outputScale == 0) {
+  if (amount.scale == 0) {
     return digits;
   }
 
-  if (digits.length <= outputScale) {
-    digits = digits.padLeft(outputScale + 1, '0');
+  if (digits.length <= amount.scale) {
+    digits = digits.padLeft(amount.scale + 1, '0');
   }
 
-  final splitIndex = digits.length - outputScale;
+  final splitIndex = digits.length - amount.scale;
   final whole = digits.substring(0, splitIndex);
-  var fractional = digits.substring(splitIndex);
-  fractional = fractional.replaceFirst(RegExp(r'(?<=\d\d)0+$'), '');
-  if (fractional.isEmpty) {
-    return whole;
-  }
-
+  final fractional = digits.substring(splitIndex).padRight(amount.scale, '0');
   return '$whole.$fractional';
+}
+
+int _currencyScale(String currency) {
+  return switch (currency.trim().toUpperCase()) {
+    'JPY' => 0,
+    'KWD' || 'BHD' => 3,
+    _ => 2,
+  };
+}
+
+String _currencyAmountScaleMessage(String currency) {
+  final scale = _currencyScale(currency);
+  if (scale == 0) {
+    return 'Use whole currency units for ${currency.trim().toUpperCase()}.';
+  }
+  return 'Use no more than $scale decimal places for ${currency.trim().toUpperCase()}.';
 }
 
 BigInt _sumExactDecimals(List<_ExactDecimalAmount> amounts, int scale) {
@@ -10842,6 +10873,13 @@ BigInt _bigIntPow10(int exponent) {
 
 class _ExactDecimalAmount {
   const _ExactDecimalAmount({required this.value, required this.scale});
+
+  final BigInt value;
+  final int scale;
+}
+
+class _CurrencyAmount {
+  const _CurrencyAmount({required this.value, required this.scale});
 
   final BigInt value;
   final int scale;

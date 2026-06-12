@@ -3142,6 +3142,102 @@ void main() {
     expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
   });
 
+  testWidgets('group bill item derives unit and line total as currency units', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createdGroupDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Night Market',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [
+              sampleMember(displayName: 'Taylor'),
+              sampleMember(
+                userProfileId: _otherProfileId,
+                displayName: 'Morgan',
+              ),
+            ],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'basics');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-merchant-name')),
+      'Night Market',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-date-today')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-name-0')),
+      'Noodles',
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-quantity-0')),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+    var lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('group-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '100.00');
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+      '50',
+    );
+    await tester.pumpAndSettle();
+    lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('group-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '100.00');
+
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+      '',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-bill-item-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+    final unitAmount = tester.widget<TextFormField>(
+      find.byKey(const Key('group-bill-item-unit-amount-0')),
+    );
+    expect(unitAmount.controller?.text, '50.00');
+
+    await _assignFirstGroupBillItem(tester, exactAmount: '100');
+    await _addSingleGroupPayer(tester, amount: '100');
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(billRepository.lastGroupCreateDraft?.items.single.amount, '100');
+  });
+
   testWidgets(
     'group bill create uses returned detail without offline queueing',
     (tester) async {

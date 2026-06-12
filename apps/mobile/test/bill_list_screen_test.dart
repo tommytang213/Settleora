@@ -698,19 +698,63 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-unit-amount-0')),
-      '3.25',
+      '50',
     );
     await tester.pumpAndSettle();
 
     final lineTotal = tester.widget<TextFormField>(
       find.byKey(const Key('personal-bill-item-amount-0')),
     );
-    expect(lineTotal.controller?.text, '6.50');
+    expect(lineTotal.controller?.text, '100.00');
 
     await _tapSaveBill(tester);
 
     expect(repository.createCalls, 1);
-    expect(repository.lastCreateDraft?.items.single.amount, '6.50');
+    expect(repository.lastCreateDraft?.items.single.amount, '100.00');
+  });
+
+  testWidgets('personal bill item treats unit 100 as currency units', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Groceries',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+
+    final lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '100.00');
+
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.items.single.amount, '100.00');
   });
 
   testWidgets('personal bill item derives unit from quantity and line total', (
@@ -738,23 +782,75 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-quantity-0')),
-      '3',
+      '2',
     );
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-amount-0')),
-      '12.00',
+      '100',
     );
     await tester.pumpAndSettle();
 
     final unitAmount = tester.widget<TextFormField>(
       find.byKey(const Key('personal-bill-item-unit-amount-0')),
     );
-    expect(unitAmount.controller?.text, '4.00');
+    expect(unitAmount.controller?.text, '50.00');
 
     await _tapSaveBill(tester);
 
     expect(repository.createCalls, 1);
-    expect(repository.lastCreateDraft?.items.single.amount, '12.00');
+    expect(repository.lastCreateDraft?.items.single.amount, '100');
+  });
+
+  testWidgets('personal bill item derives by visible currency scale', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-currency-0')),
+      'JPY',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+
+    var lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '200');
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-currency-0')),
+      'KWD',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '1.234',
+    );
+    await tester.pumpAndSettle();
+
+    lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '2.468');
   });
 
   testWidgets('personal bill item rejects contradictory amount pairs', (
