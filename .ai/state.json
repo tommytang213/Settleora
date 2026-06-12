@@ -5,7 +5,7 @@
   "integrationBranch": "ai/integration",
   "activeMilestoneId": "M2",
   "activeMilestoneName": "Mobile Navigation + Home Dashboard Shell Polish",
-  "status": "m2_home_dashboard_redesign_human_review_required",
+  "status": "m2_home_dashboard_content_rich_redesign_human_review_required",
   "lastCompletedTaskId": "M1-009",
   "currentTaskId": "M2-HOME-DASHBOARD-VISIBLE-REDESIGN-20260612-0118",
   "stopReason": "Human PC UI retest required for the redesigned Home dashboard before M2 can be marked ready for main.",

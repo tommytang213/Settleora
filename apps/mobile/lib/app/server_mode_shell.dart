@@ -543,7 +543,10 @@ class _SettleoraAuthenticatedServerShellState
                       ),
                       if (overview != null) ...[
                         const SizedBox(height: 16),
-                        _DashboardSummaryCards(overview: overview),
+                        _DashboardSummaryCards(
+                          overview: overview,
+                          defaultCurrency: defaultCurrency,
+                        ),
                       ],
                       const SizedBox(height: 16),
                       _DashboardQuickActions(
@@ -639,6 +642,26 @@ class _SettleoraDashboardOverview {
             _amountStringLooksNonZero(balance.remainingUnclaimedAmount),
       )
       .length;
+
+  List<SettleoraSettlementBalance> get outgoingBalances => settlementBalances
+      .balances
+      .where(
+        (balance) =>
+            balance.direction ==
+                SettleoraSettlementBalanceDirectionValues.outgoing &&
+            _amountStringLooksNonZero(balance.remainingUnclaimedAmount),
+      )
+      .toList(growable: false);
+
+  List<SettleoraSettlementBalance> get incomingBalances => settlementBalances
+      .balances
+      .where(
+        (balance) =>
+            balance.direction ==
+                SettleoraSettlementBalanceDirectionValues.incoming &&
+            _amountStringLooksNonZero(balance.remainingUnclaimedAmount),
+      )
+      .toList(growable: false);
 
   int get activeRecurringTemplateCount => recurringTemplates
       .where(
@@ -868,35 +891,38 @@ class _DashboardHero extends StatelessWidget {
 }
 
 class _DashboardSummaryCards extends StatelessWidget {
-  const _DashboardSummaryCards({required this.overview});
+  const _DashboardSummaryCards({
+    required this.overview,
+    required this.defaultCurrency,
+  });
 
   final _SettleoraDashboardOverview overview;
+  final String? defaultCurrency;
 
   @override
   Widget build(BuildContext context) {
-    final attentionCount =
-        overview.settlementActionCount +
-        overview.upcomingForecastCount +
-        overview.notificationSummary.attentionCount +
-        overview.notificationSummary.urgentCount;
+    final youOwe = _BalanceMetric.from(
+      balances: overview.outgoingBalances,
+      fallbackCurrency: defaultCurrency,
+    );
+    final youAreOwed = _BalanceMetric.from(
+      balances: overview.incomingBalances,
+      fallbackCurrency: defaultCurrency,
+    );
     final cards = [
       _DashboardSummaryCard(
-        icon: Icons.priority_high_outlined,
-        title: 'Attention',
-        value: attentionCount == 0 ? '0 due' : '$attentionCount to review',
-        caption: attentionCount == 0
-            ? 'No urgent dashboard items'
-            : 'Open the attention queue',
+        icon: Icons.north_east_outlined,
+        title: 'You owe',
+        value: youOwe.value,
+        caption: youOwe.caption,
+        emphasized: youOwe.hasBalance,
       ),
       _DashboardSummaryCard(
-        icon: Icons.account_balance_wallet_outlined,
-        title: 'Balances',
-        value: overview.openBalanceCount == 0
-            ? 'No balances yet'
-            : '${overview.openBalanceCount} open',
-        caption: overview.activePersonalBillCount == 0
-            ? 'Create or review bills'
-            : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
+        icon: Icons.south_west_outlined,
+        title: "You're owed",
+        value: youAreOwed.value,
+        caption: youAreOwed.caption,
+        emphasized: youAreOwed.hasBalance,
       ),
     ];
 
@@ -927,18 +953,23 @@ class _DashboardSummaryCard extends StatelessWidget {
     required this.title,
     required this.value,
     required this.caption,
+    required this.emphasized,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String caption;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Card(
+      color: emphasized
+          ? theme.colorScheme.secondaryContainer
+          : theme.colorScheme.surfaceContainerHighest,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -960,6 +991,43 @@ class _DashboardSummaryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BalanceMetric {
+  const _BalanceMetric({
+    required this.value,
+    required this.caption,
+    required this.hasBalance,
+  });
+
+  factory _BalanceMetric.from({
+    required List<SettleoraSettlementBalance> balances,
+    required String? fallbackCurrency,
+  }) {
+    final currency = fallbackCurrency ?? 'HKD';
+    if (balances.isEmpty) {
+      return _BalanceMetric(
+        value: '$currency 0.00',
+        caption: 'No settlement balances yet',
+        hasBalance: false,
+      );
+    }
+
+    final first = balances.first;
+    final peopleCount = balances
+        .map((balance) => balance.counterpartyUserProfileId)
+        .toSet()
+        .length;
+    return _BalanceMetric(
+      value: _money(first.remainingUnclaimedAmount, first.currency),
+      caption: 'Across $peopleCount people',
+      hasBalance: true,
+    );
+  }
+
+  final String value;
+  final String caption;
+  final bool hasBalance;
 }
 
 class _DashboardHeroTitle extends StatelessWidget {
@@ -1346,70 +1414,133 @@ class _DashboardOverviewContent extends StatelessWidget {
 
     final upcomingBills = Column(
       children: [
-        _DashboardNavigationTile(
-          key: const Key('server-shell-bills'),
-          icon: Icons.list_alt_outlined,
-          title: 'Personal bills',
-          subtitle: overview.activePersonalBillCount == 0
-              ? 'Open bills to create or review personal records'
-              : '${overview.activePersonalBillCount} recent active bill${_plural(overview.activePersonalBillCount)}',
-          detail: overview.personalBills.isEmpty
-              ? null
-              : 'Latest: ${overview.personalBills.first.displayName}',
-          onTap: onOpenBills,
-        ),
-        _DashboardNavigationTile(
-          key: const Key('server-shell-recurring-bills'),
-          icon: Icons.event_repeat_outlined,
-          title: 'Recurring bills',
-          subtitle: overview.upcomingForecastCount == 0
-              ? 'Review templates and forecast'
-              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
-          detail: overview.activeRecurringTemplateCount == 0
-              ? null
-              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
-          onTap: onOpenRecurringBills,
-        ),
+        if (overview.personalBills.isEmpty &&
+            overview.recurringForecast.isEmpty)
+          _DashboardEmptySectionCard(
+            icon: Icons.event_available_outlined,
+            title: 'No upcoming due bills',
+            message: 'Create a bill to start tracking upcoming payments',
+            actionKey: const Key('server-shell-bills'),
+            actionLabel: 'Open bills',
+            onTap: onOpenBills,
+          )
+        else ...[
+          for (final bill in overview.personalBills.take(2))
+            _DashboardBillRow(
+              icon: Icons.receipt_long_outlined,
+              title: bill.displayName,
+              amount: _money(bill.totalAmount, bill.totalCurrency),
+              context: '${bill.itemCount} item${_plural(bill.itemCount)}',
+              timing: 'Bill date ${bill.billDate}',
+              onTap: onOpenBills,
+            ),
+          for (final occurrence in overview.recurringForecast.take(2))
+            _DashboardBillRow(
+              icon: Icons.event_repeat_outlined,
+              title: occurrence.merchantName ?? 'Recurring bill',
+              amount: _money(
+                occurrence.forecastAmount,
+                occurrence.forecastCurrency,
+              ),
+              context: occurrence.isGroupScoped
+                  ? 'Group recurring'
+                  : 'Personal recurring',
+              timing: occurrence.dueDate == null
+                  ? 'Occurs ${occurrence.occurrenceDate}'
+                  : 'Due ${occurrence.dueDate}',
+              onTap: onOpenRecurringBills,
+            ),
+          _DashboardInlineActionRow(
+            key: const Key('server-shell-bills'),
+            icon: Icons.list_alt_outlined,
+            label: 'All bills',
+            onTap: onOpenBills,
+          ),
+          _DashboardInlineActionRow(
+            key: const Key('server-shell-recurring-bills'),
+            icon: Icons.event_repeat_outlined,
+            label: 'Recurring forecast',
+            onTap: onOpenRecurringBills,
+          ),
+        ],
       ],
     );
 
     final groupActivity = Column(
       children: [
-        _DashboardNavigationTile(
-          key: const Key('server-shell-groups'),
-          icon: Icons.groups_outlined,
-          title: 'Shared bills',
-          subtitle: 'Open groups to review shared bills and group activity',
-          onTap: onOpenGroups,
-        ),
-        _DashboardNavigationTile(
-          key: const Key('server-shell-notifications'),
-          icon: Icons.notifications_outlined,
-          title: 'Notifications',
-          subtitle: overview.notificationSummary.unreadCount == 0
-              ? 'Open notifications for recent activity'
-              : '${overview.notificationSummary.unreadCount} unread notification${_plural(overview.notificationSummary.unreadCount)}',
-          detail:
-              overview.notificationSummary.attentionCount == 0 &&
-                  overview.notificationSummary.urgentCount == 0
-              ? null
-              : '${overview.notificationSummary.attentionCount} attention, ${overview.notificationSummary.urgentCount} urgent',
-          onTap: onOpenNotifications,
-        ),
+        if (overview.notificationSummary.unreadCount == 0 &&
+            overview.notificationSummary.attentionCount == 0 &&
+            overview.notificationSummary.urgentCount == 0)
+          _DashboardEmptySectionCard(
+            icon: Icons.groups_outlined,
+            title: 'No recent group activity',
+            message: 'Create a group or shared bill to see activity here',
+            actionKey: const Key('server-shell-groups'),
+            actionLabel: 'Open groups',
+            onTap: onOpenGroups,
+          )
+        else ...[
+          if (overview.notificationSummary.urgentCount > 0)
+            _DashboardActivityRow(
+              initials: '!',
+              title: 'Urgent activity',
+              message:
+                  '${overview.notificationSummary.urgentCount} notification${_plural(overview.notificationSummary.urgentCount)} need fast review',
+              status: 'Urgent',
+              onTap: onOpenNotifications,
+            ),
+          if (overview.notificationSummary.attentionCount > 0)
+            _DashboardActivityRow(
+              initials: 'A',
+              title: 'Attention queue',
+              message:
+                  '${overview.notificationSummary.attentionCount} item${_plural(overview.notificationSummary.attentionCount)} flagged for review',
+              status: 'Review',
+              onTap: onOpenNotifications,
+            ),
+          if (overview.notificationSummary.unreadCount > 0)
+            _DashboardActivityRow(
+              initials: 'N',
+              title: 'Notifications',
+              message:
+                  '${overview.notificationSummary.unreadCount} unread update${_plural(overview.notificationSummary.unreadCount)}',
+              status: 'Unread',
+              onTap: onOpenNotifications,
+            ),
+          _DashboardInlineActionRow(
+            key: const Key('server-shell-notifications'),
+            icon: Icons.notifications_outlined,
+            label: 'Open notifications',
+            onTap: onOpenNotifications,
+          ),
+          _DashboardInlineActionRow(
+            key: const Key('server-shell-groups'),
+            icon: Icons.groups_outlined,
+            label: 'Open groups',
+            onTap: onOpenGroups,
+          ),
+        ],
       ],
     );
 
     final thisMonth = Column(
       children: [
-        _DashboardNavigationTile(
+        _DashboardMonthRow(
+          icon: Icons.receipt_long_outlined,
+          title: 'Active bills',
+          value: '${overview.activePersonalBillCount}',
+          detail: overview.personalBills.isEmpty
+              ? 'No personal bills loaded'
+              : 'Latest: ${overview.personalBills.first.displayName}',
+          onTap: onOpenBills,
+        ),
+        _DashboardMonthRow(
           key: const Key('server-shell-settlements'),
           icon: Icons.handshake_outlined,
-          title: 'Settlements',
-          subtitle: overview.settlementActionCount == 0
-              ? 'Review balances and requests'
-              : '${overview.settlementActionCount} request${_plural(overview.settlementActionCount)} may need review',
+          title: 'Settlement requests',
+          value: '${overview.settlementActionCount}',
           detail: overview.openBalanceCount == 0
-              ? null
+              ? 'No open settlement balances'
               : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)}',
           onTap: onOpenSettlements,
         ),
@@ -1456,6 +1587,56 @@ class _DashboardCalmCard extends StatelessWidget {
         leading: Icon(Icons.check_circle_outline),
         title: Text(
           'Nothing urgent right now. Check recent activity or start a new bill when you are ready.',
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardEmptySectionCard extends StatelessWidget {
+  const _DashboardEmptySectionCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.actionKey,
+    required this.actionLabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Key actionKey;
+  final String actionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 2),
+                  Text(message),
+                ],
+              ),
+            ),
+            TextButton(
+              key: actionKey,
+              onPressed: onTap,
+              child: Text(actionLabel),
+            ),
+          ],
         ),
       ),
     );
@@ -1657,34 +1838,141 @@ class _DashboardRecurringDraftsAction extends StatelessWidget {
   }
 }
 
-class _DashboardNavigationTile extends StatelessWidget {
-  const _DashboardNavigationTile({
-    super.key,
+class _DashboardBillRow extends StatelessWidget {
+  const _DashboardBillRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    required this.amount,
+    required this.context,
+    required this.timing,
     required this.onTap,
-    this.detail,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
-  final String? detail;
+  final String amount;
+  final String context;
+  final String timing;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final detail = this.detail;
-
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: Icon(icon),
         title: Text(title),
-        subtitle: Text(detail == null ? subtitle : '$subtitle\n$detail'),
-        isThreeLine: detail != null,
-        trailing: const Icon(Icons.chevron_right),
+        subtitle: Text('$timing\n$context'),
+        isThreeLine: true,
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(amount, style: Theme.of(context).textTheme.labelLarge),
+            const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _DashboardActivityRow extends StatelessWidget {
+  const _DashboardActivityRow({
+    required this.initials,
+    required this.title,
+    required this.message,
+    required this.status,
+    required this.onTap,
+  });
+
+  final String initials;
+  final String title;
+  final String message;
+  final String status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.tertiaryContainer,
+          foregroundColor: theme.colorScheme.onTertiaryContainer,
+          child: Text(initials),
+        ),
+        title: Text(title),
+        subtitle: Text(message),
+        trailing: Text(status, style: theme.textTheme.labelMedium),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _DashboardInlineActionRow extends StatelessWidget {
+  const _DashboardInlineActionRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: TextButton.icon(
+        style: TextButton.styleFrom(alignment: Alignment.centerLeft),
+        onPressed: onTap,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      ),
+    );
+  }
+}
+
+class _DashboardMonthRow extends StatelessWidget {
+  const _DashboardMonthRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.detail,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String detail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(detail),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
         onTap: onTap,
       ),
     );
@@ -1705,6 +1993,8 @@ bool _amountStringLooksNonZero(String value) {
   final normalized = value.trim().replaceAll('-', '').replaceAll('.', '');
   return normalized.runes.any((codeUnit) => codeUnit >= 49 && codeUnit <= 57);
 }
+
+String _money(String amount, String currency) => '$currency $amount';
 
 class SettleoraSessionListScreen extends StatefulWidget {
   const SettleoraSessionListScreen({

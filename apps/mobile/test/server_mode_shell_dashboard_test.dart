@@ -52,8 +52,9 @@ void main() {
     expect(find.text('Welcome back, Taylor'), findsOneWidget);
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
-    expect(find.text('Attention'), findsOneWidget);
-    expect(find.text('Balances'), findsOneWidget);
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('No balances yet'), findsNothing);
     expect(find.text('Upcoming bills'), findsOneWidget);
     expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
@@ -61,13 +62,15 @@ void main() {
       find.byKey(const Key('server-shell-notifications-header')),
       findsOneWidget,
     );
-    expect(find.text('Personal bills'), findsOneWidget);
-    expect(find.textContaining('1 recent active bill'), findsOneWidget);
+    expect(find.text('Active bills'), findsOneWidget);
+    expect(find.text('All bills'), findsOneWidget);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('USD 24.50'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
-    expect(find.text('Shared bills'), findsOneWidget);
+    expect(find.text('Open groups'), findsOneWidget);
     expect(
-      find.textContaining('Open groups to review shared bills'),
-      findsOneWidget,
+      find.textContaining('Create a group or shared bill to see activity here'),
+      findsNothing,
     );
     expect(
       find.textContaining('No global shared-bill count is exposed'),
@@ -78,7 +81,7 @@ void main() {
       find.textContaining('1 forecast item ready for draft review'),
       findsWidgets,
     );
-    expect(find.textContaining('2 unread notifications'), findsOneWidget);
+    expect(find.textContaining('2 unread update'), findsOneWidget);
     expect(
       find.byKey(const Key('server-shell-sync-status-card')),
       findsNothing,
@@ -106,6 +109,8 @@ void main() {
     expect(find.text('Upcoming bills'), findsOneWidget);
     expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
     expect(find.text('Create bill'), findsOneWidget);
     expect(find.text('Create group'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -135,6 +140,49 @@ void main() {
     expect(surfaceWidth, lessThanOrEqualTo(480));
     expect(find.textContaining('No global shared-bill count'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dashboard replaces route cards with metric and content rows', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      billRepository: FakeBillRepository(bills: [sampleBill()]),
+      notificationRepository: FakeNotificationRepository(
+        summary: const SettleoraNotificationSummary(
+          unreadCount: 2,
+          attentionCount: 1,
+          urgentCount: 1,
+        ),
+      ),
+      settlementRepository: FakeSettlementRepository(
+        balances: [
+          sampleBalance(),
+          sampleBalance(
+            direction: SettleoraSettlementBalanceDirectionValues.incoming,
+            amount: '18.00',
+          ),
+        ],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('No balances yet'), findsNothing);
+    expect(find.text('USD 10.00'), findsOneWidget);
+    expect(find.text('USD 18.00'), findsOneWidget);
+    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Rent'), findsOneWidget);
+    expect(find.text('Personal bills'), findsNothing);
+    expect(find.text('Shared bills'), findsNothing);
+    expect(find.text('Open notifications'), findsOneWidget);
+    expect(find.text('Open groups'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-bills')), findsWidgets);
+    expect(find.byKey(const Key('server-shell-groups')), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-notifications')), findsOneWidget);
   });
 
   testWidgets(
@@ -391,6 +439,11 @@ void main() {
   ) async {
     final billRepository = FakeBillRepository(bills: [sampleBill()]);
     final notificationRepository = FakeNotificationRepository(
+      summary: const SettleoraNotificationSummary(
+        unreadCount: 1,
+        attentionCount: 0,
+        urgentCount: 0,
+      ),
       notifications: [sampleNotification()],
     );
 
@@ -410,17 +463,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    final notificationsTile = find.byKey(
-      const Key('server-shell-notifications'),
-    );
-    await tester.dragUntilVisible(
-      notificationsTile,
-      find.byType(Scrollable).first,
-      const Offset(0, -300),
-    );
-    await tester.ensureVisible(notificationsTile);
-    await tester.pumpAndSettle();
-    await tester.tap(notificationsTile);
+    await scrollToAndTap(tester, const Key('server-shell-notifications'));
     await tester.pumpAndSettle();
 
     expect(find.text('Notifications'), findsOneWidget);
@@ -443,18 +486,21 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text("You're owed"), findsOneWidget);
+    expect(find.text('USD 0.00'), findsNWidgets(2));
+    expect(find.text('No upcoming due bills'), findsOneWidget);
     expect(
-      find.textContaining('Open bills to create or review personal records'),
+      find.text('Create a bill to start tracking upcoming payments'),
       findsOneWidget,
     );
+    expect(find.text('No recent group activity'), findsOneWidget);
     expect(
-      find.textContaining('Open groups to review shared bills'),
+      find.text('Create a group or shared bill to see activity here'),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('Review templates and forecast'),
-      findsOneWidget,
-    );
+    expect(find.text('Personal bills'), findsNothing);
+    expect(find.text('Shared bills'), findsNothing);
   });
 
   testWidgets('dashboard quick action opens personal bill create screen', (
@@ -504,6 +550,7 @@ void main() {
       expect(billRepository.lastCreateDraft?.merchantName, 'Quick Cafe');
       expect(billRepository.listCalls, 2);
       expect(find.textContaining('Latest: Quick Cafe'), findsOneWidget);
+      expect(find.text('Quick Cafe'), findsOneWidget);
     },
   );
 
@@ -634,7 +681,7 @@ void main() {
     await scrollToAndTap(tester, const Key('dashboard-overview-retry'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Personal bills'), findsOneWidget);
+    expect(find.text('Active bills'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(billRepository.listCalls, 2);
   });
@@ -1049,7 +1096,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Personal bills'), findsOneWidget);
+    expect(find.text('Active bills'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(
       find.byKey(const Key('server-shell-sync-status-card')),
@@ -1069,17 +1116,10 @@ void main() {
 
     expect(notificationRepository.summaryCalls, 1);
 
-    final notificationsTile = find.byKey(
-      const Key('server-shell-notifications'),
+    final notificationsButton = find.byKey(
+      const Key('server-shell-notifications-header'),
     );
-    await tester.dragUntilVisible(
-      notificationsTile,
-      find.byType(Scrollable).first,
-      const Offset(0, -300),
-    );
-    await tester.ensureVisible(notificationsTile);
-    await tester.pumpAndSettle();
-    await tester.tap(notificationsTile);
+    await tester.tap(notificationsButton);
     await tester.pumpAndSettle();
 
     final callsAfterOpeningNotifications = notificationRepository.summaryCalls;
@@ -1239,16 +1279,20 @@ SettleoraBillDetail sampleBillDetail({
   );
 }
 
-SettleoraSettlementBalance sampleBalance() {
-  return const SettleoraSettlementBalance(
+SettleoraSettlementBalance sampleBalance({
+  String direction = SettleoraSettlementBalanceDirectionValues.outgoing,
+  String amount = '10.00',
+  String currency = 'USD',
+}) {
+  return SettleoraSettlementBalance(
     counterpartyUserProfileId: 'counterparty-1',
     groupId: null,
-    direction: SettleoraSettlementBalanceDirectionValues.outgoing,
-    currency: 'USD',
-    selectedLineAmount: '10.00',
+    direction: direction,
+    currency: currency,
+    selectedLineAmount: amount,
     pendingClaimedAmount: '0.00',
     confirmedClearedAmount: '0.00',
-    remainingUnclaimedAmount: '10.00',
+    remainingUnclaimedAmount: amount,
     confirmedRemainingResidualAmount: '0.00',
     waivedResidualAmount: '0.00',
     creditResidualAmount: '0.00',

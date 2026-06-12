@@ -14,8 +14,10 @@
     "fixSummary": [
       "Home now has a centered phone-width dashboard surface on wide test windows instead of a stretched desktop layout.",
       "Home now has a compact dashboard header with user context plus refresh, notification, and profile affordances.",
-      "Two top summary cards show attention and balance status with honest neutral states when no data is available.",
-      "Quick actions, Needs attention, Upcoming bills, Group activity, This month, and compact More controls are explicit sections.",
+      "Two top metric cards show You owe and You're owed with honest zero or server-provided settlement balance values.",
+      "Upcoming bills now uses bill-like rows or a compact honest empty state instead of Personal bills and Recurring bills route cards as primary content.",
+      "Group activity now uses feed-style rows or a compact honest empty state instead of Shared bills and Notifications route cards as primary content.",
+      "Quick actions, Needs attention, Upcoming bills, Group activity, This month, and compact More controls remain explicit sections.",
       "The shared-bills copy is user-facing and no longer mentions seams or unavailable implementation details.",
       "The layout is constrained and adaptive for narrow and wide viewports, with focused tests covering both and route handoffs."
     ],

@@ -72,7 +72,9 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 - Home/dashboard shell rendering in server-mode-ready app state.
 - Empty/unavailable dashboard states.
 - Visible dashboard section labels such as `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More`.
-- Top summary cards that use existing mobile data or honest neutral states such as `0 due` and `No balances yet`.
+- Balance metric cards such as `You owe` and `You're owed` that use existing mobile data or honest neutral zero states.
+- `Upcoming bills` content rows or honest empty states instead of route-card shortcuts as primary content.
+- `Group activity` feed rows or honest empty states instead of route-card shortcuts as primary content.
 - Absence of implementation-seam copy on the Home dashboard.
 - Narrow/mobile and wide desktop/test viewport Home dashboard behavior.
 - Bottom navigation labels and active-state behavior.
@@ -85,6 +87,9 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 The M2 Home/dashboard fix remains human-review required until a tester verifies:
 
 - The Home screen visibly changed from the previous profile-plus-menu-list page.
+- `You owe` and `You're owed` appear as the primary balance metric cards with honest zero or server-provided balance values.
+- `Upcoming bills` uses bill-like rows or a compact honest empty state, not `Personal bills` and `Recurring bills` route cards as the main content.
+- `Group activity` uses feed-style rows or a compact honest empty state, not `Shared bills` and `Notifications` route cards as the main content.
 - `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More` appear as meaningful user-facing sections.
 - `Create bill` and `Create group` still open their existing flows.
 - Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report routes still work from Home where present.
