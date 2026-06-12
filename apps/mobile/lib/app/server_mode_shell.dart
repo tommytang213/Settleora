@@ -521,7 +521,9 @@ class _SettleoraAuthenticatedServerShellState
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final maxWidth = constraints.maxWidth >= 560 ? 480.0 : 680.0;
+            final maxWidth = constraints.maxWidth >= 560
+                ? 430.0
+                : double.infinity;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -764,9 +766,9 @@ class _DashboardHero extends StatelessWidget {
 
         return Container(
           key: const Key('server-shell-current-user'),
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer,
+            color: theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -777,18 +779,18 @@ class _DashboardHero extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
-                      backgroundColor: theme.colorScheme.onPrimaryContainer,
-                      foregroundColor: theme.colorScheme.primaryContainer,
+                      backgroundColor: theme.colorScheme.primaryContainer,
+                      foregroundColor: theme.colorScheme.onPrimaryContainer,
                       child: const Icon(Icons.person_outline),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 _DashboardHeroTitle(
                   currentUser: currentUser,
                   defaultCurrency: defaultCurrency,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     IconButton(
@@ -821,8 +823,8 @@ class _DashboardHero extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
-                      backgroundColor: theme.colorScheme.onPrimaryContainer,
-                      foregroundColor: theme.colorScheme.primaryContainer,
+                      backgroundColor: theme.colorScheme.primaryContainer,
+                      foregroundColor: theme.colorScheme.onPrimaryContainer,
                       child: const Icon(Icons.person_outline),
                     ),
                     const SizedBox(width: 12),
@@ -857,7 +859,7 @@ class _DashboardHero extends StatelessWidget {
                     ),
                   ],
                 ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -915,14 +917,16 @@ class _DashboardSummaryCards extends StatelessWidget {
         title: 'You owe',
         value: youOwe.value,
         caption: youOwe.caption,
-        emphasized: youOwe.hasBalance,
+        backgroundColor: const Color(0xFFFFE8EC),
+        foregroundColor: const Color(0xFF8A1230),
       ),
       _DashboardSummaryCard(
         icon: Icons.south_west_outlined,
         title: "You're owed",
         value: youAreOwed.value,
         caption: youAreOwed.caption,
-        emphasized: youAreOwed.hasBalance,
+        backgroundColor: const Color(0xFFE3F6E8),
+        foregroundColor: const Color(0xFF0B6B35),
       ),
     ];
 
@@ -953,23 +957,23 @@ class _DashboardSummaryCard extends StatelessWidget {
     required this.title,
     required this.value,
     required this.caption,
-    required this.emphasized,
+    required this.backgroundColor,
+    required this.foregroundColor,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String caption;
-  final bool emphasized;
+  final Color backgroundColor;
+  final Color foregroundColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Card(
-      color: emphasized
-          ? theme.colorScheme.secondaryContainer
-          : theme.colorScheme.surfaceContainerHighest,
+      color: backgroundColor,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -977,15 +981,33 @@ class _DashboardSummaryCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 20),
+                Icon(icon, size: 20, color: foregroundColor),
                 const SizedBox(width: 8),
-                Expanded(child: Text(title, style: theme.textTheme.labelLarge)),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: foregroundColor,
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
-            Text(value, style: theme.textTheme.titleLarge),
+            Text(
+              value,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text(caption, style: theme.textTheme.bodySmall),
+            Text(
+              caption,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: foregroundColor,
+              ),
+            ),
           ],
         ),
       ),
@@ -1046,17 +1068,21 @@ class _DashboardHeroTitle extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Today', style: theme.textTheme.labelLarge),
+        Text('Good morning', style: theme.textTheme.labelLarge),
         const SizedBox(height: 4),
         Text(
           'Welcome back, ${currentUser.displayName}',
-          style: theme.textTheme.headlineSmall,
+          style: theme.textTheme.titleLarge,
         ),
         const SizedBox(height: 4),
-        Text(
-          defaultCurrency == null
-              ? 'Signed in'
-              : 'Signed in - $defaultCurrency',
+        Chip(
+          visualDensity: VisualDensity.compact,
+          avatar: const Icon(Icons.verified_user_outlined, size: 16),
+          label: Text(
+            defaultCurrency == null
+                ? 'Secure & synced'
+                : 'Secure & synced - $defaultCurrency',
+          ),
         ),
       ],
     );
@@ -1420,7 +1446,7 @@ class _DashboardOverviewContent extends StatelessWidget {
             icon: Icons.event_available_outlined,
             title: 'No upcoming due bills',
             message: 'Create a bill to start tracking upcoming payments',
-            actionKey: const Key('server-shell-bills'),
+            actionKey: const Key('server-shell-empty-bills'),
             actionLabel: 'Open bills',
             onTap: onOpenBills,
           )
@@ -1430,7 +1456,7 @@ class _DashboardOverviewContent extends StatelessWidget {
               icon: Icons.receipt_long_outlined,
               title: bill.displayName,
               amount: _money(bill.totalAmount, bill.totalCurrency),
-              context: '${bill.itemCount} item${_plural(bill.itemCount)}',
+              metadata: '${bill.itemCount} item${_plural(bill.itemCount)}',
               timing: 'Bill date ${bill.billDate}',
               onTap: onOpenBills,
             ),
@@ -1442,7 +1468,7 @@ class _DashboardOverviewContent extends StatelessWidget {
                 occurrence.forecastAmount,
                 occurrence.forecastCurrency,
               ),
-              context: occurrence.isGroupScoped
+              metadata: occurrence.isGroupScoped
                   ? 'Group recurring'
                   : 'Personal recurring',
               timing: occurrence.dueDate == null
@@ -1450,18 +1476,6 @@ class _DashboardOverviewContent extends StatelessWidget {
                   : 'Due ${occurrence.dueDate}',
               onTap: onOpenRecurringBills,
             ),
-          _DashboardInlineActionRow(
-            key: const Key('server-shell-bills'),
-            icon: Icons.list_alt_outlined,
-            label: 'All bills',
-            onTap: onOpenBills,
-          ),
-          _DashboardInlineActionRow(
-            key: const Key('server-shell-recurring-bills'),
-            icon: Icons.event_repeat_outlined,
-            label: 'Recurring forecast',
-            onTap: onOpenRecurringBills,
-          ),
         ],
       ],
     );
@@ -1526,6 +1540,7 @@ class _DashboardOverviewContent extends StatelessWidget {
     final thisMonth = Column(
       children: [
         _DashboardMonthRow(
+          key: const Key('server-shell-bills'),
           icon: Icons.receipt_long_outlined,
           title: 'Active bills',
           value: '${overview.activePersonalBillCount}',
@@ -1533,6 +1548,16 @@ class _DashboardOverviewContent extends StatelessWidget {
               ? 'No personal bills loaded'
               : 'Latest: ${overview.personalBills.first.displayName}',
           onTap: onOpenBills,
+        ),
+        _DashboardMonthRow(
+          key: const Key('server-shell-recurring-bills'),
+          icon: Icons.event_repeat_outlined,
+          title: 'Recurring',
+          value: '${overview.activeRecurringTemplateCount}',
+          detail: overview.recurringForecast.isEmpty
+              ? 'No forecast rows loaded'
+              : '${overview.recurringForecast.length} forecast row${_plural(overview.recurringForecast.length)} loaded',
+          onTap: onOpenRecurringBills,
         ),
         _DashboardMonthRow(
           key: const Key('server-shell-settlements'),
@@ -1843,7 +1868,7 @@ class _DashboardBillRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.amount,
-    required this.context,
+    required this.metadata,
     required this.timing,
     required this.onTap,
   });
@@ -1851,7 +1876,7 @@ class _DashboardBillRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String amount;
-  final String context;
+  final String metadata;
   final String timing;
   final VoidCallback onTap;
 
@@ -1860,9 +1885,20 @@ class _DashboardBillRow extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        leading: Icon(icon),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            color: Theme.of(context).colorScheme.onSecondaryContainer,
+          ),
+        ),
         title: Text(title),
-        subtitle: Text('$timing\n$context'),
+        subtitle: Text('$timing\n$metadata'),
         isThreeLine: true,
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,

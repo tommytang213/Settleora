@@ -48,8 +48,9 @@ void main() {
       recurringRepository: recurringRepository,
     );
 
-    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Good morning'), findsOneWidget);
     expect(find.text('Welcome back, Taylor'), findsOneWidget);
+    expect(find.text('Secure & synced - USD'), findsOneWidget);
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
     expect(find.text('You owe'), findsOneWidget);
@@ -63,7 +64,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Active bills'), findsOneWidget);
-    expect(find.text('All bills'), findsOneWidget);
+    expect(find.text('All bills'), findsNothing);
+    expect(find.text('Recurring forecast'), findsNothing);
     expect(find.text('Corner Market'), findsOneWidget);
     expect(find.text('USD 24.50'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
@@ -76,6 +78,8 @@ void main() {
       find.textContaining('No global shared-bill count is exposed'),
       findsNothing,
     );
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
     expect(find.textContaining('1 request may need review'), findsWidgets);
     expect(
       find.textContaining('1 forecast item ready for draft review'),
@@ -137,8 +141,10 @@ void main() {
     final surfaceWidth = tester
         .getSize(find.byKey(const Key('server-shell-dashboard-surface')))
         .width;
-    expect(surfaceWidth, lessThanOrEqualTo(480));
+    expect(surfaceWidth, lessThanOrEqualTo(430));
     expect(find.textContaining('No global shared-bill count'), findsNothing);
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -178,6 +184,10 @@ void main() {
     expect(find.text('Rent'), findsOneWidget);
     expect(find.text('Personal bills'), findsNothing);
     expect(find.text('Shared bills'), findsNothing);
+    expect(find.text('All bills'), findsNothing);
+    expect(find.text('Recurring forecast'), findsNothing);
+    expect(find.textContaining('_DashboardBillRow'), findsNothing);
+    expect(find.textContaining('dependencies:'), findsNothing);
     expect(find.text('Open notifications'), findsOneWidget);
     expect(find.text('Open groups'), findsOneWidget);
     expect(find.byKey(const Key('server-shell-bills')), findsWidgets);
@@ -544,7 +554,7 @@ void main() {
       await tester.tap(find.byKey(const Key('personal-bill-save')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Good morning'), findsOneWidget);
       expect(find.byKey(const Key('personal-bill-date')), findsNothing);
       expect(billRepository.createCalls, 1);
       expect(billRepository.lastCreateDraft?.merchantName, 'Quick Cafe');
