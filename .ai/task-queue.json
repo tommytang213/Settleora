@@ -147,7 +147,7 @@
     "title": "Mobile nav/home UI testing checklist and milestone QA report",
     "risk": "low",
     "autoMergeAllowed": false,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

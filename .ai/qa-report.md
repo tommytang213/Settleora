@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2-004 groups and settle landing handoff polish completed after Home/nav follow-up; human PC UI retest required`
+Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI testing ready; human PC UI retest required`
 
 ## Acceptance Checklist
 
@@ -9,9 +9,10 @@ Status: `M2-004 groups and settle landing handoff polish completed after Home/na
 - [x] Scope guard is expected to cover kickoff docs/control changes only.
 - [x] M2 current-state reconciliation completed.
 - [x] Groups and Settle landing handoff polish completed and validated.
+- [x] Full relevant mobile validation completed.
+- [x] Human UI testing checklist completed.
 - [x] Home/dashboard visible redesign implemented and focused-test validated.
 - [x] Bottom navigation clarity polish completed and focused-test validated for Home.
-- [ ] Full relevant mobile validation completed.
 - [x] Human UI retest checklist updated for Home dashboard regression.
 - [ ] Human PC UI retest confirms visible Home dashboard improvement.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
@@ -57,6 +58,12 @@ Status: `M2-004 groups and settle landing handoff polish completed after Home/na
 
 ## Findings
 
+- Human UI testing checklist added at `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
+- Milestone QA report added at `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`.
+- Automated coverage is present for Home/dashboard, dashboard preview variants, Groups, group bills, Bills, Settlements/Settle, and the shared bottom navigation guardrails through focused mobile widget tests.
+- Required validation passed, including `npm run validate:docs`, `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, and `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`.
+- M2 is marked UI-testing ready and human-review required because the Home/dashboard and navigation polish still require human PC UI retest.
+- No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, local storage policy, or secret changes were made.
 - `M2-004` added an explicit no-groups empty-state action that opens the existing group creation flow without adding backend, auth, storage, or sync behavior.
 - Group detail now exposes a compact `Shared bill workspace` handoff into the existing group-bill list/create/review flow while preserving current group/member repository boundaries.
 - Group bill list empty state now offers `Create group bill`, and the group context copy clarifies that loaded group bills can be filtered for user response needs.
