@@ -293,6 +293,7 @@ class _SettleoraAuthenticatedServerShellState
       attachmentFileInput: widget.billAttachmentFileInput,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       revisionRepository: widget.billRevisionRepository,
+      showBottomNav: false,
     );
   }
 

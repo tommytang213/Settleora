@@ -18,6 +18,7 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('dashboard overview renders repository summaries', (
@@ -137,21 +138,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Bills'), findsWidgets);
     expectCanonicalBottomNav(tester, selectedIndex: 1);
+    expectSingleCanonicalBottomNav(tester);
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-groups')));
     await tester.pumpAndSettle();
     expect(find.text('Groups'), findsWidgets);
     expectCanonicalBottomNav(tester, selectedIndex: 2);
+    expectSingleCanonicalBottomNav(tester);
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-settle')));
     await tester.pumpAndSettle();
     expect(find.text('Settlements'), findsWidgets);
     expectCanonicalBottomNav(tester, selectedIndex: 3);
+    expectSingleCanonicalBottomNav(tester);
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-settings')));
     await tester.pumpAndSettle();
     expect(find.text('Profile'), findsWidgets);
     expectCanonicalBottomNav(tester, selectedIndex: 4);
+    expectSingleCanonicalBottomNav(tester);
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
     await tester.pumpAndSettle();
@@ -160,6 +165,7 @@ void main() {
       findsOneWidget,
     );
     expectCanonicalBottomNav(tester, selectedIndex: 0);
+    expectSingleCanonicalBottomNav(tester);
   });
 
   testWidgets('dashboard keeps visible sections on narrow and wide viewports', (
@@ -543,6 +549,7 @@ void main() {
 
     expect(find.text('Bills'), findsWidgets);
     expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
+    expectSingleCanonicalBottomNav(tester);
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
 
     await tester.pageBack();
@@ -1301,6 +1308,26 @@ void expectCanonicalBottomNav(
   expect(
     bottomNavDestination(const Key('bottom-nav-settings')),
     findsOneWidget,
+  );
+}
+
+void expectSingleCanonicalBottomNav(WidgetTester tester) {
+  expect(find.byKey(const Key('server-shell-bottom-nav')), findsOneWidget);
+  expect(find.byType(NavigationBar), findsOneWidget);
+  expect(find.byType(SettleoraBottomNav), findsNothing);
+  expect(
+    find.descendant(
+      of: find.byType(SettleoraBottomNav),
+      matching: find.text('Receipts'),
+    ),
+    findsNothing,
+  );
+  expect(
+    find.descendant(
+      of: find.byType(SettleoraBottomNav),
+      matching: find.text('Profile'),
+    ),
+    findsNothing,
   );
 }
 
