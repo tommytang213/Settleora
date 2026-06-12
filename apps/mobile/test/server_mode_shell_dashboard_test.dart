@@ -1482,10 +1482,8 @@ Future<void> fillMinimalPersonalBillCreateForm(WidgetTester tester) async {
     find.byKey(const Key('personal-bill-merchant-name')),
     'Quick Cafe',
   );
-  await tester.enterText(
-    find.byKey(const Key('personal-bill-date')),
-    '2026-06-08',
-  );
+  await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+  await tester.pumpAndSettle();
   await tester.enterText(
     find.byKey(const Key('personal-bill-item-name-0')),
     'Lunch',

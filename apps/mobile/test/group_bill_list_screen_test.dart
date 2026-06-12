@@ -2582,7 +2582,7 @@ void main() {
     expect(find.text('Jordan (0)'), findsOneWidget);
     expect(find.text('Unassigned (1)'), findsOneWidget);
     expect(find.text('Tea'), findsWidgets);
-    expect(find.text('Qty preview'), findsWidgets);
+    expect(find.text('Qty 1'), findsWidgets);
     expect(
       find.byKey(const Key('group-bill-unassigned-warning')),
       findsOneWidget,
@@ -2703,10 +2703,10 @@ void main() {
         '3',
       );
 
-      expect(find.text('Line total amount'), findsOneWidget);
-      expect(find.text('Quantity / units'), findsOneWidget);
+      expect(find.text('Line total'), findsOneWidget);
+      expect(find.text('Quantity'), findsOneWidget);
       expect(
-        find.text('Optional split guidance; line total stays the same.'),
+        find.text('Defaults to 1 for a single line total.'),
         findsOneWidget,
       );
       expect(find.text('Splits'), findsNothing);

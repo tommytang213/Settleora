@@ -629,6 +629,30 @@ class _SettleoraPersonalBillCreateScreenState
     setState(() {});
   }
 
+  void _setPersonalBillCurrency(String currency) {
+    final normalizedCurrency = currency.trim().toUpperCase();
+    if (normalizedCurrency.isEmpty) {
+      return;
+    }
+
+    final previousCurrency = _currencyController.text.trim().toUpperCase();
+    setState(() {
+      _currencyController.text = normalizedCurrency;
+      for (final item in _itemControllers) {
+        final itemCurrency = item.currency.text.trim().toUpperCase();
+        if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
+          item.currency.text = normalizedCurrency;
+        }
+      }
+    });
+  }
+
+  void _setPersonalBillDate(DateTime date) {
+    setState(() {
+      _billDateController.text = _formatBillDate(date);
+    });
+  }
+
   bool get _hasMeaningfulUnsavedDraft {
     if (_createdBillAwaitingAttachmentUpload != null) {
       return true;
@@ -654,6 +678,8 @@ class _SettleoraPersonalBillCreateScreenState
 
     final item = _itemControllers.single;
     return item.name.text.trim().isNotEmpty ||
+        item.quantity.text.trim() != '1' ||
+        item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
         item.currency.text.trim().toUpperCase() != 'USD';
@@ -939,7 +965,7 @@ class _SettleoraPersonalBillCreateScreenState
             (item) => SettleoraPersonalBillCreateItemDraft(
               name: item.name.text,
               note: item.note.text,
-              amount: item.amount.text,
+              amount: _resolvedItemLineTotal(item),
               currency: item.currency.text,
             ),
           )
@@ -1117,30 +1143,29 @@ class _SettleoraPersonalBillCreateScreenState
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        _MobileDatePickerField(
                           key: const Key('personal-bill-date'),
                           controller: _billDateController,
                           enabled: !_isSaving,
-                          onChanged: (_) => _notifyDraftChanged(),
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Bill date',
-                            hintText: 'YYYY-MM-DD',
-                          ),
-                          validator: (value) =>
-                              _requiredField(value, 'Enter a bill date.'),
+                          label: 'Bill date',
+                          todayKey: const Key('personal-bill-date-today'),
+                          pickerKey: const Key('personal-bill-date-picker'),
+                          onDateSelected: (date) {
+                            _setPersonalBillDate(date);
+                            _notifyDraftChanged();
+                          },
+                          validator: (value) => _billDateField(value),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        _CurrencyPickerField(
                           key: const Key('personal-bill-currency'),
                           controller: _currencyController,
                           enabled: !_isSaving,
-                          onChanged: (_) => _notifyDraftChanged(),
-                          textCapitalization: TextCapitalization.characters,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Currency',
-                          ),
+                          label: 'Currency',
+                          onChanged: (currency) {
+                            _setPersonalBillCurrency(currency);
+                            _notifyDraftChanged();
+                          },
                           validator: (value) => _currencyCodeField(
                             value,
                             requiredMessage: 'Enter a currency.',
@@ -1334,17 +1359,87 @@ class _CreateBillHeader extends StatelessWidget {
 class _PersonalBillCreateItemControllers {
   _PersonalBillCreateItemControllers({String? currency})
     : name = TextEditingController(),
+      quantity = TextEditingController(text: '1'),
+      unitAmount = TextEditingController(),
       amount = TextEditingController(),
       currency = TextEditingController(text: currency ?? ''),
       note = TextEditingController();
 
   final TextEditingController name;
+  final TextEditingController quantity;
+  final TextEditingController unitAmount;
   final TextEditingController amount;
   final TextEditingController currency;
   final TextEditingController note;
+  bool _unitAmountEditedByUser = false;
+  bool _lineTotalEditedByUser = false;
+
+  void syncAfterQuantityEdited() {
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (_unitAmountEditedByUser && !_lineTotalEditedByUser) {
+      _setLineTotalFromUnitAmount(quantityValue);
+      return;
+    }
+
+    if (_lineTotalEditedByUser && !_unitAmountEditedByUser) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterUnitAmountEdited() {
+    _unitAmountEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_lineTotalEditedByUser || amount.text.trim().isEmpty) {
+      _setLineTotalFromUnitAmount(quantityValue);
+    }
+  }
+
+  void syncAfterLineTotalEdited() {
+    _lineTotalEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_unitAmountEditedByUser || unitAmount.text.trim().isEmpty) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void _setLineTotalFromUnitAmount(int quantityValue) {
+    final unit = _parseExactDecimalAmount(unitAmount.text);
+    if (unit == null || !_exactDecimalIsPositive(unit)) {
+      return;
+    }
+
+    amount.text = _formatExactDecimalAmount(
+      _multiplyExactDecimalByWhole(unit, quantityValue),
+    );
+  }
+
+  void _setUnitAmountFromLineTotal(int quantityValue) {
+    final lineTotal = _parseExactDecimalAmount(amount.text);
+    if (lineTotal == null || !_exactDecimalIsPositive(lineTotal)) {
+      return;
+    }
+
+    unitAmount.text = _formatExactDecimalAmount(
+      _divideExactDecimalByWhole(lineTotal, quantityValue),
+    );
+  }
 
   void dispose() {
     name.dispose();
+    quantity.dispose();
+    unitAmount.dispose();
     amount.dispose();
     currency.dispose();
     note.dispose();
@@ -1379,7 +1474,7 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
         .where((item) => item.name.text.trim().isEmpty)
         .length;
     final missingItemAmounts = itemControllers
-        .where((item) => item.amount.text.trim().isEmpty)
+        .where((item) => !_billCreateItemHasCompleteAmountPair(item))
         .length;
     final missingItemCurrencies = itemControllers
         .where((item) => item.currency.text.trim().isEmpty)
@@ -1831,17 +1926,48 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             TextFormField(
+              key: ValueKey('personal-bill-item-quantity-$index'),
+              controller: controllers.quantity,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterQuantityEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Quantity',
+                helperText: 'Defaults to 1 for a single line total.',
+              ),
+              validator: _requiredPositiveWholeNumberField,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('personal-bill-item-unit-amount-$index'),
+              controller: controllers.unitAmount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterUnitAmountEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Unit amount'),
+              validator: (value) => _optionalPositiveMoneyAmountField(value),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
               key: ValueKey('personal-bill-item-amount-$index'),
               controller: controllers.amount,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
+              onChanged: (_) {
+                controllers.syncAfterLineTotalEdited();
+                onDraftChanged();
+              },
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              validator: (value) => _positiveMoneyAmountField(
-                value,
-                requiredMessage: 'Enter an item amount.',
-              ),
+              decoration: const InputDecoration(labelText: 'Line total'),
+              validator: (_) => _billCreateItemAmountModelError(controllers),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -2967,8 +3093,9 @@ class _SettleoraGroupBillCreateScreenState
 
     final item = _itemControllers.single;
     if (item.name.text.trim().isNotEmpty ||
+        item.quantityUnits.text.trim() != '1' ||
+        item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
-        item.quantityUnits.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
         item.currency.text.trim().toUpperCase() != 'USD' ||
         item.splits.length != 1 ||
@@ -3256,7 +3383,7 @@ class _SettleoraGroupBillCreateScreenState
             (item) => SettleoraGroupBillCreateItemDraft(
               name: item.name.text,
               note: item.note.text,
-              amount: item.amount.text,
+              amount: _resolvedItemLineTotal(item),
               currency: item.currency.text,
               splits: item.splits
                   .map(
@@ -3502,11 +3629,7 @@ class _SettleoraGroupBillCreateScreenState
         _itemControllers.any(
           (item) =>
               item.name.text.trim().isEmpty ||
-              _positiveMoneyAmountField(
-                    item.amount.text,
-                    requiredMessage: 'Enter an item amount.',
-                  ) !=
-                  null ||
+              _billCreateItemAmountModelError(item) != null ||
               _currencyCodeField(
                     item.currency.text,
                     requiredMessage: 'Enter an item currency.',
@@ -6239,7 +6362,7 @@ List<SettleoraGroupMember> _groupBillAssignedMembers(
 }
 
 String _groupBillQuantityLabel(_GroupBillCreateItemControllers item) {
-  final quantity = _quantityFromItemNote(item.note.text);
+  final quantity = _positiveWholeNumber(item.quantityUnits.text);
   if (quantity != null) {
     return 'Qty $quantity';
   }
@@ -6294,7 +6417,9 @@ List<String> _groupBillCreateWarnings({
     warnings.add('Missing bill date.');
   }
   if (itemControllers.any(
-    (item) => item.name.text.trim().isEmpty || item.amount.text.trim().isEmpty,
+    (item) =>
+        item.name.text.trim().isEmpty ||
+        !_billCreateItemHasCompleteAmountPair(item),
   )) {
     warnings.add('One or more items need a name and amount.');
   }
@@ -6337,18 +6462,84 @@ List<String> _groupBillCreateWarnings({
 class _GroupBillCreateItemControllers {
   _GroupBillCreateItemControllers({String? currency})
     : name = TextEditingController(),
+      unitAmount = TextEditingController(),
       amount = TextEditingController(),
-      quantityUnits = TextEditingController(),
+      quantityUnits = TextEditingController(text: '1'),
       currency = TextEditingController(text: currency ?? ''),
       note = TextEditingController(),
       splits = [_GroupBillCreateSplitControllers()];
 
   final TextEditingController name;
+  final TextEditingController unitAmount;
   final TextEditingController amount;
   final TextEditingController quantityUnits;
   final TextEditingController currency;
   final TextEditingController note;
   final List<_GroupBillCreateSplitControllers> splits;
+  bool _unitAmountEditedByUser = false;
+  bool _lineTotalEditedByUser = false;
+
+  void syncAfterQuantityEdited() {
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (_unitAmountEditedByUser && !_lineTotalEditedByUser) {
+      _setLineTotalFromUnitAmount(quantityValue);
+      return;
+    }
+
+    if (_lineTotalEditedByUser && !_unitAmountEditedByUser) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterUnitAmountEdited() {
+    _unitAmountEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_lineTotalEditedByUser || amount.text.trim().isEmpty) {
+      _setLineTotalFromUnitAmount(quantityValue);
+    }
+  }
+
+  void syncAfterLineTotalEdited() {
+    _lineTotalEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_unitAmountEditedByUser || unitAmount.text.trim().isEmpty) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void _setLineTotalFromUnitAmount(int quantityValue) {
+    final unit = _parseExactDecimalAmount(unitAmount.text);
+    if (unit == null || !_exactDecimalIsPositive(unit)) {
+      return;
+    }
+
+    amount.text = _formatExactDecimalAmount(
+      _multiplyExactDecimalByWhole(unit, quantityValue),
+    );
+  }
+
+  void _setUnitAmountFromLineTotal(int quantityValue) {
+    final lineTotal = _parseExactDecimalAmount(amount.text);
+    if (lineTotal == null || !_exactDecimalIsPositive(lineTotal)) {
+      return;
+    }
+
+    unitAmount.text = _formatExactDecimalAmount(
+      _divideExactDecimalByWhole(lineTotal, quantityValue),
+    );
+  }
 
   void addSplit() {
     splits.add(_GroupBillCreateSplitControllers());
@@ -6365,6 +6556,7 @@ class _GroupBillCreateItemControllers {
 
   void dispose() {
     name.dispose();
+    unitAmount.dispose();
     amount.dispose();
     quantityUnits.dispose();
     currency.dispose();
@@ -6476,36 +6668,55 @@ class _GroupBillCreateItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('group-bill-item-amount-$index'),
-              controller: controllers.amount,
-              enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Line total amount',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) => _positiveMoneyAmountField(
-                value,
-                requiredMessage: 'Enter an item amount.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
               key: ValueKey('group-bill-item-quantity-$index'),
               controller: controllers.quantityUnits,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
+              onChanged: (_) {
+                controllers.syncAfterQuantityEdited();
+                onDraftChanged();
+              },
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
-                labelText: 'Quantity / units',
-                helperText:
-                    'Optional split guidance; line total stays the same.',
+                labelText: 'Quantity',
+                helperText: 'Defaults to 1 for a single line total.',
                 border: OutlineInputBorder(),
               ),
-              validator: _optionalPositiveWholeNumberField,
+              validator: _requiredPositiveWholeNumberField,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-unit-amount-$index'),
+              controller: controllers.unitAmount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterUnitAmountEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Unit amount',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) => _optionalPositiveMoneyAmountField(value),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterLineTotalEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Line total',
+                border: OutlineInputBorder(),
+              ),
+              validator: (_) => _billCreateItemAmountModelError(controllers),
             ),
             const SizedBox(height: 12),
             _CurrencyPickerField(
@@ -6691,7 +6902,6 @@ class _CurrencyPickerField extends StatelessWidget {
               if (selected == null) {
                 return;
               }
-              controller.text = selected;
               onChanged(selected);
             }
           : null,
@@ -10307,6 +10517,138 @@ String? _optionalPositiveWholeNumberField(String? value) {
   return null;
 }
 
+String? _requiredPositiveWholeNumberField(String? value) {
+  final requiredError = _requiredField(value, 'Enter a quantity.');
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  return _optionalPositiveWholeNumberField(value);
+}
+
+String? _optionalPositiveMoneyAmountField(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return _positiveMoneyAmountField(
+    trimmed,
+    requiredMessage: 'Enter an amount.',
+  );
+}
+
+String? _billDateField(String? value) {
+  final requiredError = _requiredField(value, 'Enter a bill date.');
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  if (_parseBillDate(value ?? '') == null) {
+    return 'Use a bill date like 2026-05-23.';
+  }
+
+  return null;
+}
+
+String? _billCreateItemAmountModelError(Object item) {
+  final quantityText = _billCreateItemQuantityText(item);
+  final unitAmountText = _billCreateItemUnitAmountText(item);
+  final lineTotalText = _billCreateItemLineTotalText(item);
+
+  final quantityError = _requiredPositiveWholeNumberField(quantityText);
+  if (quantityError != null) {
+    return quantityError;
+  }
+
+  final unitError = _optionalPositiveMoneyAmountField(unitAmountText);
+  if (unitError != null) {
+    return unitError;
+  }
+
+  final lineError = _optionalPositiveMoneyAmountField(lineTotalText);
+  if (lineError != null) {
+    return lineError;
+  }
+
+  final unitAmount = _parseExactDecimalAmount(unitAmountText);
+  final lineTotal = _parseExactDecimalAmount(lineTotalText);
+  if (unitAmount == null && lineTotal == null) {
+    return 'Enter a unit amount or line total.';
+  }
+
+  final quantity = _positiveWholeNumber(quantityText);
+  if (quantity == null) {
+    return 'Enter a quantity.';
+  }
+
+  if (unitAmount != null &&
+      lineTotal != null &&
+      !_lineTotalMatchesUnitAmount(
+        unitAmount: unitAmount,
+        lineTotal: lineTotal,
+        quantity: quantity,
+      )) {
+    return 'Unit amount and line total must match quantity.';
+  }
+
+  return null;
+}
+
+bool _billCreateItemHasCompleteAmountPair(Object item) {
+  return _billCreateItemAmountModelError(item) == null;
+}
+
+String _resolvedItemLineTotal(Object item) {
+  final quantityText = _billCreateItemQuantityText(item);
+  final unitAmountText = _billCreateItemUnitAmountText(item);
+  final lineTotalText = _billCreateItemLineTotalText(item);
+  final trimmedLineTotal = lineTotalText.trim();
+  if (trimmedLineTotal.isNotEmpty) {
+    return lineTotalText;
+  }
+
+  final quantity = _positiveWholeNumber(quantityText) ?? 1;
+  final unitAmount = _parseExactDecimalAmount(unitAmountText);
+  if (unitAmount == null) {
+    return lineTotalText;
+  }
+
+  return _formatExactDecimalAmount(
+    _multiplyExactDecimalByWhole(unitAmount, quantity),
+  );
+}
+
+String _billCreateItemQuantityText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.quantity.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.quantityUnits.text;
+  }
+  return '1';
+}
+
+String _billCreateItemUnitAmountText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.unitAmount.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.unitAmount.text;
+  }
+  return '';
+}
+
+String _billCreateItemLineTotalText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.amount.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.amount.text;
+  }
+  return '';
+}
+
 bool _isExactAmountSplitMethod(String value) =>
     value.trim().toLowerCase() == 'exact_amount';
 
@@ -10397,6 +10739,89 @@ _ExactDecimalAmount? _parseExactDecimalAmount(String value) {
     value: BigInt.parse(digits.isEmpty ? '0' : digits),
     scale: fractional.length,
   );
+}
+
+int? _positiveWholeNumber(String value) {
+  final trimmed = value.trim();
+  if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+    return null;
+  }
+
+  final parsed = int.tryParse(trimmed);
+  if (parsed == null || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+bool _exactDecimalIsPositive(_ExactDecimalAmount amount) {
+  return amount.value > BigInt.zero;
+}
+
+_ExactDecimalAmount _multiplyExactDecimalByWhole(
+  _ExactDecimalAmount amount,
+  int multiplier,
+) {
+  return _ExactDecimalAmount(
+    value: amount.value * BigInt.from(multiplier),
+    scale: amount.scale,
+  );
+}
+
+_ExactDecimalAmount _divideExactDecimalByWhole(
+  _ExactDecimalAmount amount,
+  int divisor,
+) {
+  final outputScale = amount.scale < 2 ? 2 : amount.scale;
+  final scaledValue = amount.value * _bigIntPow10(outputScale - amount.scale);
+  final divisorValue = BigInt.from(divisor);
+  final quotient = scaledValue ~/ divisorValue;
+  final remainder = scaledValue.remainder(divisorValue);
+  final rounded = remainder.abs() * BigInt.from(2) >= divisorValue
+      ? quotient + BigInt.one
+      : quotient;
+
+  return _ExactDecimalAmount(value: rounded, scale: outputScale);
+}
+
+bool _lineTotalMatchesUnitAmount({
+  required _ExactDecimalAmount unitAmount,
+  required _ExactDecimalAmount lineTotal,
+  required int quantity,
+}) {
+  final expected = _multiplyExactDecimalByWhole(unitAmount, quantity);
+  final scale = [
+    expected.scale,
+    lineTotal.scale,
+    2,
+  ].fold<int>(0, (current, next) => next > current ? next : current);
+  final expectedValue = expected.value * _bigIntPow10(scale - expected.scale);
+  final lineValue = lineTotal.value * _bigIntPow10(scale - lineTotal.scale);
+  final tolerance = _bigIntPow10(scale - 2);
+  return (expectedValue - lineValue).abs() <= tolerance;
+}
+
+String _formatExactDecimalAmount(_ExactDecimalAmount amount) {
+  var digits = amount.value.abs().toString();
+  final outputScale = amount.scale < 2 ? 2 : amount.scale;
+  if (outputScale == 0) {
+    return digits;
+  }
+
+  if (digits.length <= outputScale) {
+    digits = digits.padLeft(outputScale + 1, '0');
+  }
+
+  final splitIndex = digits.length - outputScale;
+  final whole = digits.substring(0, splitIndex);
+  var fractional = digits.substring(splitIndex);
+  fractional = fractional.replaceFirst(RegExp(r'(?<=\d\d)0+$'), '');
+  if (fractional.isEmpty) {
+    return whole;
+  }
+
+  return '$whole.$fractional';
 }
 
 BigInt _sumExactDecimals(List<_ExactDecimalAmount> amounts, int scale) {
