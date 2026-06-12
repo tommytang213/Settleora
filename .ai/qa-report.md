@@ -57,21 +57,21 @@ Status: `M2 Home dashboard redesign fixed in code; human PC UI retest required`
 
 ## Findings
 
-- `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The fix replaces the menu-like surface with a distinct dashboard header, `Quick actions`, `Needs attention`, `Recent activity`, `This month`, and `More` sections; removes the shared-bill seam copy; and adds narrow/wide focused widget coverage. M2 remains human-review required until a PC UI retest confirms the visible change.
+- `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The follow-up fix constrains Home to a centered phone-width dashboard surface on wide test windows, adds a compact header with refresh/notifications/profile affordances, adds `Attention` and `Balances` summary cards, replaces the lower menu feel with `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and compact `More` controls, removes the shared-bill seam copy, and adds narrow/wide focused widget coverage. M2 remains human-review required until a PC UI retest confirms the visible change.
 
 ## Home Dashboard Redesign Fix
 
 - Branch: `ai/task/m2-home-dashboard-visible-redesign-20260612-0118`.
 - Scope: mobile app shell/test and QA/control files only.
 - Before: Home appeared as a skinny settings-style list and exposed implementation wording about a mobile seam.
-- After: Home has a colored dashboard header with signed-in context and overview chips, quick action buttons, attention/action cards, recent activity cards, this-month cards, and a separate More section.
+- After: Home has a centered phone-width dashboard surface on wide windows, a colored compact header with signed-in context and refresh/notifications/profile affordances, top `Attention` and `Balances` summary cards, quick action buttons, needs-attention cards, upcoming-bills cards, group-activity cards, this-month settlement cards, and a compact secondary More section.
 - Day 1 honesty preserved: counts only use existing loaded mobile overview data; unavailable shared global counts are not invented.
 - Human review state: still required. This fix must be checked in a PC/wide Flutter window and a narrow/mobile-sized viewport before M2 is marked ready.
 
 ## Required Human UI Retest
 
 - Confirm the Home screen visibly differs from the previous menu-list page.
-- Confirm `Quick actions`, `Needs attention`, `Recent activity`, and `This month` sections are visible and understandable.
+- Confirm `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and compact `More` sections are visible and understandable.
 - Confirm no user-facing copy mentions implementation seams, API limitations, generated clients, or unavailable global shared-bill counts.
 - Confirm narrow/mobile and wide desktop/test viewport layouts avoid awkward empty space, horizontal overflow, and clipped text.
 - Confirm `Create bill` and `Create group` still open their existing flows.

@@ -52,8 +52,15 @@ void main() {
     expect(find.text('Welcome back, Taylor'), findsOneWidget);
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
-    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Attention'), findsOneWidget);
+    expect(find.text('Balances'), findsOneWidget);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-notifications-header')),
+      findsOneWidget,
+    );
     expect(find.text('Personal bills'), findsOneWidget);
     expect(find.textContaining('1 recent active bill'), findsOneWidget);
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
@@ -96,7 +103,8 @@ void main() {
 
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
-    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
     expect(find.text('Create bill'), findsOneWidget);
     expect(find.text('Create group'), findsOneWidget);
@@ -118,8 +126,13 @@ void main() {
     expect(find.text('Welcome back, Taylor'), findsOneWidget);
     expect(find.text('Quick actions'), findsOneWidget);
     expect(find.text('Needs attention'), findsOneWidget);
-    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Upcoming bills'), findsOneWidget);
+    expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
+    final surfaceWidth = tester
+        .getSize(find.byKey(const Key('server-shell-dashboard-surface')))
+        .width;
+    expect(surfaceWidth, lessThanOrEqualTo(480));
     expect(find.textContaining('No global shared-bill count'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -204,8 +217,9 @@ void main() {
 
       await pumpShell(tester, settlementRepository: settlementRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-settlement-actions-review')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-settlement-actions-review'),
       );
       await tester.pumpAndSettle();
 
@@ -302,8 +316,9 @@ void main() {
 
       await pumpShell(tester, recurringRepository: recurringRepository);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-recurring-drafts-review')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-recurring-drafts-review'),
       );
       await tester.pumpAndSettle();
 
@@ -437,9 +452,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining(
-        'Open recurring bills to review templates and forecast',
-      ),
+      find.textContaining('Review templates and forecast'),
       findsOneWidget,
     );
   });
@@ -449,8 +462,9 @@ void main() {
   ) async {
     await pumpShell(tester);
 
-    await tester.tap(
-      find.byKey(const Key('server-shell-create-personal-bill')),
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
     );
     await tester.pumpAndSettle();
 
@@ -474,8 +488,9 @@ void main() {
 
       expect(billRepository.listCalls, 1);
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-create-personal-bill')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-create-personal-bill'),
       );
       await tester.pumpAndSettle();
 
@@ -501,8 +516,9 @@ void main() {
 
     expect(billRepository.listCalls, 1);
 
-    await tester.tap(
-      find.byKey(const Key('server-shell-create-personal-bill')),
+    await scrollToAndTap(
+      tester,
+      const Key('server-shell-create-personal-bill'),
     );
     await tester.pumpAndSettle();
 
@@ -533,7 +549,7 @@ void main() {
 
       expect(billRepository.listCalls, 1);
 
-      await tester.tap(find.byKey(const Key('server-shell-create-group')));
+      await scrollToAndTap(tester, const Key('server-shell-create-group'));
       await tester.pumpAndSettle();
 
       expect(find.text('Groups'), findsOneWidget);
@@ -574,7 +590,7 @@ void main() {
       groupRepository: groupRepository,
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-create-group')));
+    await scrollToAndTap(tester, const Key('server-shell-create-group'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('group-form-cancel')));
@@ -615,7 +631,7 @@ void main() {
     );
     expect(find.byKey(const Key('dashboard-overview-retry')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('dashboard-overview-retry')));
+    await scrollToAndTap(tester, const Key('dashboard-overview-retry'));
     await tester.pumpAndSettle();
 
     expect(find.text('Personal bills'), findsOneWidget);
@@ -791,7 +807,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+      await scrollToAndTap(tester, const Key('server-shell-sync-now'));
       await tester.pumpAndSettle();
 
       expect(syncRepository.submitCalls, 2);
@@ -842,7 +858,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await scrollToAndTap(tester, const Key('server-shell-sync-now'));
     await tester.pump();
 
     expect(syncRepository.submitCalls, 1);
@@ -895,8 +911,9 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const Key('server-shell-sync-status-open-bills')),
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-sync-status-open-bills'),
       );
       await tester.pumpAndSettle();
 
@@ -939,7 +956,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('server-shell-sync-now')));
+    await scrollToAndTap(tester, const Key('server-shell-sync-now'));
     await tester.pumpAndSettle();
 
     expect(syncRepository.submitCalls, 1);

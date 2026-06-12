@@ -521,12 +521,13 @@ class _SettleoraAuthenticatedServerShellState
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final maxWidth = constraints.maxWidth >= 900 ? 1040.0 : 680.0;
+            final maxWidth = constraints.maxWidth >= 560 ? 480.0 : 680.0;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               child: Center(
                 child: ConstrainedBox(
+                  key: const Key('server-shell-dashboard-surface'),
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -538,7 +539,12 @@ class _SettleoraAuthenticatedServerShellState
                         isLoadingOverview: _isLoadingOverview,
                         onRefresh: _loadOverview,
                         onOpenProfile: _openProfile,
+                        onOpenNotifications: _openNotifications,
                       ),
+                      if (overview != null) ...[
+                        const SizedBox(height: 16),
+                        _DashboardSummaryCards(overview: overview),
+                      ],
                       const SizedBox(height: 16),
                       _DashboardQuickActions(
                         onCreatePersonalBill: _openCreatePersonalBill,
@@ -707,6 +713,7 @@ class _DashboardHero extends StatelessWidget {
     required this.isLoadingOverview,
     required this.onRefresh,
     required this.onOpenProfile,
+    required this.onOpenNotifications,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -715,6 +722,7 @@ class _DashboardHero extends StatelessWidget {
   final bool isLoadingOverview;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenProfile;
+  final VoidCallback onOpenNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -772,6 +780,12 @@ class _DashboardHero extends StatelessWidget {
                           : const Icon(Icons.refresh),
                     ),
                     IconButton(
+                      key: const Key('server-shell-notifications-header'),
+                      tooltip: 'Notifications',
+                      onPressed: onOpenNotifications,
+                      icon: const Icon(Icons.notifications_outlined),
+                    ),
+                    IconButton(
                       key: const Key('server-shell-profile'),
                       tooltip: 'Profile',
                       onPressed: onOpenProfile,
@@ -805,6 +819,12 @@ class _DashboardHero extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      key: const Key('server-shell-notifications-header'),
+                      tooltip: 'Notifications',
+                      onPressed: onOpenNotifications,
+                      icon: const Icon(Icons.notifications_outlined),
                     ),
                     IconButton(
                       key: const Key('server-shell-profile'),
@@ -843,6 +863,101 @@ class _DashboardHero extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _DashboardSummaryCards extends StatelessWidget {
+  const _DashboardSummaryCards({required this.overview});
+
+  final _SettleoraDashboardOverview overview;
+
+  @override
+  Widget build(BuildContext context) {
+    final attentionCount =
+        overview.settlementActionCount +
+        overview.upcomingForecastCount +
+        overview.notificationSummary.attentionCount +
+        overview.notificationSummary.urgentCount;
+    final cards = [
+      _DashboardSummaryCard(
+        icon: Icons.priority_high_outlined,
+        title: 'Attention',
+        value: attentionCount == 0 ? '0 due' : '$attentionCount to review',
+        caption: attentionCount == 0
+            ? 'No urgent dashboard items'
+            : 'Open the attention queue',
+      ),
+      _DashboardSummaryCard(
+        icon: Icons.account_balance_wallet_outlined,
+        title: 'Balances',
+        value: overview.openBalanceCount == 0
+            ? 'No balances yet'
+            : '${overview.openBalanceCount} open',
+        caption: overview.activePersonalBillCount == 0
+            ? 'Create or review bills'
+            : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 380) {
+          return Row(
+            children: [
+              Expanded(child: cards.first),
+              const SizedBox(width: 12),
+              Expanded(child: cards.last),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [cards.first, const SizedBox(height: 8), cards.last],
+        );
+      },
+    );
+  }
+}
+
+class _DashboardSummaryCard extends StatelessWidget {
+  const _DashboardSummaryCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.caption,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(title, style: theme.textTheme.labelLarge)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(value, style: theme.textTheme.titleLarge),
+            const SizedBox(height: 2),
+            Text(caption, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -980,36 +1095,70 @@ class _DashboardMoreSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _DashboardSection(
       title: 'More',
-      child: Column(
-        children: [
-          _DashboardNavigationTile(
-            icon: Icons.account_circle_outlined,
-            title: 'Profile',
-            subtitle: 'Manage profile and payment details',
-            onTap: onOpenProfile,
-          ),
-          _DashboardNavigationTile(
-            key: const Key('server-shell-receipt-reviews'),
-            icon: Icons.receipt_long_outlined,
-            title: 'Receipt Reviews',
-            subtitle: 'Review OCR data attached to bills',
-            onTap: onOpenReceiptReviews,
-          ),
-          _DashboardNavigationTile(
-            key: const Key('server-shell-sessions'),
-            icon: Icons.devices_outlined,
-            title: 'Sessions',
-            subtitle: 'Review and revoke signed-in devices',
-            onTap: onOpenSessions,
-          ),
-          _DashboardNavigationTile(
-            key: const Key('server-shell-reports'),
-            icon: Icons.summarize_outlined,
-            title: 'Monthly report',
-            subtitle: 'Open the current reporting surface',
-            onTap: onOpenMonthlyReport,
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth >= 380
+              ? (constraints.maxWidth - 8) / 2
+              : constraints.maxWidth;
+          final items = [
+            _DashboardCompactAction(
+              width: width,
+              icon: Icons.account_circle_outlined,
+              title: 'Profile',
+              onTap: onOpenProfile,
+            ),
+            _DashboardCompactAction(
+              key: const Key('server-shell-receipt-reviews'),
+              width: width,
+              icon: Icons.receipt_long_outlined,
+              title: 'Receipt Reviews',
+              onTap: onOpenReceiptReviews,
+            ),
+            _DashboardCompactAction(
+              key: const Key('server-shell-sessions'),
+              width: width,
+              icon: Icons.devices_outlined,
+              title: 'Sessions',
+              onTap: onOpenSessions,
+            ),
+            _DashboardCompactAction(
+              key: const Key('server-shell-reports'),
+              width: width,
+              icon: Icons.summarize_outlined,
+              title: 'Monthly report',
+              onTap: onOpenMonthlyReport,
+            ),
+          ];
+
+          return Wrap(spacing: 8, runSpacing: 8, children: items);
+        },
+      ),
+    );
+  }
+}
+
+class _DashboardCompactAction extends StatelessWidget {
+  const _DashboardCompactAction({
+    super.key,
+    required this.width,
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final double width;
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon),
+        label: Text(title, overflow: TextOverflow.ellipsis),
       ),
     );
   }
@@ -1195,7 +1344,7 @@ class _DashboardOverviewContent extends StatelessWidget {
       ],
     );
 
-    final recentActivity = Column(
+    final upcomingBills = Column(
       children: [
         _DashboardNavigationTile(
           key: const Key('server-shell-bills'),
@@ -1210,11 +1359,27 @@ class _DashboardOverviewContent extends StatelessWidget {
           onTap: onOpenBills,
         ),
         _DashboardNavigationTile(
+          key: const Key('server-shell-recurring-bills'),
+          icon: Icons.event_repeat_outlined,
+          title: 'Recurring bills',
+          subtitle: overview.upcomingForecastCount == 0
+              ? 'Review templates and forecast'
+              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
+          detail: overview.activeRecurringTemplateCount == 0
+              ? null
+              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
+          onTap: onOpenRecurringBills,
+        ),
+      ],
+    );
+
+    final groupActivity = Column(
+      children: [
+        _DashboardNavigationTile(
           key: const Key('server-shell-groups'),
           icon: Icons.groups_outlined,
           title: 'Shared bills',
-          subtitle:
-              'Open groups to review shared bills and group activity you can access',
+          subtitle: 'Open groups to review shared bills and group activity',
           onTap: onOpenGroups,
         ),
         _DashboardNavigationTile(
@@ -1241,67 +1406,26 @@ class _DashboardOverviewContent extends StatelessWidget {
           icon: Icons.handshake_outlined,
           title: 'Settlements',
           subtitle: overview.settlementActionCount == 0
-              ? 'Open settlements to review balances and requests'
+              ? 'Review balances and requests'
               : '${overview.settlementActionCount} request${_plural(overview.settlementActionCount)} may need review',
           detail: overview.openBalanceCount == 0
               ? null
-              : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)} returned',
+              : '${overview.openBalanceCount} open balance row${_plural(overview.openBalanceCount)}',
           onTap: onOpenSettlements,
-        ),
-        _DashboardNavigationTile(
-          key: const Key('server-shell-recurring-bills'),
-          icon: Icons.event_repeat_outlined,
-          title: 'Recurring bills',
-          subtitle: overview.upcomingForecastCount == 0
-              ? 'Open recurring bills to review templates and forecast'
-              : '${overview.upcomingForecastCount} forecast item${_plural(overview.upcomingForecastCount)} ready for draft review',
-          detail: overview.activeRecurringTemplateCount == 0
-              ? null
-              : '${overview.activeRecurringTemplateCount} active template${_plural(overview.activeRecurringTemplateCount)} loaded',
-          onTap: onOpenRecurringBills,
         ),
       ],
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 760) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _DashboardSection(
-                  title: 'Needs attention',
-                  child: needsAttention,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  children: [
-                    _DashboardSection(
-                      title: 'Recent activity',
-                      child: recentActivity,
-                    ),
-                    const SizedBox(height: 16),
-                    _DashboardSection(title: 'This month', child: thisMonth),
-                  ],
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Column(
-          children: [
-            _DashboardSection(title: 'Needs attention', child: needsAttention),
-            const SizedBox(height: 16),
-            _DashboardSection(title: 'Recent activity', child: recentActivity),
-            const SizedBox(height: 16),
-            _DashboardSection(title: 'This month', child: thisMonth),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        _DashboardSection(title: 'Needs attention', child: needsAttention),
+        const SizedBox(height: 16),
+        _DashboardSection(title: 'Upcoming bills', child: upcomingBills),
+        const SizedBox(height: 16),
+        _DashboardSection(title: 'Group activity', child: groupActivity),
+        const SizedBox(height: 16),
+        _DashboardSection(title: 'This month', child: thisMonth),
+      ],
     );
   }
 }

@@ -71,7 +71,8 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 
 - Home/dashboard shell rendering in server-mode-ready app state.
 - Empty/unavailable dashboard states.
-- Visible dashboard section labels such as `Quick actions`, `Needs attention`, `Recent activity`, and `This month`.
+- Visible dashboard section labels such as `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More`.
+- Top summary cards that use existing mobile data or honest neutral states such as `0 due` and `No balances yet`.
 - Absence of implementation-seam copy on the Home dashboard.
 - Narrow/mobile and wide desktop/test viewport Home dashboard behavior.
 - Bottom navigation labels and active-state behavior.
@@ -84,12 +85,12 @@ Future M2 implementation tasks should add or update focused mobile tests for:
 The M2 Home/dashboard fix remains human-review required until a tester verifies:
 
 - The Home screen visibly changed from the previous profile-plus-menu-list page.
-- `Quick actions`, `Needs attention`, `Recent activity`, `This month`, and `More` appear as meaningful user-facing sections.
+- `Quick actions`, `Needs attention`, `Upcoming bills`, `Group activity`, `This month`, and `More` appear as meaningful user-facing sections.
 - `Create bill` and `Create group` still open their existing flows.
 - Personal bills, Shared bills/Groups, Settlements, Recurring bills, Notifications, Profile, Receipt Reviews, Sessions, and Monthly report routes still work from Home where present.
 - No Home copy mentions implementation seams, API seams, generated clients, or missing global shared-bill counts.
 - A narrow/mobile viewport remains clean and scrollable with no clipped text or horizontal overflow.
-- A wide desktop/test Flutter window avoids a huge skinny list with empty side/bottom space and presents grouped dashboard content clearly.
+- A wide desktop/test Flutter window presents Home as a centered phone-first dashboard surface or an otherwise balanced responsive dashboard, not a lopsided desktop menu page.
 - Nav and landing handoffs still behave as expected after returning from destination screens.
 
 Full mobile validation is required by the final QA task:
