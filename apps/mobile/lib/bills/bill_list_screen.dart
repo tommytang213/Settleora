@@ -34,6 +34,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.showBottomNav = true,
   });
 
   final SettleoraBillRepository repository;
@@ -42,6 +43,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final bool showBottomNav;
 
   @override
   State<SettleoraBillListScreen> createState() =>
@@ -404,9 +406,9 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           },
         ),
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.bills,
-      ),
+      bottomNavigationBar: widget.showBottomNav
+          ? const SettleoraBottomNav(selected: SettleoraNavDestination.bills)
+          : null,
     );
   }
 
