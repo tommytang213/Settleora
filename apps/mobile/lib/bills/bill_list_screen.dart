@@ -25,6 +25,15 @@ const List<String> _supportedBillCurrencyCodes = <String>[
   'BHD',
 ];
 
+String _defaultBillCurrency(String? currency) {
+  final normalized = currency?.trim().toUpperCase();
+  if (normalized != null && _supportedBillCurrencyCodes.contains(normalized)) {
+    return normalized;
+  }
+
+  return _supportedBillCurrencyCodes.first;
+}
+
 class SettleoraBillListScreen extends StatefulWidget {
   const SettleoraBillListScreen({
     super.key,
@@ -34,6 +43,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.defaultCurrency,
     this.showBottomNav = true,
     this.onTopLevelDestinationSelected,
   });
@@ -44,6 +54,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final String? defaultCurrency;
   final bool showBottomNav;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
@@ -240,6 +251,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
         ),
       ),
@@ -538,12 +550,14 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.defaultCurrency,
     this.scanReceiptOnStart = false,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final String? defaultCurrency;
   final bool scanReceiptOnStart;
 
   @override
@@ -556,7 +570,7 @@ class _SettleoraPersonalBillCreateScreenState
   final _formKey = GlobalKey<FormState>();
   final _merchantController = TextEditingController();
   final _billDateController = TextEditingController();
-  final _currencyController = TextEditingController(text: 'USD');
+  final _currencyController = TextEditingController();
   final List<_PersonalBillCreateItemControllers> _itemControllers = [];
   final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
@@ -569,10 +583,16 @@ class _SettleoraPersonalBillCreateScreenState
   SettleoraBillDetail? _createdBillAwaitingAttachmentUpload;
   int _nextDraftAttachmentId = 0;
   bool _exitGuardBypassed = false;
+  late final String _initialBillDate;
+  late final String _initialCurrency;
 
   @override
   void initState() {
     super.initState();
+    _initialBillDate = _formatBillDate(DateTime.now());
+    _initialCurrency = _defaultBillCurrency(widget.defaultCurrency);
+    _billDateController.text = _initialBillDate;
+    _currencyController.text = _initialCurrency;
     _itemControllers.add(
       _PersonalBillCreateItemControllers(
         currency: _currencyController.text.trim(),
@@ -640,9 +660,9 @@ class _SettleoraPersonalBillCreateScreenState
       _currencyController.text = normalizedCurrency;
       for (final item in _itemControllers) {
         final itemCurrency = item.currency.text.trim().toUpperCase();
-        if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
-          item.currency.text = normalizedCurrency;
-          item.syncAfterCurrencyChanged();
+        if (!item.currencyEditedByUser &&
+            (itemCurrency.isEmpty || itemCurrency == previousCurrency)) {
+          item.setCurrencyFromBill(normalizedCurrency);
         }
       }
     });
@@ -664,8 +684,8 @@ class _SettleoraPersonalBillCreateScreenState
     }
 
     if (_merchantController.text.trim().isNotEmpty ||
-        _billDateController.text.trim().isNotEmpty ||
-        _currencyController.text.trim().toUpperCase() != 'USD') {
+        _billDateController.text.trim() != _initialBillDate ||
+        _currencyController.text.trim().toUpperCase() != _initialCurrency) {
       return true;
     }
 
@@ -683,7 +703,8 @@ class _SettleoraPersonalBillCreateScreenState
         item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
-        item.currency.text.trim().toUpperCase() != 'USD';
+        item.currency.text.trim().toUpperCase() != _initialCurrency ||
+        item.currencyEditedByUser;
   }
 
   Future<void> _requestExit() async {
@@ -1215,13 +1236,20 @@ class _SettleoraPersonalBillCreateScreenState
                         onDraftChanged: _notifyDraftChanged,
                         onCurrencyChanged: (currency) {
                           setState(() {
-                            _itemControllers[index].currency.text = currency;
-                            _itemControllers[index].syncAfterCurrencyChanged();
+                            _itemControllers[index].setCurrencyFromUser(
+                              currency,
+                            );
                           });
                         },
                       ),
                     ),
                   const SizedBox(height: 10),
+                  _BillCreateTotalPreview(
+                    keyPrefix: 'personal-bill',
+                    itemControllers: _itemControllers,
+                    billCurrency: _currencyController.text,
+                  ),
+                  const SizedBox(height: 12),
                   _BillCreateDraftAttachmentSection(
                     keyPrefix: 'personal-bill',
                     attachments: _draftAttachments,
@@ -1323,10 +1351,10 @@ class _CreateBillHeader extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       hasReceiptAttachment
-                          ? 'Receipt selected. It uploads after save; OCR remains review-first.'
+                          ? 'Receipt selected. It uploads after save; OCR review remains provisional.'
                           : canAddReceipt
-                          ? 'Enter details manually, or add a receipt now for OCR review after save.'
-                          : 'Manual entry is available. Receipt OCR upload is unavailable in this session.',
+                          ? 'Enter details manually, or add a receipt now for review-first OCR handoff after save.'
+                          : 'Manual entry is available. True OCR extraction is not part of this task.',
                       style: Theme.of(
                         context,
                       ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
@@ -1380,6 +1408,20 @@ class _PersonalBillCreateItemControllers {
   final TextEditingController note;
   bool _unitAmountEditedByUser = false;
   bool _lineTotalEditedByUser = false;
+  bool _currencyEditedByUser = false;
+
+  bool get currencyEditedByUser => _currencyEditedByUser;
+
+  void setCurrencyFromBill(String value) {
+    currency.text = value;
+    syncAfterCurrencyChanged();
+  }
+
+  void setCurrencyFromUser(String value) {
+    _currencyEditedByUser = true;
+    currency.text = value;
+    syncAfterCurrencyChanged();
+  }
 
   void syncAfterQuantityEdited() {
     final quantityValue = _positiveWholeNumber(quantity.text);
@@ -2130,6 +2172,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     this.openCreateOnStart = false,
     this.currentUserProfileId,
     this.participantDisplayNames = const {},
+    this.defaultCurrency,
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
@@ -2144,6 +2187,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final bool openCreateOnStart;
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
+  final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
@@ -2252,6 +2296,7 @@ class _SettleoraGroupBillListScreenState
           groupId: widget.groupId,
           groupName: widget.groupName,
           currentUserProfileId: widget.currentUserProfileId,
+          defaultCurrency: widget.defaultCurrency,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
         ),
@@ -2727,6 +2772,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     required this.groupId,
     required this.groupName,
     this.currentUserProfileId,
+    this.defaultCurrency,
     this.attachmentRepository,
     this.attachmentFileInput,
   });
@@ -2736,6 +2782,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
   final String? currentUserProfileId;
+  final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
 
@@ -2749,7 +2796,7 @@ class _SettleoraGroupBillCreateScreenState
   final _formKey = GlobalKey<FormState>();
   final _merchantController = TextEditingController();
   final _billDateController = TextEditingController();
-  final _currencyController = TextEditingController(text: 'USD');
+  final _currencyController = TextEditingController();
   final List<_GroupBillCreateItemControllers> _itemControllers = [];
   final List<_GroupBillCreatePayerControllers> _payerControllers = [];
   final List<_BillCreateDraftAttachment> _draftAttachments = [];
@@ -2772,10 +2819,16 @@ class _SettleoraGroupBillCreateScreenState
   String? _attachmentDraftError;
   int _nextDraftAttachmentId = 0;
   bool _exitGuardBypassed = false;
+  late final String _initialBillDate;
+  late final String _initialCurrency;
 
   @override
   void initState() {
     super.initState();
+    _initialBillDate = _formatBillDate(DateTime.now());
+    _initialCurrency = _defaultBillCurrency(widget.defaultCurrency);
+    _billDateController.text = _initialBillDate;
+    _currencyController.text = _initialCurrency;
     _itemControllers.add(
       _GroupBillCreateItemControllers(currency: _currencyController.text),
     );
@@ -2879,9 +2932,9 @@ class _SettleoraGroupBillCreateScreenState
       _currencyController.text = normalizedCurrency;
       for (final item in _itemControllers) {
         final itemCurrency = item.currency.text.trim().toUpperCase();
-        if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
-          item.currency.text = normalizedCurrency;
-          item.syncAfterCurrencyChanged();
+        if (!item.currencyEditedByUser &&
+            (itemCurrency.isEmpty || itemCurrency == previousCurrency)) {
+          item.setCurrencyFromBill(normalizedCurrency);
         }
       }
       for (final payer in _payerControllers) {
@@ -3097,8 +3150,8 @@ class _SettleoraGroupBillCreateScreenState
     }
 
     if (_merchantController.text.trim().isNotEmpty ||
-        _billDateController.text.trim().isNotEmpty ||
-        _currencyController.text.trim().toUpperCase() != 'USD') {
+        _billDateController.text.trim() != _initialBillDate ||
+        _currencyController.text.trim().toUpperCase() != _initialCurrency) {
       return true;
     }
 
@@ -3112,7 +3165,8 @@ class _SettleoraGroupBillCreateScreenState
         item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
-        item.currency.text.trim().toUpperCase() != 'USD' ||
+        item.currency.text.trim().toUpperCase() != _initialCurrency ||
+        item.currencyEditedByUser ||
         item.splits.length != 1 ||
         item.splits.isEmpty) {
       return true;
@@ -3903,10 +3957,7 @@ class _SettleoraGroupBillCreateScreenState
                                       'group-bill-date-picker',
                                     ),
                                     onDateSelected: _setGroupBillDate,
-                                    validator: (value) => _requiredField(
-                                      value,
-                                      'Enter a bill date.',
-                                    ),
+                                    validator: (value) => _billDateField(value),
                                   ),
                                   const SizedBox(height: 12),
                                   _CurrencyPickerField(
@@ -4019,11 +4070,7 @@ class _SettleoraGroupBillCreateScreenState
                                         onCurrencyChanged: (currency) {
                                           setState(() {
                                             _itemControllers[index]
-                                                    .currency
-                                                    .text =
-                                                currency;
-                                            _itemControllers[index]
-                                                .syncAfterCurrencyChanged();
+                                                .setCurrencyFromUser(currency);
                                           });
                                         },
                                       ),
@@ -4398,7 +4445,7 @@ class _GroupBillCreateStartPanel extends StatelessWidget {
                 key: const Key('group-bill-create-mode-receipt'),
                 selected: entryMode == _GroupBillCreateEntryMode.receipt,
                 avatar: const Icon(Icons.document_scanner_outlined, size: 16),
-                label: const Text('Scan/import receipt'),
+                label: const Text('Scan receipt'),
                 onSelected: (_) =>
                     onEntryModeChanged(_GroupBillCreateEntryMode.receipt),
               ),
@@ -4407,7 +4454,7 @@ class _GroupBillCreateStartPanel extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             entryMode == _GroupBillCreateEntryMode.receipt
-                ? 'Receipt OCR can seed editable item rows when that capture path is available. Review remains required before save.'
+                ? 'Receipt handoff is review-first and provisional. True OCR extraction is not part of this task.'
                 : 'Start from clean fields, then add items, split rows, payers, and optional receipt attachments.',
             style: TextStyle(color: context.settleoraColors.textMuted),
           ),
@@ -4512,15 +4559,152 @@ class _GroupBillCreateAmountPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = _groupBillCreateDecimalTotal(
-      itemControllers.map((item) => item.amount.text),
-    );
-    return _CreatePreviewStrip(
-      label: 'Total amount preview',
-      value: _decimalPreviewMoney(total, currency),
-      icon: Icons.summarize_outlined,
+    return _BillCreateTotalPreview(
+      keyPrefix: 'group-bill',
+      itemControllers: itemControllers,
+      billCurrency: currency,
     );
   }
+}
+
+class _BillCreateTotalPreview extends StatelessWidget {
+  const _BillCreateTotalPreview({
+    required this.keyPrefix,
+    required this.itemControllers,
+    required this.billCurrency,
+  });
+
+  final String keyPrefix;
+  final List<Object> itemControllers;
+  final String billCurrency;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _billCreateTotalPreview(
+      itemControllers: itemControllers,
+      billCurrency: billCurrency,
+    );
+
+    return Column(
+      key: Key('$keyPrefix-total-preview'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CreatePreviewStrip(
+          label: 'Item total preview',
+          value: preview.value,
+          icon: preview.isReady
+              ? Icons.summarize_outlined
+              : Icons.warning_amber_outlined,
+          variant: preview.isReady
+              ? StatusChipVariant.success
+              : StatusChipVariant.warning,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          preview.message,
+          key: Key('$keyPrefix-total-preview-message'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+_BillCreateTotalPreviewState _billCreateTotalPreview({
+  required List<Object> itemControllers,
+  required String billCurrency,
+}) {
+  final itemCount = itemControllers.length;
+  if (itemControllers.isEmpty) {
+    return const _BillCreateTotalPreviewState(
+      isReady: false,
+      value: '0 item rows',
+      message: 'Add at least one item before a local total preview is shown.',
+    );
+  }
+
+  final normalizedBillCurrency = _defaultBillCurrency(billCurrency);
+  final itemCurrencies = <String>{};
+  final lineTotals = <_CurrencyAmount>[];
+  for (final item in itemControllers) {
+    if (_billCreateItemNameText(item).trim().isEmpty) {
+      return _BillCreateTotalPreviewState(
+        isReady: false,
+        value: _pluralCount(itemCount, 'item row'),
+        message:
+            'Complete required item names, quantities, unit amounts, line totals, and currencies before using the local preview.',
+      );
+    }
+
+    final itemCurrency = _billCreateItemCurrencyText(item).trim().toUpperCase();
+    final normalizedItemCurrency = itemCurrency.isEmpty
+        ? normalizedBillCurrency
+        : itemCurrency;
+    itemCurrencies.add(normalizedItemCurrency);
+
+    if (_billCreateItemAmountModelError(item) != null) {
+      return _BillCreateTotalPreviewState(
+        isReady: false,
+        value: _pluralCount(itemCount, 'item row'),
+        message:
+            'Complete required item names, quantities, unit amounts, line totals, and currencies before using the local preview.',
+      );
+    }
+
+    final lineTotal = _parseCurrencyAmount(
+      _resolvedItemLineTotal(item),
+      normalizedItemCurrency,
+    );
+    if (lineTotal == null) {
+      return _BillCreateTotalPreviewState(
+        isReady: false,
+        value: _pluralCount(itemCount, 'item row'),
+        message:
+            'One or more item totals cannot be previewed at the selected currency scale.',
+      );
+    }
+    lineTotals.add(lineTotal);
+  }
+
+  if (itemCurrencies.length != 1 ||
+      itemCurrencies.single != normalizedBillCurrency) {
+    return _BillCreateTotalPreviewState(
+      isReady: false,
+      value: _pluralCount(itemCount, 'item row'),
+      message:
+          'Mixed item currencies prevent a same-currency local total preview.',
+    );
+  }
+
+  final currency = itemCurrencies.single;
+  final scale = _currencyScale(currency);
+  final total = lineTotals.fold<BigInt>(
+    BigInt.zero,
+    (sum, amount) => sum + amount.value * _bigIntPow10(scale - amount.scale),
+  );
+
+  return _BillCreateTotalPreviewState(
+    isReady: true,
+    value:
+        '${_pluralCount(itemCount, 'item row')} - '
+        '${_formatCurrencyAmount(_CurrencyAmount(value: total, scale: scale))} $currency',
+    message:
+        'Local preview only. Server validation remains authoritative for money, rounding, shares, and persistence.',
+  );
+}
+
+class _BillCreateTotalPreviewState {
+  const _BillCreateTotalPreviewState({
+    required this.isReady,
+    required this.value,
+    required this.message,
+  });
+
+  final bool isReady;
+  final String value;
+  final String message;
 }
 
 class _ReceiptOcrGuidanceCard extends StatelessWidget {
@@ -4542,7 +4726,7 @@ class _ReceiptOcrGuidanceCard extends StatelessWidget {
           : 'No receipt attached',
       value: hasAttachment
           ? 'View, rescan, or remove the selected file before save.'
-          : 'OCR-derived rows are provisional until user review and server validation.',
+          : 'Receipt handoff is provisional; true OCR extraction is not part of this task.',
       icon: hasAttachment
           ? Icons.attachment_outlined
           : Icons.document_scanner_outlined,
@@ -6495,6 +6679,20 @@ class _GroupBillCreateItemControllers {
   final List<_GroupBillCreateSplitControllers> splits;
   bool _unitAmountEditedByUser = false;
   bool _lineTotalEditedByUser = false;
+  bool _currencyEditedByUser = false;
+
+  bool get currencyEditedByUser => _currencyEditedByUser;
+
+  void setCurrencyFromBill(String value) {
+    currency.text = value;
+    syncAfterCurrencyChanged();
+  }
+
+  void setCurrencyFromUser(String value) {
+    _currencyEditedByUser = true;
+    currency.text = value;
+    syncAfterCurrencyChanged();
+  }
 
   void syncAfterQuantityEdited() {
     final quantityValue = _positiveWholeNumber(quantityUnits.text);
@@ -10657,6 +10855,16 @@ String _billCreateItemQuantityText(Object item) {
     return item.quantityUnits.text;
   }
   return '1';
+}
+
+String _billCreateItemNameText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.name.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.name.text;
+  }
+  return '';
 }
 
 String _billCreateItemUnitAmountText(Object item) {
