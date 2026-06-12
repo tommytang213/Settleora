@@ -22,6 +22,7 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('bill list queues archive and flushes through sync', (
@@ -79,12 +80,100 @@ void main() {
 
     expect(find.byKey(const Key('bill-list-create')), findsOneWidget);
     expect(find.text('Create bill'), findsWidgets);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
     expect(find.text('Create group bill'), findsNothing);
   });
 
-  testWidgets('personal bill empty state keeps bills tab active', (
+  testWidgets('personal bill list scan receipt starts receipt upload handoff', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: const [1, 2, 3],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('personal-bill-scan-receipt')), findsOneWidget);
+    expect(find.text('Add another receipt'), findsOneWidget);
+    expect(
+      find.text(
+        'Receipt selected. It uploads after save; OCR remains review-first.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('personal-bill-attachment-purpose-0')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('personal-bill-attachment-purpose-0')),
+          )
+          .data,
+      'Receipt',
+    );
+    expect(fileInput.pickCalls, 1);
+    expect(
+      fileInput.lastAllowedContentTypes,
+      billAttachmentUploadContentTypesForPurpose(
+        SettleoraBillAttachmentPurposeValues.receipt,
+      ),
+    );
+  });
+
+  testWidgets('personal bill create explains receipt unavailable seam safely', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('personal-bill-scan-receipt')), findsOneWidget);
+    expect(
+      tester
+          .widget<AppButton>(
+            find.byKey(const Key('personal-bill-scan-receipt')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      find.byKey(const Key('personal-bill-scan-receipt-unavailable-copy')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('personal bill empty state omits standalone global nav', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -99,8 +188,8 @@ void main() {
 
     expect(find.text('No bills'), findsOneWidget);
     expect(find.byKey(const Key('bill-list-empty-create')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-bills')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-bills')), findsNothing);
+    expect(find.byKey(const Key('bottom-nav-settle')), findsNothing);
   });
 
   testWidgets('personal bill needs review filter shows review bills', (
@@ -418,10 +507,7 @@ void main() {
       find.byKey(const Key('personal-bill-merchant-name')),
       'Brunch Spot',
     );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-date')),
-      '2026-05-23',
-    );
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
     await tester.pumpAndSettle();
 
     expect(
@@ -483,20 +569,16 @@ void main() {
 
     await tester.tap(find.byKey(const Key('bill-list-create')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('personal-bill-currency')), '');
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-item-currency-0')),
-      '',
-    );
     await _tapSaveBill(tester);
 
     expect(find.text('Enter a bill date.'), findsOneWidget);
-    expect(find.text('Enter a currency.'), findsOneWidget);
     expect(find.text('Enter an item name.'), findsOneWidget);
-    expect(find.text('Enter an item amount.'), findsOneWidget);
-    expect(find.text('Enter an item currency.'), findsOneWidget);
+    expect(find.text('Enter a unit amount or line total.'), findsOneWidget);
     expect(repository.createCalls, 0);
 
+    await tester.ensureVisible(
+      find.byKey(const Key('personal-bill-item-remove-0')),
+    );
     await tester.tap(find.byKey(const Key('personal-bill-item-remove-0')));
     await tester.pumpAndSettle();
     await _tapSaveBill(tester);
@@ -509,6 +591,385 @@ void main() {
     expect(
       itemListError.properties.label,
       'Add at least one item before saving.',
+    );
+    expect(repository.createCalls, 0);
+  });
+
+  testWidgets(
+    'personal bill create shows aligned date currency amount fields',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: FakeBillRepository(),
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
+      expect(find.byKey(const Key('personal-bill-date-today')), findsOneWidget);
+      expect(
+        find.byKey(const Key('personal-bill-date-picker')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('personal-bill-currency')), findsOneWidget);
+      expect(
+        find.byKey(const Key('personal-bill-item-currency-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('personal-bill-item-currency-0')),
+          matching: find.byType(TextFormField),
+        ),
+        findsNothing,
+      );
+      expect(find.text('USD'), findsWidgets);
+      expect(find.text('Quantity'), findsOneWidget);
+      expect(find.text('Unit amount'), findsOneWidget);
+      expect(find.text('Line total'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'personal bill item currency dropdown defaults and follows bill currency until changed',
+    (tester) async {
+      final repository = FakeBillRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-create')));
+      await tester.pumpAndSettle();
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-currency'),
+        'EUR',
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-add-item')));
+      await tester.pumpAndSettle();
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-item-currency-0'),
+        'GBP',
+      );
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-currency'),
+        'HKD',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-date-today')),
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-name-0')),
+        'Coffee',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '7.50',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-name-1')),
+        'Tea',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-amount-1')),
+        '8.00',
+      );
+      await _tapSaveBill(tester);
+
+      final draft = repository.lastCreateDraft;
+      expect(draft?.currency, 'HKD');
+      expect(draft?.items[0].currency, 'GBP');
+      expect(draft?.items[1].currency, 'HKD');
+    },
+  );
+
+  testWidgets('personal bill item accepts line total only with quantity 1', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+      '7.50',
+    );
+    await tester.pumpAndSettle();
+
+    final quantity = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+    );
+    final unitAmount = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+    );
+    expect(quantity.controller?.text, '1');
+    expect(unitAmount.controller?.text, '7.50');
+
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.items.single.amount, '7.50');
+  });
+
+  testWidgets('personal bill item derives line total from quantity and unit', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Tea',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '50',
+    );
+    await tester.pumpAndSettle();
+
+    final lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '100.00');
+
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.items.single.amount, '100.00');
+  });
+
+  testWidgets('personal bill item treats unit 100 as currency units', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Groceries',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+
+    final lineTotal = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+    );
+    expect(lineTotal.controller?.text, '100.00');
+
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.items.single.amount, '100.00');
+  });
+
+  testWidgets('personal bill item derives unit from quantity and line total', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Bao',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+      '100',
+    );
+    await tester.pumpAndSettle();
+
+    final unitAmount = tester.widget<TextFormField>(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+    );
+    expect(unitAmount.controller?.text, '50.00');
+
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.items.single.amount, '100');
+  });
+
+  testWidgets('personal bill item derives by visible currency scale', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '2',
+    );
+
+    Future<void> expectDerivedLineTotal(
+      String currency,
+      String unitAmount,
+      String expectedLineTotal,
+    ) async {
+      await _chooseDropdownValue(
+        tester,
+        const Key('personal-bill-item-currency-0'),
+        currency,
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-item-unit-amount-0')),
+        unitAmount,
+      );
+      await tester.pumpAndSettle();
+
+      final lineTotal = tester.widget<TextFormField>(
+        find.byKey(const Key('personal-bill-item-amount-0')),
+      );
+      expect(lineTotal.controller?.text, expectedLineTotal);
+    }
+
+    await expectDerivedLineTotal('USD', '100', '200.00');
+    await expectDerivedLineTotal('HKD', '100', '200.00');
+    await expectDerivedLineTotal('EUR', '100', '200.00');
+    await expectDerivedLineTotal('GBP', '100', '200.00');
+    await expectDerivedLineTotal('JPY', '100', '200');
+    await expectDerivedLineTotal('KWD', '1.234', '2.468');
+    await expectDerivedLineTotal('BHD', '1.234', '2.468');
+  });
+
+  testWidgets('personal bill item rejects contradictory amount pairs', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-name-0')),
+      'Noodles',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-quantity-0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-unit-amount-0')),
+      '3.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-item-amount-0')),
+      '7.50',
+    );
+    await _tapSaveBill(tester);
+
+    expect(
+      find.text('Unit amount and line total must match quantity.'),
+      findsOneWidget,
     );
     expect(repository.createCalls, 0);
   });
@@ -591,18 +1052,13 @@ void main() {
         '7.50',
       );
       await tester.enterText(
-        find.byKey(const Key('personal-bill-currency')),
-        'USDD',
+        find.byKey(const Key('personal-bill-item-amount-0')),
+        '7.50',
       );
       await _tapSaveBill(tester);
 
-      expect(
-        find.text('Use a 3-letter currency code such as USD.'),
-        findsOneWidget,
-      );
-      expect(repository.createCalls, 0);
-      expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(repository.createCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
     },
   );
 
@@ -635,14 +1091,8 @@ void main() {
       find.byKey(const Key('personal-bill-merchant-name')),
       '  Brunch Spot  ',
     );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-date')),
-      '  2026-05-23  ',
-    );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-currency')),
-      ' usd ',
-    );
+    await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-name-0')),
       '  Eggs  ',
@@ -650,10 +1100,6 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-amount-0')),
       ' 12.30 ',
-    );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-item-currency-0')),
-      ' usd ',
     );
     await tester.enterText(
       find.byKey(const Key('personal-bill-item-note-0')),
@@ -665,11 +1111,11 @@ void main() {
     final draft = repository.lastCreateDraft;
     expect(repository.createCalls, 1);
     expect(draft?.merchantName, '  Brunch Spot  ');
-    expect(draft?.billDate, '  2026-05-23  ');
-    expect(draft?.currency, ' usd ');
+    expect(draft?.billDate, _formatTestBillDate(DateTime.now()));
+    expect(draft?.currency, 'USD');
     expect(draft?.items.single.name, '  Eggs  ');
     expect(draft?.items.single.amount, ' 12.30 ');
-    expect(draft?.items.single.currency, ' usd ');
+    expect(draft?.items.single.currency, 'USD');
     expect(draft?.items.single.note, '  table 4  ');
   });
 
@@ -773,7 +1219,7 @@ void main() {
       final draft = repository.lastCreateDraft;
       expect(repository.createCalls, 1);
       expect(draft?.merchantName, 'Brunch Spot');
-      expect(draft?.billDate, '2026-05-23');
+      expect(draft?.billDate, _formatTestBillDate(DateTime.now()));
       expect(draft?.items.single.name, 'Coffee');
       semantics.dispose();
     },
@@ -1012,7 +1458,7 @@ void main() {
       final draft = repository.lastCreateDraft;
       expect(repository.createCalls, 1);
       expect(draft?.merchantName, 'Brunch Spot');
-      expect(draft?.billDate, '2026-05-23');
+      expect(draft?.billDate, _formatTestBillDate(DateTime.now()));
       expect(draft?.items.single.name, 'Coffee');
       expect(attachmentRepository.attachCalls, 0);
       expect(attachmentRepository.removeCalls, 0);
@@ -1674,7 +2120,7 @@ void main() {
     expect(repository.listCalls, 1);
   });
 
-  testWidgets('group bill list and detail do not show personal create entry', (
+  testWidgets('group bill list and detail omit standalone global nav', (
     tester,
   ) async {
     final repository = FakeBillRepository(groupBills: [sampleBillSummary()]);
@@ -1694,7 +2140,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
@@ -1702,7 +2148,7 @@ void main() {
     expect(find.byKey(const Key('bill-list-create')), findsNothing);
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill create exits without prompt when unchanged', (
@@ -2118,7 +2564,7 @@ void main() {
     await _goToGroupBillCreateStep(tester, 'review');
     expect(find.text('Server validation still applies'), findsOneWidget);
     expect(find.byKey(const Key('group-bill-save')), findsOneWidget);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets('group bill receipt mode back returns to start', (tester) async {
@@ -2201,7 +2647,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
-    expect(find.byKey(const Key('bottom-nav-groups')), findsOneWidget);
+    expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
   });
 
   testWidgets(
@@ -4369,14 +4815,8 @@ void _expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
 }
 
 Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
-  await tester.enterText(
-    find.byKey(const Key('personal-bill-date')),
-    '2026-05-23',
-  );
-  await tester.enterText(
-    find.byKey(const Key('personal-bill-currency')),
-    'USD',
-  );
+  await tester.tap(find.byKey(const Key('personal-bill-date-today')));
+  await tester.pumpAndSettle();
   await tester.enterText(
     find.byKey(const Key('personal-bill-item-name-0')),
     'Coffee',
@@ -4385,15 +4825,31 @@ Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
     find.byKey(const Key('personal-bill-item-amount-0')),
     '7.50',
   );
-  await tester.enterText(
-    find.byKey(const Key('personal-bill-item-currency-0')),
-    'USD',
-  );
+}
+
+String _formatTestBillDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
 
 Future<void> _tapSaveBill(WidgetTester tester) async {
   final saveButton = find.byKey(const Key('personal-bill-save'));
   await tester.tap(saveButton);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _chooseDropdownValue(
+  WidgetTester tester,
+  Key dropdownKey,
+  String label,
+) async {
+  final finder = find.byKey(dropdownKey);
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).hitTestable().last);
   await tester.pumpAndSettle();
 }
 

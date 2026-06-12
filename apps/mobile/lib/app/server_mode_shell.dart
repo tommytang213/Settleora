@@ -25,12 +25,11 @@ import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
 import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 
 typedef SettleoraSessionEndedCallback =
     Future<void> Function(String? noticeMessage);
-typedef _ServerShellDestinationSelected =
-    void Function(BuildContext context, int index);
 
 class SettleoraAuthenticatedServerShell extends StatefulWidget {
   const SettleoraAuthenticatedServerShell({
@@ -85,6 +84,7 @@ class _SettleoraAuthenticatedServerShellState
   _SettleoraDashboardFailure? _overviewFailure;
   SettleoraBillSyncSnapshot? _billSyncSnapshot;
   int _overviewLoadVersion = 0;
+  SettleoraNavDestination _selectedDestination = SettleoraNavDestination.home;
 
   @override
   void initState() {
@@ -196,103 +196,28 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openTopLevelDestination(
-    int selectedIndex,
-    WidgetBuilder builder,
+    SettleoraNavDestination destination,
   ) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => _ServerShellTopLevelDestination(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: _handleTopLevelDestinationSelected,
-          child: Builder(builder: builder),
-        ),
-      ),
-    );
+    _selectTopLevelDestination(destination);
+  }
 
-    if (!mounted) {
+  void _selectTopLevelDestination(SettleoraNavDestination destination) {
+    if (_selectedDestination == destination) {
       return;
     }
 
-    await _loadOverview();
-  }
+    setState(() {
+      _selectedDestination = destination;
+    });
 
-  void _handleTopLevelDestinationSelected(
-    BuildContext navigatorContext,
-    int index,
-  ) {
-    switch (index) {
-      case 0:
-        Navigator.of(navigatorContext).popUntil((route) => route.isFirst);
-        return;
-      case 1:
-        unawaited(
-          _replaceTopLevelDestination(
-            navigatorContext,
-            index,
-            _buildBillsScreen,
-          ),
-        );
-        return;
-      case 2:
-        unawaited(
-          _replaceTopLevelDestination(
-            navigatorContext,
-            index,
-            _buildGroupsScreen,
-          ),
-        );
-        return;
-      case 3:
-        unawaited(
-          _replaceTopLevelDestination(
-            navigatorContext,
-            index,
-            _buildSettlementsScreen,
-          ),
-        );
-        return;
-      case 4:
-        unawaited(
-          _replaceTopLevelDestination(
-            navigatorContext,
-            index,
-            _buildReceiptReviewsScreen,
-          ),
-        );
-        return;
-      case 5:
-        unawaited(
-          _replaceTopLevelDestination(
-            navigatorContext,
-            index,
-            _buildProfileScreen,
-          ),
-        );
-        return;
+    if (destination == SettleoraNavDestination.home) {
+      unawaited(_loadOverview());
     }
   }
 
-  Future<void> _replaceTopLevelDestination(
-    BuildContext navigatorContext,
-    int selectedIndex,
-    WidgetBuilder builder,
-  ) async {
-    await Navigator.of(navigatorContext).pushAndRemoveUntil(
-      MaterialPageRoute<void>(
-        builder: (_) => _ServerShellTopLevelDestination(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: _handleTopLevelDestinationSelected,
-          child: Builder(builder: builder),
-        ),
-      ),
-      (route) => route.isFirst,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    await _loadOverview();
+  void _openNestedTopLevelDestination(SettleoraNavDestination destination) {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _selectTopLevelDestination(destination);
   }
 
   Widget _buildBillsScreen(BuildContext context) {
@@ -304,6 +229,7 @@ class _SettleoraAuthenticatedServerShellState
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       revisionRepository: widget.billRevisionRepository,
       showBottomNav: false,
+      onTopLevelDestinationSelected: _openNestedTopLevelDestination,
     );
   }
 
@@ -316,6 +242,7 @@ class _SettleoraAuthenticatedServerShellState
       billAttachmentFileInput: widget.billAttachmentFileInput,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       billRevisionRepository: widget.billRevisionRepository,
+      onTopLevelDestinationSelected: _openNestedTopLevelDestination,
     );
   }
 
@@ -341,7 +268,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openBills() async {
-    await _openTopLevelDestination(1, _buildBillsScreen);
+    await _openTopLevelDestination(SettleoraNavDestination.bills);
   }
 
   Future<void> _flushBillSyncNow() async {
@@ -420,12 +347,12 @@ class _SettleoraAuthenticatedServerShellState
       case _CreateBillChoice.personal:
         await _openCreatePersonalBill();
       case _CreateBillChoice.group:
-        await _openGroups();
+        await _openCreateGroupBillFlow();
     }
   }
 
   Future<void> _openProfile() async {
-    await _openTopLevelDestination(5, _buildProfileScreen);
+    await _openTopLevelDestination(SettleoraNavDestination.profile);
   }
 
   Future<void> _openNotifications() async {
@@ -458,11 +385,11 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openReceiptReviews() async {
-    await _openTopLevelDestination(4, _buildReceiptReviewsScreen);
+    await _openTopLevelDestination(SettleoraNavDestination.receipts);
   }
 
   Future<void> _openSettlements() async {
-    await _openTopLevelDestination(3, _buildSettlementsScreen);
+    await _openTopLevelDestination(SettleoraNavDestination.settle);
   }
 
   Future<void> _openSettlementActions() async {
@@ -493,7 +420,22 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openGroups() async {
-    await _openTopLevelDestination(2, _buildGroupsScreen);
+    await _openTopLevelDestination(SettleoraNavDestination.groups);
+  }
+
+  Future<void> _openCreateGroupBillFlow() async {
+    await _openDashboardDestination(
+      (_) => SettleoraGroupListScreen(
+        repository: widget.groupRepository,
+        billRepository: widget.billRepository,
+        openGroupBillCreateOnPick: true,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
+      ),
+    );
   }
 
   Future<void> _openCreateGroup() async {
@@ -631,176 +573,146 @@ class _SettleoraAuthenticatedServerShellState
     final defaultCurrency = currentUser.defaultCurrency;
     final overview = _overview;
     final overviewFailure = _overviewFailure;
+    final isHome = _selectedDestination == SettleoraNavDestination.home;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settleora'),
-        actions: [
-          IconButton(
-            key: const Key('server-shell-sign-out'),
-            tooltip: 'Sign out',
-            onPressed: _isSigningOut ? null : _signOutCurrentSession,
-            icon: _isSigningOut
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.logout_outlined),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final maxWidth = constraints.maxWidth >= 560
-                ? 430.0
-                : double.infinity;
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Center(
-                child: ConstrainedBox(
-                  key: const Key('server-shell-dashboard-surface'),
-                  constraints: BoxConstraints(maxWidth: maxWidth),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _DashboardHero(
-                        currentUser: currentUser,
-                        defaultCurrency: defaultCurrency,
-                        overview: overview,
-                        isLoadingOverview: _isLoadingOverview,
-                        onRefresh: _loadOverview,
-                        onOpenProfile: _openProfile,
-                        onOpenNotifications: _openNotifications,
-                      ),
-                      if (overview != null) ...[
-                        const SizedBox(height: 16),
-                        _DashboardSummaryCards(
-                          overview: overview,
-                          defaultCurrency: defaultCurrency,
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      _DashboardQuickActions(
-                        onCreateBill: _openCreateBillChooser,
-                        onCreateGroup: _openCreateGroup,
-                      ),
-                      const SizedBox(height: 16),
-                      if (_isLoadingOverview && overview == null)
-                        const _DashboardLoadingCard()
-                      else if (overviewFailure != null && overview == null)
-                        _DashboardErrorCard(
-                          failure: overviewFailure,
-                          onRetry: _loadOverview,
+      appBar: isHome
+          ? AppBar(
+              title: const Text('Settleora'),
+              actions: [
+                IconButton(
+                  key: const Key('server-shell-sign-out'),
+                  tooltip: 'Sign out',
+                  onPressed: _isSigningOut ? null : _signOutCurrentSession,
+                  icon: _isSigningOut
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      else if (overview != null) ...[
-                        if (_isLoadingOverview)
-                          const _DashboardRefreshIndicator(),
-                        if (overviewFailure != null)
-                          _DashboardInlineErrorCard(
-                            failure: overviewFailure,
-                            onRetry: _loadOverview,
-                          ),
-                        _DashboardOverviewContent(
-                          overview: overview,
-                          billSyncSnapshot: _billSyncSnapshot,
-                          isFlushingBillSync: _isFlushingBillSync,
-                          onOpenBills: _openBills,
-                          onSyncNow: _flushBillSyncNow,
-                          onOpenGroups: _openGroups,
-                          onOpenSettlements: _openSettlements,
-                          onOpenSettlementActions: _openSettlementActions,
-                          onOpenRecurringBills: _openRecurringBills,
-                          onOpenRecurringDrafts: _openRecurringDrafts,
-                          onOpenNotifications: _openNotifications,
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      _DashboardMoreSection(
-                        onOpenProfile: _openProfile,
-                        onOpenReceiptReviews: _openReceiptReviews,
-                        onOpenSessions: _openSessions,
-                        onOpenMonthlyReport: _openMonthlyReport,
-                      ),
-                    ],
-                  ),
+                      : const Icon(Icons.logout_outlined),
                 ),
+              ],
+            )
+          : null,
+      body: isHome
+          ? SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxWidth = constraints.maxWidth >= 560
+                      ? 430.0
+                      : double.infinity;
+
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        key: const Key('server-shell-dashboard-surface'),
+                        constraints: BoxConstraints(maxWidth: maxWidth),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _DashboardHero(
+                              currentUser: currentUser,
+                              defaultCurrency: defaultCurrency,
+                              overview: overview,
+                              isLoadingOverview: _isLoadingOverview,
+                              onRefresh: _loadOverview,
+                              onOpenProfile: _openProfile,
+                              onOpenNotifications: _openNotifications,
+                            ),
+                            if (overview != null) ...[
+                              const SizedBox(height: 16),
+                              _DashboardSummaryCards(
+                                overview: overview,
+                                defaultCurrency: defaultCurrency,
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            _DashboardQuickActions(
+                              onCreateBill: _openCreateBillChooser,
+                              onCreateGroup: _openCreateGroup,
+                            ),
+                            const SizedBox(height: 16),
+                            if (_isLoadingOverview && overview == null)
+                              const _DashboardLoadingCard()
+                            else if (overviewFailure != null &&
+                                overview == null)
+                              _DashboardErrorCard(
+                                failure: overviewFailure,
+                                onRetry: _loadOverview,
+                              )
+                            else if (overview != null) ...[
+                              if (_isLoadingOverview)
+                                const _DashboardRefreshIndicator(),
+                              if (overviewFailure != null)
+                                _DashboardInlineErrorCard(
+                                  failure: overviewFailure,
+                                  onRetry: _loadOverview,
+                                ),
+                              _DashboardOverviewContent(
+                                overview: overview,
+                                billSyncSnapshot: _billSyncSnapshot,
+                                isFlushingBillSync: _isFlushingBillSync,
+                                onOpenBills: _openBills,
+                                onSyncNow: _flushBillSyncNow,
+                                onOpenGroups: _openGroups,
+                                onOpenSettlements: _openSettlements,
+                                onOpenSettlementActions: _openSettlementActions,
+                                onOpenRecurringBills: _openRecurringBills,
+                                onOpenRecurringDrafts: _openRecurringDrafts,
+                                onOpenNotifications: _openNotifications,
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            _DashboardMoreSection(
+                              onOpenProfile: _openProfile,
+                              onOpenReceiptReviews: _openReceiptReviews,
+                              onOpenSessions: _openSessions,
+                              onOpenMonthlyReport: _openMonthlyReport,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
-        ),
-      ),
+            )
+          : _buildSelectedTopLevelBody(context),
       bottomNavigationBar: _ServerShellBottomNavigation(
-        selectedIndex: 0,
-        onDestinationSelected: (index) =>
-            _handleTopLevelDestinationSelected(context, index),
+        selected: _selectedDestination,
+        onDestinationSelected: _selectTopLevelDestination,
       ),
     );
   }
-}
 
-class _ServerShellTopLevelDestination extends StatelessWidget {
-  const _ServerShellTopLevelDestination({
-    required this.selectedIndex,
-    required this.onDestinationSelected,
-    required this.child,
-  });
-
-  final int selectedIndex;
-  final _ServerShellDestinationSelected onDestinationSelected;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: _ServerShellBottomNavigation(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) => onDestinationSelected(context, index),
-      ),
-    );
+  Widget _buildSelectedTopLevelBody(BuildContext context) {
+    return switch (_selectedDestination) {
+      SettleoraNavDestination.home => const SizedBox.shrink(),
+      SettleoraNavDestination.bills => _buildBillsScreen(context),
+      SettleoraNavDestination.groups => _buildGroupsScreen(context),
+      SettleoraNavDestination.settle => _buildSettlementsScreen(context),
+      SettleoraNavDestination.receipts => _buildReceiptReviewsScreen(context),
+      SettleoraNavDestination.profile => _buildProfileScreen(context),
+    };
   }
 }
 
 class _ServerShellBottomNavigation extends StatelessWidget {
   const _ServerShellBottomNavigation({
-    required this.selectedIndex,
+    required this.selected,
     required this.onDestinationSelected,
   });
 
-  final int selectedIndex;
-  final ValueChanged<int> onDestinationSelected;
+  final SettleoraNavDestination selected;
+  final ValueChanged<SettleoraNavDestination> onDestinationSelected;
 
   @override
   Widget build(BuildContext context) {
     return SettleoraBottomNav(
-      selected: _destinationForIndex(selectedIndex),
-      onSelected: (destination) =>
-          onDestinationSelected(_indexForDestination(destination)),
+      selected: selected,
+      onSelected: onDestinationSelected,
     );
-  }
-
-  SettleoraNavDestination _destinationForIndex(int index) {
-    return switch (index) {
-      1 => SettleoraNavDestination.bills,
-      2 => SettleoraNavDestination.groups,
-      3 => SettleoraNavDestination.settle,
-      4 => SettleoraNavDestination.receipts,
-      5 => SettleoraNavDestination.profile,
-      _ => SettleoraNavDestination.home,
-    };
-  }
-
-  int _indexForDestination(SettleoraNavDestination destination) {
-    return switch (destination) {
-      SettleoraNavDestination.home => 0,
-      SettleoraNavDestination.bills => 1,
-      SettleoraNavDestination.groups => 2,
-      SettleoraNavDestination.settle => 3,
-      SettleoraNavDestination.receipts => 4,
-      SettleoraNavDestination.profile => 5,
-    };
   }
 }
 
@@ -811,33 +723,91 @@ class _CreateBillChooserSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Create bill', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            ListTile(
+            const SizedBox(height: 6),
+            Text(
+              'Choose the bill type to start.',
+              style: TextStyle(color: colors.textMuted),
+            ),
+            const SizedBox(height: 14),
+            _CreateBillChoiceCard(
               key: const Key('create-bill-choice-personal'),
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Personal bill'),
-              subtitle: const Text('Track a bill for your own account.'),
+              icon: Icons.person_outline,
+              title: 'Personal bill',
+              subtitle: 'Track a bill for your own account.',
               onTap: () =>
                   Navigator.of(context).pop(_CreateBillChoice.personal),
             ),
-            ListTile(
+            const SizedBox(height: 10),
+            _CreateBillChoiceCard(
               key: const Key('create-bill-choice-group'),
-              leading: const Icon(Icons.groups_outlined),
-              title: const Text('Group bill'),
-              subtitle: const Text(
-                'Choose a group, then create a shared bill.',
-              ),
+              icon: Icons.groups_outlined,
+              title: 'Group bill',
+              subtitle: 'Choose a group, then create a shared bill.',
               onTap: () => Navigator.of(context).pop(_CreateBillChoice.group),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateBillChoiceCard extends StatelessWidget {
+  const _CreateBillChoiceCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(SettleoraSpacing.md),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: colors.primarySoft,
+                foregroundColor: colors.primary,
+                child: Icon(icon),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: TextStyle(color: colors.textMuted)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+            ],
+          ),
         ),
       ),
     );

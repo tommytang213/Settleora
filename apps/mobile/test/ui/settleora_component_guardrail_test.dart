@@ -157,15 +157,53 @@ void main() {
     expect(find.text('Receipts'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
 
-    final nav = tester.widget<NavigationBar>(
-      find.byKey(const Key('server-shell-bottom-nav')),
+    final nav = tester.widget<SettleoraBottomNav>(
+      find.byType(SettleoraBottomNav),
     );
-    expect(nav.selectedIndex, 1);
+    expect(nav.selected, SettleoraNavDestination.bills);
+
+    await tester.tap(find.byKey(const Key('bottom-nav-bills')));
+    await tester.pumpAndSettle();
+
+    expect(tapped, isNull);
 
     await tester.tap(find.byKey(const Key('bottom-nav-groups')));
     await tester.pumpAndSettle();
 
     expect(tapped, SettleoraNavDestination.groups);
+  });
+
+  testWidgets('bottom nav keeps six labels stable on narrow surfaces', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          bottomNavigationBar: SettleoraBottomNav(
+            selected: SettleoraNavDestination.settle,
+          ),
+          body: SizedBox.shrink(),
+        ),
+      ),
+    );
+
+    for (final label in const [
+      'Home',
+      'Bills',
+      'Groups',
+      'Settle',
+      'Receipts',
+      'Profile',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
   });
 }
 

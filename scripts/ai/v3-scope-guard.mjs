@@ -100,6 +100,8 @@ const m2AllowedPatterns = [
   /^scripts\/ai\//,
   /^apps\/mobile\/lib\/app\//,
   /^apps\/mobile\/lib\/ui\/settleora_components\.dart$/,
+  // Shared mobile theme tokens are allowed for M2 visual parity; this is not a broad UI directory allowance.
+  /^apps\/mobile\/lib\/ui\/settleora_theme\.dart$/,
   /^apps\/mobile\/lib\/bills\/bill_list_screen\.dart$/,
   /^apps\/mobile\/lib\/groups\/group_list_screen\.dart$/,
   /^apps\/mobile\/lib\/settlements\/settlement_list_screen\.dart$/,

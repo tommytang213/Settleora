@@ -6,6 +6,7 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../ui/settleora_components.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -14,21 +15,25 @@ class SettleoraGroupListScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     this.openCreateOnStart = false,
+    this.openGroupBillCreateOnPick = false,
     this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
   final bool openCreateOnStart;
+  final bool openGroupBillCreateOnPick;
   final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupListScreen> createState() =>
@@ -202,6 +207,31 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   }
 
   Future<void> _openGroup(SettleoraGroup group) async {
+    if (widget.openGroupBillCreateOnPick) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraGroupBillListScreen(
+            repository: widget.billRepository,
+            groupRepository: widget.repository,
+            currentUserProfileId: widget.currentUserProfileId,
+            attachmentRepository: widget.billAttachmentRepository,
+            attachmentFileInput: widget.billAttachmentFileInput,
+            receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+            revisionRepository: widget.billRevisionRepository,
+            groupId: group.id,
+            groupName: group.displayName,
+            openCreateOnStart: true,
+            onTopLevelDestinationSelected: null,
+          ),
+        ),
+      );
+
+      if (mounted) {
+        await _load();
+      }
+      return;
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupDetailScreen(
@@ -213,6 +243,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
           billRevisionRepository: widget.billRevisionRepository,
           currentUserProfileId: widget.currentUserProfileId,
           groupId: group.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -282,8 +313,9 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                     _StatePanel(
                       icon: Icons.groups_outlined,
                       title: 'No groups',
-                      message:
-                          'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+                      message: widget.openGroupBillCreateOnPick
+                          ? 'Create a group first, then pick it to start a group bill.'
+                          : 'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
                       action: FilledButton.icon(
                         key: const Key('group-list-empty-create'),
                         onPressed: _isCreating ? null : _createGroup,
@@ -348,6 +380,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraGroupRepository repository;
@@ -356,6 +389,7 @@ class SettleoraGroupDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
   final String? currentUserProfileId;
   final String groupId;
 
@@ -632,6 +666,7 @@ class _SettleoraGroupDetailScreenState
           revisionRepository: widget.billRevisionRepository,
           groupId: group.id,
           groupName: group.displayName,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );

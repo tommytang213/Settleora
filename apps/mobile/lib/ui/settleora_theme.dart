@@ -46,26 +46,26 @@ class SettleoraColors extends ThemeExtension<SettleoraColors> {
   final Color textSubtle;
 
   static const light = SettleoraColors(
-    canvas: Color(0xFFF4F7FB),
+    canvas: Color(0xFFF2F4F8),
     surface: Colors.white,
-    primary: Color(0xFF0F172A),
+    primary: Color(0xFF1A2E52),
     onPrimary: Colors.white,
-    primarySoft: Color(0xFFE7ECF5),
-    accent: Color(0xFF0F766E),
-    accentSoft: Color(0xFFDDF6F1),
-    successSoft: Color(0xFFE6F7EE),
-    onSuccessSoft: Color(0xFF166534),
-    warningSoft: Color(0xFFFFF3D8),
-    onWarningSoft: Color(0xFF92400E),
-    dangerSoft: Color(0xFFFEE7EA),
-    onDangerSoft: Color(0xFFB4233A),
-    infoSoft: Color(0xFFE1F0FF),
-    onInfoSoft: Color(0xFF075985),
-    border: Color(0xFFE2E8F0),
-    borderStrong: Color(0xFFCBD5E1),
+    primarySoft: Color(0xFFE8ECFF),
+    accent: Color(0xFF0B7EA3),
+    accentSoft: Color(0xFFE3F4FA),
+    successSoft: Color(0xFFE6F5EE),
+    onSuccessSoft: Color(0xFF186A38),
+    warningSoft: Color(0xFFFEF3E0),
+    onWarningSoft: Color(0xFF8A5A0A),
+    dangerSoft: Color(0xFFFDE8EB),
+    onDangerSoft: Color(0xFFB5182C),
+    infoSoft: Color(0xFFE6EEFF),
+    onInfoSoft: Color(0xFF1E3FAF),
+    border: Color(0x1F1A2E52),
+    borderStrong: Color(0x331A2E52),
     text: Color(0xFF111827),
-    textMuted: Color(0xFF475569),
-    textSubtle: Color(0xFF64748B),
+    textMuted: Color(0xFF64748B),
+    textSubtle: Color(0xFF94A3B8),
   );
 
   @override
@@ -156,10 +156,11 @@ abstract final class SettleoraSpacing {
 }
 
 abstract final class SettleoraRadius {
-  static const double sm = 8;
-  static const double md = 12;
-  static const double lg = 18;
+  static const double sm = 12;
+  static const double md = 16;
+  static const double lg = 22;
   static const double xl = 24;
+  static const double xxl = 32;
 }
 
 abstract final class SettleoraTheme {

@@ -15,7 +15,7 @@ import 'bill_revision_review_screen.dart';
 import 'bill_repository.dart';
 import 'bill_sync_controller.dart';
 
-const List<String> _supportedGroupBillCurrencyCodes = <String>[
+const List<String> _supportedBillCurrencyCodes = <String>[
   'USD',
   'EUR',
   'GBP',
@@ -35,6 +35,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.receiptOcrReviewRepository,
     this.revisionRepository,
     this.showBottomNav = true,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -44,6 +45,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final bool showBottomNav;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraBillListScreen> createState() =>
@@ -215,18 +217,30 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           billId: bill.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
   }
 
   Future<void> _openCreateBill() async {
+    await _openCreateBillWithReceiptIntent(scanReceiptFirst: false);
+  }
+
+  Future<void> _openScanReceiptBill() async {
+    await _openCreateBillWithReceiptIntent(scanReceiptFirst: true);
+  }
+
+  Future<void> _openCreateBillWithReceiptIntent({
+    required bool scanReceiptFirst,
+  }) async {
     final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
       MaterialPageRoute(
         builder: (_) => SettleoraPersonalBillCreateScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          scanReceiptOnStart: scanReceiptFirst,
         ),
       ),
     );
@@ -254,6 +268,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           revisionRepository: widget.revisionRepository,
           billId: createdBill.id,
           initialBill: createdBill,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -315,7 +330,12 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                 children: [
                   _BillsListHeader(
                     onCreateBill: _isLoading ? null : _openCreateBill,
-                    onScanReceipt: null,
+                    onScanReceipt:
+                        widget.attachmentFileInput != null &&
+                            widget.attachmentRepository != null &&
+                            !_isLoading
+                        ? _openScanReceiptBill
+                        : null,
                   ),
                   const SizedBox(height: 14),
                   if (snapshot != null)
@@ -406,8 +426,12 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           },
         ),
       ),
-      bottomNavigationBar: widget.showBottomNav
-          ? const SettleoraBottomNav(selected: SettleoraNavDestination.bills)
+      bottomNavigationBar:
+          widget.showBottomNav && widget.onTopLevelDestinationSelected != null
+          ? SettleoraBottomNav(
+              selected: SettleoraNavDestination.bills,
+              onSelected: widget.onTopLevelDestinationSelected,
+            )
           : null,
     );
   }
@@ -514,11 +538,13 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.scanReceiptOnStart = false,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final bool scanReceiptOnStart;
 
   @override
   State<SettleoraPersonalBillCreateScreen> createState() =>
@@ -535,6 +561,7 @@ class _SettleoraPersonalBillCreateScreenState
   final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
   bool _isPickingAttachment = false;
+  bool _didScanReceiptOnStart = false;
   String? _itemListError;
   String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
@@ -551,6 +578,11 @@ class _SettleoraPersonalBillCreateScreenState
         currency: _currencyController.text.trim(),
       ),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.scanReceiptOnStart) {
+        _addReceiptDraftAttachmentFromStart();
+      }
+    });
   }
 
   @override
@@ -597,6 +629,31 @@ class _SettleoraPersonalBillCreateScreenState
     setState(() {});
   }
 
+  void _setPersonalBillCurrency(String currency) {
+    final normalizedCurrency = currency.trim().toUpperCase();
+    if (normalizedCurrency.isEmpty) {
+      return;
+    }
+
+    final previousCurrency = _currencyController.text.trim().toUpperCase();
+    setState(() {
+      _currencyController.text = normalizedCurrency;
+      for (final item in _itemControllers) {
+        final itemCurrency = item.currency.text.trim().toUpperCase();
+        if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
+          item.currency.text = normalizedCurrency;
+          item.syncAfterCurrencyChanged();
+        }
+      }
+    });
+  }
+
+  void _setPersonalBillDate(DateTime date) {
+    setState(() {
+      _billDateController.text = _formatBillDate(date);
+    });
+  }
+
   bool get _hasMeaningfulUnsavedDraft {
     if (_createdBillAwaitingAttachmentUpload != null) {
       return true;
@@ -622,6 +679,8 @@ class _SettleoraPersonalBillCreateScreenState
 
     final item = _itemControllers.single;
     return item.name.text.trim().isNotEmpty ||
+        item.quantity.text.trim() != '1' ||
+        item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
         item.currency.text.trim().toUpperCase() != 'USD';
@@ -658,6 +717,25 @@ class _SettleoraPersonalBillCreateScreenState
   }
 
   Future<void> _addDraftAttachment() async {
+    await _addDraftAttachmentWithPurposePicker();
+  }
+
+  Future<void> _addReceiptDraftAttachmentFromStart() async {
+    if (_didScanReceiptOnStart) {
+      return;
+    }
+
+    _didScanReceiptOnStart = true;
+    await _addReceiptDraftAttachment();
+  }
+
+  Future<void> _addReceiptDraftAttachment() async {
+    await _addDraftAttachmentForPurpose(
+      SettleoraBillAttachmentPurposeValues.receipt,
+    );
+  }
+
+  Future<void> _addDraftAttachmentWithPurposePicker() async {
     final fileInput = widget.attachmentFileInput;
     if (fileInput == null || _isSaving || _isPickingAttachment) {
       return;
@@ -674,30 +752,7 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
 
-      final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
-        purpose,
-      );
-      final pickedFile = await fileInput.pickAttachmentFile(
-        allowedContentTypes: allowedContentTypes,
-      );
-      if (!mounted || pickedFile == null) {
-        return;
-      }
-
-      final validatedFile = validatePickedBillAttachmentFile(
-        pickedFile,
-        allowedContentTypes: allowedContentTypes,
-      );
-      setState(() {
-        _draftAttachments.add(
-          _BillCreateDraftAttachment(
-            id: _nextDraftAttachmentId,
-            file: validatedFile,
-            purpose: purpose,
-          ),
-        );
-        _nextDraftAttachmentId += 1;
-      });
+      await _pickDraftAttachmentForPurpose(fileInput, purpose);
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -722,6 +777,76 @@ class _SettleoraPersonalBillCreateScreenState
         });
       }
     }
+  }
+
+  Future<void> _addDraftAttachmentForPurpose(
+    SettleoraBillAttachmentPurpose purpose,
+  ) async {
+    final fileInput = widget.attachmentFileInput;
+    if (fileInput == null || _isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      await _pickDraftAttachmentForPurpose(fileInput, purpose);
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = 'The receipt could not be selected. Try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickDraftAttachmentForPurpose(
+    SettleoraBillAttachmentFileInput fileInput,
+    SettleoraBillAttachmentPurpose purpose,
+  ) async {
+    final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
+      purpose,
+    );
+    final pickedFile = await fileInput.pickAttachmentFile(
+      allowedContentTypes: allowedContentTypes,
+    );
+    if (!mounted || pickedFile == null) {
+      return;
+    }
+
+    final validatedFile = validatePickedBillAttachmentFile(
+      pickedFile,
+      allowedContentTypes: allowedContentTypes,
+    );
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: _nextDraftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
@@ -841,7 +966,7 @@ class _SettleoraPersonalBillCreateScreenState
             (item) => SettleoraPersonalBillCreateItemDraft(
               name: item.name.text,
               note: item.note.text,
-              amount: item.amount.text,
+              amount: _resolvedItemLineTotal(item),
               currency: item.currency.text,
             ),
           )
@@ -951,6 +1076,9 @@ class _SettleoraPersonalBillCreateScreenState
     final failure = _failure;
     final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final canAddAttachments =
+        widget.attachmentFileInput != null &&
+        widget.attachmentRepository != null;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save bill'
         : 'Retry remaining attachment uploads';
@@ -991,6 +1119,9 @@ class _SettleoraPersonalBillCreateScreenState
                           attachment.purpose ==
                           SettleoraBillAttachmentPurposeValues.receipt,
                     ),
+                    canAddReceipt: canAddAttachments,
+                    isBusy: _isSaving || _isPickingAttachment,
+                    onAddReceipt: _addReceiptDraftAttachment,
                   ),
                   const SizedBox(height: 12),
                   AppCard(
@@ -1013,30 +1144,29 @@ class _SettleoraPersonalBillCreateScreenState
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        _MobileDatePickerField(
                           key: const Key('personal-bill-date'),
                           controller: _billDateController,
                           enabled: !_isSaving,
-                          onChanged: (_) => _notifyDraftChanged(),
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Bill date',
-                            hintText: 'YYYY-MM-DD',
-                          ),
-                          validator: (value) =>
-                              _requiredField(value, 'Enter a bill date.'),
+                          label: 'Bill date',
+                          todayKey: const Key('personal-bill-date-today'),
+                          pickerKey: const Key('personal-bill-date-picker'),
+                          onDateSelected: (date) {
+                            _setPersonalBillDate(date);
+                            _notifyDraftChanged();
+                          },
+                          validator: (value) => _billDateField(value),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        _CurrencyPickerField(
                           key: const Key('personal-bill-currency'),
                           controller: _currencyController,
                           enabled: !_isSaving,
-                          onChanged: (_) => _notifyDraftChanged(),
-                          textCapitalization: TextCapitalization.characters,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Currency',
-                          ),
+                          label: 'Currency',
+                          onChanged: (currency) {
+                            _setPersonalBillCurrency(currency);
+                            _notifyDraftChanged();
+                          },
                           validator: (value) => _currencyCodeField(
                             value,
                             requiredMessage: 'Enter a currency.',
@@ -1083,6 +1213,12 @@ class _SettleoraPersonalBillCreateScreenState
                         isSaving: _isSaving,
                         onRemove: () => _removeItem(index),
                         onDraftChanged: _notifyDraftChanged,
+                        onCurrencyChanged: (currency) {
+                          setState(() {
+                            _itemControllers[index].currency.text = currency;
+                            _itemControllers[index].syncAfterCurrencyChanged();
+                          });
+                        },
                       ),
                     ),
                   const SizedBox(height: 10),
@@ -1090,9 +1226,7 @@ class _SettleoraPersonalBillCreateScreenState
                     keyPrefix: 'personal-bill',
                     attachments: _draftAttachments,
                     errorText: _attachmentDraftError,
-                    canAdd:
-                        widget.attachmentFileInput != null &&
-                        widget.attachmentRepository != null,
+                    canAdd: canAddAttachments,
                     isBusy: _isSaving || _isPickingAttachment,
                     onAdd: _addDraftAttachment,
                     onRemove: _removeDraftAttachment,
@@ -1139,9 +1273,17 @@ class _SettleoraPersonalBillCreateScreenState
 }
 
 class _CreateBillHeader extends StatelessWidget {
-  const _CreateBillHeader({required this.hasReceiptAttachment});
+  const _CreateBillHeader({
+    required this.hasReceiptAttachment,
+    required this.canAddReceipt,
+    required this.isBusy,
+    required this.onAddReceipt,
+  });
 
   final bool hasReceiptAttachment;
+  final bool canAddReceipt;
+  final bool isBusy;
+  final VoidCallback onAddReceipt;
 
   @override
   Widget build(BuildContext context) {
@@ -1150,43 +1292,71 @@ class _CreateBillHeader extends StatelessWidget {
     return AppCard(
       padding: const EdgeInsets.all(SettleoraSpacing.lg),
       color: hasReceiptAttachment ? colors.successSoft : colors.surface,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: hasReceiptAttachment
-                ? colors.surface
-                : colors.primarySoft,
-            foregroundColor: hasReceiptAttachment
-                ? colors.onSuccessSoft
-                : colors.primary,
-            child: Icon(
-              hasReceiptAttachment
-                  ? Icons.check_circle_outline
-                  : Icons.edit_note_outlined,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Create bill',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 3),
-                Text(
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: hasReceiptAttachment
+                    ? colors.surface
+                    : colors.primarySoft,
+                foregroundColor: hasReceiptAttachment
+                    ? colors.onSuccessSoft
+                    : colors.primary,
+                child: Icon(
                   hasReceiptAttachment
-                      ? 'Receipt selected. It uploads after save; OCR remains review-first.'
-                      : 'Manual entry. Add receipt files when available.',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                      ? Icons.check_circle_outline
+                      : Icons.document_scanner_outlined,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Create personal bill',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      hasReceiptAttachment
+                          ? 'Receipt selected. It uploads after save; OCR remains review-first.'
+                          : canAddReceipt
+                          ? 'Enter details manually, or add a receipt now for OCR review after save.'
+                          : 'Manual entry is available. Receipt OCR upload is unavailable in this session.',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 14),
+          AppButton(
+            key: const Key('personal-bill-scan-receipt'),
+            label: hasReceiptAttachment
+                ? 'Add another receipt'
+                : 'Scan receipt',
+            icon: Icons.document_scanner_outlined,
+            variant: AppButtonVariant.secondary,
+            onPressed: canAddReceipt && !isBusy ? onAddReceipt : null,
+            expanded: true,
+          ),
+          if (!canAddReceipt) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Save the bill manually, then add receipts later when attachment upload is available.',
+              key: const Key('personal-bill-scan-receipt-unavailable-copy'),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+            ),
+          ],
         ],
       ),
     );
@@ -1196,17 +1366,91 @@ class _CreateBillHeader extends StatelessWidget {
 class _PersonalBillCreateItemControllers {
   _PersonalBillCreateItemControllers({String? currency})
     : name = TextEditingController(),
+      quantity = TextEditingController(text: '1'),
+      unitAmount = TextEditingController(),
       amount = TextEditingController(),
       currency = TextEditingController(text: currency ?? ''),
       note = TextEditingController();
 
   final TextEditingController name;
+  final TextEditingController quantity;
+  final TextEditingController unitAmount;
   final TextEditingController amount;
   final TextEditingController currency;
   final TextEditingController note;
+  bool _unitAmountEditedByUser = false;
+  bool _lineTotalEditedByUser = false;
+
+  void syncAfterQuantityEdited() {
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (_unitAmountEditedByUser && !_lineTotalEditedByUser) {
+      _setLineTotalFromUnitAmount(quantityValue);
+      return;
+    }
+
+    if (_lineTotalEditedByUser && !_unitAmountEditedByUser) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterUnitAmountEdited() {
+    _unitAmountEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_lineTotalEditedByUser || amount.text.trim().isEmpty) {
+      _setLineTotalFromUnitAmount(quantityValue);
+    }
+  }
+
+  void syncAfterLineTotalEdited() {
+    _lineTotalEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantity.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_unitAmountEditedByUser || unitAmount.text.trim().isEmpty) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterCurrencyChanged() {
+    syncAfterQuantityEdited();
+  }
+
+  void _setLineTotalFromUnitAmount(int quantityValue) {
+    final unit = _parseCurrencyAmount(unitAmount.text, currency.text);
+    if (unit == null || !_currencyAmountIsPositive(unit)) {
+      return;
+    }
+
+    amount.text = _formatCurrencyAmount(
+      _multiplyCurrencyAmountByWhole(unit, quantityValue),
+    );
+  }
+
+  void _setUnitAmountFromLineTotal(int quantityValue) {
+    final lineTotal = _parseCurrencyAmount(amount.text, currency.text);
+    if (lineTotal == null || !_currencyAmountIsPositive(lineTotal)) {
+      return;
+    }
+
+    unitAmount.text = _formatCurrencyAmount(
+      _divideCurrencyAmountByWhole(lineTotal, quantityValue),
+    );
+  }
 
   void dispose() {
     name.dispose();
+    quantity.dispose();
+    unitAmount.dispose();
     amount.dispose();
     currency.dispose();
     note.dispose();
@@ -1241,7 +1485,7 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
         .where((item) => item.name.text.trim().isEmpty)
         .length;
     final missingItemAmounts = itemControllers
-        .where((item) => item.amount.text.trim().isEmpty)
+        .where((item) => !_billCreateItemHasCompleteAmountPair(item))
         .length;
     final missingItemCurrencies = itemControllers
         .where((item) => item.currency.text.trim().isEmpty)
@@ -1646,6 +1890,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
     required this.isSaving,
     required this.onRemove,
     required this.onDraftChanged,
+    required this.onCurrencyChanged,
   });
 
   final int index;
@@ -1653,6 +1898,7 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onRemove;
   final VoidCallback onDraftChanged;
+  final ValueChanged<String> onCurrencyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1693,27 +1939,59 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('personal-bill-item-amount-$index'),
-              controller: controllers.amount,
+              key: ValueKey('personal-bill-item-quantity-$index'),
+              controller: controllers.quantity,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
+              onChanged: (_) {
+                controllers.syncAfterQuantityEdited();
+                onDraftChanged();
+              },
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              validator: (value) => _positiveMoneyAmountField(
-                value,
-                requiredMessage: 'Enter an item amount.',
+              decoration: const InputDecoration(
+                labelText: 'Quantity',
+                helperText: 'Defaults to 1 for a single line total.',
               ),
+              validator: _requiredPositiveWholeNumberField,
             ),
             const SizedBox(height: 12),
             TextFormField(
+              key: ValueKey('personal-bill-item-unit-amount-$index'),
+              controller: controllers.unitAmount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterUnitAmountEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Unit amount'),
+              validator: (value) => _optionalPositiveMoneyAmountField(value),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('personal-bill-item-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterLineTotalEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Line total'),
+              validator: (_) => _billCreateItemAmountModelError(controllers),
+            ),
+            const SizedBox(height: 12),
+            _CurrencyPickerField(
               key: ValueKey('personal-bill-item-currency-$index'),
               controller: controllers.currency,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Currency'),
+              label: 'Currency',
+              onChanged: (currency) {
+                onCurrencyChanged(currency);
+                onDraftChanged();
+              },
               validator: (value) => _currencyCodeField(
                 value,
                 requiredMessage: 'Enter an item currency.',
@@ -1849,24 +2127,28 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.openCreateOnStart = false,
     this.currentUserProfileId,
     this.participantDisplayNames = const {},
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final bool openCreateOnStart;
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupBillListScreen> createState() =>
@@ -1878,6 +2160,7 @@ class _SettleoraGroupBillListScreenState
   final _searchController = TextEditingController();
 
   bool _isLoading = true;
+  bool _didOpenCreateOnStart = false;
   List<SettleoraBillSummary> _bills = const [];
   late Map<String, String> _participantDisplayNames;
   _GroupBillListFilter _selectedFilter = _GroupBillListFilter.all;
@@ -1919,6 +2202,11 @@ class _SettleoraGroupBillListScreenState
         _participantDisplayNames = participantDisplayNames;
         _isLoading = false;
       });
+
+      if (widget.openCreateOnStart && !_didOpenCreateOnStart) {
+        _didOpenCreateOnStart = true;
+        await _openCreateGroupBill();
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -1945,6 +2233,7 @@ class _SettleoraGroupBillListScreenState
           currentUserProfileId: widget.currentUserProfileId,
           participantDisplayNames: _participantDisplayNames,
           billId: bill.id,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -1995,6 +2284,7 @@ class _SettleoraGroupBillListScreenState
           participantDisplayNames: _participantDisplayNames,
           billId: createdBill.id,
           initialBill: createdBill,
+          onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
     );
@@ -2124,9 +2414,12 @@ class _SettleoraGroupBillListScreenState
         icon: const Icon(Icons.add),
         label: const Text('Create group bill'),
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.groups,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.groups,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
     );
   }
 
@@ -2588,6 +2881,7 @@ class _SettleoraGroupBillCreateScreenState
         final itemCurrency = item.currency.text.trim().toUpperCase();
         if (itemCurrency.isEmpty || itemCurrency == previousCurrency) {
           item.currency.text = normalizedCurrency;
+          item.syncAfterCurrencyChanged();
         }
       }
       for (final payer in _payerControllers) {
@@ -2814,8 +3108,9 @@ class _SettleoraGroupBillCreateScreenState
 
     final item = _itemControllers.single;
     if (item.name.text.trim().isNotEmpty ||
+        item.quantityUnits.text.trim() != '1' ||
+        item.unitAmount.text.trim().isNotEmpty ||
         item.amount.text.trim().isNotEmpty ||
-        item.quantityUnits.text.trim().isNotEmpty ||
         item.note.text.trim().isNotEmpty ||
         item.currency.text.trim().toUpperCase() != 'USD' ||
         item.splits.length != 1 ||
@@ -3103,7 +3398,7 @@ class _SettleoraGroupBillCreateScreenState
             (item) => SettleoraGroupBillCreateItemDraft(
               name: item.name.text,
               note: item.note.text,
-              amount: item.amount.text,
+              amount: _resolvedItemLineTotal(item),
               currency: item.currency.text,
               splits: item.splits
                   .map(
@@ -3349,11 +3644,7 @@ class _SettleoraGroupBillCreateScreenState
         _itemControllers.any(
           (item) =>
               item.name.text.trim().isEmpty ||
-              _positiveMoneyAmountField(
-                    item.amount.text,
-                    requiredMessage: 'Enter an item amount.',
-                  ) !=
-                  null ||
+              _billCreateItemAmountModelError(item) != null ||
               _currencyCodeField(
                     item.currency.text,
                     requiredMessage: 'Enter an item currency.',
@@ -3731,6 +4022,8 @@ class _SettleoraGroupBillCreateScreenState
                                                     .currency
                                                     .text =
                                                 currency;
+                                            _itemControllers[index]
+                                                .syncAfterCurrencyChanged();
                                           });
                                         },
                                       ),
@@ -3990,9 +4283,6 @@ class _SettleoraGroupBillCreateScreenState
                           ),
                         ),
                       ),
-                    ),
-                    const SettleoraBottomNav(
-                      selected: SettleoraNavDestination.groups,
                     ),
                   ],
                 ),
@@ -6089,7 +6379,7 @@ List<SettleoraGroupMember> _groupBillAssignedMembers(
 }
 
 String _groupBillQuantityLabel(_GroupBillCreateItemControllers item) {
-  final quantity = _quantityFromItemNote(item.note.text);
+  final quantity = _positiveWholeNumber(item.quantityUnits.text);
   if (quantity != null) {
     return 'Qty $quantity';
   }
@@ -6144,7 +6434,9 @@ List<String> _groupBillCreateWarnings({
     warnings.add('Missing bill date.');
   }
   if (itemControllers.any(
-    (item) => item.name.text.trim().isEmpty || item.amount.text.trim().isEmpty,
+    (item) =>
+        item.name.text.trim().isEmpty ||
+        !_billCreateItemHasCompleteAmountPair(item),
   )) {
     warnings.add('One or more items need a name and amount.');
   }
@@ -6187,18 +6479,88 @@ List<String> _groupBillCreateWarnings({
 class _GroupBillCreateItemControllers {
   _GroupBillCreateItemControllers({String? currency})
     : name = TextEditingController(),
+      unitAmount = TextEditingController(),
       amount = TextEditingController(),
-      quantityUnits = TextEditingController(),
+      quantityUnits = TextEditingController(text: '1'),
       currency = TextEditingController(text: currency ?? ''),
       note = TextEditingController(),
       splits = [_GroupBillCreateSplitControllers()];
 
   final TextEditingController name;
+  final TextEditingController unitAmount;
   final TextEditingController amount;
   final TextEditingController quantityUnits;
   final TextEditingController currency;
   final TextEditingController note;
   final List<_GroupBillCreateSplitControllers> splits;
+  bool _unitAmountEditedByUser = false;
+  bool _lineTotalEditedByUser = false;
+
+  void syncAfterQuantityEdited() {
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (_unitAmountEditedByUser && !_lineTotalEditedByUser) {
+      _setLineTotalFromUnitAmount(quantityValue);
+      return;
+    }
+
+    if (_lineTotalEditedByUser && !_unitAmountEditedByUser) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterUnitAmountEdited() {
+    _unitAmountEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_lineTotalEditedByUser || amount.text.trim().isEmpty) {
+      _setLineTotalFromUnitAmount(quantityValue);
+    }
+  }
+
+  void syncAfterLineTotalEdited() {
+    _lineTotalEditedByUser = true;
+    final quantityValue = _positiveWholeNumber(quantityUnits.text);
+    if (quantityValue == null) {
+      return;
+    }
+
+    if (!_unitAmountEditedByUser || unitAmount.text.trim().isEmpty) {
+      _setUnitAmountFromLineTotal(quantityValue);
+    }
+  }
+
+  void syncAfterCurrencyChanged() {
+    syncAfterQuantityEdited();
+  }
+
+  void _setLineTotalFromUnitAmount(int quantityValue) {
+    final unit = _parseCurrencyAmount(unitAmount.text, currency.text);
+    if (unit == null || !_currencyAmountIsPositive(unit)) {
+      return;
+    }
+
+    amount.text = _formatCurrencyAmount(
+      _multiplyCurrencyAmountByWhole(unit, quantityValue),
+    );
+  }
+
+  void _setUnitAmountFromLineTotal(int quantityValue) {
+    final lineTotal = _parseCurrencyAmount(amount.text, currency.text);
+    if (lineTotal == null || !_currencyAmountIsPositive(lineTotal)) {
+      return;
+    }
+
+    unitAmount.text = _formatCurrencyAmount(
+      _divideCurrencyAmountByWhole(lineTotal, quantityValue),
+    );
+  }
 
   void addSplit() {
     splits.add(_GroupBillCreateSplitControllers());
@@ -6215,6 +6577,7 @@ class _GroupBillCreateItemControllers {
 
   void dispose() {
     name.dispose();
+    unitAmount.dispose();
     amount.dispose();
     quantityUnits.dispose();
     currency.dispose();
@@ -6326,36 +6689,55 @@ class _GroupBillCreateItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: ValueKey('group-bill-item-amount-$index'),
-              controller: controllers.amount,
-              enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Line total amount',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) => _positiveMoneyAmountField(
-                value,
-                requiredMessage: 'Enter an item amount.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
               key: ValueKey('group-bill-item-quantity-$index'),
               controller: controllers.quantityUnits,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
+              onChanged: (_) {
+                controllers.syncAfterQuantityEdited();
+                onDraftChanged();
+              },
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
-                labelText: 'Quantity / units',
-                helperText:
-                    'Optional split guidance; line total stays the same.',
+                labelText: 'Quantity',
+                helperText: 'Defaults to 1 for a single line total.',
                 border: OutlineInputBorder(),
               ),
-              validator: _optionalPositiveWholeNumberField,
+              validator: _requiredPositiveWholeNumberField,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-unit-amount-$index'),
+              controller: controllers.unitAmount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterUnitAmountEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Unit amount',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) => _optionalPositiveMoneyAmountField(value),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: ValueKey('group-bill-item-amount-$index'),
+              controller: controllers.amount,
+              enabled: !isSaving,
+              onChanged: (_) {
+                controllers.syncAfterLineTotalEdited();
+                onDraftChanged();
+              },
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Line total',
+                border: OutlineInputBorder(),
+              ),
+              validator: (_) => _billCreateItemAmountModelError(controllers),
             ),
             const SizedBox(height: 12),
             _CurrencyPickerField(
@@ -6519,21 +6901,22 @@ class _CurrencyPickerField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final normalizedValue = controller.text.trim().toUpperCase();
-    final value = _supportedGroupBillCurrencyCodes.contains(normalizedValue)
+    final value = _supportedBillCurrencyCodes.contains(normalizedValue)
         ? normalizedValue
-        : _supportedGroupBillCurrencyCodes.first;
+        : _supportedBillCurrencyCodes.first;
     if (controller.text != value) {
       controller.text = value;
     }
 
     return DropdownButtonFormField<String>(
+      key: ValueKey('currency-picker-$label-$value'),
       initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
       ),
       items: [
-        for (final currency in _supportedGroupBillCurrencyCodes)
+        for (final currency in _supportedBillCurrencyCodes)
           DropdownMenuItem<String>(value: currency, child: Text(currency)),
       ],
       onChanged: enabled
@@ -6541,7 +6924,6 @@ class _CurrencyPickerField extends StatelessWidget {
               if (selected == null) {
                 return;
               }
-              controller.text = selected;
               onChanged(selected);
             }
           : null,
@@ -6984,6 +7366,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -6993,6 +7376,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraBillDetailScreen> createState() =>
@@ -7329,9 +7713,12 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
           },
         ),
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.bills,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.bills,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
     );
   }
 }
@@ -7350,6 +7737,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
+    this.onTopLevelDestinationSelected,
   });
 
   final SettleoraBillRepository repository;
@@ -7363,6 +7751,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
   final SettleoraBillDetail? initialBill;
+  final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
   @override
   State<SettleoraGroupBillDetailScreen> createState() =>
@@ -7749,9 +8138,12 @@ class _SettleoraGroupBillDetailScreenState
           ),
         ],
       ),
-      bottomNavigationBar: const SettleoraBottomNav(
-        selected: SettleoraNavDestination.groups,
-      ),
+      bottomNavigationBar: widget.onTopLevelDestinationSelected == null
+          ? null
+          : SettleoraBottomNav(
+              selected: SettleoraNavDestination.groups,
+              onSelected: widget.onTopLevelDestinationSelected,
+            ),
       body: SafeArea(
         child: Builder(
           builder: (context) {
@@ -10147,6 +10539,156 @@ String? _optionalPositiveWholeNumberField(String? value) {
   return null;
 }
 
+String? _requiredPositiveWholeNumberField(String? value) {
+  final requiredError = _requiredField(value, 'Enter a quantity.');
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  return _optionalPositiveWholeNumberField(value);
+}
+
+String? _optionalPositiveMoneyAmountField(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return _positiveMoneyAmountField(
+    trimmed,
+    requiredMessage: 'Enter an amount.',
+  );
+}
+
+String? _billDateField(String? value) {
+  final requiredError = _requiredField(value, 'Enter a bill date.');
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  if (_parseBillDate(value ?? '') == null) {
+    return 'Use a bill date like 2026-05-23.';
+  }
+
+  return null;
+}
+
+String? _billCreateItemAmountModelError(Object item) {
+  final quantityText = _billCreateItemQuantityText(item);
+  final unitAmountText = _billCreateItemUnitAmountText(item);
+  final lineTotalText = _billCreateItemLineTotalText(item);
+  final currencyText = _billCreateItemCurrencyText(item);
+
+  final quantityError = _requiredPositiveWholeNumberField(quantityText);
+  if (quantityError != null) {
+    return quantityError;
+  }
+
+  final unitError = _optionalPositiveMoneyAmountField(unitAmountText);
+  if (unitError != null) {
+    return unitError;
+  }
+
+  final lineError = _optionalPositiveMoneyAmountField(lineTotalText);
+  if (lineError != null) {
+    return lineError;
+  }
+
+  final unitAmount = _parseCurrencyAmount(unitAmountText, currencyText);
+  final lineTotal = _parseCurrencyAmount(lineTotalText, currencyText);
+  if (unitAmount == null && unitAmountText.trim().isNotEmpty) {
+    return _currencyAmountScaleMessage(currencyText);
+  }
+  if (lineTotal == null && lineTotalText.trim().isNotEmpty) {
+    return _currencyAmountScaleMessage(currencyText);
+  }
+  if (unitAmount == null && lineTotal == null) {
+    return 'Enter a unit amount or line total.';
+  }
+
+  final quantity = _positiveWholeNumber(quantityText);
+  if (quantity == null) {
+    return 'Enter a quantity.';
+  }
+
+  if (unitAmount != null &&
+      lineTotal != null &&
+      !_lineTotalMatchesUnitAmount(
+        unitAmount: unitAmount,
+        lineTotal: lineTotal,
+        quantity: quantity,
+      )) {
+    return 'Unit amount and line total must match quantity.';
+  }
+
+  return null;
+}
+
+bool _billCreateItemHasCompleteAmountPair(Object item) {
+  return _billCreateItemAmountModelError(item) == null;
+}
+
+String _resolvedItemLineTotal(Object item) {
+  final quantityText = _billCreateItemQuantityText(item);
+  final unitAmountText = _billCreateItemUnitAmountText(item);
+  final lineTotalText = _billCreateItemLineTotalText(item);
+  final currencyText = _billCreateItemCurrencyText(item);
+  final trimmedLineTotal = lineTotalText.trim();
+  if (trimmedLineTotal.isNotEmpty) {
+    return lineTotalText;
+  }
+
+  final quantity = _positiveWholeNumber(quantityText) ?? 1;
+  final unitAmount = _parseCurrencyAmount(unitAmountText, currencyText);
+  if (unitAmount == null) {
+    return lineTotalText;
+  }
+
+  return _formatCurrencyAmount(
+    _multiplyCurrencyAmountByWhole(unitAmount, quantity),
+  );
+}
+
+String _billCreateItemQuantityText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.quantity.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.quantityUnits.text;
+  }
+  return '1';
+}
+
+String _billCreateItemUnitAmountText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.unitAmount.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.unitAmount.text;
+  }
+  return '';
+}
+
+String _billCreateItemLineTotalText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.amount.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.amount.text;
+  }
+  return '';
+}
+
+String _billCreateItemCurrencyText(Object item) {
+  if (item is _PersonalBillCreateItemControllers) {
+    return item.currency.text;
+  }
+  if (item is _GroupBillCreateItemControllers) {
+    return item.currency.text;
+  }
+  return 'USD';
+}
+
 bool _isExactAmountSplitMethod(String value) =>
     value.trim().toLowerCase() == 'exact_amount';
 
@@ -10239,6 +10781,102 @@ _ExactDecimalAmount? _parseExactDecimalAmount(String value) {
   );
 }
 
+int? _positiveWholeNumber(String value) {
+  final trimmed = value.trim();
+  if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+    return null;
+  }
+
+  final parsed = int.tryParse(trimmed);
+  if (parsed == null || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+bool _lineTotalMatchesUnitAmount({
+  required _CurrencyAmount unitAmount,
+  required _CurrencyAmount lineTotal,
+  required int quantity,
+}) {
+  final expected = _multiplyCurrencyAmountByWhole(unitAmount, quantity);
+  return expected.value == lineTotal.value && expected.scale == lineTotal.scale;
+}
+
+_CurrencyAmount? _parseCurrencyAmount(String value, String currency) {
+  final scale = _currencyScale(currency);
+  final parsed = _parseExactDecimalAmount(value);
+  if (parsed == null || parsed.scale > scale) {
+    return null;
+  }
+
+  return _CurrencyAmount(
+    value: parsed.value * _bigIntPow10(scale - parsed.scale),
+    scale: scale,
+  );
+}
+
+bool _currencyAmountIsPositive(_CurrencyAmount amount) {
+  return amount.value > BigInt.zero;
+}
+
+_CurrencyAmount _multiplyCurrencyAmountByWhole(
+  _CurrencyAmount amount,
+  int multiplier,
+) {
+  return _CurrencyAmount(
+    value: amount.value * BigInt.from(multiplier),
+    scale: amount.scale,
+  );
+}
+
+_CurrencyAmount _divideCurrencyAmountByWhole(
+  _CurrencyAmount amount,
+  int divisor,
+) {
+  final divisorValue = BigInt.from(divisor);
+  final quotient = amount.value ~/ divisorValue;
+  final remainder = amount.value.remainder(divisorValue);
+  final rounded = remainder.abs() * BigInt.from(2) >= divisorValue
+      ? quotient + BigInt.one
+      : quotient;
+
+  return _CurrencyAmount(value: rounded, scale: amount.scale);
+}
+
+String _formatCurrencyAmount(_CurrencyAmount amount) {
+  var digits = amount.value.abs().toString();
+  if (amount.scale == 0) {
+    return digits;
+  }
+
+  if (digits.length <= amount.scale) {
+    digits = digits.padLeft(amount.scale + 1, '0');
+  }
+
+  final splitIndex = digits.length - amount.scale;
+  final whole = digits.substring(0, splitIndex);
+  final fractional = digits.substring(splitIndex).padRight(amount.scale, '0');
+  return '$whole.$fractional';
+}
+
+int _currencyScale(String currency) {
+  return switch (currency.trim().toUpperCase()) {
+    'JPY' => 0,
+    'KWD' || 'BHD' => 3,
+    _ => 2,
+  };
+}
+
+String _currencyAmountScaleMessage(String currency) {
+  final scale = _currencyScale(currency);
+  if (scale == 0) {
+    return 'Use whole currency units for ${currency.trim().toUpperCase()}.';
+  }
+  return 'Use no more than $scale decimal places for ${currency.trim().toUpperCase()}.';
+}
+
 BigInt _sumExactDecimals(List<_ExactDecimalAmount> amounts, int scale) {
   return amounts.fold<BigInt>(
     BigInt.zero,
@@ -10257,6 +10895,13 @@ BigInt _bigIntPow10(int exponent) {
 
 class _ExactDecimalAmount {
   const _ExactDecimalAmount({required this.value, required this.scale});
+
+  final BigInt value;
+  final int scale;
+}
+
+class _CurrencyAmount {
+  const _CurrencyAmount({required this.value, required this.scale});
 
   final BigInt value;
   final int scale;
