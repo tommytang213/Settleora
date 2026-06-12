@@ -1,1 +1,84 @@
-[]
+[
+  {
+    "id": "M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human screenshot review",
+    "summary": "The authenticated Home screen still looked like a plain vertical menu/list instead of a materially improved dashboard.",
+    "details": [
+      "Observed profile row, Today heading, two flat actions, menu rows, More rows, and large unused space on wider desktop/test viewport.",
+      "Observed implementation-oriented copy: No global shared-bill count is exposed by this mobile seam yet.",
+      "The screen read more like a settings/navigation hub than a useful Home dashboard."
+    ],
+    "fixSummary": [
+      "Home now has a centered phone-width dashboard surface on wide test windows instead of a stretched desktop layout.",
+      "Home now has a compact dashboard header with user context plus refresh, notification, and profile affordances.",
+      "Two top metric cards show You owe and You're owed with honest zero or server-provided settlement balance values.",
+      "Upcoming bills now uses bill-like rows or a compact honest empty state instead of Personal bills and Recurring bills route cards as primary content.",
+      "Group activity now uses feed-style rows or a compact honest empty state instead of Shared bills and Notifications route cards as primary content.",
+      "Quick actions, Needs attention, Upcoming bills, Group activity, This month, and compact More controls remain explicit sections.",
+      "The shared-bills copy is user-facing and no longer mentions seams or unavailable implementation details.",
+      "The layout is constrained and adaptive for narrow and wide viewports, with focused tests covering both and route handoffs."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "forbiddenChangeDetected": false
+  },
+  {
+    "id": "M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human PC UI retest",
+    "summary": "Home dashboard was missing persistent bottom navigation and Create bill routed directly to personal bill creation.",
+    "details": [
+      "The M2 reference direction expects Home to show a persistent bottom navigation with Home, Bills, Groups, Settle, and Settings.",
+      "Home Create bill should ask whether the user wants a personal bill or group bill.",
+      "Group selection must be optional and must not break the personal bill path."
+    ],
+    "fixSummary": [
+      "Home now uses the scaffold bottom navigation bar with Home, Bills, Groups, Settle, and Settings labels.",
+      "Home is selected while the dashboard is visible.",
+      "Create bill now opens a chooser with Personal bill and Group bill choices.",
+      "Personal bill keeps the existing personal bill create screen.",
+      "Group bill opens Groups so the user can choose a group and continue through the existing group bill list/create flow."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "knownLimitation": "Home does not preselect a group for group bill creation because the current mobile shell has no safe group-selection/preselection API; the Group bill choice routes to Groups for explicit group selection.",
+    "forbiddenChangeDetected": false
+  },
+  {
+    "id": "M2-BOTTOM-NAV-DSL-PARITY-20260612-1426",
+    "milestoneId": "M2",
+    "severity": "blocking",
+    "status": "fixed_pending_human_retest",
+    "source": "human PC UI retest",
+    "summary": "A non-Home page showed bottom navigation drift with extra Receipts and Profile tabs instead of the canonical M2 five-tab shell.",
+    "details": [
+      "The observed bottom navigation used Home, Bills, Groups, Settle, Receipts, and Profile.",
+      "The M2 Day 1 shell direction expects Home, Bills, Groups, Settle, and Settings only.",
+      "Receipts, Profile, sessions, reports, and receipt reviews should remain secondary routes/actions rather than bottom navigation tabs."
+    ],
+    "fixSummary": [
+      "The mobile shell now uses one shared bottom navigation widget with Home, Bills, Groups, Settle, and Settings in that order.",
+      "Home, Bills, Groups, Settle, and Settings/Profile top-level routes share the same constrained safe-area nav layout, icon size, label behavior, and rounded active indicator.",
+      "Receipts and Profile are not bottom-nav tab labels.",
+      "Top-level tab active state is covered for Home, Bills, Groups, Settle, and Settings.",
+      "The Create bill chooser still exposes Personal bill and Group bill."
+    ],
+    "controllerAction": "human_retest_required",
+    "humanRetestRequired": true,
+    "validatedBy": [
+      "apps/mobile: /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart"
+    ],
+    "forbiddenChangeDetected": false
+  }
+]

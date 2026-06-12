@@ -155,10 +155,14 @@ void main() {
     expect(storage.session?.accessToken, 'redacted-signed-in-access');
     expect(storage.session?.refreshCredential, 'redacted-signed-in-refresh');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
-    expect(find.text('Taylor'), findsOneWidget);
+    expect(find.text('Welcome back, Taylor'), findsOneWidget);
     expect(find.text('Receipt Reviews'), findsOneWidget);
     expect(repository.listCalls, 0);
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-receipt-reviews')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-receipt-reviews')));
     await tester.pumpAndSettle();
 
@@ -197,6 +201,10 @@ void main() {
     expect(find.text('Receipt Reviews'), findsOneWidget);
     expect(repository.listCalls, 0);
 
+    await tester.ensureVisible(
+      find.byKey(const Key('server-shell-receipt-reviews')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-receipt-reviews')));
     await tester.pumpAndSettle();
 

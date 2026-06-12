@@ -157,14 +157,10 @@ void main() {
     expect(find.text('Receipts'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
 
-    final bills = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-bills')),
+    final nav = tester.widget<NavigationBar>(
+      find.byKey(const Key('server-shell-bottom-nav')),
     );
-    final groups = tester.widget<Semantics>(
-      find.byKey(const Key('bottom-nav-groups')),
-    );
-    expect(bills.properties.selected, isTrue);
-    expect(groups.properties.selected, isFalse);
+    expect(nav.selectedIndex, 1);
 
     await tester.tap(find.byKey(const Key('bottom-nav-groups')));
     await tester.pumpAndSettle();

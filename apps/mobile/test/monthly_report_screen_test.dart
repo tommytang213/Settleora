@@ -471,7 +471,7 @@ void main() {
       180,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -96));
+    await tester.ensureVisible(find.byKey(const Key('server-shell-reports')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('server-shell-reports')));
     await tester.pumpAndSettle();
