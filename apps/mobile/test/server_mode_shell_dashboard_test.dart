@@ -684,30 +684,59 @@ void main() {
     expect(find.byKey(const Key('personal-bill-item-name-0')), findsOneWidget);
   });
 
-  testWidgets('dashboard create bill group choice opens groups surface', (
-    tester,
-  ) async {
-    final groupRepository = FakeGroupRepository(groups: [sampleGroup()]);
+  testWidgets(
+    'dashboard group bill choice picks group then opens create flow',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final groupRepository = FakeGroupRepository(
+        groups: [sampleGroup()],
+        members: [
+          sampleGroupMember(displayName: 'Taylor'),
+          sampleGroupMember(
+            userProfileId: 'profile-other',
+            displayName: 'Morgan',
+          ),
+        ],
+      );
+      final billRepository = FakeBillRepository();
 
-    await pumpShell(tester, groupRepository: groupRepository);
+      await pumpShell(
+        tester,
+        billRepository: billRepository,
+        groupRepository: groupRepository,
+      );
 
-    await scrollToAndTap(
-      tester,
-      const Key('server-shell-create-personal-bill'),
-    );
-    await tester.pumpAndSettle();
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-create-personal-bill'),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Personal bill'), findsOneWidget);
-    expect(find.text('Group bill'), findsOneWidget);
+      expect(find.text('Personal bill'), findsOneWidget);
+      expect(find.text('Group bill'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('create-bill-choice-group')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('create-bill-choice-group')));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Groups'), findsWidgets);
-    expect(find.text('Trip Crew'), findsOneWidget);
-    expect(find.byKey(const Key('group-list-create')), findsOneWidget);
-    expect(groupRepository.listCalls, 1);
-  });
+      expect(find.text('Groups'), findsWidgets);
+      expect(find.text('Trip Crew'), findsOneWidget);
+      expect(find.byKey(const Key('group-list-create')), findsOneWidget);
+      expect(groupRepository.listCalls, 1);
+
+      await tester.tap(find.text('Trip Crew'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Create group bill start'), findsOneWidget);
+      expect(find.text('Trip Crew'), findsWidgets);
+      expect(find.text('Start'), findsWidgets);
+      expect(find.text('Basics'), findsWidgets);
+      expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
+      expect(find.byKey(const Key('server-shell-bottom-nav')), findsNothing);
+      expect(find.byType(SettleoraBottomNav), findsNothing);
+      expect(billRepository.listGroupCalls, 1);
+    },
+  );
 
   testWidgets(
     'dashboard quick action refreshes overview after create success',

@@ -224,12 +224,23 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   }
 
   Future<void> _openCreateBill() async {
+    await _openCreateBillWithReceiptIntent(scanReceiptFirst: false);
+  }
+
+  Future<void> _openScanReceiptBill() async {
+    await _openCreateBillWithReceiptIntent(scanReceiptFirst: true);
+  }
+
+  Future<void> _openCreateBillWithReceiptIntent({
+    required bool scanReceiptFirst,
+  }) async {
     final createdBill = await Navigator.of(context).push<SettleoraBillDetail>(
       MaterialPageRoute(
         builder: (_) => SettleoraPersonalBillCreateScreen(
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          scanReceiptOnStart: scanReceiptFirst,
         ),
       ),
     );
@@ -319,7 +330,12 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                 children: [
                   _BillsListHeader(
                     onCreateBill: _isLoading ? null : _openCreateBill,
-                    onScanReceipt: null,
+                    onScanReceipt:
+                        widget.attachmentFileInput != null &&
+                            widget.attachmentRepository != null &&
+                            !_isLoading
+                        ? _openScanReceiptBill
+                        : null,
                   ),
                   const SizedBox(height: 14),
                   if (snapshot != null)
@@ -522,11 +538,13 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.scanReceiptOnStart = false,
   });
 
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final bool scanReceiptOnStart;
 
   @override
   State<SettleoraPersonalBillCreateScreen> createState() =>
@@ -543,6 +561,7 @@ class _SettleoraPersonalBillCreateScreenState
   final List<_BillCreateDraftAttachment> _draftAttachments = [];
   bool _isSaving = false;
   bool _isPickingAttachment = false;
+  bool _didScanReceiptOnStart = false;
   String? _itemListError;
   String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
@@ -559,6 +578,11 @@ class _SettleoraPersonalBillCreateScreenState
         currency: _currencyController.text.trim(),
       ),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.scanReceiptOnStart) {
+        _addReceiptDraftAttachmentFromStart();
+      }
+    });
   }
 
   @override
@@ -666,6 +690,25 @@ class _SettleoraPersonalBillCreateScreenState
   }
 
   Future<void> _addDraftAttachment() async {
+    await _addDraftAttachmentWithPurposePicker();
+  }
+
+  Future<void> _addReceiptDraftAttachmentFromStart() async {
+    if (_didScanReceiptOnStart) {
+      return;
+    }
+
+    _didScanReceiptOnStart = true;
+    await _addReceiptDraftAttachment();
+  }
+
+  Future<void> _addReceiptDraftAttachment() async {
+    await _addDraftAttachmentForPurpose(
+      SettleoraBillAttachmentPurposeValues.receipt,
+    );
+  }
+
+  Future<void> _addDraftAttachmentWithPurposePicker() async {
     final fileInput = widget.attachmentFileInput;
     if (fileInput == null || _isSaving || _isPickingAttachment) {
       return;
@@ -682,30 +725,7 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
 
-      final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
-        purpose,
-      );
-      final pickedFile = await fileInput.pickAttachmentFile(
-        allowedContentTypes: allowedContentTypes,
-      );
-      if (!mounted || pickedFile == null) {
-        return;
-      }
-
-      final validatedFile = validatePickedBillAttachmentFile(
-        pickedFile,
-        allowedContentTypes: allowedContentTypes,
-      );
-      setState(() {
-        _draftAttachments.add(
-          _BillCreateDraftAttachment(
-            id: _nextDraftAttachmentId,
-            file: validatedFile,
-            purpose: purpose,
-          ),
-        );
-        _nextDraftAttachmentId += 1;
-      });
+      await _pickDraftAttachmentForPurpose(fileInput, purpose);
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -730,6 +750,76 @@ class _SettleoraPersonalBillCreateScreenState
         });
       }
     }
+  }
+
+  Future<void> _addDraftAttachmentForPurpose(
+    SettleoraBillAttachmentPurpose purpose,
+  ) async {
+    final fileInput = widget.attachmentFileInput;
+    if (fileInput == null || _isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      await _pickDraftAttachmentForPurpose(fileInput, purpose);
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = 'The receipt could not be selected. Try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickDraftAttachmentForPurpose(
+    SettleoraBillAttachmentFileInput fileInput,
+    SettleoraBillAttachmentPurpose purpose,
+  ) async {
+    final allowedContentTypes = billAttachmentUploadContentTypesForPurpose(
+      purpose,
+    );
+    final pickedFile = await fileInput.pickAttachmentFile(
+      allowedContentTypes: allowedContentTypes,
+    );
+    if (!mounted || pickedFile == null) {
+      return;
+    }
+
+    final validatedFile = validatePickedBillAttachmentFile(
+      pickedFile,
+      allowedContentTypes: allowedContentTypes,
+    );
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: _nextDraftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
@@ -959,6 +1049,9 @@ class _SettleoraPersonalBillCreateScreenState
     final failure = _failure;
     final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final canAddAttachments =
+        widget.attachmentFileInput != null &&
+        widget.attachmentRepository != null;
     final saveLabel = _createdBillAwaitingAttachmentUpload == null
         ? 'Save bill'
         : 'Retry remaining attachment uploads';
@@ -999,6 +1092,9 @@ class _SettleoraPersonalBillCreateScreenState
                           attachment.purpose ==
                           SettleoraBillAttachmentPurposeValues.receipt,
                     ),
+                    canAddReceipt: canAddAttachments,
+                    isBusy: _isSaving || _isPickingAttachment,
+                    onAddReceipt: _addReceiptDraftAttachment,
                   ),
                   const SizedBox(height: 12),
                   AppCard(
@@ -1098,9 +1194,7 @@ class _SettleoraPersonalBillCreateScreenState
                     keyPrefix: 'personal-bill',
                     attachments: _draftAttachments,
                     errorText: _attachmentDraftError,
-                    canAdd:
-                        widget.attachmentFileInput != null &&
-                        widget.attachmentRepository != null,
+                    canAdd: canAddAttachments,
                     isBusy: _isSaving || _isPickingAttachment,
                     onAdd: _addDraftAttachment,
                     onRemove: _removeDraftAttachment,
@@ -1147,9 +1241,17 @@ class _SettleoraPersonalBillCreateScreenState
 }
 
 class _CreateBillHeader extends StatelessWidget {
-  const _CreateBillHeader({required this.hasReceiptAttachment});
+  const _CreateBillHeader({
+    required this.hasReceiptAttachment,
+    required this.canAddReceipt,
+    required this.isBusy,
+    required this.onAddReceipt,
+  });
 
   final bool hasReceiptAttachment;
+  final bool canAddReceipt;
+  final bool isBusy;
+  final VoidCallback onAddReceipt;
 
   @override
   Widget build(BuildContext context) {
@@ -1158,43 +1260,71 @@ class _CreateBillHeader extends StatelessWidget {
     return AppCard(
       padding: const EdgeInsets.all(SettleoraSpacing.lg),
       color: hasReceiptAttachment ? colors.successSoft : colors.surface,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: hasReceiptAttachment
-                ? colors.surface
-                : colors.primarySoft,
-            foregroundColor: hasReceiptAttachment
-                ? colors.onSuccessSoft
-                : colors.primary,
-            child: Icon(
-              hasReceiptAttachment
-                  ? Icons.check_circle_outline
-                  : Icons.edit_note_outlined,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Create bill',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 3),
-                Text(
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: hasReceiptAttachment
+                    ? colors.surface
+                    : colors.primarySoft,
+                foregroundColor: hasReceiptAttachment
+                    ? colors.onSuccessSoft
+                    : colors.primary,
+                child: Icon(
                   hasReceiptAttachment
-                      ? 'Receipt selected. It uploads after save; OCR remains review-first.'
-                      : 'Manual entry. Add receipt files when available.',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                      ? Icons.check_circle_outline
+                      : Icons.document_scanner_outlined,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Create personal bill',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      hasReceiptAttachment
+                          ? 'Receipt selected. It uploads after save; OCR remains review-first.'
+                          : canAddReceipt
+                          ? 'Enter details manually, or add a receipt now for OCR review after save.'
+                          : 'Manual entry is available. Receipt OCR upload is unavailable in this session.',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 14),
+          AppButton(
+            key: const Key('personal-bill-scan-receipt'),
+            label: hasReceiptAttachment
+                ? 'Add another receipt'
+                : 'Scan receipt',
+            icon: Icons.document_scanner_outlined,
+            variant: AppButtonVariant.secondary,
+            onPressed: canAddReceipt && !isBusy ? onAddReceipt : null,
+            expanded: true,
+          ),
+          if (!canAddReceipt) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Save the bill manually, then add receipts later when attachment upload is available.',
+              key: const Key('personal-bill-scan-receipt-unavailable-copy'),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+            ),
+          ],
         ],
       ),
     );
@@ -1857,6 +1987,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     required this.groupRepository,
     required this.groupId,
     required this.groupName,
+    this.openCreateOnStart = false,
     this.currentUserProfileId,
     this.participantDisplayNames = const {},
     this.attachmentRepository,
@@ -1870,6 +2001,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final SettleoraGroupRepository groupRepository;
   final String groupId;
   final String groupName;
+  final bool openCreateOnStart;
   final String? currentUserProfileId;
   final Map<String, String> participantDisplayNames;
   final SettleoraBillAttachmentRepository? attachmentRepository;
@@ -1888,6 +2020,7 @@ class _SettleoraGroupBillListScreenState
   final _searchController = TextEditingController();
 
   bool _isLoading = true;
+  bool _didOpenCreateOnStart = false;
   List<SettleoraBillSummary> _bills = const [];
   late Map<String, String> _participantDisplayNames;
   _GroupBillListFilter _selectedFilter = _GroupBillListFilter.all;
@@ -1929,6 +2062,11 @@ class _SettleoraGroupBillListScreenState
         _participantDisplayNames = participantDisplayNames;
         _isLoading = false;
       });
+
+      if (widget.openCreateOnStart && !_didOpenCreateOnStart) {
+        _didOpenCreateOnStart = true;
+        await _openCreateGroupBill();
+      }
     } catch (error) {
       if (!mounted) {
         return;

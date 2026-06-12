@@ -347,7 +347,7 @@ class _SettleoraAuthenticatedServerShellState
       case _CreateBillChoice.personal:
         await _openCreatePersonalBill();
       case _CreateBillChoice.group:
-        await _openGroups();
+        await _openCreateGroupBillFlow();
     }
   }
 
@@ -421,6 +421,21 @@ class _SettleoraAuthenticatedServerShellState
 
   Future<void> _openGroups() async {
     await _openTopLevelDestination(SettleoraNavDestination.groups);
+  }
+
+  Future<void> _openCreateGroupBillFlow() async {
+    await _openDashboardDestination(
+      (_) => SettleoraGroupListScreen(
+        repository: widget.groupRepository,
+        billRepository: widget.billRepository,
+        openGroupBillCreateOnPick: true,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
+      ),
+    );
   }
 
   Future<void> _openCreateGroup() async {

@@ -15,6 +15,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
     required this.repository,
     required this.billRepository,
     this.openCreateOnStart = false,
+    this.openGroupBillCreateOnPick = false,
     this.currentUserProfileId,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
@@ -26,6 +27,7 @@ class SettleoraGroupListScreen extends StatefulWidget {
   final SettleoraGroupRepository repository;
   final SettleoraBillRepository billRepository;
   final bool openCreateOnStart;
+  final bool openGroupBillCreateOnPick;
   final String? currentUserProfileId;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
@@ -205,6 +207,31 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
   }
 
   Future<void> _openGroup(SettleoraGroup group) async {
+    if (widget.openGroupBillCreateOnPick) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettleoraGroupBillListScreen(
+            repository: widget.billRepository,
+            groupRepository: widget.repository,
+            currentUserProfileId: widget.currentUserProfileId,
+            attachmentRepository: widget.billAttachmentRepository,
+            attachmentFileInput: widget.billAttachmentFileInput,
+            receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+            revisionRepository: widget.billRevisionRepository,
+            groupId: group.id,
+            groupName: group.displayName,
+            openCreateOnStart: true,
+            onTopLevelDestinationSelected: null,
+          ),
+        ),
+      );
+
+      if (mounted) {
+        await _load();
+      }
+      return;
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SettleoraGroupDetailScreen(
@@ -286,8 +313,9 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                     _StatePanel(
                       icon: Icons.groups_outlined,
                       title: 'No groups',
-                      message:
-                          'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+                      message: widget.openGroupBillCreateOnPick
+                          ? 'Create a group first, then pick it to start a group bill.'
+                          : 'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
                       action: FilledButton.icon(
                         key: const Key('group-list-empty-create'),
                         onPressed: _isCreating ? null : _createGroup,

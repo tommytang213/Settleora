@@ -22,6 +22,7 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('bill list queues archive and flushes through sync', (
@@ -82,6 +83,94 @@ void main() {
     expect(find.byKey(const Key('bottom-nav-bills')), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
     expect(find.text('Create group bill'), findsNothing);
+  });
+
+  testWidgets('personal bill list scan receipt starts receipt upload handoff', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: const [1, 2, 3],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: fileInput,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('personal-bill-scan-receipt')), findsOneWidget);
+    expect(find.text('Add another receipt'), findsOneWidget);
+    expect(
+      find.text(
+        'Receipt selected. It uploads after save; OCR remains review-first.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('personal-bill-attachment-purpose-0')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('personal-bill-attachment-purpose-0')),
+          )
+          .data,
+      'Receipt',
+    );
+    expect(fileInput.pickCalls, 1);
+    expect(
+      fileInput.lastAllowedContentTypes,
+      billAttachmentUploadContentTypesForPurpose(
+        SettleoraBillAttachmentPurposeValues.receipt,
+      ),
+    );
+  });
+
+  testWidgets('personal bill create explains receipt unavailable seam safely', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('personal-bill-scan-receipt')), findsOneWidget);
+    expect(
+      tester
+          .widget<AppButton>(
+            find.byKey(const Key('personal-bill-scan-receipt')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      find.byKey(const Key('personal-bill-scan-receipt-unavailable-copy')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('personal bill empty state omits standalone global nav', (
