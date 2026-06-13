@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
+import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -43,6 +44,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     required this.syncController,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptImageIntake,
     this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
@@ -55,6 +57,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillSyncController syncController;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -255,6 +258,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
@@ -555,6 +559,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptImageIntake,
     this.receiptOcrProvider,
     this.defaultCurrency,
     this.scanReceiptOnStart = false,
@@ -563,6 +568,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
   final bool scanReceiptOnStart;
@@ -761,9 +767,96 @@ class _SettleoraPersonalBillCreateScreenState
   }
 
   Future<void> _addReceiptDraftAttachment() async {
+    final receiptImageIntake = widget.receiptImageIntake;
+    if (receiptImageIntake != null) {
+      await _addReceiptImageFromIntake(receiptImageIntake);
+      return;
+    }
+
     await _addDraftAttachmentForPurpose(
       SettleoraBillAttachmentPurposeValues.receipt,
     );
+  }
+
+  Future<void> _addReceiptImageFromIntake(
+    ReceiptImageIntake receiptImageIntake,
+  ) async {
+    if (_isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      final source = await _selectReceiptImageSource(context, 'personal-bill');
+      if (!mounted) {
+        return;
+      }
+      if (source == null) {
+        setState(() {
+          _attachmentDraftError =
+              'Receipt image selection was cancelled. Manual entry is still available.';
+        });
+        return;
+      }
+
+      final pickedFile = await receiptImageIntake.pickReceiptImage(
+        source: source,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (pickedFile == null) {
+        setState(() {
+          _attachmentDraftError =
+              'Receipt image selection was cancelled. Manual entry is still available.';
+        });
+        return;
+      }
+
+      final validatedFile = validatePickedBillAttachmentFile(
+        pickedFile,
+        allowedContentTypes:
+            SettleoraBillAttachmentContentTypeValues.receiptValues,
+      );
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
+            id: _nextDraftAttachmentId,
+            file: validatedFile,
+            purpose: SettleoraBillAttachmentPurposeValues.receipt,
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
+      await _runReceiptOcrPreview(validatedFile);
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError =
+            'The receipt image could not be selected. Manual entry is still available.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
   }
 
   Future<void> _addDraftAttachmentWithPurposePicker() async {
@@ -983,6 +1076,7 @@ class _SettleoraPersonalBillCreateScreenState
         ReceiptOcrRequest(
           bytes: pickedFile.bytes,
           contentType: pickedFile.contentType,
+          imagePath: pickedFile.localPath,
         ),
       );
       if (!mounted) {
@@ -1992,6 +2086,52 @@ Future<bool> _confirmDiscardCreateDraft(
   return shouldDiscard ?? false;
 }
 
+Future<ReceiptImageSource?> _selectReceiptImageSource(
+  BuildContext context,
+  String keyPrefix,
+) {
+  return showModalBottomSheet<ReceiptImageSource>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Scan receipt',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              key: Key('$keyPrefix-receipt-image-source-camera'),
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              subtitle: const Text('Use the camera for this receipt only.'),
+              onTap: () => Navigator.of(context).pop(ReceiptImageSource.camera),
+            ),
+            ListTile(
+              key: Key('$keyPrefix-receipt-image-source-gallery'),
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose photo'),
+              subtitle: const Text('Import an existing receipt image.'),
+              onTap: () =>
+                  Navigator.of(context).pop(ReceiptImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              key: Key('$keyPrefix-receipt-image-source-cancel'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _BillCreateDraftAttachment {
   const _BillCreateDraftAttachment({
     required this.id,
@@ -2490,6 +2630,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     this.defaultCurrency,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptImageIntake,
     this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
@@ -2506,6 +2647,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -2616,6 +2758,7 @@ class _SettleoraGroupBillListScreenState
           defaultCurrency: widget.defaultCurrency,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
         ),
       ),
@@ -3093,6 +3236,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     this.defaultCurrency,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptImageIntake,
     this.receiptOcrProvider,
   });
 
@@ -3104,6 +3248,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final String? defaultCurrency;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
 
   @override
@@ -3537,9 +3682,96 @@ class _SettleoraGroupBillCreateScreenState
   }
 
   Future<void> _addReceiptDraftAttachment() async {
+    final receiptImageIntake = widget.receiptImageIntake;
+    if (receiptImageIntake != null) {
+      await _addReceiptImageFromIntake(receiptImageIntake);
+      return;
+    }
+
     await _addDraftAttachmentForPurpose(
       SettleoraBillAttachmentPurposeValues.receipt,
     );
+  }
+
+  Future<void> _addReceiptImageFromIntake(
+    ReceiptImageIntake receiptImageIntake,
+  ) async {
+    if (_isSaving || _isPickingAttachment) {
+      return;
+    }
+
+    setState(() {
+      _isPickingAttachment = true;
+      _attachmentDraftError = null;
+    });
+
+    try {
+      final source = await _selectReceiptImageSource(context, 'group-bill');
+      if (!mounted) {
+        return;
+      }
+      if (source == null) {
+        setState(() {
+          _attachmentDraftError =
+              'Receipt image selection was cancelled. Manual entry is still available.';
+        });
+        return;
+      }
+
+      final pickedFile = await receiptImageIntake.pickReceiptImage(
+        source: source,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (pickedFile == null) {
+        setState(() {
+          _attachmentDraftError =
+              'Receipt image selection was cancelled. Manual entry is still available.';
+        });
+        return;
+      }
+
+      final validatedFile = validatePickedBillAttachmentFile(
+        pickedFile,
+        allowedContentTypes:
+            SettleoraBillAttachmentContentTypeValues.receiptValues,
+      );
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
+            id: _nextDraftAttachmentId,
+            file: validatedFile,
+            purpose: SettleoraBillAttachmentPurposeValues.receipt,
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
+      await _runReceiptOcrPreview(validatedFile);
+    } on SettleoraBillAttachmentFileInputFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _attachmentDraftError =
+            'The receipt image could not be selected. Manual entry is still available.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingAttachment = false;
+        });
+      }
+    }
   }
 
   Future<void> _addDraftAttachmentWithPurposePicker() async {
@@ -3679,6 +3911,7 @@ class _SettleoraGroupBillCreateScreenState
         ReceiptOcrRequest(
           bytes: pickedFile.bytes,
           contentType: pickedFile.contentType,
+          imagePath: pickedFile.localPath,
         ),
       );
       if (!mounted) {

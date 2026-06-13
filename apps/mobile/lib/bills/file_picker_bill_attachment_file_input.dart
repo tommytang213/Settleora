@@ -4,22 +4,18 @@ import 'bill_attachment_file_input.dart';
 
 class FilePickerSettleoraBillAttachmentFileInput
     implements SettleoraBillAttachmentFileInput {
-  FilePickerSettleoraBillAttachmentFileInput({FilePicker? filePicker})
-    : _filePicker = filePicker ?? FilePicker.platform;
-
-  final FilePicker _filePicker;
+  const FilePickerSettleoraBillAttachmentFileInput();
 
   @override
   Future<SettleoraPickedBillAttachmentFile?> pickAttachmentFile({
     required Set<String> allowedContentTypes,
   }) async {
-    final result = await _filePicker.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: billAttachmentFileExtensionsForContentTypes(
         allowedContentTypes,
       ),
       allowMultiple: false,
-      allowCompression: false,
       withData: true,
     );
     final files = result?.files;
@@ -39,6 +35,7 @@ class FilePickerSettleoraBillAttachmentFileInput
       filename: file.name,
       contentType: billAttachmentContentTypeForFilename(file.name),
       bytes: bytes,
+      localPath: file.path,
       allowedContentTypes: allowedContentTypes,
     );
   }

@@ -15,6 +15,7 @@ import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_intake.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -275,6 +276,182 @@ void main() {
       ]);
     },
   );
+
+  testWidgets('personal bill receipt image cancel leaves draft unchanged', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptImageIntake = FakeReceiptImageIntake();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          receiptImageIntake: receiptImageIntake,
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.failed('Should not run.'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Manual Cafe',
+    );
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      find.byKey(const Key('personal-bill-receipt-image-source-cancel')),
+      findsOneWidget,
+    );
+    Navigator.of(
+      tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
+    ).pop();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(receiptImageIntake.pickCalls, 0);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-merchant-name')),
+          )
+          .controller
+          ?.text,
+      'Manual Cafe',
+    );
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text(
+        'Receipt image selection was cancelled. Manual entry is still available.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('personal-bill-ocr-apply')), findsNothing);
+  });
+
+  testWidgets('personal bill receipt image permission error keeps manual entry', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          receiptImageIntake: FakeReceiptImageIntake(
+            failure: const SettleoraBillAttachmentFileInputFailure(
+              'Receipt image access was denied. Manual entry is still available.',
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.failed('Should not run.'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Manual Cafe',
+    );
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      find.byKey(const Key('personal-bill-receipt-image-source-gallery')),
+      findsOneWidget,
+    );
+    Navigator.of(
+      tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
+    ).pop(ReceiptImageSource.gallery);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      find.text(
+        'Receipt image access was denied. Manual entry is still available.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-merchant-name')),
+          )
+          .controller
+          ?.text,
+      'Manual Cafe',
+    );
+    expect(find.text('0 attachments selected'), findsOneWidget);
+  });
+
+  testWidgets('personal bill receipt image intake passes local path to OCR', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Path Market',
+          currency: 'USD',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Coffee',
+              quantity: '1',
+              lineTotal: '4.50',
+              currency: 'USD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(),
+          receiptImageIntake: FakeReceiptImageIntake(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.jpg',
+              contentType: 'image/jpeg',
+              bytes: const [8, 6, 7],
+              localPath: '/tmp/settleora-receipt.jpg',
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      find.byKey(const Key('personal-bill-receipt-image-source-camera')),
+      findsOneWidget,
+    );
+    Navigator.of(
+      tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
+    ).pop(ReceiptImageSource.camera);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(receiptOcrProvider.calls, 1);
+    expect(receiptOcrProvider.lastRequest?.bytes, const [8, 6, 7]);
+    expect(receiptOcrProvider.lastRequest?.contentType, 'image/jpeg');
+    expect(
+      receiptOcrProvider.lastRequest?.imagePath,
+      '/tmp/settleora-receipt.jpg',
+    );
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Merchant: Path Market'), findsOneWidget);
+  });
 
   testWidgets('personal bill create explains receipt unavailable seam safely', (
     tester,
@@ -5727,6 +5904,29 @@ class FakeBillAttachmentFileInput implements SettleoraBillAttachmentFileInput {
   }
 }
 
+class FakeReceiptImageIntake implements ReceiptImageIntake {
+  FakeReceiptImageIntake({this.pickedFile, this.failure});
+
+  final SettleoraPickedBillAttachmentFile? pickedFile;
+  final SettleoraBillAttachmentFileInputFailure? failure;
+  int pickCalls = 0;
+  ReceiptImageSource? lastSource;
+
+  @override
+  Future<SettleoraPickedBillAttachmentFile?> pickReceiptImage({
+    required ReceiptImageSource source,
+  }) async {
+    pickCalls += 1;
+    lastSource = source;
+    final failure = this.failure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return pickedFile;
+  }
+}
+
 class FakeReceiptOcrProvider implements ReceiptOcrProvider {
   FakeReceiptOcrProvider(this.result);
 
@@ -6223,11 +6423,13 @@ SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
   String filename = 'support.pdf',
   String contentType = 'application/pdf',
   List<int> bytes = const [1, 2, 3],
+  String? localPath,
 }) {
   return pickedBillAttachmentFileFromBytes(
     filename: filename,
     contentType: contentType,
     bytes: bytes,
+    localPath: localPath,
     allowedContentTypes:
         SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
   );

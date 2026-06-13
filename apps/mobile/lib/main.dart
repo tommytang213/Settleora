@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'app/app_bootstrap.dart';
 import 'app/secure_storage.dart';
 import 'dashboard/dashboard_preview_screen.dart';
+import 'receipt_ocr_capture/receipt_image_intake.dart';
+import 'receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'ui/settleora_theme.dart';
 
 void main() {
@@ -25,6 +27,8 @@ class SettleoraMobileApp extends StatelessWidget {
     this.reportRepositoryFactory,
     this.profileRepositoryFactory,
     this.billSyncControllerFactory,
+    this.receiptImageIntake,
+    this.receiptOcrProvider,
     this.now,
     this.showDashboardPreview = const bool.fromEnvironment(
       'SETTLEORA_DASHBOARD_PREVIEW',
@@ -45,6 +49,8 @@ class SettleoraMobileApp extends StatelessWidget {
   final SettleoraMonthlyReportRepositoryFactory? reportRepositoryFactory;
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
+  final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final DateTime Function()? now;
   final bool showDashboardPreview;
 
@@ -70,6 +76,8 @@ class SettleoraMobileApp extends StatelessWidget {
               reportRepositoryFactory: reportRepositoryFactory,
               profileRepositoryFactory: profileRepositoryFactory,
               billSyncControllerFactory: billSyncControllerFactory,
+              receiptImageIntake: receiptImageIntake,
+              receiptOcrProvider: receiptOcrProvider,
               now: now,
             ),
     );

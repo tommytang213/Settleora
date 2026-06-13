@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Settleora uses the camera only when you take a receipt photo for bill OCR.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Settleora uses selected receipt photos only for bill OCR and receipt attachment review.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

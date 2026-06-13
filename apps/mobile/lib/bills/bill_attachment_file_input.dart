@@ -11,11 +11,13 @@ class SettleoraPickedBillAttachmentFile {
     required this.filename,
     required this.contentType,
     required List<int> bytes,
+    this.localPath,
   }) : bytes = List.unmodifiable(bytes);
 
   final String filename;
   final String contentType;
   final List<int> bytes;
+  final String? localPath;
 }
 
 class SettleoraBillAttachmentFileInputFailure implements Exception {
@@ -101,6 +103,7 @@ SettleoraPickedBillAttachmentFile pickedBillAttachmentFileFromBytes({
   required String filename,
   required String contentType,
   required List<int> bytes,
+  String? localPath,
   required Set<String> allowedContentTypes,
 }) {
   final safeFilename = _safeFilename(filename);
@@ -121,6 +124,7 @@ SettleoraPickedBillAttachmentFile pickedBillAttachmentFileFromBytes({
     filename: safeFilename,
     contentType: normalizedContentType,
     bytes: bytes,
+    localPath: _safeLocalPath(localPath),
   );
 }
 
@@ -132,6 +136,7 @@ SettleoraPickedBillAttachmentFile validatePickedBillAttachmentFile(
     filename: file.filename,
     contentType: file.contentType,
     bytes: file.bytes,
+    localPath: file.localPath,
     allowedContentTypes: allowedContentTypes,
   );
 }
@@ -172,4 +177,13 @@ String _extensionFor(String filename) {
   }
 
   return safeFilename.substring(dotIndex + 1).toLowerCase();
+}
+
+String? _safeLocalPath(String? localPath) {
+  final trimmed = localPath?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
 }

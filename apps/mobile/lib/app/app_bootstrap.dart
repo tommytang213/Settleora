@@ -16,6 +16,9 @@ import '../notifications/generated_notification_repository.dart';
 import '../notifications/notification_repository.dart';
 import '../profile/generated_profile_repository.dart';
 import '../profile/profile_repository.dart';
+import '../receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
+import '../receipt_ocr_capture/receipt_image_intake.dart';
+import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/generated_receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../recurring_bills/generated_recurring_bill_repository.dart';
@@ -130,6 +133,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.profileRepositoryFactory,
     this.billSyncControllerFactory,
     this.billAttachmentFileInput,
+    this.receiptImageIntake,
+    this.receiptOcrProvider,
     this.now,
   });
 
@@ -148,6 +153,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
   final SettleoraBillSyncControllerFactory? billSyncControllerFactory;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptOcrProvider? receiptOcrProvider;
   final DateTime Function()? now;
 
   @override
@@ -455,6 +462,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       billAttachmentFileInput:
           widget.billAttachmentFileInput ??
           FilePickerSettleoraBillAttachmentFileInput(),
+      receiptImageIntake:
+          widget.receiptImageIntake ?? ImagePickerReceiptImageIntake(),
+      receiptOcrProvider:
+          widget.receiptOcrProvider ?? const MlKitReceiptOcrProvider(),
       billRevisionRepository: billRevisionRepository,
       settlementRepository: settlementRepository,
       recurringBillRepository: recurringBillRepository,

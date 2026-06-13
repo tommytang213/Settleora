@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
@@ -58,6 +59,17 @@ Thank you
 
     expect(result.status, ReceiptOcrStatus.unsupported);
     expect(result.preview, isNull);
+    expect(result.message, contains('manual'));
+  });
+
+  test('ml kit provider safely fails when no image path is supplied', () async {
+    const provider = MlKitReceiptOcrProvider();
+
+    final result = await provider.extractReceipt(
+      ReceiptOcrRequest(bytes: const [1, 2, 3], contentType: 'image/jpeg'),
+    );
+
+    expect(result.status, ReceiptOcrStatus.failed);
     expect(result.message, contains('manual'));
   });
 

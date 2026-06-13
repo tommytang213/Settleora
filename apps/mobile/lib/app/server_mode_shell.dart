@@ -15,6 +15,7 @@ import '../notifications/notification_repository.dart';
 import '../notifications/notification_screen.dart';
 import '../profile/profile_repository.dart';
 import '../profile/profile_screen.dart';
+import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_capture/unsupported_receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -41,6 +42,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.billRepository,
     this.billAttachmentRepository,
     this.billAttachmentFileInput,
+    this.receiptImageIntake,
     this.receiptOcrProvider = const UnsupportedReceiptOcrProvider(),
     this.billRevisionRepository,
     required this.settlementRepository,
@@ -60,6 +62,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraBillRepository billRepository;
   final SettleoraBillAttachmentRepository? billAttachmentRepository;
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
+  final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider receiptOcrProvider;
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSettlementRepository settlementRepository;
@@ -230,6 +233,7 @@ class _SettleoraAuthenticatedServerShellState
       syncController: widget.billSyncController,
       attachmentRepository: widget.billAttachmentRepository,
       attachmentFileInput: widget.billAttachmentFileInput,
+      receiptImageIntake: widget.receiptImageIntake,
       receiptOcrProvider: widget.receiptOcrProvider,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       revisionRepository: widget.billRevisionRepository,
@@ -247,6 +251,8 @@ class _SettleoraAuthenticatedServerShellState
       defaultCurrency: widget.currentUser.defaultCurrency,
       billAttachmentRepository: widget.billAttachmentRepository,
       billAttachmentFileInput: widget.billAttachmentFileInput,
+      receiptImageIntake: widget.receiptImageIntake,
+      receiptOcrProvider: widget.receiptOcrProvider,
       receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
       billRevisionRepository: widget.billRevisionRepository,
       onTopLevelDestinationSelected: _openNestedTopLevelDestination,
@@ -328,6 +334,8 @@ class _SettleoraAuthenticatedServerShellState
           repository: widget.billRepository,
           attachmentRepository: widget.billAttachmentRepository,
           attachmentFileInput: widget.billAttachmentFileInput,
+          receiptImageIntake: widget.receiptImageIntake,
+          receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.currentUser.defaultCurrency,
         ),
       ),
@@ -441,6 +449,8 @@ class _SettleoraAuthenticatedServerShellState
         defaultCurrency: widget.currentUser.defaultCurrency,
         billAttachmentRepository: widget.billAttachmentRepository,
         billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptImageIntake: widget.receiptImageIntake,
+        receiptOcrProvider: widget.receiptOcrProvider,
         receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
         billRevisionRepository: widget.billRevisionRepository,
       ),
@@ -457,6 +467,8 @@ class _SettleoraAuthenticatedServerShellState
         defaultCurrency: widget.currentUser.defaultCurrency,
         billAttachmentRepository: widget.billAttachmentRepository,
         billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptImageIntake: widget.receiptImageIntake,
+        receiptOcrProvider: widget.receiptOcrProvider,
         receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
         billRevisionRepository: widget.billRevisionRepository,
       ),
