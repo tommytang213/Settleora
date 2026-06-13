@@ -796,10 +796,6 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
       if (source == null) {
-        setState(() {
-          _attachmentDraftError =
-              'Receipt image selection was cancelled. Manual entry is still available.';
-        });
         return;
       }
 
@@ -810,10 +806,6 @@ class _SettleoraPersonalBillCreateScreenState
         return;
       }
       if (pickedFile == null) {
-        setState(() {
-          _attachmentDraftError =
-              'Receipt image selection was cancelled. Manual entry is still available.';
-        });
         return;
       }
 
@@ -839,7 +831,9 @@ class _SettleoraPersonalBillCreateScreenState
       }
 
       setState(() {
-        _attachmentDraftError = failure.message;
+        _attachmentDraftError = _safeReceiptImageIntakeFailureMessage(
+          failure.message,
+        );
       });
     } catch (_) {
       if (!mounted) {
@@ -1293,6 +1287,10 @@ class _SettleoraPersonalBillCreateScreenState
     final failure = _failure;
     final attachmentUploadFailure = _attachmentUploadFailure;
     final itemListError = _itemListError;
+    final canAddReceipt =
+        (widget.receiptImageIntake != null ||
+            widget.attachmentFileInput != null) &&
+        widget.attachmentRepository != null;
     final canAddAttachments =
         widget.attachmentFileInput != null &&
         widget.attachmentRepository != null;
@@ -1336,7 +1334,7 @@ class _SettleoraPersonalBillCreateScreenState
                           attachment.purpose ==
                           SettleoraBillAttachmentPurposeValues.receipt,
                     ),
-                    canAddReceipt: canAddAttachments,
+                    canAddReceipt: canAddReceipt,
                     isBusy: _isSaving || _isPickingAttachment,
                     onAddReceipt: _addReceiptDraftAttachment,
                   ),
@@ -1347,6 +1345,9 @@ class _SettleoraPersonalBillCreateScreenState
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
                     onApply: _isSaving ? null : _applyReceiptOcrPreview,
+                    onRetry: _isSaving || _isPickingAttachment
+                        ? null
+                        : _addReceiptDraftAttachment,
                   ),
                   const SizedBox(height: 12),
                   AppCard(
@@ -1504,6 +1505,15 @@ class _SettleoraPersonalBillCreateScreenState
   }
 }
 
+String _safeReceiptImageIntakeFailureMessage(String message) {
+  final trimmed = message.trim();
+  if (trimmed.isEmpty || trimmed.contains('/') || trimmed.contains('\\')) {
+    return 'The receipt image could not be selected. Manual entry is still available.';
+  }
+
+  return trimmed;
+}
+
 class _CreateBillHeader extends StatelessWidget {
   const _CreateBillHeader({
     required this.hasReceiptAttachment,
@@ -1602,6 +1612,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
     required this.isExtracting,
     required this.wasApplied,
     required this.onApply,
+    required this.onRetry,
   });
 
   final String keyPrefix;
@@ -1609,6 +1620,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   final bool isExtracting;
   final bool wasApplied;
   final VoidCallback? onApply;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -1619,6 +1631,11 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
 
     final colors = context.settleoraColors;
     final preview = ocrResult?.preview;
+    final canRetry =
+        !isExtracting &&
+        preview == null &&
+        (ocrResult?.status == ReceiptOcrStatus.failed ||
+            ocrResult?.status == ReceiptOcrStatus.unsupported);
     final statusLabel = _receiptOcrStatusLabel(
       isExtracting: isExtracting,
       result: ocrResult,
@@ -1708,6 +1725,16 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               onPressed: preview.hasApplyableFields && !wasApplied
                   ? onApply
                   : null,
+              expanded: true,
+            ),
+          ] else if (canRetry) ...[
+            const SizedBox(height: 12),
+            AppButton(
+              key: Key('$keyPrefix-ocr-retry'),
+              label: 'Try another receipt image',
+              icon: Icons.document_scanner_outlined,
+              variant: AppButtonVariant.secondary,
+              onPressed: onRetry,
               expanded: true,
             ),
           ],
@@ -3711,10 +3738,6 @@ class _SettleoraGroupBillCreateScreenState
         return;
       }
       if (source == null) {
-        setState(() {
-          _attachmentDraftError =
-              'Receipt image selection was cancelled. Manual entry is still available.';
-        });
         return;
       }
 
@@ -3725,10 +3748,6 @@ class _SettleoraGroupBillCreateScreenState
         return;
       }
       if (pickedFile == null) {
-        setState(() {
-          _attachmentDraftError =
-              'Receipt image selection was cancelled. Manual entry is still available.';
-        });
         return;
       }
 
@@ -3754,7 +3773,9 @@ class _SettleoraGroupBillCreateScreenState
       }
 
       setState(() {
-        _attachmentDraftError = failure.message;
+        _attachmentDraftError = _safeReceiptImageIntakeFailureMessage(
+          failure.message,
+        );
       });
     } catch (_) {
       if (!mounted) {
@@ -4731,7 +4752,9 @@ class _SettleoraGroupBillCreateScreenState
                                         _entryMode ==
                                         _GroupBillCreateEntryMode.receipt,
                                     canScan:
-                                        widget.attachmentFileInput != null &&
+                                        (widget.receiptImageIntake != null ||
+                                            widget.attachmentFileInput !=
+                                                null) &&
                                         widget.attachmentRepository != null,
                                     isBusy: _isSaving || _isPickingAttachment,
                                     onScanReceipt: _addReceiptDraftAttachment,
@@ -4745,6 +4768,9 @@ class _SettleoraGroupBillCreateScreenState
                                     onApply: _isSaving
                                         ? null
                                         : _applyReceiptOcrPreview,
+                                    onRetry: _isSaving || _isPickingAttachment
+                                        ? null
+                                        : _addReceiptDraftAttachment,
                                   ),
                                   if (_isExtractingReceiptOcr ||
                                       _receiptOcrResult != null)
