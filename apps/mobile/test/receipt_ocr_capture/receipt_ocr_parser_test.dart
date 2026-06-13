@@ -35,6 +35,7 @@ Thank you
     expect(preview.items.last.description, 'Bread');
     expect(preview.items.last.quantity, '1');
     expect(preview.items.last.lineTotal, '18.00');
+    expect(preview.reviewHints, isEmpty);
   });
 
   test('parser extracts English receipt totals and charges conservatively', () {
@@ -60,7 +61,84 @@ Card 25.50
     expect(preview.tax, '1.65');
     expect(preview.total, '25.50');
     expect(preview.items.map((item) => item.description), ['Pasta', 'Coffee']);
+    expect(preview.reviewHints, [
+      'Detected tax/service/discount may explain why item totals differ from the grand total.',
+    ]);
   });
+
+  test('preview hints when item line totals differ from detected subtotal', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'HKD',
+      subtotal: '45.00',
+      total: '45.00',
+      items: [
+        ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
+        ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.00'),
+      ],
+    );
+
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected subtotal. Review the receipt before applying.',
+    ]);
+  });
+
+  test(
+    'preview avoids grand total mismatch warning when charges can explain it',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'HKD',
+        subtotal: '43.00',
+        tax: '2.00',
+        service: '3.00',
+        total: '48.00',
+        items: [
+          ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
+          ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.00'),
+        ],
+      );
+
+      expect(preview.reviewHints, [
+        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+      ]);
+      expect(
+        preview.reviewHints,
+        isNot(contains('OCR item total differs from detected grand total.')),
+      );
+    },
+  );
+
+  test('preview hints against grand total only without detected charges', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'HKD',
+      total: '45.00',
+      items: [
+        ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
+        ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.00'),
+      ],
+    );
+
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
+  test(
+    'preview ignores malformed review amounts without misleading warning',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'HKD',
+        subtotal: 'HKD 43.00',
+        total: '48..00',
+        tax: '5.00',
+        items: [
+          ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
+          ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.xx'),
+        ],
+      );
+
+      expect(preview.reviewHints, isEmpty);
+    },
+  );
 
   test('parser extracts minimal Japanese receipt totals and charges', () {
     const parser = ReceiptOcrParser();

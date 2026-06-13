@@ -145,161 +145,168 @@ void main() {
     );
   });
 
-  testWidgets(
-    'personal bill scan receipt reviews and applies OCR suggestions',
-    (tester) async {
-      await useLargeSurface(tester);
-      final repository = FakeBillRepository(
-        createdDetail: sampleBillDetail(
-          id: _createdBillId,
-          merchantName: 'Corner Market',
-          billDate: '2026-06-12',
-          totalAmount: '43.00',
-          totalCurrency: 'HKD',
+  testWidgets('personal bill scan receipt reviews and applies OCR suggestions', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      createdDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Corner Market',
+        billDate: '2026-06-12',
+        totalAmount: '43.00',
+        totalCurrency: 'HKD',
+      ),
+    );
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: const [1, 2, 3],
+      ),
+    );
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Corner Market',
+          receiptDate: '2026-06-12',
+          currency: 'HKD',
+          subtotal: '45.00',
+          discount: '-2.00',
+          tax: '0.00',
+          service: '0.00',
+          total: '43.00',
+          rawTextLineCount: 8,
+          warnings: ['Review line totals before saving.'],
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Milk',
+              quantity: '2',
+              unitPrice: '12.50',
+              lineTotal: '25.00',
+              currency: 'HKD',
+            ),
+            ReceiptOcrItemCandidate(
+              description: 'Bread',
+              quantity: '1',
+              lineTotal: '18.00',
+              currency: 'HKD',
+            ),
+          ],
         ),
-      );
-      final fileInput = FakeBillAttachmentFileInput(
-        pickedFile: samplePickedAttachmentFile(
-          filename: 'receipt.png',
-          contentType: 'image/png',
-          bytes: const [1, 2, 3],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: fileInput,
+          receiptOcrProvider: receiptOcrProvider,
         ),
-      );
-      final receiptOcrProvider = FakeReceiptOcrProvider(
-        const ReceiptOcrResult.extracted(
-          ReceiptOcrPreview(
-            merchant: 'Corner Market',
-            receiptDate: '2026-06-12',
-            currency: 'HKD',
-            subtotal: '45.00',
-            discount: '-2.00',
-            tax: '0.00',
-            service: '0.00',
-            total: '43.00',
-            rawTextLineCount: 8,
-            warnings: ['Review line totals before saving.'],
-            items: [
-              ReceiptOcrItemCandidate(
-                description: 'Milk',
-                quantity: '2',
-                unitPrice: '12.50',
-                lineTotal: '25.00',
-                currency: 'HKD',
-              ),
-              ReceiptOcrItemCandidate(
-                description: 'Bread',
-                quantity: '1',
-                lineTotal: '18.00',
-                currency: 'HKD',
-              ),
-            ],
-          ),
-        ),
-      );
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SettleoraBillListScreen(
-            repository: repository,
-            syncController: sampleBillSyncController(),
-            attachmentRepository: FakeBillAttachmentRepository(),
-            attachmentFileInput: fileInput,
-            receiptOcrProvider: receiptOcrProvider,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
-      await tester.pumpAndSettle();
+    expect(receiptOcrProvider.calls, 1);
+    expect(receiptOcrProvider.lastRequest?.bytes, const [1, 2, 3]);
+    expect(receiptOcrProvider.lastRequest?.contentType, 'image/png');
+    expect(
+      find.byKey(const Key('personal-bill-ocr-preview-panel')),
+      findsOneWidget,
+    );
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Merchant candidate'), findsOneWidget);
+    expect(find.text('2 item candidates'), findsOneWidget);
+    expect(find.text('Review line totals before saving.'), findsOneWidget);
+    expect(find.text('Merchant: Corner Market'), findsOneWidget);
+    expect(find.text('Receipt totals for review only'), findsOneWidget);
+    expect(
+      find.text('Subtotal candidate: HKD 45.00 (review only)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Discount candidate: HKD -2.00 (review only)'),
+      findsOneWidget,
+    );
+    expect(find.text('Tax candidate: HKD 0.00 (review only)'), findsOneWidget);
+    expect(
+      find.text('Service charge candidate: HKD 0.00 (review only)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Grand total candidate: HKD 43.00 (review only)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'OCR item total differs from detected subtotal. Review the receipt before applying.',
+      ),
+      findsOneWidget,
+    );
 
-      expect(receiptOcrProvider.calls, 1);
-      expect(receiptOcrProvider.lastRequest?.bytes, const [1, 2, 3]);
-      expect(receiptOcrProvider.lastRequest?.contentType, 'image/png');
-      expect(
-        find.byKey(const Key('personal-bill-ocr-preview-panel')),
-        findsOneWidget,
-      );
-      expect(find.text('Review'), findsOneWidget);
-      expect(find.text('Merchant candidate'), findsOneWidget);
-      expect(find.text('2 item candidates'), findsOneWidget);
-      expect(find.text('Review line totals before saving.'), findsOneWidget);
-      expect(find.text('Merchant: Corner Market'), findsOneWidget);
-      expect(find.text('Receipt totals for review only'), findsOneWidget);
-      expect(
-        find.text('Subtotal candidate: HKD 45.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Discount candidate: HKD -2.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Tax candidate: HKD 0.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Service charge candidate: HKD 0.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Grand total candidate: HKD 43.00 (review only)'),
-        findsOneWidget,
-      );
+    await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+    expect(find.text('Suggestions applied'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-merchant-name')),
+          )
+          .controller
+          ?.text,
+      'Corner Market',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Milk',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+          )
+          .controller
+          ?.text,
+      '2',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-amount-1')),
+          )
+          .controller
+          ?.text,
+      '18.00',
+    );
 
-      expect(find.text('Suggestions applied'), findsOneWidget);
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const Key('personal-bill-merchant-name')),
-            )
-            .controller
-            ?.text,
-        'Corner Market',
-      );
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('personal-bill-item-name-0')),
-            )
-            .controller
-            ?.text,
-        'Milk',
-      );
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('personal-bill-item-quantity-0')),
-            )
-            .controller
-            ?.text,
-        '2',
-      );
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('personal-bill-item-amount-1')),
-            )
-            .controller
-            ?.text,
-        '18.00',
-      );
+    await _tapSaveBill(tester);
 
-      await _tapSaveBill(tester);
-
-      expect(repository.createCalls, 1);
-      expect(repository.lastCreateDraft?.merchantName, 'Corner Market');
-      expect(repository.lastCreateDraft?.billDate, '2026-06-12');
-      expect(repository.lastCreateDraft?.currency, 'HKD');
-      expect(repository.lastCreateDraft?.items.map((item) => item.name), [
-        'Milk',
-        'Bread',
-      ]);
-    },
-  );
+    expect(repository.createCalls, 1);
+    expect(repository.lastCreateDraft?.merchantName, 'Corner Market');
+    expect(repository.lastCreateDraft?.billDate, '2026-06-12');
+    expect(repository.lastCreateDraft?.currency, 'HKD');
+    expect(repository.lastCreateDraft?.items.map((item) => item.name), [
+      'Milk',
+      'Bread',
+    ]);
+    expect(repository.lastCreateDraft?.items.map((item) => item.amount), [
+      '25.00',
+      '18.00',
+    ]);
+    expect(repository.lastCreateDraft?.adjustments, isEmpty);
+  });
 
   testWidgets('personal bill receipt image cancel leaves draft unchanged', (
     tester,
@@ -3255,10 +3262,10 @@ void main() {
             merchant: 'Dim Sum House',
             receiptDate: '2026-06-11',
             currency: 'HKD',
-            subtotal: '60.00',
+            subtotal: '68.00',
             service: '6.00',
             tax: '2.00',
-            total: '68.00',
+            total: '76.00',
             rawTextLineCount: 6,
             items: [
               ReceiptOcrItemCandidate(
@@ -3343,7 +3350,7 @@ void main() {
       expect(find.text('Item: Tea - 32.00'), findsOneWidget);
       expect(find.text('Receipt totals for review only'), findsOneWidget);
       expect(
-        find.text('Subtotal candidate: HKD 60.00 (review only)'),
+        find.text('Subtotal candidate: HKD 68.00 (review only)'),
         findsOneWidget,
       );
       expect(
@@ -3355,7 +3362,13 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text('Grand total candidate: HKD 68.00 (review only)'),
+        find.text('Grand total candidate: HKD 76.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        ),
         findsOneWidget,
       );
       expect(
@@ -3423,6 +3436,24 @@ void main() {
             .controller
             ?.text,
         'Tea',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '36.00',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-amount-1')),
+            )
+            .controller
+            ?.text,
+        '32.00',
       );
 
       await _goToGroupBillCreateStep(tester, 'split');
