@@ -221,10 +221,25 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Review'), findsOneWidget);
-    expect(find.text('Merchant candidate'), findsOneWidget);
+    expect(find.text('Merchant candidate'), findsWidgets);
     expect(find.text('2 item candidates'), findsWidgets);
     expect(find.text('Review line totals before saving.'), findsOneWidget);
-    expect(find.text('Merchant: Corner Market'), findsOneWidget);
+    expect(find.text('Edit OCR candidates'), findsOneWidget);
+    expect(
+      find.text(
+        'Edit OCR suggestions here. Nothing changes in the bill draft until you apply selected sections.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+          )
+          .controller
+          ?.text,
+      'Corner Market',
+    );
     expect(find.text('Receipt totals for review only'), findsOneWidget);
     expect(
       find.text('Subtotal candidate: HKD 45.00 (review only)'),
@@ -267,8 +282,40 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected Market',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-date')),
+      '2026-06-13',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-currency')),
+      'USD',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
+      'Corrected milk',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-quantity-0')),
+      '3',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-unit-price-0')),
+      '10.00',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-0')),
+      '30.00',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+      'USD',
+    );
+
+    await _tapReceiptOcrApply(tester, 'personal-bill');
 
     expect(find.text('Suggestions applied'), findsOneWidget);
     expect(
@@ -278,7 +325,7 @@ void main() {
           )
           .controller
           ?.text,
-      'Corner Market',
+      'Corrected Market',
     );
     expect(
       tester
@@ -287,7 +334,7 @@ void main() {
           )
           .controller
           ?.text,
-      'Milk',
+      'Corrected milk',
     );
     expect(
       tester
@@ -296,7 +343,7 @@ void main() {
           )
           .controller
           ?.text,
-      '2',
+      '3',
     );
     expect(
       tester
@@ -311,18 +358,125 @@ void main() {
     await _tapSaveBill(tester);
 
     expect(repository.createCalls, 1);
-    expect(repository.lastCreateDraft?.merchantName, 'Corner Market');
-    expect(repository.lastCreateDraft?.billDate, '2026-06-12');
-    expect(repository.lastCreateDraft?.currency, 'HKD');
+    expect(repository.lastCreateDraft?.merchantName, 'Corrected Market');
+    expect(repository.lastCreateDraft?.billDate, '2026-06-13');
+    expect(repository.lastCreateDraft?.currency, 'USD');
     expect(repository.lastCreateDraft?.items.map((item) => item.name), [
-      'Milk',
+      'Corrected milk',
       'Bread',
     ]);
     expect(repository.lastCreateDraft?.items.map((item) => item.amount), [
-      '25.00',
+      '30.00',
       '18.00',
     ]);
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
+  });
+
+  testWidgets('personal OCR add remove and reset candidate rows', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Original Shop',
+          receiptDate: '2026-06-12',
+          currency: 'HKD',
+          total: '12.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Original item',
+              quantity: '1',
+              lineTotal: '12.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: const [1],
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Edited Shop',
+    );
+    await tester.tap(find.byKey(const Key('personal-bill-ocr-add-item')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-description-1')),
+      'Added item',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-1')),
+      '3.00',
+    );
+
+    expect(find.text('2 OCR item candidates'), findsOneWidget);
+
+    final secondRemove = find.byKey(
+      const ValueKey('personal-bill-ocr-remove-item-1'),
+    );
+    await tester.ensureVisible(secondRemove);
+    await tester.tap(secondRemove);
+    await tester.pumpAndSettle();
+    final firstRemove = find.byKey(
+      const ValueKey('personal-bill-ocr-remove-item-0'),
+    );
+    await tester.ensureVisible(firstRemove);
+    await tester.tap(firstRemove);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('personal-bill-ocr-empty-items')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('personal-bill-ocr-apply-items')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('personal-bill-ocr-reset-edits')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+          )
+          .controller
+          ?.text,
+      'Original Shop',
+    );
+    expect(find.text('1 OCR item candidate'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
+          )
+          .controller
+          ?.text,
+      'Original item',
+    );
   });
 
   testWidgets('personal OCR duplicate save confirmation can save anyway', (
@@ -404,8 +558,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-    await tester.pumpAndSettle();
+    await _tapReceiptOcrApply(tester, 'personal-bill');
     await _tapSaveBill(tester);
 
     expect(
@@ -437,6 +590,106 @@ void main() {
     expect(repository.lastCreateDraft?.currency, 'HKD');
     expect(repository.lastCreateDraft?.items.single.amount, '43.00');
   });
+
+  testWidgets(
+    'personal OCR duplicate warning uses corrected merchant date currency',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        bills: [
+          sampleBillSummary(
+            id: 'existing-bill-id',
+            merchantName: 'Corrected Market Ltd.',
+            billDate: '2026-06-13',
+            totalAmount: '43.0',
+            totalCurrency: 'USD',
+          ),
+        ],
+      );
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Unmatched Store',
+            receiptDate: '2026-06-12',
+            currency: 'HKD',
+            total: '43.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Milk',
+                quantity: '1',
+                lineTotal: '43.00',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: repository,
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1],
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+            duplicateWarningCandidates: repository.bills
+                .map(BillDuplicateWarningCandidate.fromSummary)
+                .toList(growable: false),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-warning')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+        'Corrected Market Ltd.',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-ocr-edit-date')),
+        '2026-06-13',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-ocr-edit-currency')),
+        'USD',
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-warning')),
+        findsOneWidget,
+      );
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+      await _tapSaveBill(tester);
+
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('receipt-ocr-duplicate-save-anyway')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.createCalls, 1);
+      expect(repository.lastCreateDraft?.merchantName, 'Corrected Market Ltd.');
+      expect(repository.lastCreateDraft?.billDate, '2026-06-13');
+      expect(repository.lastCreateDraft?.currency, 'USD');
+    },
+  );
 
   testWidgets('personal OCR duplicate save confirmation cancel keeps draft', (
     tester,
@@ -493,8 +746,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-    await tester.pumpAndSettle();
+    await _tapReceiptOcrApply(tester, 'personal-bill');
     await tester.enterText(
       find.byKey(const Key('personal-bill-merchant-name')),
       'Corner Market edited draft',
@@ -709,8 +961,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
       await tester.enterText(
         find.byKey(const Key('personal-bill-merchant-name')),
         'Corner Market dialog draft',
@@ -826,8 +1077,7 @@ void main() {
       expect(repository.getCalls, 0);
       expect(repository.createCalls, 0);
 
-      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
       await _tapSaveBill(tester);
 
       expect(
@@ -912,8 +1162,7 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
 
       expect(
         tester
@@ -1012,8 +1261,7 @@ void main() {
         find.byKey(const Key('personal-bill-ocr-no-selection')),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
 
       expect(
         tester
@@ -1330,7 +1578,15 @@ void main() {
       '/tmp/settleora-receipt.jpg',
     );
     expect(find.text('Review'), findsOneWidget);
-    expect(find.text('Merchant: Path Market'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+          )
+          .controller
+          ?.text,
+      'Path Market',
+    );
   });
 
   testWidgets('personal bill create explains receipt unavailable seam safely', (
@@ -4094,8 +4350,7 @@ void main() {
     await _goToGroupBillCreateStep(tester, 'receiptItems');
     await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('group-bill-ocr-apply')));
-    await tester.pumpAndSettle();
+    await _tapReceiptOcrApply(tester, 'group-bill');
     await _assignFirstGroupBillItem(tester);
     await _tapSaveGroupBill(tester);
 
@@ -4125,6 +4380,159 @@ void main() {
     expect(repository.lastGroupCreateDraft?.merchantName, 'Dim Sum House Ltd.');
     expect(repository.lastGroupCreateDraft?.items.single.amount, '76.00');
   });
+
+  testWidgets(
+    'group OCR duplicate confirmation preserves corrected draft across actions',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        groupBills: [
+          sampleBillSummary(
+            id: 'existing-group-bill-id',
+            merchantName: 'Corrected Noodle House',
+            billDate: '2026-06-13',
+            totalAmount: '88.0',
+            totalCurrency: 'USD',
+          ),
+        ],
+        details: [
+          sampleBillDetail(
+            id: 'existing-group-bill-id',
+            merchantName: 'Corrected Noodle House',
+            billDate: '2026-06-13',
+            totalAmount: '88.0',
+            totalCurrency: 'USD',
+          ),
+        ],
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Unmatched Group Store',
+            receiptDate: '2026-06-12',
+            currency: 'HKD',
+            total: '88.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Noodles',
+                quantity: '1',
+                lineTotal: '88.00',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await _pumpGroupBillCreate(
+        tester,
+        repository: repository,
+        groupRepository: FakeGroupRepository(
+          members: [sampleGroupMember(displayName: 'Alex')],
+        ),
+        attachmentRepository: FakeBillAttachmentRepository(),
+        attachmentFileInput: FakeBillAttachmentFileInput(
+          pickedFile: samplePickedAttachmentFile(
+            filename: 'group-receipt.png',
+            contentType: 'image/png',
+            bytes: const [9],
+          ),
+        ),
+        receiptOcrProvider: receiptOcrProvider,
+      );
+
+      await tester.tap(find.byKey(const Key('group-bill-list-create')));
+      await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'receiptItems');
+      await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-warning')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('group-bill-ocr-edit-merchant')),
+        'Corrected Noodle House Ltd.',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-ocr-edit-date')),
+        '2026-06-13',
+      );
+      await tester.enterText(
+        find.byKey(const Key('group-bill-ocr-edit-currency')),
+        'USD',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-warning')),
+        findsOneWidget,
+      );
+
+      await _tapReceiptOcrApply(tester, 'group-bill');
+      await _assignFirstGroupBillItem(tester);
+      await _tapSaveGroupBill(tester);
+
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('receipt-ocr-duplicate-save-cancel')),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.groupCreateCalls, 0);
+      await _goToGroupBillCreateStep(tester, 'basics');
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('group-bill-merchant-name')),
+            )
+            .controller
+            ?.text,
+        'Corrected Noodle House Ltd.',
+      );
+
+      await _tapSaveGroupBill(tester);
+      await tester.tap(
+        find.byKey(const Key('receipt-ocr-duplicate-save-review-bill')),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.getGroupCalls, 1);
+      expect(
+        find.byKey(const Key('group-bill-detail-refresh')),
+        findsOneWidget,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await _goToGroupBillCreateStep(tester, 'basics');
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('group-bill-merchant-name')),
+            )
+            .controller
+            ?.text,
+        'Corrected Noodle House Ltd.',
+      );
+
+      await _tapSaveGroupBill(tester);
+      await tester.tap(
+        find.byKey(const Key('receipt-ocr-duplicate-save-anyway')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.groupCreateCalls, 1);
+      expect(
+        repository.lastGroupCreateDraft?.merchantName,
+        'Corrected Noodle House Ltd.',
+      );
+      expect(repository.lastGroupCreateDraft?.billDate, '2026-06-13');
+      expect(repository.lastGroupCreateDraft?.currency, 'USD');
+    },
+  );
 
   testWidgets('group bill receipt image cancel leaves draft unchanged', (
     tester,
@@ -4329,11 +4737,52 @@ void main() {
       await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Merchant: Dim Sum House'), findsOneWidget);
-      expect(find.text('Date: 2026-06-11'), findsOneWidget);
-      expect(find.text('Currency: HKD'), findsOneWidget);
-      expect(find.text('Item: Dumplings - 36.00'), findsOneWidget);
-      expect(find.text('Item: Tea - 32.00'), findsOneWidget);
+      expect(find.text('Edit OCR candidates'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('group-bill-ocr-edit-merchant')),
+            )
+            .controller
+            ?.text,
+        'Dim Sum House',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('group-bill-ocr-edit-date')),
+            )
+            .controller
+            ?.text,
+        '2026-06-11',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('group-bill-ocr-edit-currency')),
+            )
+            .controller
+            ?.text,
+        'HKD',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-ocr-item-description-0')),
+            )
+            .controller
+            ?.text,
+        'Dumplings',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-ocr-item-line-total-1')),
+            )
+            .controller
+            ?.text,
+        '32.00',
+      );
       expect(find.text('Receipt totals for review only'), findsOneWidget);
       expect(
         find.text('Subtotal candidate: HKD 68.00 (review only)'),
@@ -4395,6 +4844,29 @@ void main() {
         isFalse,
       );
 
+      await tester.enterText(
+        find.byKey(const Key('group-bill-ocr-edit-merchant')),
+        'Corrected Dim Sum',
+      );
+      await tester.tap(find.byKey(const Key('group-bill-ocr-add-item')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-ocr-item-description-2')),
+        'Soup',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-ocr-item-quantity-2')),
+        '1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-ocr-item-line-total-2')),
+        '8.00',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('group-bill-ocr-item-currency-2')),
+        'HKD',
+      );
+
       await _setReceiptOcrSection(tester, 'group-bill', 'merchant', true);
       await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
 
@@ -4411,8 +4883,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.byKey(const Key('group-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'group-bill');
 
       expect(find.text('Suggestions applied'), findsOneWidget);
       expect(
@@ -4425,7 +4896,7 @@ void main() {
             )
             .controller
             ?.text,
-        'Dim Sum House',
+        'Corrected Dim Sum',
       );
       expect(find.text('2026-06-11', skipOffstage: false), findsWidgets);
       expect(
@@ -4458,6 +4929,15 @@ void main() {
       expect(
         tester
             .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-name-2')),
+            )
+            .controller
+            ?.text,
+        'Soup',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
               find.byKey(const ValueKey('group-bill-item-amount-0')),
             )
             .controller
@@ -4473,6 +4953,15 @@ void main() {
             ?.text,
         '32.00',
       );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('group-bill-item-amount-2')),
+            )
+            .controller
+            ?.text,
+        '8.00',
+      );
 
       await _goToGroupBillCreateStep(tester, 'split');
       expect(find.textContaining('Taylor'), findsWidgets);
@@ -4481,7 +4970,7 @@ void main() {
         findsNothing,
       );
       expect(
-        find.textContaining('split row still needs a member'),
+        find.byKey(const Key('group-bill-assignable-item-2')),
         findsOneWidget,
       );
 
@@ -4584,8 +5073,7 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(find.byKey(const Key('group-bill-ocr-apply')));
-      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'group-bill');
 
       expect(
         tester
@@ -6988,6 +7476,13 @@ Future<void> _assignFirstGroupBillItem(
 Future<void> _tapSaveGroupBill(WidgetTester tester) async {
   await _goToGroupBillCreateStep(tester, 'review');
   await tester.tap(find.byKey(const Key('group-bill-save')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapReceiptOcrApply(WidgetTester tester, String keyPrefix) async {
+  final finder = find.byKey(Key('$keyPrefix-ocr-apply'));
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
   await tester.pumpAndSettle();
 }
 

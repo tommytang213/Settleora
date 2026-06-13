@@ -151,6 +151,41 @@ BillDuplicateWarning? possibleReceiptDuplicateWarning({
   return null;
 }
 
+ReceiptOcrPreview _copyReceiptOcrPreview(
+  ReceiptOcrPreview preview, {
+  String? merchant,
+  String? receiptDate,
+  String? currency,
+  List<ReceiptOcrItemCandidate>? items,
+}) {
+  return ReceiptOcrPreview(
+    merchant: merchant ?? preview.merchant,
+    receiptDate: receiptDate ?? preview.receiptDate,
+    currency: currency ?? preview.currency,
+    subtotal: preview.subtotal,
+    tax: preview.tax,
+    service: preview.service,
+    discount: preview.discount,
+    total: preview.total,
+    rawTextLineCount: preview.rawTextLineCount,
+    confidence: preview.confidence,
+    category: preview.category,
+    warnings: preview.warnings,
+    items: items ?? preview.items,
+  );
+}
+
+ReceiptOcrItemCandidate _emptyReceiptOcrItemCandidate(String currency) {
+  final normalizedCurrency = currency.trim().toUpperCase();
+  return ReceiptOcrItemCandidate(
+    description: '',
+    quantity: '1',
+    unitPrice: '',
+    lineTotal: '',
+    currency: normalizedCurrency.isEmpty ? null : normalizedCurrency,
+  );
+}
+
 String? _normalizeReceiptDuplicateBillDate(String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
@@ -813,6 +848,7 @@ class _SettleoraPersonalBillCreateScreenState
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
   ReceiptOcrResult? _receiptOcrResult;
+  ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   String? _itemListError;
   String? _attachmentDraftError;
   SettleoraBillFailure? _failure;
@@ -1000,7 +1036,7 @@ class _SettleoraPersonalBillCreateScreenState
     }
 
     return possibleReceiptDuplicateWarning(
-      preview: preview,
+      preview: _receiptOcrCorrectedPreview ?? preview,
       existingBills: widget.duplicateWarningCandidates,
     );
   }
@@ -1341,6 +1377,7 @@ class _SettleoraPersonalBillCreateScreenState
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
       _receiptOcrResult = null;
+      _receiptOcrCorrectedPreview = null;
     });
 
     try {
@@ -1357,6 +1394,7 @@ class _SettleoraPersonalBillCreateScreenState
 
       setState(() {
         _receiptOcrResult = result;
+        _receiptOcrCorrectedPreview = result.preview;
         _receiptOcrApplySelection = _defaultPersonalReceiptOcrApplySelection(
           result.preview,
         );
@@ -1371,6 +1409,7 @@ class _SettleoraPersonalBillCreateScreenState
         _receiptOcrResult = const ReceiptOcrResult.failed(
           'Receipt text extraction failed. You can still enter the bill manually.',
         );
+        _receiptOcrCorrectedPreview = null;
         _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
         _isExtractingReceiptOcr = false;
       });
@@ -1451,8 +1490,38 @@ class _SettleoraPersonalBillCreateScreenState
     ];
   }
 
+  void _updateReceiptOcrCorrectedPreview(ReceiptOcrPreview preview) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _receiptOcrCorrectedPreview = preview;
+      _receiptOcrApplySelection = _sanitizeReceiptOcrApplySelection(
+        preview,
+        _receiptOcrApplySelection,
+      );
+      _receiptOcrApplied = false;
+    });
+  }
+
+  void _resetReceiptOcrCorrections() {
+    final originalPreview = _receiptOcrResult?.preview;
+    if (originalPreview == null || _isSaving) {
+      return;
+    }
+
+    setState(() {
+      _receiptOcrCorrectedPreview = originalPreview;
+      _receiptOcrApplySelection = _defaultPersonalReceiptOcrApplySelection(
+        originalPreview,
+      );
+      _receiptOcrApplied = false;
+    });
+  }
+
   void _applyReceiptOcrPreview() {
-    final preview = _receiptOcrResult?.preview;
+    final preview = _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview;
     if (preview == null || _isSaving) {
       return;
     }
@@ -1490,7 +1559,7 @@ class _SettleoraPersonalBillCreateScreenState
               _PersonalBillCreateItemControllers(
                   currency: candidate.currency ?? _currencyController.text,
                 )
-                ..name.text = candidate.description
+                ..name.text = candidate.description.trim()
                 ..quantity.text = candidate.quantity ?? '1'
                 ..unitAmount.text = candidate.unitPrice ?? ''
                 ..amount.text = candidate.lineTotal ?? '',
@@ -1710,15 +1779,22 @@ class _SettleoraPersonalBillCreateScreenState
                   _ReceiptOcrPreviewPanel(
                     keyPrefix: 'personal-bill',
                     result: _receiptOcrResult,
+                    correctedPreview: _receiptOcrCorrectedPreview,
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
                     selection: _receiptOcrApplySelection,
                     duplicateWarning: _currentReceiptDuplicateWarning(),
-                    replacementHints: _receiptOcrResult?.preview == null
+                    replacementHints:
+                        (_receiptOcrCorrectedPreview ??
+                                _receiptOcrResult?.preview) ==
+                            null
                         ? const []
                         : _personalReceiptOcrOverwriteHints(
-                            _receiptOcrResult!.preview!,
+                            _receiptOcrCorrectedPreview ??
+                                _receiptOcrResult!.preview!,
                           ),
+                    onPreviewChanged: _updateReceiptOcrCorrectedPreview,
+                    onResetCorrections: _resetReceiptOcrCorrections,
                     onSelectionChanged: (selection) {
                       setState(() {
                         _receiptOcrApplySelection = selection;
@@ -1992,11 +2068,14 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   const _ReceiptOcrPreviewPanel({
     required this.keyPrefix,
     required this.result,
+    required this.correctedPreview,
     required this.isExtracting,
     required this.wasApplied,
     required this.selection,
     required this.duplicateWarning,
     required this.replacementHints,
+    required this.onPreviewChanged,
+    required this.onResetCorrections,
     required this.onSelectionChanged,
     required this.onApply,
     required this.onReviewDuplicateBill,
@@ -2005,11 +2084,14 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
 
   final String keyPrefix;
   final ReceiptOcrResult? result;
+  final ReceiptOcrPreview? correctedPreview;
   final bool isExtracting;
   final bool wasApplied;
   final _ReceiptOcrApplySelection selection;
   final BillDuplicateWarning? duplicateWarning;
   final List<String> replacementHints;
+  final ValueChanged<ReceiptOcrPreview> onPreviewChanged;
+  final VoidCallback onResetCorrections;
   final ValueChanged<_ReceiptOcrApplySelection> onSelectionChanged;
   final VoidCallback? onApply;
   final ValueChanged<BillDuplicateWarning>? onReviewDuplicateBill;
@@ -2023,12 +2105,16 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
     }
 
     final colors = context.settleoraColors;
-    final preview = ocrResult?.preview;
+    final originalPreview = ocrResult?.preview;
+    final preview = correctedPreview ?? originalPreview;
     final canRetry =
         !isExtracting &&
-        preview == null &&
+        originalPreview == null &&
         (ocrResult?.status == ReceiptOcrStatus.failed ||
             ocrResult?.status == ReceiptOcrStatus.unsupported);
+    final hasApplyableSelection =
+        preview != null &&
+        _receiptOcrSelectionHasAvailableSections(preview, selection);
     final statusLabel = _receiptOcrStatusLabel(
       isExtracting: isExtracting,
       result: ocrResult,
@@ -2075,7 +2161,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
             _receiptOcrSummaryText(
               isExtracting: isExtracting,
               result: ocrResult,
-              preview: preview,
+              preview: originalPreview,
             ),
             key: Key('$keyPrefix-ocr-summary'),
             style: Theme.of(
@@ -2101,6 +2187,12 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
                   _ReviewChecklistChip(label: 'Total candidate'),
               ],
             ),
+            const SizedBox(height: 10),
+            _ReviewChecklistHint(
+              text:
+                  'Edit OCR suggestions here. Nothing changes in the bill draft until you apply selected sections.',
+              isReady: false,
+            ),
             if (preview.warnings.isNotEmpty) ...[
               const SizedBox(height: 10),
               for (final warning in preview.warnings.take(3))
@@ -2114,7 +2206,13 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 10),
-            _ReceiptOcrSuggestionList(preview: preview),
+            _ReceiptOcrEditableReviewForm(
+              keyPrefix: keyPrefix,
+              preview: preview,
+              enabled: !wasApplied,
+              onChanged: onPreviewChanged,
+              onReset: onResetCorrections,
+            ),
             const SizedBox(height: 10),
             _ReceiptOcrApplySelectionList(
               keyPrefix: keyPrefix,
@@ -2129,7 +2227,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
                 _ReviewChecklistHint(text: hint, isReady: false),
             ],
             if (preview.hasApplyableFields &&
-                !selection.hasAnySelected &&
+                !hasApplyableSelection &&
                 !wasApplied) ...[
               const SizedBox(height: 8),
               Text(
@@ -2150,7 +2248,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
                   : Icons.playlist_add_check_outlined,
               onPressed:
                   preview.hasApplyableFields &&
-                      selection.hasAnySelected &&
+                      hasApplyableSelection &&
                       !wasApplied
                   ? onApply
                   : null,
@@ -2168,6 +2266,419 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _ReceiptOcrEditableReviewForm extends StatefulWidget {
+  const _ReceiptOcrEditableReviewForm({
+    required this.keyPrefix,
+    required this.preview,
+    required this.enabled,
+    required this.onChanged,
+    required this.onReset,
+  });
+
+  final String keyPrefix;
+  final ReceiptOcrPreview preview;
+  final bool enabled;
+  final ValueChanged<ReceiptOcrPreview> onChanged;
+  final VoidCallback onReset;
+
+  @override
+  State<_ReceiptOcrEditableReviewForm> createState() =>
+      _ReceiptOcrEditableReviewFormState();
+}
+
+class _ReceiptOcrEditableReviewFormState
+    extends State<_ReceiptOcrEditableReviewForm> {
+  late final TextEditingController _merchantController;
+  late final TextEditingController _dateController;
+  late final TextEditingController _currencyController;
+  final List<_ReceiptOcrEditableItemControllers> _itemControllers = [];
+  bool _syncScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _merchantController = TextEditingController(
+      text: widget.preview.merchant ?? '',
+    );
+    _dateController = TextEditingController(
+      text: widget.preview.receiptDate ?? '',
+    );
+    _currencyController = TextEditingController(
+      text: widget.preview.currency ?? '',
+    );
+    _resetItemControllers(widget.preview.items);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReceiptOcrEditableReviewForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controllersMatchPreview(widget.preview)) {
+      return;
+    }
+    if (_syncScheduled) {
+      return;
+    }
+    _syncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _syncScheduled = false;
+        _syncTextController(_merchantController, widget.preview.merchant ?? '');
+        _syncTextController(_dateController, widget.preview.receiptDate ?? '');
+        _syncTextController(_currencyController, widget.preview.currency ?? '');
+        if (_itemsDiffer(widget.preview.items, _itemControllers)) {
+          _resetItemControllers(widget.preview.items);
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _dateController.dispose();
+    _currencyController.dispose();
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
+    super.dispose();
+  }
+
+  void _syncTextController(TextEditingController controller, String value) {
+    if (controller.text == value) {
+      return;
+    }
+    controller.text = value;
+  }
+
+  bool _controllersMatchPreview(ReceiptOcrPreview preview) {
+    return _merchantController.text == (preview.merchant ?? '') &&
+        _dateController.text == (preview.receiptDate ?? '') &&
+        _currencyController.text == (preview.currency ?? '') &&
+        !_itemsDiffer(preview.items, _itemControllers);
+  }
+
+  bool _itemsDiffer(
+    List<ReceiptOcrItemCandidate> items,
+    List<_ReceiptOcrEditableItemControllers> controllers,
+  ) {
+    if (items.length != controllers.length) {
+      return true;
+    }
+    for (var index = 0; index < items.length; index += 1) {
+      final item = items[index];
+      final controller = controllers[index];
+      if (controller.description.text != item.description ||
+          controller.quantity.text != (item.quantity ?? '') ||
+          controller.unitPrice.text != (item.unitPrice ?? '') ||
+          controller.lineTotal.text != (item.lineTotal ?? '') ||
+          controller.currency.text != (item.currency ?? '')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _resetItemControllers(List<ReceiptOcrItemCandidate> items) {
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
+    _itemControllers
+      ..clear()
+      ..addAll([
+        for (final item in items)
+          _ReceiptOcrEditableItemControllers(candidate: item),
+      ]);
+  }
+
+  void _emitChanged() {
+    widget.onChanged(
+      _copyReceiptOcrPreview(
+        widget.preview,
+        merchant: _merchantController.text,
+        receiptDate: _dateController.text,
+        currency: _currencyController.text,
+        items: [
+          for (final item in _itemControllers)
+            ReceiptOcrItemCandidate(
+              description: item.description.text,
+              quantity: item.quantity.text,
+              unitPrice: item.unitPrice.text,
+              lineTotal: item.lineTotal.text,
+              currency: item.currency.text,
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _addItem() {
+    setState(() {
+      _itemControllers.add(
+        _ReceiptOcrEditableItemControllers(
+          candidate: _emptyReceiptOcrItemCandidate(_currencyController.text),
+        ),
+      );
+    });
+    _emitChanged();
+  }
+
+  void _removeItem(int index) {
+    if (index < 0 || index >= _itemControllers.length) {
+      return;
+    }
+    setState(() {
+      final removed = _itemControllers.removeAt(index);
+      removed.dispose();
+    });
+    _emitChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final referenceCharges = _receiptOcrReferenceCharges(widget.preview);
+    final reviewHints = widget.preview.reviewHints;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Edit OCR candidates',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          key: Key('${widget.keyPrefix}-ocr-edit-merchant'),
+          controller: _merchantController,
+          enabled: widget.enabled,
+          onChanged: (_) => _emitChanged(),
+          decoration: const InputDecoration(labelText: 'Merchant candidate'),
+        ),
+        const SizedBox(height: 10),
+        TextFormField(
+          key: Key('${widget.keyPrefix}-ocr-edit-date'),
+          controller: _dateController,
+          enabled: widget.enabled,
+          onChanged: (_) => _emitChanged(),
+          decoration: const InputDecoration(
+            labelText: 'Receipt date candidate',
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextFormField(
+          key: Key('${widget.keyPrefix}-ocr-edit-currency'),
+          controller: _currencyController,
+          enabled: widget.enabled,
+          onChanged: (_) => _emitChanged(),
+          decoration: const InputDecoration(labelText: 'Currency candidate'),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _pluralCount(_itemControllers.length, 'OCR item candidate'),
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              key: Key('${widget.keyPrefix}-ocr-add-item'),
+              onPressed: widget.enabled ? _addItem : null,
+              icon: const Icon(Icons.add),
+              label: const Text('Add item'),
+            ),
+          ],
+        ),
+        if (_itemControllers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'No OCR item candidates. Item apply is unavailable until at least one candidate exists.',
+              key: Key('${widget.keyPrefix}-ocr-empty-items'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else
+          for (var index = 0; index < _itemControllers.length; index += 1) ...[
+            const SizedBox(height: 8),
+            _ReceiptOcrEditableItemCard(
+              keyPrefix: widget.keyPrefix,
+              index: index,
+              controllers: _itemControllers[index],
+              enabled: widget.enabled,
+              onChanged: _emitChanged,
+              onRemove: () => _removeItem(index),
+            ),
+          ],
+        if (referenceCharges.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Receipt totals for review only',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final charge in referenceCharges)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${charge.label}: ${charge.formattedAmount}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+        ],
+        if (reviewHints.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final hint in reviewHints)
+            _ReviewChecklistHint(text: hint, isReady: false),
+        ],
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: Key('${widget.keyPrefix}-ocr-reset-edits'),
+            onPressed: widget.enabled ? widget.onReset : null,
+            icon: const Icon(Icons.restore_outlined),
+            label: const Text('Reset OCR edits'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReceiptOcrEditableItemControllers {
+  _ReceiptOcrEditableItemControllers({
+    required ReceiptOcrItemCandidate candidate,
+  }) : description = TextEditingController(text: candidate.description),
+       quantity = TextEditingController(text: candidate.quantity ?? ''),
+       unitPrice = TextEditingController(text: candidate.unitPrice ?? ''),
+       lineTotal = TextEditingController(text: candidate.lineTotal ?? ''),
+       currency = TextEditingController(text: candidate.currency ?? '');
+
+  final TextEditingController description;
+  final TextEditingController quantity;
+  final TextEditingController unitPrice;
+  final TextEditingController lineTotal;
+  final TextEditingController currency;
+
+  void dispose() {
+    description.dispose();
+    quantity.dispose();
+    unitPrice.dispose();
+    lineTotal.dispose();
+    currency.dispose();
+  }
+}
+
+class _ReceiptOcrEditableItemCard extends StatelessWidget {
+  const _ReceiptOcrEditableItemCard({
+    required this.keyPrefix,
+    required this.index,
+    required this.controllers,
+    required this.enabled,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final String keyPrefix;
+  final int index;
+  final _ReceiptOcrEditableItemControllers controllers;
+  final bool enabled;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final itemNumber = index + 1;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'OCR item $itemNumber',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('$keyPrefix-ocr-remove-item-$index'),
+                  onPressed: enabled ? onRemove : null,
+                  tooltip: 'Remove OCR item candidate',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('$keyPrefix-ocr-item-description-$index'),
+              controller: controllers.description,
+              enabled: enabled,
+              onChanged: (_) => onChanged(),
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('$keyPrefix-ocr-item-quantity-$index'),
+              controller: controllers.quantity,
+              enabled: enabled,
+              onChanged: (_) => onChanged(),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Quantity'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('$keyPrefix-ocr-item-unit-price-$index'),
+              controller: controllers.unitPrice,
+              enabled: enabled,
+              onChanged: (_) => onChanged(),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Unit price'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('$keyPrefix-ocr-item-line-total-$index'),
+              controller: controllers.lineTotal,
+              enabled: enabled,
+              onChanged: (_) => onChanged(),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Line total'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('$keyPrefix-ocr-item-currency-$index'),
+              controller: controllers.currency,
+              enabled: enabled,
+              onChanged: (_) => onChanged(),
+              decoration: const InputDecoration(labelText: 'Currency'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2506,6 +3017,28 @@ class _ReceiptOcrApplySelection {
   }
 }
 
+bool _receiptOcrSelectionHasAvailableSections(
+  ReceiptOcrPreview preview,
+  _ReceiptOcrApplySelection selection,
+) {
+  return (selection.merchant && (preview.merchant ?? '').trim().isNotEmpty) ||
+      (selection.date && (preview.receiptDate ?? '').trim().isNotEmpty) ||
+      (selection.currency && (preview.currency ?? '').trim().isNotEmpty) ||
+      (selection.items && preview.items.isNotEmpty);
+}
+
+_ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
+  ReceiptOcrPreview preview,
+  _ReceiptOcrApplySelection selection,
+) {
+  return _ReceiptOcrApplySelection(
+    merchant: selection.merchant && (preview.merchant ?? '').trim().isNotEmpty,
+    date: selection.date && (preview.receiptDate ?? '').trim().isNotEmpty,
+    currency: selection.currency && (preview.currency ?? '').trim().isNotEmpty,
+    items: selection.items && preview.items.isNotEmpty,
+  );
+}
+
 typedef _ReceiptOcrTextNormalizer = String Function(String value);
 
 bool _shouldDefaultApplyReceiptOcrText({
@@ -2596,80 +3129,6 @@ String _receiptOcrSummaryText({
 
   return result?.message ??
       'Receipt OCR is unavailable right now. Manual entry remains available.';
-}
-
-class _ReceiptOcrSuggestionList extends StatelessWidget {
-  const _ReceiptOcrSuggestionList({required this.preview});
-
-  final ReceiptOcrPreview preview;
-
-  @override
-  Widget build(BuildContext context) {
-    final referenceCharges = _receiptOcrReferenceCharges(preview);
-    final reviewHints = preview.reviewHints;
-    final suggestions = <String>[
-      if ((preview.merchant ?? '').trim().isNotEmpty)
-        'Merchant: ${preview.merchant!.trim()}',
-      if ((preview.receiptDate ?? '').trim().isNotEmpty)
-        'Date: ${preview.receiptDate!.trim()}',
-      if ((preview.currency ?? '').trim().isNotEmpty)
-        'Currency: ${preview.currency!.trim().toUpperCase()}',
-      for (final item in preview.items.take(4))
-        'Item: ${item.description}'
-            '${(item.lineTotal ?? '').trim().isEmpty ? '' : ' - ${item.lineTotal}'}',
-    ];
-
-    if (suggestions.isEmpty && referenceCharges.isEmpty) {
-      return Text(
-        'No editable field suggestions were detected.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final suggestion in suggestions)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              suggestion,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        if (referenceCharges.isNotEmpty) ...[
-          if (suggestions.isNotEmpty) const SizedBox(height: 6),
-          Text(
-            'Receipt totals for review only',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          for (final charge in referenceCharges)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '${charge.label}: ${charge.formattedAmount}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          for (final hint in reviewHints)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: _ReviewChecklistHint(text: hint, isReady: false),
-            ),
-        ],
-      ],
-    );
-  }
 }
 
 List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
@@ -4215,6 +4674,7 @@ class _SettleoraGroupBillCreateScreenState
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
   ReceiptOcrResult? _receiptOcrResult;
+  ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   List<SettleoraGroupMember> _members = const [];
   SettleoraGroupFailure? _memberFailure;
   SettleoraBillFailure? _failure;
@@ -4329,7 +4789,7 @@ class _SettleoraGroupBillCreateScreenState
     }
 
     return possibleReceiptDuplicateWarning(
-      preview: preview,
+      preview: _receiptOcrCorrectedPreview ?? preview,
       existingBills: widget.duplicateWarningCandidates,
     );
   }
@@ -4905,6 +5365,7 @@ class _SettleoraGroupBillCreateScreenState
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
       _receiptOcrResult = null;
+      _receiptOcrCorrectedPreview = null;
     });
 
     try {
@@ -4921,6 +5382,7 @@ class _SettleoraGroupBillCreateScreenState
 
       setState(() {
         _receiptOcrResult = result;
+        _receiptOcrCorrectedPreview = result.preview;
         _receiptOcrApplySelection = _defaultGroupReceiptOcrApplySelection(
           result.preview,
         );
@@ -4935,6 +5397,7 @@ class _SettleoraGroupBillCreateScreenState
         _receiptOcrResult = const ReceiptOcrResult.failed(
           'Receipt text extraction failed. You can still enter the group bill manually.',
         );
+        _receiptOcrCorrectedPreview = null;
         _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
         _isExtractingReceiptOcr = false;
       });
@@ -5027,6 +5490,36 @@ class _SettleoraGroupBillCreateScreenState
     ];
   }
 
+  void _updateReceiptOcrCorrectedPreview(ReceiptOcrPreview preview) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _receiptOcrCorrectedPreview = preview;
+      _receiptOcrApplySelection = _sanitizeReceiptOcrApplySelection(
+        preview,
+        _receiptOcrApplySelection,
+      );
+      _receiptOcrApplied = false;
+    });
+  }
+
+  void _resetReceiptOcrCorrections() {
+    final originalPreview = _receiptOcrResult?.preview;
+    if (originalPreview == null || _isSaving) {
+      return;
+    }
+
+    setState(() {
+      _receiptOcrCorrectedPreview = originalPreview;
+      _receiptOcrApplySelection = _defaultGroupReceiptOcrApplySelection(
+        originalPreview,
+      );
+      _receiptOcrApplied = false;
+    });
+  }
+
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
     return showModalBottomSheet<SettleoraBillAttachmentPurpose>(
       context: context,
@@ -5108,7 +5601,7 @@ class _SettleoraGroupBillCreateScreenState
   }
 
   void _applyReceiptOcrPreview() {
-    final preview = _receiptOcrResult?.preview;
+    final preview = _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview;
     if (preview == null || _isSaving) {
       return;
     }
@@ -5155,7 +5648,7 @@ class _SettleoraGroupBillCreateScreenState
           }
 
           final item = _itemControllers[index];
-          item.name.text = candidate.description;
+          item.name.text = candidate.description.trim();
           item.quantityUnits.text = candidate.quantity ?? '1';
           item.unitAmount.text = candidate.unitPrice ?? '';
           item.amount.text = candidate.lineTotal ?? '';
@@ -5845,17 +6338,26 @@ class _SettleoraGroupBillCreateScreenState
                                   _ReceiptOcrPreviewPanel(
                                     keyPrefix: 'group-bill',
                                     result: _receiptOcrResult,
+                                    correctedPreview:
+                                        _receiptOcrCorrectedPreview,
                                     isExtracting: _isExtractingReceiptOcr,
                                     wasApplied: _receiptOcrApplied,
                                     selection: _receiptOcrApplySelection,
                                     replacementHints:
-                                        _receiptOcrResult?.preview == null
+                                        (_receiptOcrCorrectedPreview ??
+                                                _receiptOcrResult?.preview) ==
+                                            null
                                         ? const []
                                         : _groupReceiptOcrOverwriteHints(
-                                            _receiptOcrResult!.preview!,
+                                            _receiptOcrCorrectedPreview ??
+                                                _receiptOcrResult!.preview!,
                                           ),
                                     duplicateWarning:
                                         _currentReceiptDuplicateWarning(),
+                                    onPreviewChanged:
+                                        _updateReceiptOcrCorrectedPreview,
+                                    onResetCorrections:
+                                        _resetReceiptOcrCorrections,
                                     onSelectionChanged: (selection) {
                                       setState(() {
                                         _receiptOcrApplySelection = selection;
