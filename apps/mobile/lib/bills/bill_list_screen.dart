@@ -993,6 +993,44 @@ class _SettleoraPersonalBillCreateScreenState
     );
   }
 
+  BillDuplicateWarning? _currentReceiptDuplicateWarning() {
+    final preview = _receiptOcrResult?.preview;
+    if (preview == null) {
+      return null;
+    }
+
+    return possibleReceiptDuplicateWarning(
+      preview: preview,
+      existingBills: widget.duplicateWarningCandidates,
+    );
+  }
+
+  Future<bool> _confirmReceiptDuplicateBeforeSave() async {
+    final warning = _currentReceiptDuplicateWarning();
+    if (warning == null) {
+      return true;
+    }
+
+    final action = await _showReceiptDuplicateSaveConfirmation(
+      context,
+      warning: warning,
+    );
+    if (!mounted) {
+      return false;
+    }
+
+    switch (action) {
+      case _ReceiptDuplicateSaveAction.saveAnyway:
+        return true;
+      case _ReceiptDuplicateSaveAction.reviewExisting:
+        await _reviewDuplicateBill(warning);
+        return false;
+      case _ReceiptDuplicateSaveAction.cancel:
+      case null:
+        return false;
+    }
+  }
+
   Future<void> _addDraftAttachment() async {
     await _addDraftAttachmentWithPurposePicker();
   }
@@ -1488,6 +1526,12 @@ class _SettleoraPersonalBillCreateScreenState
       return;
     }
 
+    final canSaveAfterDuplicateReview =
+        await _confirmReceiptDuplicateBeforeSave();
+    if (!canSaveAfterDuplicateReview) {
+      return;
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -1669,12 +1713,7 @@ class _SettleoraPersonalBillCreateScreenState
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
                     selection: _receiptOcrApplySelection,
-                    duplicateWarning: _receiptOcrResult?.preview == null
-                        ? null
-                        : possibleReceiptDuplicateWarning(
-                            preview: _receiptOcrResult!.preview!,
-                            existingBills: widget.duplicateWarningCandidates,
-                          ),
+                    duplicateWarning: _currentReceiptDuplicateWarning(),
                     replacementHints: _receiptOcrResult?.preview == null
                         ? const []
                         : _personalReceiptOcrOverwriteHints(
@@ -2326,6 +2365,75 @@ class _ReceiptDuplicateWarningBanner extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _ReceiptDuplicateSaveAction { cancel, reviewExisting, saveAnyway }
+
+Future<_ReceiptDuplicateSaveAction?> _showReceiptDuplicateSaveConfirmation(
+  BuildContext context, {
+  required BillDuplicateWarning warning,
+}) {
+  return showDialog<_ReceiptDuplicateSaveAction>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        key: const Key('receipt-ocr-duplicate-save-dialog'),
+        title: Text(warning.title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(warning.message),
+              const SizedBox(height: 12),
+              Text(
+                warning.matchedBillDisplayName,
+                key: const Key('receipt-ocr-duplicate-save-match-title'),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${warning.matchedBillDate} · '
+                '${warning.matchedBillTotalCurrency.toUpperCase()} '
+                '${warning.matchedBillTotalAmount}',
+                key: const Key('receipt-ocr-duplicate-save-match-meta'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                warning.reason,
+                key: const Key('receipt-ocr-duplicate-save-reason'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('receipt-ocr-duplicate-save-cancel'),
+            onPressed: () =>
+                Navigator.of(context).pop(_ReceiptDuplicateSaveAction.cancel),
+            child: const Text('Cancel'),
+          ),
+          if (warning.canReviewMatchedBill)
+            TextButton(
+              key: const Key('receipt-ocr-duplicate-save-review-bill'),
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(_ReceiptDuplicateSaveAction.reviewExisting),
+              child: const Text('Review existing bill'),
+            ),
+          FilledButton(
+            key: const Key('receipt-ocr-duplicate-save-anyway'),
+            onPressed: () => Navigator.of(
+              context,
+            ).pop(_ReceiptDuplicateSaveAction.saveAnyway),
+            child: const Text('Save anyway'),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 class _ReceiptOcrApplyOption {
@@ -4214,6 +4322,44 @@ class _SettleoraGroupBillCreateScreenState
     );
   }
 
+  BillDuplicateWarning? _currentReceiptDuplicateWarning() {
+    final preview = _receiptOcrResult?.preview;
+    if (preview == null) {
+      return null;
+    }
+
+    return possibleReceiptDuplicateWarning(
+      preview: preview,
+      existingBills: widget.duplicateWarningCandidates,
+    );
+  }
+
+  Future<bool> _confirmReceiptDuplicateBeforeSave() async {
+    final warning = _currentReceiptDuplicateWarning();
+    if (warning == null) {
+      return true;
+    }
+
+    final action = await _showReceiptDuplicateSaveConfirmation(
+      context,
+      warning: warning,
+    );
+    if (!mounted) {
+      return false;
+    }
+
+    switch (action) {
+      case _ReceiptDuplicateSaveAction.saveAnyway:
+        return true;
+      case _ReceiptDuplicateSaveAction.reviewExisting:
+        await _reviewDuplicateBill(warning);
+        return false;
+      case _ReceiptDuplicateSaveAction.cancel:
+      case null:
+        return false;
+    }
+  }
+
   void _addItem() {
     setState(() {
       _itemListError = null;
@@ -5113,6 +5259,12 @@ class _SettleoraGroupBillCreateScreenState
       return;
     }
 
+    final canSaveAfterDuplicateReview =
+        await _confirmReceiptDuplicateBeforeSave();
+    if (!canSaveAfterDuplicateReview) {
+      return;
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -5703,14 +5855,7 @@ class _SettleoraGroupBillCreateScreenState
                                             _receiptOcrResult!.preview!,
                                           ),
                                     duplicateWarning:
-                                        _receiptOcrResult?.preview == null
-                                        ? null
-                                        : possibleReceiptDuplicateWarning(
-                                            preview:
-                                                _receiptOcrResult!.preview!,
-                                            existingBills: widget
-                                                .duplicateWarningCandidates,
-                                          ),
+                                        _currentReceiptDuplicateWarning(),
                                     onSelectionChanged: (selection) {
                                       setState(() {
                                         _receiptOcrApplySelection = selection;
