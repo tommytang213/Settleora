@@ -328,7 +328,11 @@ void main() {
       find.text(
         'Receipt image selection was cancelled. Manual entry is still available.',
       ),
-      findsOneWidget,
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('personal-bill-attachment-error')),
+      findsNothing,
     );
     expect(find.byKey(const Key('personal-bill-ocr-apply')), findsNothing);
   });
@@ -388,6 +392,77 @@ void main() {
       'Manual Cafe',
     );
     expect(find.text('0 attachments selected'), findsOneWidget);
+  });
+
+  testWidgets('personal bill OCR failure keeps manual entry and supports retry', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed(
+        'No readable receipt text was found. You can still enter the bill manually.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: const [3, 2, 1],
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(receiptOcrProvider.calls, 1);
+    expect(find.text('Manual entry'), findsOneWidget);
+    expect(
+      find.text(
+        'No readable receipt text was found. You can still enter the bill manually.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('personal-bill-ocr-retry')), findsOneWidget);
+    expect(find.byKey(const Key('personal-bill-ocr-apply')), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-name-0')),
+      'Manual coffee',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual coffee',
+    );
+
+    await tester.tap(find.byKey(const Key('personal-bill-ocr-retry')));
+    await tester.pumpAndSettle();
+
+    expect(receiptOcrProvider.calls, 2);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual coffee',
+    );
   });
 
   testWidgets('personal bill receipt image intake passes local path to OCR', (
@@ -3003,6 +3078,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('group-bill-ocr-apply')), findsNothing);
+    expect(find.byKey(const Key('group-bill-ocr-retry')), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const ValueKey('group-bill-item-name-0')),
@@ -3016,6 +3092,131 @@ void main() {
           .controller
           ?.text,
       'Manual noodles',
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-ocr-retry')));
+    await tester.pumpAndSettle();
+
+    expect(receiptOcrProvider.calls, 2);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual noodles',
+    );
+  });
+
+  testWidgets('group bill receipt image cancel leaves draft unchanged', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptImageIntake = FakeReceiptImageIntake();
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(),
+      receiptImageIntake: receiptImageIntake,
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.failed('Should not run.'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-item-name-0')),
+      'Manual bun',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      find.byKey(const Key('group-bill-receipt-image-source-cancel')),
+      findsOneWidget,
+    );
+    Navigator.of(
+      tester.element(find.byType(SettleoraGroupBillCreateScreen)),
+    ).pop();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(receiptImageIntake.pickCalls, 0);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(find.byKey(const Key('group-bill-attachment-error')), findsNothing);
+    expect(find.byKey(const Key('group-bill-ocr-apply')), findsNothing);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual bun',
+    );
+  });
+
+  testWidgets('group bill receipt image failure is safe and keeps manual entry', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptImageIntake = FakeReceiptImageIntake(
+      failure: const SettleoraBillAttachmentFileInputFailure(
+        'Could not read /tmp/private-receipt.jpg',
+      ),
+    );
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(),
+      receiptImageIntake: receiptImageIntake,
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.failed('Should not run.'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-item-name-0')),
+      'Manual tea',
+    );
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pump(const Duration(milliseconds: 500));
+    Navigator.of(
+      tester.element(find.byType(SettleoraGroupBillCreateScreen)),
+    ).pop(ReceiptImageSource.gallery);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(receiptImageIntake.pickCalls, 1);
+    expect(receiptImageIntake.lastSource, ReceiptImageSource.gallery);
+    expect(
+      find.text(
+        'The receipt image could not be selected. Manual entry is still available.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('/tmp/private-receipt.jpg'), findsNothing);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      'Manual tea',
     );
   });
 
@@ -5471,6 +5672,7 @@ Future<void> _pumpGroupBillCreate(
   required FakeGroupRepository groupRepository,
   FakeBillAttachmentRepository? attachmentRepository,
   FakeBillAttachmentFileInput? attachmentFileInput,
+  ReceiptImageIntake? receiptImageIntake,
   ReceiptOcrProvider? receiptOcrProvider,
 }) async {
   await tester.pumpWidget(
@@ -5482,6 +5684,7 @@ Future<void> _pumpGroupBillCreate(
         groupName: 'Trip',
         attachmentRepository: attachmentRepository,
         attachmentFileInput: attachmentFileInput,
+        receiptImageIntake: receiptImageIntake,
         receiptOcrProvider: receiptOcrProvider,
       ),
     ),
