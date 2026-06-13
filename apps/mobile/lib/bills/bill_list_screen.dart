@@ -1789,6 +1789,7 @@ class _ReceiptOcrSuggestionList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final referenceCharges = _receiptOcrReferenceCharges(preview);
+    final reviewHints = preview.reviewHints;
     final suggestions = <String>[
       if ((preview.merchant ?? '').trim().isNotEmpty)
         'Merchant: ${preview.merchant!.trim()}',
@@ -1842,6 +1843,11 @@ class _ReceiptOcrSuggestionList extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
+            ),
+          for (final hint in reviewHints)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _ReviewChecklistHint(text: hint, isReady: false),
             ),
         ],
       ],
