@@ -11,6 +11,7 @@ void main() {
         billDate: '2026-06-12',
         totalAmount: '43.0',
         totalCurrency: 'HKD',
+        displayName: 'Corner Market',
       ),
     ];
 
@@ -26,6 +27,11 @@ void main() {
 
     expect(warning?.title, 'Possible duplicate receipt');
     expect(warning?.matchedBillId, 'bill-1');
+    expect(warning?.matchedBillDisplayName, 'Corner Market');
+    expect(warning?.matchedBillDate, '2026-06-12');
+    expect(warning?.matchedBillTotalAmount, '43.0');
+    expect(warning?.matchedBillTotalCurrency, 'HKD');
+    expect(warning?.canReviewMatchedBill, isTrue);
     expect(warning?.reason, contains('merchant'));
 
     expect(

@@ -44,6 +44,8 @@ class BillDuplicateWarningCandidate {
     required this.billDate,
     required this.totalAmount,
     required this.totalCurrency,
+    required this.displayName,
+    this.canReview = true,
   });
 
   factory BillDuplicateWarningCandidate.fromSummary(SettleoraBillSummary bill) {
@@ -53,6 +55,8 @@ class BillDuplicateWarningCandidate {
       billDate: bill.billDate,
       totalAmount: bill.totalAmount,
       totalCurrency: bill.totalCurrency,
+      displayName: bill.displayName,
+      canReview: !bill.isArchived,
     );
   }
 
@@ -61,6 +65,8 @@ class BillDuplicateWarningCandidate {
   final String billDate;
   final String totalAmount;
   final String totalCurrency;
+  final String displayName;
+  final bool canReview;
 }
 
 class BillDuplicateWarning {
@@ -69,12 +75,22 @@ class BillDuplicateWarning {
     required this.message,
     required this.reason,
     required this.matchedBillId,
+    required this.matchedBillDisplayName,
+    required this.matchedBillDate,
+    required this.matchedBillTotalAmount,
+    required this.matchedBillTotalCurrency,
+    required this.canReviewMatchedBill,
   });
 
   final String title;
   final String message;
   final String reason;
   final String matchedBillId;
+  final String matchedBillDisplayName;
+  final String matchedBillDate;
+  final String matchedBillTotalAmount;
+  final String matchedBillTotalCurrency;
+  final bool canReviewMatchedBill;
 }
 
 BillDuplicateWarning? possibleReceiptDuplicateWarning({
@@ -122,6 +138,13 @@ BillDuplicateWarning? possibleReceiptDuplicateWarning({
       message: 'This looks similar to an existing bill. Review before saving.',
       reason: 'Matched merchant, date, total, and currency.',
       matchedBillId: bill.billId,
+      matchedBillDisplayName: bill.displayName.trim().isEmpty
+          ? 'Existing bill'
+          : bill.displayName.trim(),
+      matchedBillDate: bill.billDate,
+      matchedBillTotalAmount: bill.totalAmount,
+      matchedBillTotalCurrency: bill.totalCurrency,
+      canReviewMatchedBill: bill.canReview,
     );
   }
 
@@ -443,6 +466,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           repository: widget.repository,
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+          revisionRepository: widget.revisionRepository,
           receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
@@ -747,6 +772,8 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     required this.repository,
     this.attachmentRepository,
     this.attachmentFileInput,
+    this.receiptOcrReviewRepository,
+    this.revisionRepository,
     this.receiptImageIntake,
     this.receiptOcrProvider,
     this.defaultCurrency,
@@ -757,6 +784,8 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final SettleoraBillRepository repository;
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
+  final SettleoraBillRevisionRepository? revisionRepository;
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
@@ -943,6 +972,25 @@ class _SettleoraPersonalBillCreateScreenState
         Navigator.of(context).pop(result);
       }
     });
+  }
+
+  Future<void> _reviewDuplicateBill(BillDuplicateWarning warning) async {
+    if (!warning.canReviewMatchedBill) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraBillDetailScreen(
+          repository: widget.repository,
+          attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+          revisionRepository: widget.revisionRepository,
+          billId: warning.matchedBillId,
+        ),
+      ),
+    );
   }
 
   Future<void> _addDraftAttachment() async {
@@ -1638,6 +1686,9 @@ class _SettleoraPersonalBillCreateScreenState
                       });
                     },
                     onApply: _isSaving ? null : _applyReceiptOcrPreview,
+                    onReviewDuplicateBill: _isSaving
+                        ? null
+                        : _reviewDuplicateBill,
                     onRetry: _isSaving || _isPickingAttachment
                         ? null
                         : _addReceiptDraftAttachment,
@@ -1909,6 +1960,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
     required this.replacementHints,
     required this.onSelectionChanged,
     required this.onApply,
+    required this.onReviewDuplicateBill,
     required this.onRetry,
   });
 
@@ -1921,6 +1973,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   final List<String> replacementHints;
   final ValueChanged<_ReceiptOcrApplySelection> onSelectionChanged;
   final VoidCallback? onApply;
+  final ValueChanged<BillDuplicateWarning>? onReviewDuplicateBill;
   final VoidCallback? onRetry;
 
   @override
@@ -2016,7 +2069,10 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
             ],
             if (duplicateWarning != null) ...[
               const SizedBox(height: 10),
-              _ReceiptDuplicateWarningBanner(warning: duplicateWarning!),
+              _ReceiptDuplicateWarningBanner(
+                warning: duplicateWarning!,
+                onReviewBill: onReviewDuplicateBill,
+              ),
             ],
             const SizedBox(height: 10),
             _ReceiptOcrSuggestionList(preview: preview),
@@ -2168,13 +2224,18 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
 }
 
 class _ReceiptDuplicateWarningBanner extends StatelessWidget {
-  const _ReceiptDuplicateWarningBanner({required this.warning});
+  const _ReceiptDuplicateWarningBanner({
+    required this.warning,
+    required this.onReviewBill,
+  });
 
   final BillDuplicateWarning warning;
+  final ValueChanged<BillDuplicateWarning>? onReviewBill;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
+    final canReview = warning.canReviewMatchedBill && onReviewBill != null;
 
     return Container(
       key: const Key('receipt-ocr-duplicate-warning'),
@@ -2211,7 +2272,26 @@ class _ReceiptDuplicateWarningBanner extends StatelessWidget {
                     context,
                   ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  warning.matchedBillDisplayName,
+                  key: const Key('receipt-ocr-duplicate-warning-match-title'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 2),
+                Text(
+                  '${warning.matchedBillDate} · '
+                  '${warning.matchedBillTotalCurrency.toUpperCase()} '
+                  '${warning.matchedBillTotalAmount}',
+                  key: const Key('receipt-ocr-duplicate-warning-match-meta'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   warning.reason,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -2219,6 +2299,26 @@ class _ReceiptDuplicateWarningBanner extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (canReview) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('receipt-ocr-duplicate-review-bill'),
+                      onPressed: () => onReviewBill?.call(warning),
+                      icon: const Icon(Icons.open_in_new, size: 18),
+                      label: const Text('Review existing bill'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.onWarningSoft,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -3483,6 +3583,8 @@ class _SettleoraGroupBillListScreenState
           attachmentFileInput: widget.attachmentFileInput,
           receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+          revisionRepository: widget.revisionRepository,
           duplicateWarningCandidates: _bills
               .map(BillDuplicateWarningCandidate.fromSummary)
               .toList(growable: false),
@@ -3964,6 +4066,8 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptImageIntake,
     this.receiptOcrProvider,
+    this.receiptOcrReviewRepository,
+    this.revisionRepository,
     this.duplicateWarningCandidates = const [],
   });
 
@@ -3977,6 +4081,8 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
+  final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
+  final SettleoraBillRevisionRepository? revisionRepository;
   final List<BillDuplicateWarningCandidate> duplicateWarningCandidates;
 
   @override
@@ -4081,6 +4187,31 @@ class _SettleoraGroupBillCreateScreenState
         _isLoadingMembers = false;
       });
     }
+  }
+
+  Future<void> _reviewDuplicateBill(BillDuplicateWarning warning) async {
+    if (!warning.canReviewMatchedBill) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettleoraGroupBillDetailScreen(
+          repository: widget.billRepository,
+          attachmentRepository: widget.attachmentRepository,
+          attachmentFileInput: widget.attachmentFileInput,
+          receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+          revisionRepository: widget.revisionRepository,
+          groupId: widget.groupId,
+          groupName: widget.groupName,
+          currentUserProfileId: widget.currentUserProfileId,
+          participantDisplayNames: _participantDisplayNamesFromMembers(
+            _members,
+          ),
+          billId: warning.matchedBillId,
+        ),
+      ),
+    );
   }
 
   void _addItem() {
@@ -5588,6 +5719,9 @@ class _SettleoraGroupBillCreateScreenState
                                     onApply: _isSaving
                                         ? null
                                         : _applyReceiptOcrPreview,
+                                    onReviewDuplicateBill: _isSaving
+                                        ? null
+                                        : _reviewDuplicateBill,
                                     onRetry: _isSaving || _isPickingAttachment
                                         ? null
                                         : _addReceiptDraftAttachment,
