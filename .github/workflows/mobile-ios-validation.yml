@@ -1,0 +1,62 @@
+name: Mobile iOS Validation
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "packages/client-dart/**"
+      - ".github/workflows/mobile-ios-validation.yml"
+  workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: "Branch, tag, or SHA to validate."
+        required: true
+        type: string
+      expected_head:
+        description: "Optional exact commit SHA expected after checkout."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ios-validation:
+    name: Build iOS simulator
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.checkout_ref || github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify expected head
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_head != '' }}
+        run: |
+          actual_head="$(git rev-parse HEAD)"
+          echo "Expected head: ${{ inputs.expected_head }}"
+          echo "Actual head:   ${actual_head}"
+          test "${actual_head}" = "${{ inputs.expected_head }}"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Install iOS pods
+        working-directory: apps/mobile/ios
+        run: pod install
+
+      - name: Build iOS simulator
+        working-directory: apps/mobile
+        run: flutter build ios --debug --simulator
