@@ -37,6 +37,191 @@ String _defaultBillCurrency(String? currency) {
   return _supportedBillCurrencyCodes.first;
 }
 
+class BillDuplicateWarningCandidate {
+  const BillDuplicateWarningCandidate({
+    required this.billId,
+    required this.merchantName,
+    required this.billDate,
+    required this.totalAmount,
+    required this.totalCurrency,
+  });
+
+  factory BillDuplicateWarningCandidate.fromSummary(SettleoraBillSummary bill) {
+    return BillDuplicateWarningCandidate(
+      billId: bill.id,
+      merchantName: bill.merchantName,
+      billDate: bill.billDate,
+      totalAmount: bill.totalAmount,
+      totalCurrency: bill.totalCurrency,
+    );
+  }
+
+  final String billId;
+  final String? merchantName;
+  final String billDate;
+  final String totalAmount;
+  final String totalCurrency;
+}
+
+class BillDuplicateWarning {
+  const BillDuplicateWarning({
+    required this.title,
+    required this.message,
+    required this.reason,
+    required this.matchedBillId,
+  });
+
+  final String title;
+  final String message;
+  final String reason;
+  final String matchedBillId;
+}
+
+BillDuplicateWarning? possibleReceiptDuplicateWarning({
+  required ReceiptOcrPreview preview,
+  required Iterable<BillDuplicateWarningCandidate> existingBills,
+}) {
+  final previewCurrency = preview.currency?.trim().toUpperCase();
+  final previewTotal = _parseNullableExactDecimalAmount(preview.total);
+  final previewDate = _normalizeReceiptDuplicateBillDate(preview.receiptDate);
+  final previewMerchant = _normalizeReceiptDuplicateMerchant(preview.merchant);
+
+  if (previewCurrency == null ||
+      previewCurrency.isEmpty ||
+      previewTotal == null ||
+      previewDate == null ||
+      previewMerchant.isEmpty) {
+    return null;
+  }
+
+  for (final bill in existingBills) {
+    final billCurrency = bill.totalCurrency.trim().toUpperCase();
+    if (billCurrency != previewCurrency) {
+      continue;
+    }
+
+    final billTotal = _parseNullableExactDecimalAmount(bill.totalAmount);
+    if (billTotal == null ||
+        !_exactDecimalAmountsEqual(previewTotal, billTotal)) {
+      continue;
+    }
+
+    if (_normalizeReceiptDuplicateBillDate(bill.billDate) != previewDate) {
+      continue;
+    }
+
+    if (!_receiptDuplicateMerchantLooksSimilar(
+      previewMerchant,
+      _normalizeReceiptDuplicateMerchant(bill.merchantName),
+    )) {
+      continue;
+    }
+
+    return BillDuplicateWarning(
+      title: 'Possible duplicate receipt',
+      message: 'This looks similar to an existing bill. Review before saving.',
+      reason: 'Matched merchant, date, total, and currency.',
+      matchedBillId: bill.billId,
+    );
+  }
+
+  return null;
+}
+
+String? _normalizeReceiptDuplicateBillDate(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  final match = RegExp(
+    r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$',
+  ).firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null ||
+      month == null ||
+      day == null ||
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31) {
+    return null;
+  }
+  final parsedDate = DateTime.utc(year, month, day);
+  if (parsedDate.year != year ||
+      parsedDate.month != month ||
+      parsedDate.day != day) {
+    return null;
+  }
+
+  return '${year.toString().padLeft(4, '0')}-'
+      '${month.toString().padLeft(2, '0')}-'
+      '${day.toString().padLeft(2, '0')}';
+}
+
+String _normalizeReceiptDuplicateMerchant(String? value) {
+  final normalized = (value ?? '')
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .trim();
+  if (normalized.isEmpty) {
+    return '';
+  }
+
+  return normalized
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty)
+      .join(' ');
+}
+
+bool _receiptDuplicateMerchantLooksSimilar(String left, String right) {
+  if (left.isEmpty || right.isEmpty) {
+    return false;
+  }
+  if (left == right) {
+    return true;
+  }
+
+  final leftTokens = left
+      .split(' ')
+      .where((token) => token.length >= 3)
+      .toSet();
+  final rightTokens = right
+      .split(' ')
+      .where((token) => token.length >= 3)
+      .toSet();
+  if (leftTokens.isEmpty || rightTokens.isEmpty) {
+    return false;
+  }
+
+  final overlap = leftTokens.intersection(rightTokens).length;
+  return overlap >= 2;
+}
+
+_ExactDecimalAmount? _parseNullableExactDecimalAmount(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return _parseExactDecimalAmount(trimmed);
+}
+
+bool _exactDecimalAmountsEqual(
+  _ExactDecimalAmount left,
+  _ExactDecimalAmount right,
+) {
+  final scale = left.scale > right.scale ? left.scale : right.scale;
+  return left.value * _bigIntPow10(scale - left.scale) ==
+      right.value * _bigIntPow10(scale - right.scale);
+}
+
 class SettleoraBillListScreen extends StatefulWidget {
   const SettleoraBillListScreen({
     super.key,
@@ -262,6 +447,9 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
+          duplicateWarningCandidates: _bills
+              .map(BillDuplicateWarningCandidate.fromSummary)
+              .toList(growable: false),
         ),
       ),
     );
@@ -563,6 +751,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     this.receiptOcrProvider,
     this.defaultCurrency,
     this.scanReceiptOnStart = false,
+    this.duplicateWarningCandidates = const [],
   });
 
   final SettleoraBillRepository repository;
@@ -572,6 +761,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
   final bool scanReceiptOnStart;
+  final List<BillDuplicateWarningCandidate> duplicateWarningCandidates;
 
   @override
   State<SettleoraPersonalBillCreateScreen> createState() =>
@@ -1431,6 +1621,12 @@ class _SettleoraPersonalBillCreateScreenState
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
                     selection: _receiptOcrApplySelection,
+                    duplicateWarning: _receiptOcrResult?.preview == null
+                        ? null
+                        : possibleReceiptDuplicateWarning(
+                            preview: _receiptOcrResult!.preview!,
+                            existingBills: widget.duplicateWarningCandidates,
+                          ),
                     replacementHints: _receiptOcrResult?.preview == null
                         ? const []
                         : _personalReceiptOcrOverwriteHints(
@@ -1709,6 +1905,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
     required this.isExtracting,
     required this.wasApplied,
     required this.selection,
+    required this.duplicateWarning,
     required this.replacementHints,
     required this.onSelectionChanged,
     required this.onApply,
@@ -1720,6 +1917,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   final bool isExtracting;
   final bool wasApplied;
   final _ReceiptOcrApplySelection selection;
+  final BillDuplicateWarning? duplicateWarning;
   final List<String> replacementHints;
   final ValueChanged<_ReceiptOcrApplySelection> onSelectionChanged;
   final VoidCallback? onApply;
@@ -1815,6 +2013,10 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               const SizedBox(height: 10),
               for (final warning in preview.warnings.take(3))
                 _ReviewChecklistHint(text: warning, isReady: false),
+            ],
+            if (duplicateWarning != null) ...[
+              const SizedBox(height: 10),
+              _ReceiptDuplicateWarningBanner(warning: duplicateWarning!),
             ],
             const SizedBox(height: 10),
             _ReceiptOcrSuggestionList(preview: preview),
@@ -1961,6 +2163,67 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _ReceiptDuplicateWarningBanner extends StatelessWidget {
+  const _ReceiptDuplicateWarningBanner({required this.warning});
+
+  final BillDuplicateWarning warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Container(
+      key: const Key('receipt-ocr-duplicate-warning'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.warningSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.onWarningSoft.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.report_problem_outlined,
+            color: colors.onWarningSoft,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  warning.title,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  warning.message,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  warning.reason,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3220,6 +3483,9 @@ class _SettleoraGroupBillListScreenState
           attachmentFileInput: widget.attachmentFileInput,
           receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
+          duplicateWarningCandidates: _bills
+              .map(BillDuplicateWarningCandidate.fromSummary)
+              .toList(growable: false),
         ),
       ),
     );
@@ -3698,6 +3964,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptImageIntake,
     this.receiptOcrProvider,
+    this.duplicateWarningCandidates = const [],
   });
 
   final SettleoraBillRepository billRepository;
@@ -3710,6 +3977,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
+  final List<BillDuplicateWarningCandidate> duplicateWarningCandidates;
 
   @override
   State<SettleoraGroupBillCreateScreen> createState() =>
@@ -5302,6 +5570,15 @@ class _SettleoraGroupBillCreateScreenState
                                         ? const []
                                         : _groupReceiptOcrOverwriteHints(
                                             _receiptOcrResult!.preview!,
+                                          ),
+                                    duplicateWarning:
+                                        _receiptOcrResult?.preview == null
+                                        ? null
+                                        : possibleReceiptDuplicateWarning(
+                                            preview:
+                                                _receiptOcrResult!.preview!,
+                                            existingBills: widget
+                                                .duplicateWarningCandidates,
                                           ),
                                     onSelectionChanged: (selection) {
                                       setState(() {
