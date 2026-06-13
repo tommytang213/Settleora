@@ -186,6 +186,97 @@ ReceiptOcrItemCandidate _emptyReceiptOcrItemCandidate(String currency) {
   );
 }
 
+bool _receiptOcrPreviewHasReviewCandidates(ReceiptOcrPreview preview) {
+  return (preview.merchant ?? '').trim().isNotEmpty ||
+      (preview.receiptDate ?? '').trim().isNotEmpty ||
+      (preview.currency ?? '').trim().isNotEmpty ||
+      preview.items.any(
+        (item) =>
+            item.description.trim().isNotEmpty ||
+            (item.quantity ?? '').trim().isNotEmpty ||
+            (item.unitPrice ?? '').trim().isNotEmpty ||
+            (item.lineTotal ?? '').trim().isNotEmpty,
+      );
+}
+
+ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
+  ReceiptOcrPreview? preview,
+) {
+  if (preview == null || !_receiptOcrPreviewHasReviewCandidates(preview)) {
+    return null;
+  }
+
+  return ReceiptOcrReviewSaveRequest(
+    status: ReceiptOcrReviewStatusValues.provisional,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    merchantText: _nullableTrimmedText(preview.merchant),
+    receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
+    currency: _nullableUppercaseCurrency(preview.currency),
+    subtotalAmount: _nullableTrimmedText(preview.subtotal),
+    taxAmount: _nullableTrimmedText(preview.tax),
+    serviceChargeAmount: _nullableTrimmedText(preview.service),
+    discountAmount: _nullableTrimmedText(preview.discount),
+    grandTotalAmount: _nullableTrimmedText(preview.total),
+    lines: [
+      for (final item in preview.items)
+        if (_receiptOcrItemHasReviewCandidate(item))
+          ReceiptOcrReviewLineSaveRequest(
+            text: item.description.trim(),
+            quantity: _nullableTrimmedText(item.quantity),
+            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
+            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
+          ),
+    ],
+  );
+}
+
+bool _receiptOcrItemHasReviewCandidate(ReceiptOcrItemCandidate item) {
+  return item.description.trim().isNotEmpty ||
+      (item.quantity ?? '').trim().isNotEmpty ||
+      (item.unitPrice ?? '').trim().isNotEmpty ||
+      (item.lineTotal ?? '').trim().isNotEmpty;
+}
+
+String? _nullableTrimmedText(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+String? _nullableUppercaseCurrency(String? value) {
+  final trimmed = value?.trim().toUpperCase();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+DateTime? _parseReceiptOcrReviewDate(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final parsed = DateTime.tryParse('${trimmed}T00:00:00Z')?.toUtc();
+  if (parsed == null ||
+      parsed.year.toString().padLeft(4, '0') != match.group(1) ||
+      parsed.month.toString().padLeft(2, '0') != match.group(2) ||
+      parsed.day.toString().padLeft(2, '0') != match.group(3)) {
+    return null;
+  }
+
+  return parsed;
+}
+
 String? _normalizeReceiptDuplicateBillDate(String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
@@ -1679,10 +1770,12 @@ class _SettleoraPersonalBillCreateScreenState
       _draftAttachments,
     );
     final uploadedDraftIds = <int>{};
+    var didSaveReceiptOcrReview = false;
+    var didFailReceiptOcrReviewSave = false;
 
     try {
       for (final attachment in pendingUploads) {
-        await attachmentRepository.attachAttachment(
+        final uploadedAttachment = await attachmentRepository.attachAttachment(
           route,
           SettleoraBillAttachmentUpload(
             bytes: attachment.file.bytes,
@@ -1691,6 +1784,18 @@ class _SettleoraPersonalBillCreateScreenState
             purpose: attachment.purpose,
           ),
         );
+        if (attachment.purpose ==
+            SettleoraBillAttachmentPurposeValues.receipt) {
+          final saved = await _saveUploadedReceiptOcrReview(
+            createdBill: createdBill,
+            uploadedAttachment: uploadedAttachment,
+          );
+          if (saved) {
+            didSaveReceiptOcrReview = true;
+          } else if (_shouldAttemptReceiptOcrReviewSave(uploadedAttachment)) {
+            didFailReceiptOcrReviewSave = true;
+          }
+        }
         uploadedDraftIds.add(attachment.id);
       }
       if (!mounted) {
@@ -1702,6 +1807,10 @@ class _SettleoraPersonalBillCreateScreenState
         _createdBillAwaitingAttachmentUpload = null;
         _isSaving = false;
       });
+      _showPostSaveReceiptOcrReviewNotice(
+        didSave: didSaveReceiptOcrReview,
+        didFail: didFailReceiptOcrReviewSave,
+      );
       await _leaveRoute(createdBill);
     } catch (error) {
       if (!mounted) {
@@ -1717,6 +1826,58 @@ class _SettleoraPersonalBillCreateScreenState
         _isSaving = false;
       });
     }
+  }
+
+  bool _shouldAttemptReceiptOcrReviewSave(
+    SettleoraBillAttachment uploadedAttachment,
+  ) {
+    return widget.receiptOcrReviewRepository != null &&
+        uploadedAttachment.fileId.trim().isNotEmpty &&
+        _receiptOcrReviewSaveRequestFromPreview(
+              _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+            ) !=
+            null;
+  }
+
+  Future<bool> _saveUploadedReceiptOcrReview({
+    required SettleoraBillDetail createdBill,
+    required SettleoraBillAttachment uploadedAttachment,
+  }) async {
+    final reviewRepository = widget.receiptOcrReviewRepository;
+    final fileId = uploadedAttachment.fileId.trim();
+    final request = _receiptOcrReviewSaveRequestFromPreview(
+      _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+    );
+    if (reviewRepository == null || fileId.isEmpty || request == null) {
+      return false;
+    }
+
+    try {
+      await reviewRepository.saveReview(
+        ReceiptOcrReviewRoute(billId: createdBill.id, fileId: fileId),
+        request,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _showPostSaveReceiptOcrReviewNotice({
+    required bool didSave,
+    required bool didFail,
+  }) {
+    if (!mounted || (!didSave && !didFail)) {
+      return;
+    }
+
+    final message = didFail
+        ? 'Bill saved, but the OCR review could not be saved. You can review the receipt later.'
+        : 'Bill saved with receipt OCR review ready for later review.';
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -5868,10 +6029,12 @@ class _SettleoraGroupBillCreateScreenState
       _draftAttachments,
     );
     final uploadedDraftIds = <int>{};
+    var didSaveReceiptOcrReview = false;
+    var didFailReceiptOcrReviewSave = false;
 
     try {
       for (final attachment in pendingUploads) {
-        await attachmentRepository.attachAttachment(
+        final uploadedAttachment = await attachmentRepository.attachAttachment(
           route,
           SettleoraBillAttachmentUpload(
             bytes: attachment.file.bytes,
@@ -5880,6 +6043,18 @@ class _SettleoraGroupBillCreateScreenState
             purpose: attachment.purpose,
           ),
         );
+        if (attachment.purpose ==
+            SettleoraBillAttachmentPurposeValues.receipt) {
+          final saved = await _saveUploadedReceiptOcrReview(
+            createdBill: createdBill,
+            uploadedAttachment: uploadedAttachment,
+          );
+          if (saved) {
+            didSaveReceiptOcrReview = true;
+          } else if (_shouldAttemptReceiptOcrReviewSave(uploadedAttachment)) {
+            didFailReceiptOcrReviewSave = true;
+          }
+        }
         uploadedDraftIds.add(attachment.id);
       }
       if (!mounted) {
@@ -5889,6 +6064,10 @@ class _SettleoraGroupBillCreateScreenState
       setState(() {
         _draftAttachments.clear();
       });
+      _showPostSaveReceiptOcrReviewNotice(
+        didSave: didSaveReceiptOcrReview,
+        didFail: didFailReceiptOcrReviewSave,
+      );
       await _submitCreatedGroupBill(createdBill);
     } catch (error) {
       if (!mounted) {
@@ -5906,6 +6085,62 @@ class _SettleoraGroupBillCreateScreenState
         _isSaving = false;
       });
     }
+  }
+
+  bool _shouldAttemptReceiptOcrReviewSave(
+    SettleoraBillAttachment uploadedAttachment,
+  ) {
+    return widget.receiptOcrReviewRepository != null &&
+        uploadedAttachment.fileId.trim().isNotEmpty &&
+        _receiptOcrReviewSaveRequestFromPreview(
+              _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+            ) !=
+            null;
+  }
+
+  Future<bool> _saveUploadedReceiptOcrReview({
+    required SettleoraBillDetail createdBill,
+    required SettleoraBillAttachment uploadedAttachment,
+  }) async {
+    final reviewRepository = widget.receiptOcrReviewRepository;
+    final fileId = uploadedAttachment.fileId.trim();
+    final request = _receiptOcrReviewSaveRequestFromPreview(
+      _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+    );
+    if (reviewRepository == null || fileId.isEmpty || request == null) {
+      return false;
+    }
+
+    try {
+      await reviewRepository.saveReview(
+        ReceiptOcrReviewRoute(
+          billId: createdBill.id,
+          fileId: fileId,
+          groupId: widget.groupId,
+        ),
+        request,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _showPostSaveReceiptOcrReviewNotice({
+    required bool didSave,
+    required bool didFail,
+  }) {
+    if (!mounted || (!didSave && !didFail)) {
+      return;
+    }
+
+    final message = didFail
+        ? 'Bill saved, but the OCR review could not be saved. You can review the receipt later.'
+        : 'Group bill saved with receipt OCR review ready for later review.';
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _submitCreatedGroupBill(SettleoraBillDetail createdBill) async {
