@@ -399,10 +399,19 @@ void main() {
       ),
       ['30.00', '18.00'],
     );
+    expect(find.text('Bill'), findsOneWidget);
     expect(
-      find.text('Bill saved with receipt OCR review ready for later review.'),
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
       findsOneWidget,
     );
+    expect(find.text('Receipt OCR review saved'), findsOneWidget);
+    expect(
+      find.text(
+        'The bill was saved, the receipt was attached, and a provisional OCR review was saved. Review it before applying any bill changes.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('bill-detail-ocr-review-retry')), findsNothing);
   });
 
   testWidgets('personal OCR add remove and reset candidate rows', (
@@ -573,13 +582,46 @@ void main() {
     expect(repository.createCalls, 1);
     expect(attachmentRepository.attachCalls, 1);
     expect(receiptRepository.saveCalls, 1);
+    final firstSaveRoute = receiptRepository.lastSaveRoute;
+    final firstSaveRequest = receiptRepository.lastSaveRequest;
+    expect(firstSaveRoute?.billId, _createdBillId);
+    expect(firstSaveRoute?.fileId, _uploadedFileId);
+    expect(firstSaveRoute?.groupId, isNull);
     expect(
       find.text(
-        'Bill saved, but the OCR review could not be saved. You can review the receipt later.',
+        'Bill saved and receipt attached, but the provisional OCR review could not be saved. Retry from the bill detail.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(find.text('OCR review still needs saving'), findsOneWidget);
+    expect(
+      find.text(
+        'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR candidates to this receipt only.',
       ),
       findsOneWidget,
     );
     expect(find.byKey(const Key('personal-bill-save')), findsNothing);
+
+    receiptRepository.saveFailure = null;
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-retry')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createCalls, 1);
+    expect(attachmentRepository.attachCalls, 1);
+    expect(receiptRepository.saveCalls, 2);
+    expect(receiptRepository.lastSaveRoute, same(firstSaveRoute));
+    expect(receiptRepository.lastSaveRequest, same(firstSaveRequest));
+    expect(find.text('Receipt OCR review saved'), findsOneWidget);
+    expect(
+      find.text(
+        'Provisional OCR review saved. Review it before applying any bill changes.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('personal OCR review save skips empty OCR candidates', (
@@ -5311,14 +5353,153 @@ void main() {
         receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
         '88.00',
       );
+      expect(find.text('Group bill'), findsOneWidget);
+      expect(
+        find.byKey(const Key('group-bill-detail-ocr-review-handoff')),
+        findsOneWidget,
+      );
+      expect(find.text('Receipt OCR review saved'), findsOneWidget);
       expect(
         find.text(
-          'Group bill saved with receipt OCR review ready for later review.',
+          'The bill was saved, the receipt was attached, and a provisional OCR review was saved. Review it before applying any bill changes.',
         ),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const Key('group-bill-detail-ocr-review-retry')),
+        findsNothing,
+      );
     },
   );
+
+  testWidgets('group OCR review save failure retries from detail', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository();
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      saveFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.server,
+        message: 'Receipt OCR review is unavailable right now.',
+      ),
+    );
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Receipt Bistro',
+          receiptDate: '2026-06-13',
+          currency: 'HKD',
+          total: '88.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'OCR rice',
+              quantity: '1',
+              lineTotal: '88.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await _pumpGroupBillCreate(
+      tester,
+      repository: repository,
+      groupRepository: FakeGroupRepository(
+        members: [
+          sampleGroupMember(displayName: 'Alex'),
+          sampleGroupMember(
+            userProfileId: 'member-taylor-id',
+            displayName: 'Taylor',
+          ),
+        ],
+      ),
+      attachmentRepository: attachmentRepository,
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'shared-receipt.png',
+          contentType: 'image/png',
+          bytes: const [4, 5, 6],
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+      receiptOcrReviewRepository: receiptRepository,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-item-name-0')),
+      'Manual bun',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-item-amount-0')),
+      '12.00',
+    );
+    await _assignFirstGroupBillItem(tester, memberId: 'member-taylor-id');
+    await _goToGroupBillCreateStep(tester, 'payers');
+    await tester.tap(find.byKey(const Key('group-bill-add-payer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-bill-payer-member-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('group-bill-member-picker-member-taylor-id')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-payer-amount-0')),
+      '12.00',
+    );
+
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    await _tapReceiptOcrApply(tester, 'group-bill');
+    await _tapSaveGroupBill(tester);
+
+    expect(repository.groupCreateCalls, 1);
+    expect(repository.submitGroupCalls, 1);
+    expect(attachmentRepository.attachCalls, 1);
+    expect(receiptRepository.saveCalls, 1);
+    final firstSaveRoute = receiptRepository.lastSaveRoute;
+    final firstSaveRequest = receiptRepository.lastSaveRequest;
+    expect(firstSaveRoute?.billId, _billId);
+    expect(firstSaveRoute?.fileId, _uploadedFileId);
+    expect(firstSaveRoute?.groupId, _groupId);
+    expect(
+      find.text(
+        'Group bill saved and receipt attached, but the provisional OCR review could not be saved. Retry from the group bill detail.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('group-bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(find.text('OCR review still needs saving'), findsOneWidget);
+
+    receiptRepository.saveFailure = null;
+    await tester.tap(
+      find.byKey(const Key('group-bill-detail-ocr-review-retry')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.groupCreateCalls, 1);
+    expect(repository.submitGroupCalls, 1);
+    expect(attachmentRepository.attachCalls, 1);
+    expect(receiptRepository.saveCalls, 2);
+    expect(receiptRepository.lastSaveRoute, same(firstSaveRoute));
+    expect(receiptRepository.lastSaveRequest, same(firstSaveRequest));
+    expect(find.text('Receipt OCR review saved'), findsOneWidget);
+    expect(
+      find.text(
+        'Provisional OCR review saved. Review it before applying any bill changes.',
+      ),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('group bill detail accepted share uses dedicated panel', (
     tester,
@@ -8242,7 +8423,7 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({this.saveFailure});
 
-  final Object? saveFailure;
+  Object? saveFailure;
   int getCalls = 0;
   int saveCalls = 0;
   ReceiptOcrReviewRoute? lastRoute;
