@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile/bills/bill_duplicate_warning.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
 void main() {

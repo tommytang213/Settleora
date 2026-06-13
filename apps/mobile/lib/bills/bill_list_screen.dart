@@ -12,7 +12,6 @@ import '../ui/settleora_theme.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 import 'bill_attachment_section.dart';
-import 'bill_duplicate_warning.dart';
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 import 'bill_revision_review_screen.dart';
@@ -36,6 +35,191 @@ String _defaultBillCurrency(String? currency) {
   }
 
   return _supportedBillCurrencyCodes.first;
+}
+
+class BillDuplicateWarningCandidate {
+  const BillDuplicateWarningCandidate({
+    required this.billId,
+    required this.merchantName,
+    required this.billDate,
+    required this.totalAmount,
+    required this.totalCurrency,
+  });
+
+  factory BillDuplicateWarningCandidate.fromSummary(SettleoraBillSummary bill) {
+    return BillDuplicateWarningCandidate(
+      billId: bill.id,
+      merchantName: bill.merchantName,
+      billDate: bill.billDate,
+      totalAmount: bill.totalAmount,
+      totalCurrency: bill.totalCurrency,
+    );
+  }
+
+  final String billId;
+  final String? merchantName;
+  final String billDate;
+  final String totalAmount;
+  final String totalCurrency;
+}
+
+class BillDuplicateWarning {
+  const BillDuplicateWarning({
+    required this.title,
+    required this.message,
+    required this.reason,
+    required this.matchedBillId,
+  });
+
+  final String title;
+  final String message;
+  final String reason;
+  final String matchedBillId;
+}
+
+BillDuplicateWarning? possibleReceiptDuplicateWarning({
+  required ReceiptOcrPreview preview,
+  required Iterable<BillDuplicateWarningCandidate> existingBills,
+}) {
+  final previewCurrency = preview.currency?.trim().toUpperCase();
+  final previewTotal = _parseNullableExactDecimalAmount(preview.total);
+  final previewDate = _normalizeReceiptDuplicateBillDate(preview.receiptDate);
+  final previewMerchant = _normalizeReceiptDuplicateMerchant(preview.merchant);
+
+  if (previewCurrency == null ||
+      previewCurrency.isEmpty ||
+      previewTotal == null ||
+      previewDate == null ||
+      previewMerchant.isEmpty) {
+    return null;
+  }
+
+  for (final bill in existingBills) {
+    final billCurrency = bill.totalCurrency.trim().toUpperCase();
+    if (billCurrency != previewCurrency) {
+      continue;
+    }
+
+    final billTotal = _parseNullableExactDecimalAmount(bill.totalAmount);
+    if (billTotal == null ||
+        !_exactDecimalAmountsEqual(previewTotal, billTotal)) {
+      continue;
+    }
+
+    if (_normalizeReceiptDuplicateBillDate(bill.billDate) != previewDate) {
+      continue;
+    }
+
+    if (!_receiptDuplicateMerchantLooksSimilar(
+      previewMerchant,
+      _normalizeReceiptDuplicateMerchant(bill.merchantName),
+    )) {
+      continue;
+    }
+
+    return BillDuplicateWarning(
+      title: 'Possible duplicate receipt',
+      message: 'This looks similar to an existing bill. Review before saving.',
+      reason: 'Matched merchant, date, total, and currency.',
+      matchedBillId: bill.billId,
+    );
+  }
+
+  return null;
+}
+
+String? _normalizeReceiptDuplicateBillDate(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  final match = RegExp(
+    r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$',
+  ).firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null ||
+      month == null ||
+      day == null ||
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31) {
+    return null;
+  }
+  final parsedDate = DateTime.utc(year, month, day);
+  if (parsedDate.year != year ||
+      parsedDate.month != month ||
+      parsedDate.day != day) {
+    return null;
+  }
+
+  return '${year.toString().padLeft(4, '0')}-'
+      '${month.toString().padLeft(2, '0')}-'
+      '${day.toString().padLeft(2, '0')}';
+}
+
+String _normalizeReceiptDuplicateMerchant(String? value) {
+  final normalized = (value ?? '')
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .trim();
+  if (normalized.isEmpty) {
+    return '';
+  }
+
+  return normalized
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty)
+      .join(' ');
+}
+
+bool _receiptDuplicateMerchantLooksSimilar(String left, String right) {
+  if (left.isEmpty || right.isEmpty) {
+    return false;
+  }
+  if (left == right) {
+    return true;
+  }
+
+  final leftTokens = left
+      .split(' ')
+      .where((token) => token.length >= 3)
+      .toSet();
+  final rightTokens = right
+      .split(' ')
+      .where((token) => token.length >= 3)
+      .toSet();
+  if (leftTokens.isEmpty || rightTokens.isEmpty) {
+    return false;
+  }
+
+  final overlap = leftTokens.intersection(rightTokens).length;
+  return overlap >= 2;
+}
+
+_ExactDecimalAmount? _parseNullableExactDecimalAmount(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  return _parseExactDecimalAmount(trimmed);
+}
+
+bool _exactDecimalAmountsEqual(
+  _ExactDecimalAmount left,
+  _ExactDecimalAmount right,
+) {
+  final scale = left.scale > right.scale ? left.scale : right.scale;
+  return left.value * _bigIntPow10(scale - left.scale) ==
+      right.value * _bigIntPow10(scale - right.scale);
 }
 
 class SettleoraBillListScreen extends StatefulWidget {
