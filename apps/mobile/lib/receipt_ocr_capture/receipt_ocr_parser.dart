@@ -113,21 +113,15 @@ class ReceiptOcrParser {
         continue;
       }
 
-      if (normalized.contains('subtotal') || normalized.contains('sub total')) {
+      if (_hasSubtotalLabel(line, normalized)) {
         subtotal ??= amount;
-      } else if (normalized.contains('tax') ||
-          normalized.contains('vat') ||
-          normalized.contains('gst')) {
+      } else if (_hasTaxLabel(line, normalized)) {
         tax ??= amount;
-      } else if (normalized.contains('service')) {
+      } else if (_hasServiceChargeLabel(line, normalized)) {
         service ??= amount;
-      } else if (normalized.contains('discount') ||
-          normalized.contains('coupon')) {
+      } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
-      } else if (normalized.contains('grand total') ||
-          normalized.contains('total') ||
-          normalized.contains('amount due') ||
-          normalized.contains('balance')) {
+      } else if (_hasTotalLabel(line, normalized)) {
         total = amount;
       }
     }
@@ -262,13 +256,11 @@ String _cleanDescription(String value) {
 
 bool _isAdministrativeLine(String line) {
   final normalized = line.toLowerCase();
-  return normalized.contains('subtotal') ||
-      normalized.contains('sub total') ||
-      normalized.contains('total') ||
-      normalized.contains('tax') ||
-      normalized.contains('service') ||
-      normalized.contains('discount') ||
-      normalized.contains('coupon') ||
+  return _hasSubtotalLabel(line, normalized) ||
+      _hasTaxLabel(line, normalized) ||
+      _hasServiceChargeLabel(line, normalized) ||
+      _hasDiscountLabel(line, normalized) ||
+      _hasTotalLabel(line, normalized) ||
       normalized.contains('cash') ||
       normalized.contains('change') ||
       normalized.contains('visa') ||
@@ -278,6 +270,111 @@ bool _isAdministrativeLine(String line) {
       normalized.contains('invoice') ||
       normalized.contains('receipt') ||
       normalized.contains('thank you');
+}
+
+bool _hasSubtotalLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+        normalized,
+        RegExp(r'\bsub[\s-]?total\b', caseSensitive: false),
+      ) ||
+      _hasJapaneseReceiptLabel(line, const ['小計']);
+}
+
+bool _hasTaxLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+        normalized,
+        RegExp(r'\b(tax|vat|gst)\b', caseSensitive: false),
+      ) ||
+      _hasJapaneseReceiptLabel(line, const ['消費税', '税']);
+}
+
+bool _hasServiceChargeLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+        normalized,
+        RegExp(r'\bservice\s*(charge|fee)?\b', caseSensitive: false),
+      ) ||
+      _hasJapaneseReceiptLabel(line, const ['サービス料']);
+}
+
+bool _hasDiscountLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+        normalized,
+        RegExp(r'\b(discount|coupon)\b', caseSensitive: false),
+      ) ||
+      _hasJapaneseReceiptLabel(line, const ['割引', '値引']);
+}
+
+bool _hasTotalLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+        normalized,
+        RegExp(
+          r'\b(grand\s+total|amount\s+due|balance\s+due|total)\b',
+          caseSensitive: false,
+        ),
+      ) ||
+      _hasJapaneseReceiptLabel(line, const ['合計']);
+}
+
+bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
+  final label = labelPattern.firstMatch(normalized);
+  if (label == null) {
+    return false;
+  }
+
+  final amount = RegExp(
+    r'-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?',
+  ).firstMatch(normalized);
+  if (amount == null) {
+    return false;
+  }
+
+  final labelEndsBeforeAmount = label.end <= amount.start;
+  final labelStartsAfterAmount = label.start >= amount.end;
+  if (!labelEndsBeforeAmount && !labelStartsAfterAmount) {
+    return false;
+  }
+
+  final leadingText = normalized.substring(0, amount.start).trim();
+  final trailingText = normalized.substring(amount.end).trim();
+  final textBesideAmount = labelEndsBeforeAmount ? leadingText : trailingText;
+  final compactLabel = textBesideAmount
+      .replaceAll(RegExp(r'[^\w\s-]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  if (!labelPattern.hasMatch(compactLabel)) {
+    return false;
+  }
+
+  final remaining = compactLabel
+      .replaceFirst(labelPattern, ' ')
+      .replaceAll(
+        RegExp(r'\b(usd|hkd|eur|gbp|jpy|kwd|bhd)\b', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  return remaining.isEmpty;
+}
+
+bool _hasJapaneseReceiptLabel(String line, List<String> labels) {
+  final amount = RegExp(r'-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?').firstMatch(line);
+  if (amount == null) {
+    return false;
+  }
+
+  for (final label in labels) {
+    final labelIndex = line.indexOf(label);
+    if (labelIndex < 0) {
+      continue;
+    }
+    if (labelIndex + label.length <= amount.start || labelIndex >= amount.end) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 String? _formatDate(int year, int month, int day) {
