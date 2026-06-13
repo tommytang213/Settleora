@@ -325,7 +325,9 @@ void main() {
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
   });
 
-  testWidgets('personal OCR duplicate warning is non-blocking', (tester) async {
+  testWidgets('personal OCR duplicate save confirmation can save anyway', (
+    tester,
+  ) async {
     await useLargeSurface(tester);
     final repository = FakeBillRepository(
       bills: [
@@ -406,10 +408,125 @@ void main() {
     await tester.pumpAndSettle();
     await _tapSaveBill(tester);
 
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('Possible duplicate receipt'), findsWidgets);
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-match-title')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-match-meta')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-reason')),
+      findsOneWidget,
+    );
+    expect(repository.createCalls, 0);
+
+    await tester.tap(
+      find.byKey(const Key('receipt-ocr-duplicate-save-anyway')),
+    );
+    await tester.pumpAndSettle();
+
     expect(repository.createCalls, 1);
     expect(repository.lastCreateDraft?.merchantName, 'Corner Market Ltd.');
     expect(repository.lastCreateDraft?.currency, 'HKD');
     expect(repository.lastCreateDraft?.items.single.amount, '43.00');
+  });
+
+  testWidgets('personal OCR duplicate save confirmation cancel keeps draft', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          id: 'existing-bill-id',
+          merchantName: 'Corner Market',
+          billDate: '2026-06-12',
+          totalAmount: '43.0',
+          totalCurrency: 'HKD',
+        ),
+      ],
+    );
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Corner Market Ltd.',
+          receiptDate: '2026-06-12',
+          currency: 'HKD',
+          total: '43.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Milk',
+              quantity: '1',
+              lineTotal: '43.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: const [1, 2, 3],
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Corner Market edited draft',
+    );
+    await _tapSaveBill(tester);
+
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+      findsOneWidget,
+    );
+    expect(repository.createCalls, 0);
+
+    await tester.tap(
+      find.byKey(const Key('receipt-ocr-duplicate-save-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.createCalls, 0);
+    expect(
+      find.byKey(const Key('personal-bill-ocr-preview-panel')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('personal-bill-merchant-name')),
+          )
+          .controller
+          ?.text,
+      'Corner Market edited draft',
+    );
+    expect(find.byKey(const Key('personal-bill-save')), findsOneWidget);
   });
 
   testWidgets(
@@ -529,6 +646,116 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR duplicate save confirmation reviews existing bill',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        bills: [
+          sampleBillSummary(
+            id: 'existing-bill-id',
+            merchantName: 'Corner Market',
+            billDate: '2026-06-12',
+            totalAmount: '43.0',
+            totalCurrency: 'HKD',
+          ),
+        ],
+        details: [
+          sampleBillDetail(
+            id: 'existing-bill-id',
+            merchantName: 'Corner Market',
+            billDate: '2026-06-12',
+            totalAmount: '43.0',
+            totalCurrency: 'HKD',
+          ),
+        ],
+      );
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Corner Market Ltd.',
+            receiptDate: '2026-06-12',
+            currency: 'HKD',
+            total: '43.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Milk',
+                quantity: '1',
+                lineTotal: '43.00',
+                currency: 'HKD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillListScreen(
+            repository: repository,
+            syncController: sampleBillSyncController(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1, 2, 3],
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-merchant-name')),
+        'Corner Market dialog draft',
+      );
+      await _tapSaveBill(tester);
+
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-review-bill')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('receipt-ocr-duplicate-save-review-bill')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.getCalls, 1);
+      expect(repository.createCalls, 0);
+      expect(find.text('Corner Market'), findsWidgets);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('personal-bill-ocr-preview-panel')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('personal-bill-merchant-name')),
+            )
+            .controller
+            ?.text,
+        'Corner Market dialog draft',
+      );
+      expect(repository.createCalls, 0);
+    },
+  );
+
+  testWidgets(
     'personal OCR duplicate warning omits review action for unavailable match',
     (tester) async {
       await useLargeSurface(tester);
@@ -597,6 +824,28 @@ void main() {
       );
       expect(find.byKey(const Key('personal-bill-ocr-apply')), findsOneWidget);
       expect(repository.getCalls, 0);
+      expect(repository.createCalls, 0);
+
+      await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
+      await tester.pumpAndSettle();
+      await _tapSaveBill(tester);
+
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-review-bill')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-cancel')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('receipt-ocr-duplicate-save-anyway')),
+        findsOneWidget,
+      );
       expect(repository.createCalls, 0);
     },
   );
@@ -3781,6 +4030,101 @@ void main() {
       expect(repository.groupCreateCalls, 0);
     },
   );
+
+  testWidgets('group OCR duplicate save confirmation can save anyway', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      groupBills: [
+        sampleBillSummary(
+          id: 'existing-group-bill-id',
+          merchantName: 'Dim Sum House',
+          billDate: '2026-06-11',
+          totalAmount: '76.0',
+          totalCurrency: 'HKD',
+        ),
+      ],
+      createdDetail: sampleBillDetail(
+        id: _createdBillId,
+        merchantName: 'Dim Sum House',
+        billDate: '2026-06-11',
+        totalAmount: '76.00',
+        totalCurrency: 'HKD',
+      ),
+    );
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Dim Sum House Ltd.',
+          receiptDate: '2026-06-11',
+          currency: 'HKD',
+          total: '76.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Dumplings',
+              quantity: '2',
+              lineTotal: '76.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await _pumpGroupBillCreate(
+      tester,
+      repository: repository,
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [9, 8, 7],
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-ocr-apply')));
+    await tester.pumpAndSettle();
+    await _assignFirstGroupBillItem(tester);
+    await _tapSaveGroupBill(tester);
+
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('Possible duplicate receipt'), findsWidgets);
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-match-title')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-ocr-duplicate-save-review-bill')),
+      findsOneWidget,
+    );
+    expect(repository.groupCreateCalls, 0);
+    expect(repository.submitGroupCalls, 0);
+
+    await tester.tap(
+      find.byKey(const Key('receipt-ocr-duplicate-save-anyway')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.groupCreateCalls, 1);
+    expect(repository.submitGroupCalls, 1);
+    expect(repository.lastGroupCreateDraft?.merchantName, 'Dim Sum House Ltd.');
+    expect(repository.lastGroupCreateDraft?.items.single.amount, '76.00');
+  });
 
   testWidgets('group bill receipt image cancel leaves draft unchanged', (
     tester,
