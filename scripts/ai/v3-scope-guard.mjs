@@ -81,6 +81,10 @@ const bootstrapAllowedPaths = new Set([
   "scripts/ai/v3-scope-guard.mjs",
 ]);
 
+const humanApprovedWorkflowAllowedPaths = new Set([
+  ".github/workflows/mobile-ios-validation.yml",
+]);
+
 const m1AllowedPatterns = [
   /^\.ai(?:\/|$)/,
   /^AGENTS\.md$/,
@@ -153,6 +157,9 @@ function forbiddenReason(file) {
   if (allowBootstrapWorkflow && bootstrapAllowedPaths.has(file)) {
     return null;
   }
+  if (humanApprovedWorkflowAllowedPaths.has(file)) {
+    return null;
+  }
 
   const match = forbiddenPatterns.find(({ pattern }) => pattern.test(file));
   return match ? match.reason : null;
@@ -165,6 +172,14 @@ const classifications = changedFiles.map((file) => {
 
   if (forbidden) {
     return { file, classification: "forbidden", reason: forbidden };
+  }
+
+  if (humanApprovedWorkflowAllowedPaths.has(file)) {
+    return {
+      file,
+      classification: "allowed",
+      reason: "human-approved workflow allowance",
+    };
   }
 
   if (allowed) {
