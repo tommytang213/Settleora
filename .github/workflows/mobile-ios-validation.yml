@@ -2,9 +2,13 @@ name: Mobile iOS Validation
 
 on:
   pull_request:
+    # Automatic iOS builds are limited to native/dependency/workflow changes
+    # to conserve hosted macOS minutes. Use workflow_dispatch for large mobile
+    # PRs or release validation.
     paths:
-      - "apps/mobile/**"
-      - "packages/client-dart/**"
+      - "apps/mobile/ios/**"
+      - "apps/mobile/pubspec.yaml"
+      - "apps/mobile/pubspec.lock"
       - ".github/workflows/mobile-ios-validation.yml"
   workflow_dispatch:
     inputs:
