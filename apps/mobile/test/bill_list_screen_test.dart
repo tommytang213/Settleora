@@ -165,6 +165,7 @@ void main() {
         bytes: const [1, 2, 3],
       ),
     );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
     final receiptOcrProvider = FakeReceiptOcrProvider(
       const ReceiptOcrResult.extracted(
         ReceiptOcrPreview(
@@ -204,6 +205,7 @@ void main() {
           syncController: sampleBillSyncController(),
           attachmentRepository: FakeBillAttachmentRepository(),
           attachmentFileInput: fileInput,
+          receiptOcrReviewRepository: receiptRepository,
           receiptOcrProvider: receiptOcrProvider,
         ),
       ),
@@ -370,6 +372,37 @@ void main() {
       '18.00',
     ]);
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
+    expect(receiptRepository.saveCalls, 1);
+    expect(receiptRepository.lastSaveRoute?.billId, _createdBillId);
+    expect(receiptRepository.lastSaveRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastSaveRoute?.groupId, isNull);
+    expect(receiptRepository.lastSaveRequest?.status, 'provisional');
+    expect(receiptRepository.lastSaveRequest?.source, 'on_device');
+    expect(receiptRepository.lastSaveRequest?.merchantText, 'Corrected Market');
+    expect(
+      receiptRepository.lastSaveRequest?.receiptIssuedAtUtc,
+      DateTime.utc(2026, 6, 13),
+    );
+    expect(receiptRepository.lastSaveRequest?.currency, 'USD');
+    expect(receiptRepository.lastSaveRequest?.subtotalAmount, '45.00');
+    expect(receiptRepository.lastSaveRequest?.discountAmount, '-2.00');
+    expect(receiptRepository.lastSaveRequest?.taxAmount, '0.00');
+    expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, '0.00');
+    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
+    expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
+      'Corrected milk',
+      'Bread',
+    ]);
+    expect(
+      receiptRepository.lastSaveRequest?.lines.map(
+        (line) => line.lineTotalAmount,
+      ),
+      ['30.00', '18.00'],
+    );
+    expect(
+      find.text('Bill saved with receipt OCR review ready for later review.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('personal OCR add remove and reset candidate rows', (
@@ -476,6 +509,133 @@ void main() {
           .controller
           ?.text,
       'Original item',
+    );
+  });
+
+  testWidgets('personal OCR review save failure does not block bill create', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      createdDetail: sampleBillDetail(id: _createdBillId),
+    );
+    final attachmentRepository = FakeBillAttachmentRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      saveFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.server,
+        message: 'Receipt OCR review is unavailable right now.',
+      ),
+    );
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Corner Market',
+          receiptDate: '2026-06-12',
+          currency: 'HKD',
+          total: '25.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Milk',
+              quantity: '1',
+              lineTotal: '25.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+          attachmentRepository: attachmentRepository,
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: const [1, 2, 3],
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    await _tapReceiptOcrApply(tester, 'personal-bill');
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(attachmentRepository.attachCalls, 1);
+    expect(receiptRepository.saveCalls, 1);
+    expect(
+      find.text(
+        'Bill saved, but the OCR review could not be saved. You can review the receipt later.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('personal-bill-save')), findsNothing);
+  });
+
+  testWidgets('personal OCR review save skips empty OCR candidates', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      createdDetail: sampleBillDetail(id: _createdBillId),
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(total: '12.00', rawTextLineCount: 2),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: repository,
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: const [1, 2, 3],
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-merchant-name')),
+      'Manual Market',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-name-0')),
+      'Manual item',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-amount-0')),
+      '12.00',
+    );
+    await _tapSaveBill(tester);
+
+    expect(repository.createCalls, 1);
+    expect(receiptRepository.saveCalls, 0);
+    expect(
+      find.text('Bill saved with receipt OCR review ready for later review.'),
+      findsNothing,
     );
   });
 
@@ -4650,6 +4810,8 @@ void main() {
     (tester) async {
       await useLargeSurface(tester);
       final repository = FakeBillRepository();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final receiptOcrProvider = FakeReceiptOcrProvider(
         const ReceiptOcrResult.extracted(
           ReceiptOcrPreview(
@@ -4691,7 +4853,7 @@ void main() {
             ),
           ],
         ),
-        attachmentRepository: FakeBillAttachmentRepository(),
+        attachmentRepository: attachmentRepository,
         attachmentFileInput: FakeBillAttachmentFileInput(
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
@@ -4699,6 +4861,7 @@ void main() {
             bytes: const [4, 5, 6],
           ),
         ),
+        receiptOcrReviewRepository: receiptRepository,
         receiptOcrProvider: receiptOcrProvider,
       );
 
@@ -4992,6 +5155,8 @@ void main() {
     (tester) async {
       await useLargeSurface(tester);
       final repository = FakeBillRepository();
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final receiptOcrProvider = FakeReceiptOcrProvider(
         const ReceiptOcrResult.extracted(
           ReceiptOcrPreview(
@@ -5023,7 +5188,7 @@ void main() {
             ),
           ],
         ),
-        attachmentRepository: FakeBillAttachmentRepository(),
+        attachmentRepository: attachmentRepository,
         attachmentFileInput: FakeBillAttachmentFileInput(
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
@@ -5032,6 +5197,7 @@ void main() {
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
+        receiptOcrReviewRepository: receiptRepository,
       );
 
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
@@ -5072,6 +5238,7 @@ void main() {
             .value,
         isFalse,
       );
+      await _setReceiptOcrSection(tester, 'group-bill', 'currency', false);
 
       await _tapReceiptOcrApply(tester, 'group-bill');
 
@@ -5122,6 +5289,33 @@ void main() {
             .controller
             ?.text,
         '12.00',
+      );
+      await _tapSaveGroupBill(tester);
+
+      expect(repository.groupCreateCalls, 1);
+      expect(repository.submitGroupCalls, 1);
+      expect(attachmentRepository.attachCalls, 1);
+      expect(receiptRepository.saveCalls, 1);
+      expect(receiptRepository.lastSaveRoute?.billId, _billId);
+      expect(receiptRepository.lastSaveRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastSaveRoute?.groupId, _groupId);
+      expect(receiptRepository.lastSaveRequest?.merchantText, 'Receipt Bistro');
+      expect(
+        receiptRepository.lastSaveRequest?.receiptIssuedAtUtc,
+        DateTime.utc(2026, 6, 13),
+      );
+      expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
+      expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '88.00');
+      expect(receiptRepository.lastSaveRequest?.lines.single.text, 'OCR rice');
+      expect(
+        receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+        '88.00',
+      );
+      expect(
+        find.text(
+          'Group bill saved with receipt OCR review ready for later review.',
+        ),
+        findsOneWidget,
       );
     },
   );
@@ -7395,6 +7589,7 @@ Future<void> _pumpGroupBillCreate(
   FakeBillAttachmentFileInput? attachmentFileInput,
   ReceiptImageIntake? receiptImageIntake,
   ReceiptOcrProvider? receiptOcrProvider,
+  ReceiptOcrReviewRepository? receiptOcrReviewRepository,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -7407,6 +7602,7 @@ Future<void> _pumpGroupBillCreate(
         attachmentFileInput: attachmentFileInput,
         receiptImageIntake: receiptImageIntake,
         receiptOcrProvider: receiptOcrProvider,
+        receiptOcrReviewRepository: receiptOcrReviewRepository,
       ),
     ),
   );
@@ -8044,8 +8240,14 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  FakeReceiptOcrReviewRepository({this.saveFailure});
+
+  final Object? saveFailure;
   int getCalls = 0;
+  int saveCalls = 0;
   ReceiptOcrReviewRoute? lastRoute;
+  ReceiptOcrReviewRoute? lastSaveRoute;
+  ReceiptOcrReviewSaveRequest? lastSaveRequest;
 
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
@@ -8067,8 +8269,16 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   Future<ReceiptOcrReviewDetail> saveReview(
     ReceiptOcrReviewRoute route,
     ReceiptOcrReviewSaveRequest request,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    saveCalls += 1;
+    lastSaveRoute = route;
+    lastSaveRequest = request;
+    final failure = saveFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return sampleReceiptOcrReviewDetail(route);
   }
 
   @override
