@@ -37,6 +37,75 @@ Thank you
     expect(preview.items.last.lineTotal, '18.00');
   });
 
+  test('parser extracts English receipt totals and charges conservatively', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Travel Cafe
+2026/06/13
+Pasta 18.00
+Coffee 5.50
+Sub total USD 23.50
+Coupon -2.00
+Service charge 2.35
+VAT 1.65
+Grand Total USD 25.50
+Card 25.50
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.subtotal, '23.50');
+    expect(preview.discount, '-2.00');
+    expect(preview.service, '2.35');
+    expect(preview.tax, '1.65');
+    expect(preview.total, '25.50');
+    expect(preview.items.map((item) => item.description), ['Pasta', 'Coffee']);
+  });
+
+  test('parser extracts minimal Japanese receipt totals and charges', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+東京カフェ
+2026-06-13
+ラテ 450
+パン 320
+小計 770
+割引 -50
+消費税 72
+サービス料 80
+合計 872
+''');
+
+    expect(preview.subtotal, '770');
+    expect(preview.discount, '-50');
+    expect(preview.tax, '72');
+    expect(preview.service, '80');
+    expect(preview.total, '872');
+    expect(preview.items.map((item) => item.description), ['ラテ', 'パン']);
+  });
+
+  test('parser avoids treating ordinary item names as totals or charges', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Corner Store
+Total cereal 4.50
+Service bell 3.00
+Tax guide book 12.00
+Amount due USD 19.50
+''');
+
+    expect(preview.total, '19.50');
+    expect(preview.tax, isNull);
+    expect(preview.service, isNull);
+    expect(preview.items.map((item) => item.description), [
+      'Total cereal',
+      'Service bell',
+      'Tax guide book',
+    ]);
+  });
+
   test('parser keeps uncertain text provisional with warnings', () {
     const parser = ReceiptOcrParser();
 

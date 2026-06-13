@@ -1788,6 +1788,7 @@ class _ReceiptOcrSuggestionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final referenceCharges = _receiptOcrReferenceCharges(preview);
     final suggestions = <String>[
       if ((preview.merchant ?? '').trim().isNotEmpty)
         'Merchant: ${preview.merchant!.trim()}',
@@ -1800,7 +1801,7 @@ class _ReceiptOcrSuggestionList extends StatelessWidget {
             '${(item.lineTotal ?? '').trim().isEmpty ? '' : ' - ${item.lineTotal}'}',
     ];
 
-    if (suggestions.isEmpty) {
+    if (suggestions.isEmpty && referenceCharges.isEmpty) {
       return Text(
         'No editable field suggestions were detected.',
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1822,8 +1823,88 @@ class _ReceiptOcrSuggestionList extends StatelessWidget {
               ),
             ),
           ),
+        if (referenceCharges.isNotEmpty) ...[
+          if (suggestions.isNotEmpty) const SizedBox(height: 6),
+          Text(
+            'Receipt totals for review only',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final charge in referenceCharges)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '${charge.label}: ${charge.formattedAmount}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
       ],
     );
+  }
+}
+
+List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
+  ReceiptOcrPreview preview,
+) {
+  final currency = preview.currency?.trim().toUpperCase();
+  return [
+    if ((preview.subtotal ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Subtotal candidate',
+        amount: preview.subtotal!.trim(),
+        currency: currency,
+      ),
+    if ((preview.discount ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Discount candidate',
+        amount: preview.discount!.trim(),
+        currency: currency,
+      ),
+    if ((preview.tax ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Tax candidate',
+        amount: preview.tax!.trim(),
+        currency: currency,
+      ),
+    if ((preview.service ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Service charge candidate',
+        amount: preview.service!.trim(),
+        currency: currency,
+      ),
+    if ((preview.total ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Grand total candidate',
+        amount: preview.total!.trim(),
+        currency: currency,
+      ),
+  ];
+}
+
+class _ReceiptOcrReferenceCharge {
+  const _ReceiptOcrReferenceCharge({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String? currency;
+
+  String get formattedAmount {
+    final normalizedCurrency = currency;
+    if (normalizedCurrency == null || normalizedCurrency.isEmpty) {
+      return '$amount (review only)';
+    }
+
+    return '$normalizedCurrency $amount (review only)';
   }
 }
 

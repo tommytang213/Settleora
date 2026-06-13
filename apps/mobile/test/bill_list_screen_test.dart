@@ -171,7 +171,10 @@ void main() {
             merchant: 'Corner Market',
             receiptDate: '2026-06-12',
             currency: 'HKD',
-            subtotal: '43.00',
+            subtotal: '45.00',
+            discount: '-2.00',
+            tax: '0.00',
+            service: '0.00',
             total: '43.00',
             rawTextLineCount: 8,
             warnings: ['Review line totals before saving.'],
@@ -222,6 +225,27 @@ void main() {
       expect(find.text('2 item candidates'), findsOneWidget);
       expect(find.text('Review line totals before saving.'), findsOneWidget);
       expect(find.text('Merchant: Corner Market'), findsOneWidget);
+      expect(find.text('Receipt totals for review only'), findsOneWidget);
+      expect(
+        find.text('Subtotal candidate: HKD 45.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Discount candidate: HKD -2.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Tax candidate: HKD 0.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Service charge candidate: HKD 0.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Grand total candidate: HKD 43.00 (review only)'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const Key('personal-bill-ocr-apply')));
       await tester.pumpAndSettle();
@@ -3231,6 +3255,9 @@ void main() {
             merchant: 'Dim Sum House',
             receiptDate: '2026-06-11',
             currency: 'HKD',
+            subtotal: '60.00',
+            service: '6.00',
+            tax: '2.00',
             total: '68.00',
             rawTextLineCount: 6,
             items: [
@@ -3314,6 +3341,23 @@ void main() {
       expect(find.text('Currency: HKD'), findsOneWidget);
       expect(find.text('Item: Dumplings - 36.00'), findsOneWidget);
       expect(find.text('Item: Tea - 32.00'), findsOneWidget);
+      expect(find.text('Receipt totals for review only'), findsOneWidget);
+      expect(
+        find.text('Subtotal candidate: HKD 60.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Tax candidate: HKD 2.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Service charge candidate: HKD 6.00 (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Grand total candidate: HKD 68.00 (review only)'),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<TextFormField>(
