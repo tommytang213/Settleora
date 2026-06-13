@@ -12,6 +12,7 @@ import '../ui/settleora_theme.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 import 'bill_attachment_section.dart';
+import 'bill_duplicate_warning.dart';
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 import 'bill_revision_review_screen.dart';
@@ -262,6 +263,9 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
+          duplicateWarningCandidates: _bills
+              .map(BillDuplicateWarningCandidate.fromSummary)
+              .toList(growable: false),
         ),
       ),
     );
@@ -563,6 +567,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     this.receiptOcrProvider,
     this.defaultCurrency,
     this.scanReceiptOnStart = false,
+    this.duplicateWarningCandidates = const [],
   });
 
   final SettleoraBillRepository repository;
@@ -572,6 +577,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
   final bool scanReceiptOnStart;
+  final List<BillDuplicateWarningCandidate> duplicateWarningCandidates;
 
   @override
   State<SettleoraPersonalBillCreateScreen> createState() =>
@@ -1431,6 +1437,12 @@ class _SettleoraPersonalBillCreateScreenState
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
                     selection: _receiptOcrApplySelection,
+                    duplicateWarning: _receiptOcrResult?.preview == null
+                        ? null
+                        : possibleReceiptDuplicateWarning(
+                            preview: _receiptOcrResult!.preview!,
+                            existingBills: widget.duplicateWarningCandidates,
+                          ),
                     replacementHints: _receiptOcrResult?.preview == null
                         ? const []
                         : _personalReceiptOcrOverwriteHints(
@@ -1709,6 +1721,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
     required this.isExtracting,
     required this.wasApplied,
     required this.selection,
+    required this.duplicateWarning,
     required this.replacementHints,
     required this.onSelectionChanged,
     required this.onApply,
@@ -1720,6 +1733,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   final bool isExtracting;
   final bool wasApplied;
   final _ReceiptOcrApplySelection selection;
+  final BillDuplicateWarning? duplicateWarning;
   final List<String> replacementHints;
   final ValueChanged<_ReceiptOcrApplySelection> onSelectionChanged;
   final VoidCallback? onApply;
@@ -1815,6 +1829,10 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               const SizedBox(height: 10),
               for (final warning in preview.warnings.take(3))
                 _ReviewChecklistHint(text: warning, isReady: false),
+            ],
+            if (duplicateWarning != null) ...[
+              const SizedBox(height: 10),
+              _ReceiptDuplicateWarningBanner(warning: duplicateWarning!),
             ],
             const SizedBox(height: 10),
             _ReceiptOcrSuggestionList(preview: preview),
@@ -1961,6 +1979,67 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _ReceiptDuplicateWarningBanner extends StatelessWidget {
+  const _ReceiptDuplicateWarningBanner({required this.warning});
+
+  final BillDuplicateWarning warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Container(
+      key: const Key('receipt-ocr-duplicate-warning'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.warningSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.onWarningSoft.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.report_problem_outlined,
+            color: colors.onWarningSoft,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  warning.title,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  warning.message,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  warning.reason,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3220,6 +3299,9 @@ class _SettleoraGroupBillListScreenState
           attachmentFileInput: widget.attachmentFileInput,
           receiptImageIntake: widget.receiptImageIntake,
           receiptOcrProvider: widget.receiptOcrProvider,
+          duplicateWarningCandidates: _bills
+              .map(BillDuplicateWarningCandidate.fromSummary)
+              .toList(growable: false),
         ),
       ),
     );
@@ -3698,6 +3780,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     this.attachmentFileInput,
     this.receiptImageIntake,
     this.receiptOcrProvider,
+    this.duplicateWarningCandidates = const [],
   });
 
   final SettleoraBillRepository billRepository;
@@ -3710,6 +3793,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
+  final List<BillDuplicateWarningCandidate> duplicateWarningCandidates;
 
   @override
   State<SettleoraGroupBillCreateScreen> createState() =>
@@ -5302,6 +5386,15 @@ class _SettleoraGroupBillCreateScreenState
                                         ? const []
                                         : _groupReceiptOcrOverwriteHints(
                                             _receiptOcrResult!.preview!,
+                                          ),
+                                    duplicateWarning:
+                                        _receiptOcrResult?.preview == null
+                                        ? null
+                                        : possibleReceiptDuplicateWarning(
+                                            preview:
+                                                _receiptOcrResult!.preview!,
+                                            existingBills: widget
+                                                .duplicateWarningCandidates,
                                           ),
                                     onSelectionChanged: (selection) {
                                       setState(() {
