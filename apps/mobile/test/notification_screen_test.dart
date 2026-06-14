@@ -423,7 +423,7 @@ void main() {
 
       expect(billRepository.getPersonalCalls, 1);
       expect(billRepository.lastBillId, _billId);
-      expect(attachmentRepository.listCalls, 1);
+      expect(attachmentRepository.listCalls, 2);
       expect(attachmentRepository.lastRoute?.billId, _billId);
       expect(attachmentRepository.lastRoute?.groupId, isNull);
       expect(find.text('Corner Market'), findsWidgets);
