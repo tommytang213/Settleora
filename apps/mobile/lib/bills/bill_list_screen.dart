@@ -10528,7 +10528,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     setState(() {
       _receiptOcrReviewHandoff = null;
       _receiptOcrReviewNotice =
-          'Saved OCR review removed. The receipt attachment remains available.';
+          'Saved OCR review removed. The receipt attachment and bill remain available.';
       _attachmentReloadRevision += 1;
     });
     await _load();
@@ -11033,7 +11033,7 @@ class _SettleoraGroupBillDetailScreenState
     setState(() {
       _receiptOcrReviewHandoff = null;
       _receiptOcrReviewNotice =
-          'Saved OCR review removed. The receipt attachment remains available.';
+          'Saved OCR review removed. The receipt attachment and bill remain available.';
       _attachmentReloadRevision += 1;
     });
     await _load();
@@ -11474,12 +11474,15 @@ class _SavedReceiptOcrReviewSheetState
   ReceiptOcrPreview? _editingPreview;
   ReceiptOcrReviewApplyPreview? _applyPreview;
   ReceiptOcrReviewFailure? _applyPreviewFailure;
+  ReceiptOcrReviewFailure? _refreshFailure;
   ReceiptOcrReviewFailure? _removeFailure;
   ReceiptOcrReviewApplyResult? _applyResult;
   bool _isSavingEdit = false;
+  bool _isRefreshingReview = false;
   bool _isLoadingApplyPreview = false;
   bool _isApplyingReview = false;
   bool _isRemovingReview = false;
+  bool _savedReviewUnavailable = false;
 
   @override
   void initState() {
@@ -11494,8 +11497,10 @@ class _SavedReceiptOcrReviewSheetState
       _editingPreview = null;
       _applyPreview = null;
       _applyPreviewFailure = null;
+      _refreshFailure = null;
       _removeFailure = null;
       _applyResult = null;
+      _savedReviewUnavailable = false;
       _reviewFuture = widget.repository.getReview(widget.route);
     });
   }
@@ -11513,6 +11518,12 @@ class _SavedReceiptOcrReviewSheetState
   bool get _canEditSavedReview => _hasUsableSavedReviewRoute;
 
   bool get _canRemoveSavedReview => _hasUsableSavedReviewRoute;
+
+  bool get _canRefreshSavedReview =>
+      _hasUsableSavedReviewRoute &&
+      !_isSavingEdit &&
+      !_isRefreshingReview &&
+      !_isRemovingReview;
 
   bool _canPreviewSavedReview(ReceiptOcrReviewDetail review) {
     final routeGroupId = widget.route.groupId?.trim();
@@ -11579,9 +11590,11 @@ class _SavedReceiptOcrReviewSheetState
         _editingPreview = null;
         _applyPreview = null;
         _applyPreviewFailure = null;
+        _refreshFailure = null;
         _removeFailure = null;
         _applyResult = null;
         _isSavingEdit = false;
+        _savedReviewUnavailable = false;
         _reviewFuture = Future<ReceiptOcrReviewDetail>.value(updated);
       });
       ScaffoldMessenger.maybeOf(context)
@@ -11589,7 +11602,7 @@ class _SavedReceiptOcrReviewSheetState
         ..showSnackBar(
           const SnackBar(
             content: Text(
-              'Saved OCR review updated. Bill items and settlement state were not changed.',
+              'Saved provisional OCR review updated. Authoritative bill money was not changed.',
             ),
           ),
         );
@@ -11607,6 +11620,75 @@ class _SavedReceiptOcrReviewSheetState
           SnackBar(
             content: Text(
               '${failure.title}. Keep editing and try saving again.',
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _refreshReview() async {
+    if (!_canRefreshSavedReview) {
+      return;
+    }
+
+    setState(() {
+      _isRefreshingReview = true;
+      _refreshFailure = null;
+    });
+
+    try {
+      final refreshed = await widget.repository.getReview(widget.route);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadedReview = refreshed;
+        _editingReview = null;
+        _editingPreview = null;
+        _applyPreview = null;
+        _applyPreviewFailure = null;
+        _refreshFailure = null;
+        _removeFailure = null;
+        _applyResult = null;
+        _isRefreshingReview = false;
+        _savedReviewUnavailable = false;
+        _reviewFuture = Future<ReceiptOcrReviewDetail>.value(refreshed);
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved OCR review refreshed. The bill was not changed.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final failure = ReceiptOcrReviewFailure.from(error);
+      setState(() {
+        _isRefreshingReview = false;
+        _refreshFailure = failure;
+        if (failure.kind == ReceiptOcrReviewFailureKind.unavailable) {
+          _loadedReview = null;
+          _editingReview = null;
+          _editingPreview = null;
+          _applyPreview = null;
+          _applyPreviewFailure = null;
+          _applyResult = null;
+          _savedReviewUnavailable = true;
+        }
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              failure.kind == ReceiptOcrReviewFailureKind.unavailable
+                  ? 'No saved OCR review is available for this attachment. The bill and receipt remain available.'
+                  : 'Saved OCR review could not be refreshed. The current review stays open so you can retry.',
             ),
           ),
         );
@@ -11634,6 +11716,7 @@ class _SavedReceiptOcrReviewSheetState
       setState(() {
         _applyPreview = preview;
         _isLoadingApplyPreview = false;
+        _refreshFailure = null;
       });
     } catch (error) {
       if (!mounted) {
@@ -11705,7 +11788,7 @@ class _SavedReceiptOcrReviewSheetState
             content: Text(
               hasBlockedResult
                   ? 'OCR review apply needs review. The saved OCR review is still available.'
-                  : 'OCR review applied to draft bill. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
+                  : 'Draft bill updated from provisional OCR review data. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
             ),
           ),
         );
@@ -11779,7 +11862,7 @@ class _SavedReceiptOcrReviewSheetState
         ..showSnackBar(
           const SnackBar(
             content: Text(
-              'Saved OCR review removed. The receipt attachment remains available.',
+              'Saved OCR review removed. The receipt attachment and bill remain available.',
             ),
           ),
         );
@@ -11801,7 +11884,7 @@ class _SavedReceiptOcrReviewSheetState
           ..showSnackBar(
             const SnackBar(
               content: Text(
-                'Saved OCR review was no longer available. The receipt attachment remains available.',
+                'Saved OCR review was no longer available. The receipt attachment and bill remain available.',
               ),
             ),
           );
@@ -11866,14 +11949,36 @@ class _SavedReceiptOcrReviewSheetState
                       );
                     }
 
+                    if (_savedReviewUnavailable) {
+                      return _StatePanel(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'No saved OCR review available',
+                        message:
+                            'No saved provisional OCR review is available for this attachment. The bill and receipt remain available.',
+                        action: OutlinedButton.icon(
+                          key: const Key('saved-ocr-review-retry'),
+                          onPressed: _retry,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                        ),
+                      );
+                    }
+
                     if (snapshot.hasError) {
                       final failure = ReceiptOcrReviewFailure.from(
                         snapshot.error!,
                       );
+                      final isUnavailable =
+                          failure.kind ==
+                          ReceiptOcrReviewFailureKind.unavailable;
                       return _StatePanel(
                         icon: _receiptOcrReviewFailureIcon(failure.kind),
-                        title: 'Saved OCR review unavailable',
-                        message: failure.message,
+                        title: isUnavailable
+                            ? 'No saved OCR review available'
+                            : 'Saved OCR review unavailable',
+                        message: isUnavailable
+                            ? 'No saved provisional OCR review is available for this attachment. The bill and receipt remain available.'
+                            : 'The saved provisional OCR review could not be loaded. Check your connection and retry.',
                         action: OutlinedButton.icon(
                           key: const Key('saved-ocr-review-retry'),
                           onPressed: _retry,
@@ -11922,6 +12027,7 @@ class _SavedReceiptOcrReviewSheetState
                     return _SavedReceiptOcrReviewContent(
                       review: _loadedReview ?? review,
                       canEdit: _canEditSavedReview,
+                      canRefresh: _canRefreshSavedReview,
                       canRemove: _canRemoveSavedReview,
                       canPreview: _canPreviewSavedReview(
                         _loadedReview ?? review,
@@ -11930,10 +12036,13 @@ class _SavedReceiptOcrReviewSheetState
                       previewFailure: _applyPreviewFailure,
                       removeFailure: _removeFailure,
                       applyResult: _applyResult,
+                      isRefreshing: _isRefreshingReview,
                       isLoadingPreview: _isLoadingApplyPreview,
                       isApplying: _isApplyingReview,
                       isRemoving: _isRemovingReview,
+                      refreshFailure: _refreshFailure,
                       onEdit: () => _beginEdit(_loadedReview ?? review),
+                      onRefresh: _refreshReview,
                       onRemove: _confirmAndRemoveReview,
                       onPreviewApply: () =>
                           _loadApplyPreview(_loadedReview ?? review),
@@ -11954,16 +12063,20 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   const _SavedReceiptOcrReviewContent({
     required this.review,
     required this.canEdit,
+    required this.canRefresh,
     required this.canRemove,
     required this.canPreview,
     required this.applyPreview,
     required this.previewFailure,
     required this.removeFailure,
     required this.applyResult,
+    required this.isRefreshing,
     required this.isLoadingPreview,
     required this.isApplying,
     required this.isRemoving,
+    required this.refreshFailure,
     required this.onEdit,
+    required this.onRefresh,
     required this.onRemove,
     required this.onPreviewApply,
     required this.onApplyPreview,
@@ -11971,16 +12084,20 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
 
   final ReceiptOcrReviewDetail review;
   final bool canEdit;
+  final bool canRefresh;
   final bool canRemove;
   final bool canPreview;
   final ReceiptOcrReviewApplyPreview? applyPreview;
   final ReceiptOcrReviewFailure? previewFailure;
   final ReceiptOcrReviewFailure? removeFailure;
   final ReceiptOcrReviewApplyResult? applyResult;
+  final bool isRefreshing;
   final bool isLoadingPreview;
   final bool isApplying;
   final bool isRemoving;
+  final ReceiptOcrReviewFailure? refreshFailure;
   final VoidCallback onEdit;
+  final VoidCallback onRefresh;
   final VoidCallback onRemove;
   final VoidCallback onPreviewApply;
   final ValueChanged<ReceiptOcrReviewApplyPreview> onApplyPreview;
@@ -12035,15 +12152,38 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                 children: [
                   FilledButton.icon(
                     key: const Key('saved-ocr-review-edit'),
-                    onPressed: canEdit && !isRemoving ? onEdit : null,
+                    onPressed: canEdit && !isRemoving && !isRefreshing
+                        ? onEdit
+                        : null,
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('Edit saved OCR'),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
+                    key: const Key('saved-ocr-review-refresh'),
+                    tooltip: 'Refresh saved OCR review',
+                    onPressed:
+                        canRefresh &&
+                            !isRefreshing &&
+                            !isLoadingPreview &&
+                            !isApplying
+                        ? onRefresh
+                        : null,
+                    icon: isRefreshing
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh_rounded),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
                     key: const Key('saved-ocr-review-remove'),
                     tooltip: 'Remove saved OCR review',
-                    onPressed: canRemove && !isRemoving ? onRemove : null,
+                    onPressed: canRemove && !isRemoving && !isRefreshing
+                        ? onRemove
+                        : null,
                     icon: isRemoving
                         ? const SizedBox(
                             height: 16,
@@ -12054,13 +12194,22 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                   ),
                 ],
               ),
-              if (!canEdit || !canRemove) ...[
+              if (!canEdit || !canRefresh || !canRemove) ...[
                 const SizedBox(height: 6),
                 Text(
                   'Saved review actions are unavailable until the bill attachment route context is loaded.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.settleoraColors.textMuted,
                   ),
+                ),
+              ],
+              if (refreshFailure != null) ...[
+                const SizedBox(height: 10),
+                _SavedReceiptOcrApplyNotice(
+                  title: refreshFailure!.title,
+                  message:
+                      'The current saved OCR review stays open. Check your connection and refresh again before previewing or applying changes.',
+                  variant: StatusChipVariant.warning,
                 ),
               ],
               if (removeFailure != null) ...[
@@ -12267,7 +12416,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
             const SizedBox(height: 12),
             if (result.blockedReasons.isEmpty)
               _SavedReceiptOcrApplyNotice(
-                title: 'OCR review applied to draft bill.',
+                title: 'Draft bill updated from provisional OCR review data.',
                 message:
                     '${_pluralCount(result.appliedItemCount, 'item')} applied from this saved OCR review using ${_applyModeLabel(result.applyMode)}. The bill is still a draft; close this sheet to review the draft bill items.',
                 variant: StatusChipVariant.success,
