@@ -816,7 +816,7 @@ void main() {
     expect(find.text('Edited milk'), findsOneWidget);
     expect(
       find.text(
-        'Saved OCR review updated. Bill items and settlement state were not changed.',
+        'Saved provisional OCR review updated. Authoritative bill money was not changed.',
       ),
       findsOneWidget,
     );
@@ -982,6 +982,215 @@ void main() {
     );
   });
 
+  testWidgets('personal saved OCR review refresh updates visible candidates', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Corner Market'), findsWidgets);
+    expect(find.text('Refreshed Market'), findsNothing);
+
+    receiptRepository.reviewDetail = sampleReceiptOcrReviewDetail(
+      route,
+      merchantText: 'Refreshed Market',
+      lineText: 'Refreshed tea',
+      currency: 'HKD',
+      updatedAtUtc: DateTime.utc(2026, 6, 14, 8, 45),
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(receiptRepository.lastRoute?.billId, _createdBillId);
+    expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastRoute?.groupId, isNull);
+    expect(find.text('Refreshed Market'), findsOneWidget);
+    expect(find.text('Refreshed tea'), findsOneWidget);
+    expect(find.text('HKD'), findsWidgets);
+    expect(
+      find.text('Saved OCR review refreshed. The bill was not changed.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('raw OCR full text'), findsNothing);
+    expect(find.textContaining('signed URL'), findsNothing);
+    expect(find.textContaining('object key'), findsNothing);
+  });
+
+  testWidgets('personal saved OCR review refresh failure keeps recovery path', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    receiptRepository.getFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Provider object key should not render.',
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(find.byKey(const Key('saved-ocr-review-content')), findsOneWidget);
+    expect(find.text('Corner Market'), findsWidgets);
+    expect(
+      find.text(
+        'The current saved OCR review stays open. Check your connection and refresh again before previewing or applying changes.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Saved OCR review could not be refreshed. The current review stays open so you can retry.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('saved-ocr-review-refresh')), findsOneWidget);
+    expect(find.textContaining('Provider object key'), findsNothing);
+  });
+
+  testWidgets('saved OCR review refresh unavailable shows bounded empty state', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    receiptRepository.getFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.unavailable,
+      message: 'Raw OCR payload path should not render.',
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(find.byKey(const Key('saved-ocr-review-content')), findsNothing);
+    expect(find.text('No saved OCR review available'), findsOneWidget);
+    expect(
+      find.text(
+        'No saved provisional OCR review is available for this attachment. The bill and receipt remain available.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('saved-ocr-review-retry')), findsOneWidget);
+    expect(find.textContaining('Raw OCR payload'), findsNothing);
+    expect(find.textContaining('path'), findsNothing);
+  });
+
+  testWidgets('group saved OCR review refresh preserves group route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _billId,
+      fileId: _uploadedFileId,
+      groupId: _groupId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillDetailScreen(
+          repository: FakeBillRepository(),
+          groupId: _groupId,
+          groupName: 'Dinner crew',
+          billId: _billId,
+          initialBill: sampleBillDetail(id: _billId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-detail-ocr-review-open')),
+    );
+    await tester.pumpAndSettle();
+
+    receiptRepository.reviewDetail = sampleReceiptOcrReviewDetail(
+      route,
+      merchantText: 'Group refreshed market',
+      lineText: 'Group refreshed rice',
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(receiptRepository.lastRoute?.billId, _billId);
+    expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastRoute?.groupId, _groupId);
+    expect(find.text('Group refreshed market'), findsOneWidget);
+    expect(find.text('Group refreshed rice'), findsOneWidget);
+  });
+
   testWidgets(
     'personal saved OCR review remove asks confirmation and uses personal route',
     (tester) async {
@@ -1045,7 +1254,7 @@ void main() {
       );
       expect(
         find.text(
-          'Saved OCR review removed. The receipt attachment remains available.',
+          'Saved OCR review removed. The receipt attachment and bill remain available.',
         ),
         findsWidgets,
       );
@@ -1094,7 +1303,7 @@ void main() {
 
       expect(
         find.text(
-          'Saved OCR review removed. The receipt attachment remains available.',
+          'Saved OCR review removed. The receipt attachment and bill remain available.',
         ),
         findsWidgets,
       );
@@ -1187,8 +1396,13 @@ void main() {
     final removeButton = tester.widget<IconButton>(
       find.byKey(const Key('saved-ocr-review-remove')),
     );
+    final refreshButton = tester.widget<IconButton>(
+      find.byKey(const Key('saved-ocr-review-refresh')),
+    );
     expect(removeButton.onPressed, isNull);
+    expect(refreshButton.onPressed, isNull);
     expect(receiptRepository.deleteCalls, 0);
+    expect(receiptRepository.getCalls, 1);
     expect(
       find.text(
         'Saved review actions are unavailable until the bill attachment route context is loaded.',
@@ -1361,7 +1575,10 @@ void main() {
         sampleReceiptOcrApplyPreview(route).updatedAtUtc,
       );
       expect(billRepository.getCalls, 1);
-      expect(find.text('OCR review applied to draft bill.'), findsOneWidget);
+      expect(
+        find.text('Draft bill updated from provisional OCR review data.'),
+        findsOneWidget,
+      );
       expect(
         find.text(
           '1 item applied from this saved OCR review using replace draft OCR items. The bill is still a draft; close this sheet to review the draft bill items.',
@@ -1640,7 +1857,10 @@ void main() {
     expect(receiptRepository.lastApplyReviewRoute?.groupId, _groupId);
     expect(receiptRepository.lastExpectedReviewUpdatedAtUtc, _updatedAtUtc);
     expect(billRepository.getGroupCalls, 1);
-    expect(find.text('OCR review applied to draft bill.'), findsOneWidget);
+    expect(
+      find.text('Draft bill updated from provisional OCR review data.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -1725,7 +1945,7 @@ void main() {
       );
       expect(
         find.text(
-          'Saved OCR review removed. The receipt attachment remains available.',
+          'Saved OCR review removed. The receipt attachment and bill remain available.',
         ),
         findsWidgets,
       );
@@ -9624,6 +9844,7 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({
+    this.getFailure,
     this.saveFailure,
     this.deleteFailure,
     this.previewApplyFailure,
@@ -9633,6 +9854,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.applyResult,
   });
 
+  Object? getFailure;
   Object? saveFailure;
   Object? deleteFailure;
   Object? previewApplyFailure;
@@ -9667,6 +9889,11 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
     getCalls += 1;
     lastRoute = route;
+    final failure = getFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
     return reviewDetail ?? sampleReceiptOcrReviewDetail(route);
   }
 
@@ -10021,8 +10248,12 @@ SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
 }
 
 ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
-  ReceiptOcrReviewRoute route,
-) {
+  ReceiptOcrReviewRoute route, {
+  String merchantText = 'Corner Market',
+  String lineText = 'Milk',
+  String currency = 'USD',
+  DateTime? updatedAtUtc,
+}) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
     billId: route.billId,
@@ -10030,9 +10261,9 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
     groupId: route.groupId,
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
-    merchantText: 'Corner Market',
+    merchantText: merchantText,
     receiptIssuedAtUtc: _createdAtUtc,
-    currency: 'USD',
+    currency: currency,
     subtotalAmount: '10.00',
     taxAmount: '0.80',
     serviceChargeAmount: null,
@@ -10042,7 +10273,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
       ReceiptOcrReviewLine(
         id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
         sortOrder: 0,
-        text: 'Milk',
+        text: lineText,
         quantity: '1',
         unitPriceAmount: '10.00',
         lineTotalAmount: '10.00',
@@ -10051,7 +10282,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
       ),
     ],
     createdAtUtc: _createdAtUtc,
-    updatedAtUtc: _updatedAtUtc,
+    updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
 }
 
