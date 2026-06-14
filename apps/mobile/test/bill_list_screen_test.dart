@@ -411,7 +411,30 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-open')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('bill-detail-ocr-review-retry')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute?.billId, _createdBillId);
+    expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastRoute?.groupId, isNull);
+    expect(find.text('Saved OCR review'), findsOneWidget);
+    expect(find.text('Provisional review'), findsOneWidget);
+    expect(find.text('Header candidates'), findsOneWidget);
+    expect(find.text('Line candidates'), findsOneWidget);
+    expect(find.text('1 candidate'), findsOneWidget);
+    expect(find.text('Grand total'), findsOneWidget);
+    expect(find.text('10.80 USD'), findsWidgets);
+    expect(find.text('Milk'), findsWidgets);
+    expect(find.textContaining('raw OCR full text'), findsNothing);
+    expect(find.textContaining('signed URL'), findsNothing);
+    expect(find.textContaining('storage'), findsNothing);
   });
 
   testWidgets('personal OCR add remove and reset candidate rows', (
@@ -619,6 +642,52 @@ void main() {
     expect(
       find.text(
         'Provisional OCR review saved. Review it before applying any bill changes.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-open')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute, same(firstSaveRoute));
+    expect(find.text('Saved OCR review'), findsOneWidget);
+  });
+
+  testWidgets('saved OCR review action is disabled without route context', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReceiptOcrReviewHandoffBanner(
+            handoff: const ReceiptOcrReviewHandoff.saved(),
+            retryButtonKey: const Key('missing-context-retry'),
+            reviewButtonKey: const Key('missing-context-open'),
+            canOpenReview: false,
+            isRetrying: false,
+            onRetry: () {},
+            onOpenReview: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Receipt OCR review saved'), findsOneWidget);
+    expect(find.byKey(const Key('missing-context-retry')), findsNothing);
+    final openButton = tester.widget<OutlinedButton>(
+      find.byKey(const Key('missing-context-open')),
+    );
+    expect(openButton.onPressed, isNull);
+    expect(
+      find.text(
+        'Open review is unavailable until this receipt review context is loaded.',
       ),
       findsOneWidget,
     );
@@ -5369,6 +5438,23 @@ void main() {
         find.byKey(const Key('group-bill-detail-ocr-review-retry')),
         findsNothing,
       );
+      expect(
+        find.byKey(const Key('group-bill-detail-ocr-review-open')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('group-bill-detail-ocr-review-open')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Group bill'), findsWidgets);
+      expect(find.text('Line candidates'), findsOneWidget);
     },
   );
 
@@ -5499,6 +5585,19 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('group-bill-detail-ocr-review-open')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('group-bill-detail-ocr-review-open')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute, same(firstSaveRoute));
+    expect(find.text('Saved OCR review'), findsOneWidget);
   });
 
   testWidgets('group bill detail accepted share uses dedicated panel', (
