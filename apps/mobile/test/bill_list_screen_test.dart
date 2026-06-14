@@ -56,7 +56,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Corner Market'), findsOneWidget);
+    expect(find.text('Corner Market'), findsWidgets);
     expect(billRepository.listCalls, 1);
 
     await tester.tap(find.byKey(const ValueKey('bill-archive-0')));
@@ -983,6 +983,221 @@ void main() {
   });
 
   testWidgets(
+    'personal saved OCR review remove asks confirmation and uses personal route',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+      final billRepository = FakeBillRepository(
+        detail: sampleBillDetail(id: _createdBillId),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: billRepository,
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('saved-ocr-review-remove')), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-remove')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove saved OCR review?'), findsOneWidget);
+      expect(
+        find.text(
+          'This removes only the saved provisional OCR review. It does not delete the receipt attachment, bill items, settlements, payments, balances, or manual bill editing.',
+        ),
+        findsOneWidget,
+      );
+      expect(receiptRepository.deleteCalls, 0);
+
+      await tester.tap(
+        find.byKey(const Key('saved-ocr-review-remove-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.deleteCalls, 1);
+      expect(receiptRepository.lastDeleteRoute?.billId, _createdBillId);
+      expect(receiptRepository.lastDeleteRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastDeleteRoute?.groupId, isNull);
+      expect(billRepository.getCalls, 1);
+      expect(find.byKey(const Key('saved-ocr-review-content')), findsNothing);
+      expect(
+        find.byKey(const Key('bill-detail-ocr-review-handoff')),
+        findsNothing,
+      );
+      expect(
+        find.text(
+          'Saved OCR review removed. The receipt attachment remains available.',
+        ),
+        findsWidgets,
+      );
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.textContaining('receipt attachment deleted'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'personal successful OCR review remove uses bounded non-sensitive copy',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(
+              detail: sampleBillDetail(id: _createdBillId),
+            ),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-remove')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('saved-ocr-review-remove-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Saved OCR review removed. The receipt attachment remains available.',
+        ),
+        findsWidgets,
+      );
+      expect(find.textContaining('/var/'), findsNothing);
+      expect(find.textContaining('object key'), findsNothing);
+      expect(find.textContaining('signed URL'), findsNothing);
+      expect(find.textContaining('raw OCR full text'), findsNothing);
+      expect(find.textContaining('card number'), findsNothing);
+      expect(find.textContaining('bank account'), findsNothing);
+      expect(find.textContaining('session token'), findsNothing);
+      expect(find.textContaining('audit metadata'), findsNothing);
+      expect(find.textContaining('unrelated user'), findsNothing);
+    },
+  );
+
+  testWidgets('personal OCR review remove failure keeps review recoverable', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      deleteFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.server,
+        message: 'Provider object key leaked.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.deleteCalls, 1);
+    expect(find.byKey(const Key('saved-ocr-review-content')), findsOneWidget);
+    expect(find.text('Corner Market'), findsWidgets);
+    expect(
+      find.text(
+        'The saved OCR review is still available. Check your connection and try removing it again, or keep manual bill editing.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Provider object key'), findsNothing);
+  });
+
+  testWidgets('saved OCR review remove is disabled without usable route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: const ReceiptOcrReviewHandoff.saved(
+            reviewRoute: ReceiptOcrReviewRoute(billId: '', fileId: ''),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    final removeButton = tester.widget<IconButton>(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    expect(removeButton.onPressed, isNull);
+    expect(receiptRepository.deleteCalls, 0);
+    expect(
+      find.text(
+        'Saved review actions are unavailable until the bill attachment route context is loaded.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
     'personal blocked saved OCR review preview shows reasons and no apply',
     (tester) async {
       await useLargeSurface(tester);
@@ -1427,6 +1642,99 @@ void main() {
     expect(billRepository.getGroupCalls, 1);
     expect(find.text('OCR review applied to draft bill.'), findsOneWidget);
   });
+
+  testWidgets(
+    'group saved OCR review remove uses group route and preserves bill state',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _billId,
+        fileId: _uploadedFileId,
+        groupId: _groupId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+      final initialBill = sampleBillDetail(
+        id: _billId,
+        items: const [
+          SettleoraBillItem(
+            id: 'group-manual-item',
+            name: 'Manual noodles',
+            note: null,
+            amount: '12.00',
+            currency: 'USD',
+            sortOrder: 0,
+          ),
+        ],
+        participants: const [
+          SettleoraBillParticipant(
+            userProfileId: _userProfileId,
+            status: 'pending_acceptance',
+            resolvedShareAmount: '12.80',
+            resolvedShareCurrency: 'USD',
+          ),
+        ],
+        payers: const [
+          SettleoraBillPayer(
+            userProfileId: _userProfileId,
+            amount: '12.80',
+            currency: 'USD',
+          ),
+        ],
+      );
+      final billRepository = FakeBillRepository(detail: initialBill);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillDetailScreen(
+            repository: billRepository,
+            groupId: _groupId,
+            groupName: 'Dinner crew',
+            billId: _billId,
+            currentUserProfileId: _userProfileId,
+            initialBill: initialBill,
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('group-bill-detail-ocr-review-open')),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-remove')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('saved-ocr-review-remove-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.deleteCalls, 1);
+      expect(receiptRepository.lastDeleteRoute?.billId, _billId);
+      expect(receiptRepository.lastDeleteRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastDeleteRoute?.groupId, _groupId);
+      expect(billRepository.getGroupCalls, 1);
+      expect(
+        find.byKey(const Key('group-bill-detail-ocr-review-handoff')),
+        findsNothing,
+      );
+      expect(
+        find.text(
+          'Saved OCR review removed. The receipt attachment remains available.',
+        ),
+        findsWidgets,
+      );
+      expect(find.text('Dinner crew'), findsOneWidget);
+      expect(find.text('Manual noodles'), findsWidgets);
+      expect(find.text('12.80 USD'), findsWidgets);
+      expect(find.textContaining('receipt attachment deleted'), findsNothing);
+    },
+  );
 
   testWidgets('group saved OCR review edit preserves group route', (
     tester,
@@ -9317,6 +9625,7 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   FakeReceiptOcrReviewRepository({
     this.saveFailure,
+    this.deleteFailure,
     this.previewApplyFailure,
     this.applyFailure,
     this.reviewDetail,
@@ -9325,6 +9634,7 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   });
 
   Object? saveFailure;
+  Object? deleteFailure;
   Object? previewApplyFailure;
   Object? applyFailure;
   ReceiptOcrReviewDetail? reviewDetail;
@@ -9332,10 +9642,12 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   ReceiptOcrReviewApplyResult? applyResult;
   int getCalls = 0;
   int saveCalls = 0;
+  int deleteCalls = 0;
   int previewApplyCalls = 0;
   int applyReviewCalls = 0;
   ReceiptOcrReviewRoute? lastRoute;
   ReceiptOcrReviewRoute? lastSaveRoute;
+  ReceiptOcrReviewRoute? lastDeleteRoute;
   ReceiptOcrReviewRoute? lastPreviewApplyRoute;
   ReceiptOcrReviewRoute? lastApplyReviewRoute;
   DateTime? lastExpectedReviewUpdatedAtUtc;
@@ -9378,8 +9690,14 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   }
 
   @override
-  Future<void> deleteReview(ReceiptOcrReviewRoute route) {
-    throw UnimplementedError();
+  Future<void> deleteReview(ReceiptOcrReviewRoute route) async {
+    deleteCalls += 1;
+    lastDeleteRoute = route;
+    final failure = deleteFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    reviewDetail = null;
   }
 
   @override

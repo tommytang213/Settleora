@@ -10255,6 +10255,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
   late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
+  String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
@@ -10516,7 +10517,21 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       repository: repository,
       route: route,
       onApplied: _load,
+      onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
+  }
+
+  Future<void> _handleSavedReceiptOcrReviewRemoved() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _receiptOcrReviewHandoff = null;
+      _receiptOcrReviewNotice =
+          'Saved OCR review removed. The receipt attachment remains available.';
+      _attachmentReloadRevision += 1;
+    });
+    await _load();
   }
 
   @override
@@ -10577,6 +10592,13 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     isRetrying: _isRetryingReceiptOcrReviewSave,
                     onRetry: _retryReceiptOcrReviewSave,
                     onOpenReview: _openSavedReceiptOcrReview,
+                  ),
+                ],
+                if (_receiptOcrReviewNotice != null) ...[
+                  const SizedBox(height: 14),
+                  _BillDetailNotice(
+                    key: const Key('bill-detail-ocr-review-notice'),
+                    message: _receiptOcrReviewNotice!,
                   ),
                 ],
                 if (_pendingRevision != null) ...[
@@ -10727,6 +10749,7 @@ class _SettleoraGroupBillDetailScreenState
   bool _isAcknowledging = false;
   SettleoraBillFailure? _acknowledgementFailure;
   late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
+  String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
   int _attachmentReloadRevision = 0;
 
@@ -10999,7 +11022,21 @@ class _SettleoraGroupBillDetailScreenState
       repository: repository,
       route: route,
       onApplied: _load,
+      onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
+  }
+
+  Future<void> _handleSavedReceiptOcrReviewRemoved() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _receiptOcrReviewHandoff = null;
+      _receiptOcrReviewNotice =
+          'Saved OCR review removed. The receipt attachment remains available.';
+      _attachmentReloadRevision += 1;
+    });
+    await _load();
   }
 
   Future<void> _acceptParticipantShare() async {
@@ -11226,6 +11263,13 @@ class _SettleoraGroupBillDetailScreenState
                     onOpenReview: _openSavedReceiptOcrReview,
                   ),
                 ],
+                if (_receiptOcrReviewNotice != null) ...[
+                  const SizedBox(height: 14),
+                  _BillDetailNotice(
+                    key: const Key('group-bill-detail-ocr-review-notice'),
+                    message: _receiptOcrReviewNotice!,
+                  ),
+                ],
                 if (_canAcknowledgeCurrentParticipant(
                   bill,
                   widget.currentUserProfileId,
@@ -11361,11 +11405,36 @@ class _SettleoraGroupBillDetailScreenState
   }
 }
 
+class _BillDetailNotice extends StatelessWidget {
+  const _BillDetailNotice({super.key, required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: context.settleoraColors.infoSoft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            color: context.settleoraColors.onInfoSoft,
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message)),
+        ],
+      ),
+    );
+  }
+}
+
 Future<void> _showSavedReceiptOcrReviewSheet({
   required BuildContext context,
   required ReceiptOcrReviewRepository repository,
   required ReceiptOcrReviewRoute route,
   required Future<void> Function() onApplied,
+  required Future<void> Function() onRemoved,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -11374,6 +11443,7 @@ Future<void> _showSavedReceiptOcrReviewSheet({
       repository: repository,
       route: route,
       onApplied: onApplied,
+      onRemoved: onRemoved,
     ),
   );
 }
@@ -11383,11 +11453,13 @@ class _SavedReceiptOcrReviewSheet extends StatefulWidget {
     required this.repository,
     required this.route,
     required this.onApplied,
+    required this.onRemoved,
   });
 
   final ReceiptOcrReviewRepository repository;
   final ReceiptOcrReviewRoute route;
   final Future<void> Function() onApplied;
+  final Future<void> Function() onRemoved;
 
   @override
   State<_SavedReceiptOcrReviewSheet> createState() =>
@@ -11402,10 +11474,12 @@ class _SavedReceiptOcrReviewSheetState
   ReceiptOcrPreview? _editingPreview;
   ReceiptOcrReviewApplyPreview? _applyPreview;
   ReceiptOcrReviewFailure? _applyPreviewFailure;
+  ReceiptOcrReviewFailure? _removeFailure;
   ReceiptOcrReviewApplyResult? _applyResult;
   bool _isSavingEdit = false;
   bool _isLoadingApplyPreview = false;
   bool _isApplyingReview = false;
+  bool _isRemovingReview = false;
 
   @override
   void initState() {
@@ -11420,6 +11494,7 @@ class _SavedReceiptOcrReviewSheetState
       _editingPreview = null;
       _applyPreview = null;
       _applyPreviewFailure = null;
+      _removeFailure = null;
       _applyResult = null;
       _reviewFuture = widget.repository.getReview(widget.route);
     });
@@ -11436,6 +11511,8 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   bool get _canEditSavedReview => _hasUsableSavedReviewRoute;
+
+  bool get _canRemoveSavedReview => _hasUsableSavedReviewRoute;
 
   bool _canPreviewSavedReview(ReceiptOcrReviewDetail review) {
     final routeGroupId = widget.route.groupId?.trim();
@@ -11502,6 +11579,7 @@ class _SavedReceiptOcrReviewSheetState
         _editingPreview = null;
         _applyPreview = null;
         _applyPreviewFailure = null;
+        _removeFailure = null;
         _applyResult = null;
         _isSavingEdit = false;
         _reviewFuture = Future<ReceiptOcrReviewDetail>.value(updated);
@@ -11652,6 +11730,100 @@ class _SavedReceiptOcrReviewSheetState
     }
   }
 
+  Future<void> _confirmAndRemoveReview() async {
+    if (!_canRemoveSavedReview || _isRemovingReview || _isSavingEdit) {
+      return;
+    }
+
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove saved OCR review?'),
+        content: const Text(
+          'This removes only the saved provisional OCR review. It does not delete the receipt attachment, bill items, settlements, payments, balances, or manual bill editing.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('saved-ocr-review-remove-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('saved-ocr-review-remove-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove saved review'),
+          ),
+        ],
+      ),
+    );
+    if (shouldRemove != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isRemovingReview = true;
+      _removeFailure = null;
+    });
+
+    try {
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      await widget.repository.deleteReview(widget.route);
+      await widget.onRemoved();
+      if (!mounted) {
+        return;
+      }
+      navigator.pop();
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved OCR review removed. The receipt attachment remains available.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final failure = ReceiptOcrReviewFailure.from(error);
+      if (failure.kind == ReceiptOcrReviewFailureKind.unavailable) {
+        final navigator = Navigator.of(context);
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        await widget.onRemoved();
+        if (!mounted) {
+          return;
+        }
+        navigator.pop();
+        messenger
+          ?..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Saved OCR review was no longer available. The receipt attachment remains available.',
+              ),
+            ),
+          );
+        return;
+      }
+
+      setState(() {
+        _removeFailure = failure;
+        _isRemovingReview = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved OCR review could not be removed. Keep it open and try again.',
+            ),
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -11750,15 +11922,19 @@ class _SavedReceiptOcrReviewSheetState
                     return _SavedReceiptOcrReviewContent(
                       review: _loadedReview ?? review,
                       canEdit: _canEditSavedReview,
+                      canRemove: _canRemoveSavedReview,
                       canPreview: _canPreviewSavedReview(
                         _loadedReview ?? review,
                       ),
                       applyPreview: _applyPreview,
                       previewFailure: _applyPreviewFailure,
+                      removeFailure: _removeFailure,
                       applyResult: _applyResult,
                       isLoadingPreview: _isLoadingApplyPreview,
                       isApplying: _isApplyingReview,
+                      isRemoving: _isRemovingReview,
                       onEdit: () => _beginEdit(_loadedReview ?? review),
+                      onRemove: _confirmAndRemoveReview,
                       onPreviewApply: () =>
                           _loadApplyPreview(_loadedReview ?? review),
                       onApplyPreview: _confirmAndApplyPreview,
@@ -11778,26 +11954,34 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   const _SavedReceiptOcrReviewContent({
     required this.review,
     required this.canEdit,
+    required this.canRemove,
     required this.canPreview,
     required this.applyPreview,
     required this.previewFailure,
+    required this.removeFailure,
     required this.applyResult,
     required this.isLoadingPreview,
     required this.isApplying,
+    required this.isRemoving,
     required this.onEdit,
+    required this.onRemove,
     required this.onPreviewApply,
     required this.onApplyPreview,
   });
 
   final ReceiptOcrReviewDetail review;
   final bool canEdit;
+  final bool canRemove;
   final bool canPreview;
   final ReceiptOcrReviewApplyPreview? applyPreview;
   final ReceiptOcrReviewFailure? previewFailure;
+  final ReceiptOcrReviewFailure? removeFailure;
   final ReceiptOcrReviewApplyResult? applyResult;
   final bool isLoadingPreview;
   final bool isApplying;
+  final bool isRemoving;
   final VoidCallback onEdit;
+  final VoidCallback onRemove;
   final VoidCallback onPreviewApply;
   final ValueChanged<ReceiptOcrReviewApplyPreview> onApplyPreview;
 
@@ -11847,22 +12031,45 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  key: const Key('saved-ocr-review-edit'),
-                  onPressed: canEdit ? onEdit : null,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit saved OCR'),
-                ),
+              Row(
+                children: [
+                  FilledButton.icon(
+                    key: const Key('saved-ocr-review-edit'),
+                    onPressed: canEdit && !isRemoving ? onEdit : null,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit saved OCR'),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    key: const Key('saved-ocr-review-remove'),
+                    tooltip: 'Remove saved OCR review',
+                    onPressed: canRemove && !isRemoving ? onRemove : null,
+                    icon: isRemoving
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.delete_outline),
+                  ),
+                ],
               ),
-              if (!canEdit) ...[
+              if (!canEdit || !canRemove) ...[
                 const SizedBox(height: 6),
                 Text(
-                  'Editing is unavailable until the saved receipt review route context is loaded.',
+                  'Saved review actions are unavailable until the bill attachment route context is loaded.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.settleoraColors.textMuted,
                   ),
+                ),
+              ],
+              if (removeFailure != null) ...[
+                const SizedBox(height: 10),
+                _SavedReceiptOcrApplyNotice(
+                  title: removeFailure!.title,
+                  message:
+                      'The saved OCR review is still available. Check your connection and try removing it again, or keep manual bill editing.',
+                  variant: StatusChipVariant.warning,
                 ),
               ],
             ],
