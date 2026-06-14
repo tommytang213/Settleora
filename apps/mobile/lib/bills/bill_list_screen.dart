@@ -96,7 +96,7 @@ class BillDuplicateWarning {
 enum ReceiptOcrReviewHandoffStatus { saved, failed }
 
 class ReceiptOcrReviewHandoff {
-  const ReceiptOcrReviewHandoff.saved()
+  const ReceiptOcrReviewHandoff.saved({this.reviewRoute})
     : status = ReceiptOcrReviewHandoffStatus.saved,
       retryRoute = null,
       retryRequest = null;
@@ -104,9 +104,11 @@ class ReceiptOcrReviewHandoff {
   const ReceiptOcrReviewHandoff.failed({
     required this.retryRoute,
     required this.retryRequest,
-  }) : status = ReceiptOcrReviewHandoffStatus.failed;
+  }) : status = ReceiptOcrReviewHandoffStatus.failed,
+       reviewRoute = null;
 
   final ReceiptOcrReviewHandoffStatus status;
+  final ReceiptOcrReviewRoute? reviewRoute;
   final ReceiptOcrReviewRoute? retryRoute;
   final ReceiptOcrReviewSaveRequest? retryRequest;
 }
@@ -1877,7 +1879,7 @@ class _SettleoraPersonalBillCreateScreenState
     final route = ReceiptOcrReviewRoute(billId: createdBill.id, fileId: fileId);
     try {
       await reviewRepository.saveReview(route, request);
-      return const ReceiptOcrReviewHandoff.saved();
+      return ReceiptOcrReviewHandoff.saved(reviewRoute: route);
     } catch (_) {
       return ReceiptOcrReviewHandoff.failed(
         retryRoute: route,
@@ -6131,7 +6133,7 @@ class _SettleoraGroupBillCreateScreenState
     );
     try {
       await reviewRepository.saveReview(route, request);
-      return const ReceiptOcrReviewHandoff.saved();
+      return ReceiptOcrReviewHandoff.saved(reviewRoute: route);
     } catch (_) {
       return ReceiptOcrReviewHandoff.failed(
         retryRoute: route,
@@ -10469,7 +10471,9 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         return;
       }
       setState(() {
-        _receiptOcrReviewHandoff = const ReceiptOcrReviewHandoff.saved();
+        _receiptOcrReviewHandoff = ReceiptOcrReviewHandoff.saved(
+          reviewRoute: route,
+        );
         _isRetryingReceiptOcrReviewSave = false;
       });
       ScaffoldMessenger.maybeOf(context)
@@ -10498,6 +10502,20 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
           ),
         );
     }
+  }
+
+  void _openSavedReceiptOcrReview() {
+    final repository = widget.receiptOcrReviewRepository;
+    final route = _receiptOcrReviewHandoff?.reviewRoute;
+    if (repository == null || route == null) {
+      return;
+    }
+
+    _showSavedReceiptOcrReviewSheet(
+      context: context,
+      repository: repository,
+      route: route,
+    );
   }
 
   @override
@@ -10551,8 +10569,13 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     key: const Key('bill-detail-ocr-review-handoff'),
                     handoff: _receiptOcrReviewHandoff!,
                     retryButtonKey: const Key('bill-detail-ocr-review-retry'),
+                    reviewButtonKey: const Key('bill-detail-ocr-review-open'),
+                    canOpenReview:
+                        widget.receiptOcrReviewRepository != null &&
+                        _receiptOcrReviewHandoff!.reviewRoute != null,
                     isRetrying: _isRetryingReceiptOcrReviewSave,
                     onRetry: _retryReceiptOcrReviewSave,
+                    onOpenReview: _openSavedReceiptOcrReview,
                   ),
                 ],
                 if (_pendingRevision != null) ...[
@@ -10930,7 +10953,9 @@ class _SettleoraGroupBillDetailScreenState
         return;
       }
       setState(() {
-        _receiptOcrReviewHandoff = const ReceiptOcrReviewHandoff.saved();
+        _receiptOcrReviewHandoff = ReceiptOcrReviewHandoff.saved(
+          reviewRoute: route,
+        );
         _isRetryingReceiptOcrReviewSave = false;
       });
       ScaffoldMessenger.maybeOf(context)
@@ -10959,6 +10984,20 @@ class _SettleoraGroupBillDetailScreenState
           ),
         );
     }
+  }
+
+  void _openSavedReceiptOcrReview() {
+    final repository = widget.receiptOcrReviewRepository;
+    final route = _receiptOcrReviewHandoff?.reviewRoute;
+    if (repository == null || route == null) {
+      return;
+    }
+
+    _showSavedReceiptOcrReviewSheet(
+      context: context,
+      repository: repository,
+      route: route,
+    );
   }
 
   Future<void> _acceptParticipantShare() async {
@@ -11174,8 +11213,15 @@ class _SettleoraGroupBillDetailScreenState
                     retryButtonKey: const Key(
                       'group-bill-detail-ocr-review-retry',
                     ),
+                    reviewButtonKey: const Key(
+                      'group-bill-detail-ocr-review-open',
+                    ),
+                    canOpenReview:
+                        widget.receiptOcrReviewRepository != null &&
+                        _receiptOcrReviewHandoff!.reviewRoute != null,
                     isRetrying: _isRetryingReceiptOcrReviewSave,
                     onRetry: _retryReceiptOcrReviewSave,
+                    onOpenReview: _openSavedReceiptOcrReview,
                   ),
                 ],
                 if (_canAcknowledgeCurrentParticipant(
@@ -11313,19 +11359,301 @@ class _SettleoraGroupBillDetailScreenState
   }
 }
 
+Future<void> _showSavedReceiptOcrReviewSheet({
+  required BuildContext context,
+  required ReceiptOcrReviewRepository repository,
+  required ReceiptOcrReviewRoute route,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) =>
+        _SavedReceiptOcrReviewSheet(repository: repository, route: route),
+  );
+}
+
+class _SavedReceiptOcrReviewSheet extends StatefulWidget {
+  const _SavedReceiptOcrReviewSheet({
+    required this.repository,
+    required this.route,
+  });
+
+  final ReceiptOcrReviewRepository repository;
+  final ReceiptOcrReviewRoute route;
+
+  @override
+  State<_SavedReceiptOcrReviewSheet> createState() =>
+      _SavedReceiptOcrReviewSheetState();
+}
+
+class _SavedReceiptOcrReviewSheetState
+    extends State<_SavedReceiptOcrReviewSheet> {
+  late Future<ReceiptOcrReviewDetail> _reviewFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _reviewFuture = widget.repository.getReview(widget.route);
+  }
+
+  void _retry() {
+    setState(() {
+      _reviewFuture = widget.repository.getReview(widget.route);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: 0.86,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Saved OCR review',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('saved-ocr-review-close'),
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const Text(
+                'Provisional receipt OCR data saved for this attachment.',
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: FutureBuilder<ReceiptOcrReviewDetail>(
+                  future: _reviewFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const _LoadingPanel(
+                        label: 'Loading saved OCR review',
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      final failure = ReceiptOcrReviewFailure.from(
+                        snapshot.error!,
+                      );
+                      return _StatePanel(
+                        icon: _receiptOcrReviewFailureIcon(failure.kind),
+                        title: 'Saved OCR review unavailable',
+                        message: failure.message,
+                        action: OutlinedButton.icon(
+                          key: const Key('saved-ocr-review-retry'),
+                          onPressed: _retry,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                        ),
+                      );
+                    }
+
+                    final review = snapshot.data;
+                    if (review == null) {
+                      return _StatePanel(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Saved OCR review unavailable',
+                        message:
+                            'The provisional receipt OCR review is no longer available.',
+                        action: OutlinedButton.icon(
+                          key: const Key('saved-ocr-review-retry'),
+                          onPressed: _retry,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                        ),
+                      );
+                    }
+
+                    return _SavedReceiptOcrReviewContent(review: review);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedReceiptOcrReviewContent extends StatelessWidget {
+  const _SavedReceiptOcrReviewContent({required this.review});
+
+  final ReceiptOcrReviewDetail review;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = [...review.lines]
+      ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+
+    return ListView(
+      key: const Key('saved-ocr-review-content'),
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Provisional review',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              _KeyValueText(
+                label: 'Status',
+                value: _receiptOcrReviewStatusLabel(review.status),
+              ),
+              _KeyValueText(
+                label: 'Source',
+                value: _receiptOcrReviewSourceLabel(review.source),
+              ),
+              _KeyValueText(
+                label: 'Scope',
+                value: review.groupId == null ? 'Personal bill' : 'Group bill',
+              ),
+              if (_hasNonEmptyCandidate(review.merchantText))
+                _KeyValueText(label: 'Merchant', value: review.merchantText!),
+              if (review.receiptIssuedAtUtc != null)
+                _KeyValueText(
+                  label: 'Receipt date',
+                  value: _formatBillDate(review.receiptIssuedAtUtc!),
+                ),
+              if (_hasNonEmptyCandidate(review.currency))
+                _KeyValueText(label: 'Currency', value: review.currency!),
+              const SizedBox(height: 8),
+              Text(
+                'Review data is provisional. Opening it here does not change bill items, splits, settlements, payments, files, or receipt evidence.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.settleoraColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Header candidates',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (_savedReceiptOcrHeaderRows(review).isEmpty)
+                const Text('No header total candidates were saved.')
+              else
+                for (final row in _savedReceiptOcrHeaderRows(review))
+                  _KeyValueText(label: row.$1, value: row.$2),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Line candidates',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(_pluralCount(lines.length, 'candidate')),
+              const SizedBox(height: 8),
+              if (lines.isEmpty)
+                const Text('No line candidates were saved for this review.')
+              else
+                for (final line in lines)
+                  _SavedReceiptOcrLineTile(
+                    key: ValueKey('saved-ocr-review-line-${line.id}'),
+                    line: line,
+                    currency: review.currency,
+                  ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SavedReceiptOcrLineTile extends StatelessWidget {
+  const _SavedReceiptOcrLineTile({
+    super.key,
+    required this.line,
+    this.currency,
+  });
+
+  final ReceiptOcrReviewLine line;
+  final String? currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[
+      if (_hasNonEmptyCandidate(line.quantity)) 'Qty ${line.quantity}',
+      if (_hasNonEmptyCandidate(line.unitPriceAmount))
+        'Unit ${_savedReceiptOcrMoney(line.unitPriceAmount, currency)}',
+      if (_hasNonEmptyCandidate(line.lineTotalAmount))
+        'Total ${_savedReceiptOcrMoney(line.lineTotalAmount, currency)}',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _hasNonEmptyCandidate(line.text)
+                ? line.text
+                : 'Unnamed line candidate',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          if (parts.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              parts.join(' - '),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class ReceiptOcrReviewHandoffBanner extends StatelessWidget {
   const ReceiptOcrReviewHandoffBanner({
     super.key,
     required this.handoff,
     required this.retryButtonKey,
+    required this.reviewButtonKey,
+    required this.canOpenReview,
     required this.isRetrying,
     required this.onRetry,
+    required this.onOpenReview,
   });
 
   final ReceiptOcrReviewHandoff handoff;
   final Key retryButtonKey;
+  final Key reviewButtonKey;
+  final bool canOpenReview;
   final bool isRetrying;
   final VoidCallback onRetry;
+  final VoidCallback onOpenReview;
 
   @override
   Widget build(BuildContext context) {
@@ -11369,7 +11697,27 @@ class ReceiptOcrReviewHandoffBanner extends StatelessWidget {
               ),
             ],
           ),
-          if (!didSave) ...[
+          if (didSave) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                key: reviewButtonKey,
+                onPressed: canOpenReview ? onOpenReview : null,
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('Review saved OCR'),
+              ),
+            ),
+            if (!canOpenReview) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Open review is unavailable until this receipt review context is loaded.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+              ),
+            ],
+          ] else ...[
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerRight,
@@ -13489,6 +13837,77 @@ IconData _failureIcon(SettleoraBillFailureKind kind) {
 
 String _money(String amount, String currency) {
   return '$amount $currency';
+}
+
+bool _hasNonEmptyCandidate(String? value) {
+  return value != null && value.trim().isNotEmpty;
+}
+
+List<(String, String)> _savedReceiptOcrHeaderRows(
+  ReceiptOcrReviewDetail review,
+) {
+  final currency = review.currency;
+  return [
+    ('Subtotal', _savedReceiptOcrMoney(review.subtotalAmount, currency)),
+    ('Tax', _savedReceiptOcrMoney(review.taxAmount, currency)),
+    (
+      'Service charge',
+      _savedReceiptOcrMoney(review.serviceChargeAmount, currency),
+    ),
+    ('Discount', _savedReceiptOcrMoney(review.discountAmount, currency)),
+    ('Grand total', _savedReceiptOcrMoney(review.grandTotalAmount, currency)),
+  ].where((row) => row.$2.isNotEmpty).toList(growable: false);
+}
+
+String _savedReceiptOcrMoney(String? amount, String? currency) {
+  final normalizedAmount = amount?.trim();
+  if (normalizedAmount == null || normalizedAmount.isEmpty) {
+    return '';
+  }
+
+  final normalizedCurrency = currency?.trim();
+  if (normalizedCurrency == null || normalizedCurrency.isEmpty) {
+    return normalizedAmount;
+  }
+
+  return '$normalizedAmount $normalizedCurrency';
+}
+
+String _receiptOcrReviewStatusLabel(ReceiptOcrReviewStatus status) {
+  return switch (status) {
+    ReceiptOcrReviewStatusValues.provisional => 'Provisional',
+    ReceiptOcrReviewStatusValues.reviewed => 'Reviewed',
+    _ => _labelFromCode(status),
+  };
+}
+
+String _receiptOcrReviewSourceLabel(ReceiptOcrReviewSource source) {
+  return switch (source) {
+    ReceiptOcrReviewSourceValues.onDevice => 'On device OCR',
+    ReceiptOcrReviewSourceValues.manualEntry => 'Manual entry',
+    ReceiptOcrReviewSourceValues.importedReviewedData => 'Imported review data',
+    _ => _labelFromCode(source),
+  };
+}
+
+String _labelFromCode(String value) {
+  return value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+IconData _receiptOcrReviewFailureIcon(ReceiptOcrReviewFailureKind kind) {
+  return switch (kind) {
+    ReceiptOcrReviewFailureKind.unauthenticated => Icons.lock_outline,
+    ReceiptOcrReviewFailureKind.denied => Icons.no_accounts_outlined,
+    ReceiptOcrReviewFailureKind.unavailable => Icons.visibility_off_outlined,
+    ReceiptOcrReviewFailureKind.conflict => Icons.sync_problem_outlined,
+    ReceiptOcrReviewFailureKind.validation => Icons.report_problem_outlined,
+    ReceiptOcrReviewFailureKind.network => Icons.cloud_off_outlined,
+    ReceiptOcrReviewFailureKind.server => Icons.error_outline,
+  };
 }
 
 String _billCountSummary(SettleoraBillSummary bill) {
