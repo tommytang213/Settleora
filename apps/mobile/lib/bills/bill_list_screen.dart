@@ -11619,12 +11619,15 @@ class _SavedReceiptOcrReviewSheetState
         _applyResult = result;
         _isApplyingReview = false;
       });
+      final hasBlockedResult = result.blockedReasons.isNotEmpty;
       ScaffoldMessenger.maybeOf(context)
         ?..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
             content: Text(
-              'OCR review applied to the draft bill. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
+              hasBlockedResult
+                  ? 'OCR review apply needs review. The saved OCR review is still available.'
+                  : 'OCR review applied to draft bill. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
             ),
           ),
         );
@@ -12020,7 +12023,9 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
             const SizedBox(height: 12),
             _SavedReceiptOcrApplyNotice(
               title: failure.title,
-              message: 'The saved OCR review is still available for review.',
+              message: failure.kind == ReceiptOcrReviewFailureKind.conflict
+                  ? 'The saved review may have changed. Preview again before retrying apply, or edit the saved OCR review.'
+                  : 'The saved OCR review is still available. Preview again, edit saved OCR, or close and keep editing the bill manually.',
               variant: StatusChipVariant.warning,
             ),
           ],
@@ -12041,16 +12046,58 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
                     : const Icon(Icons.playlist_add_check_outlined),
                 label: Text(isApplying ? 'Applying' : 'Apply to draft bill'),
               ),
+            ] else ...[
+              const SizedBox(height: 12),
+              _SavedReceiptOcrApplyNotice(
+                title: 'Apply blocked',
+                message:
+                    'The server preview did not allow draft apply. Edit saved OCR, preview again, or close and keep manual bill editing.',
+                variant: StatusChipVariant.warning,
+              ),
             ],
           ],
           if (result != null) ...[
             const SizedBox(height: 12),
-            _SavedReceiptOcrApplyNotice(
-              title: 'Draft bill updated',
-              message:
-                  '${_pluralCount(result.appliedItemCount, 'item')} applied from this saved OCR review. The bill is still a draft.',
-              variant: StatusChipVariant.success,
-            ),
+            if (result.blockedReasons.isEmpty)
+              _SavedReceiptOcrApplyNotice(
+                title: 'OCR review applied to draft bill.',
+                message:
+                    '${_pluralCount(result.appliedItemCount, 'item')} applied from this saved OCR review using ${_applyModeLabel(result.applyMode)}. The bill is still a draft; close this sheet to review the draft bill items.',
+                variant: StatusChipVariant.success,
+              )
+            else
+              _SavedReceiptOcrApplyNotice(
+                title: 'Apply needs review',
+                message:
+                    'The apply response returned server blockers. The saved OCR review is still available; preview again or edit saved OCR before retrying.',
+                variant: StatusChipVariant.warning,
+              ),
+            if (result.blockedReasons.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Block reasons',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              for (final reason in result.blockedReasons)
+                Text(_labelFromCode(reason)),
+            ],
+            if (result.warnings.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Warnings', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              for (final warning in result.warnings)
+                Text(_labelFromCode(warning)),
+            ],
+            if (result.blockedReasons.isEmpty) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('saved-ocr-review-review-draft-items'),
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('Review draft bill items'),
+              ),
+            ],
           ],
           const SizedBox(height: 8),
           Text(
@@ -14557,6 +14604,13 @@ String _syncMessage(SettleoraSyncQueueFlushResult result) {
   return parts.isEmpty
       ? 'Sync finished.'
       : 'Sync finished: ${parts.join(', ')}.';
+}
+
+String _applyModeLabel(String applyMode) {
+  return switch (applyMode) {
+    'replace_draft_ocr_items' => 'replace draft OCR items',
+    _ => 'server-selected apply mode',
+  };
 }
 
 IconData _syncIcon(String state) {
