@@ -1090,7 +1090,6 @@ void main() {
       );
       final billRepository = FakeBillRepository(
         details: [
-          sampleBillDetail(id: _createdBillId),
           sampleBillDetail(
             id: _createdBillId,
             items: const [
@@ -1147,13 +1146,23 @@ void main() {
         sampleReceiptOcrApplyPreview(route).updatedAtUtc,
       );
       expect(billRepository.getCalls, 1);
-      expect(find.text('Draft bill updated'), findsOneWidget);
+      expect(find.text('OCR review applied to draft bill.'), findsOneWidget);
       expect(
         find.text(
-          '1 item applied from this saved OCR review. The bill is still a draft.',
+          '1 item applied from this saved OCR review using replace draft OCR items. The bill is still a draft; close this sheet to review the draft bill items.',
         ),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const Key('saved-ocr-review-review-draft-items')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('saved-ocr-review-review-draft-items')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Preview Milk'), findsOneWidget);
       expect(find.textContaining('raw OCR full text'), findsNothing);
       expect(find.textContaining('object key'), findsNothing);
       expect(find.textContaining('signed URL'), findsNothing);
@@ -1208,10 +1217,143 @@ void main() {
     expect(receiptRepository.applyReviewCalls, 1);
     expect(find.byKey(const Key('saved-ocr-review-content')), findsOneWidget);
     expect(
-      find.text('Review unavailable. The saved OCR review is still available.'),
+      find.text(
+        'The saved OCR review is still available. Preview again, edit saved OCR, or close and keep editing the bill manually.',
+      ),
       findsOneWidget,
     );
     expect(find.textContaining('Hidden storage path'), findsNothing);
+  });
+
+  testWidgets('personal stale saved OCR apply failure gives retry guidance', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.conflict,
+        message: 'Review timestamp conflict.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(find.text('Refresh required'), findsWidgets);
+    expect(
+      find.text(
+        'The saved review may have changed. Preview again before retrying apply, or edit the saved OCR review.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('saved-ocr-review-edit')), findsOneWidget);
+  });
+
+  testWidgets('personal apply blocked response keeps recovery affordance', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyResult: ReceiptOcrReviewApplyResult(
+        reviewId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        billId: route.billId,
+        groupId: route.groupId,
+        fileId: route.fileId,
+        applyMode: 'replace_draft_ocr_items',
+        appliedItemCount: 0,
+        currency: 'USD',
+        subtotalAmount: null,
+        grandTotalAmount: null,
+        summary: sampleReceiptOcrApplyPreview(route).summary,
+        blockedReasons: const [
+          ReceiptOcrReviewApplyPreviewIssueCodeValues.unsupportedLineState,
+        ],
+        warnings: const [
+          ReceiptOcrReviewApplyPreviewIssueCodeValues.headerTotalMismatch,
+        ],
+        appliedAtUtc: _updatedAtUtc,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(find.text('Apply needs review'), findsOneWidget);
+    expect(find.text('Unsupported Line State'), findsOneWidget);
+    expect(find.text('Header Total Mismatch'), findsWidgets);
+    expect(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('saved-ocr-review-edit')), findsOneWidget);
+    expect(
+      find.byKey(const Key('saved-ocr-review-review-draft-items')),
+      findsNothing,
+    );
   });
 
   testWidgets('group saved OCR review preview and apply preserve group route', (
@@ -1227,11 +1369,29 @@ void main() {
       applyPreview: sampleReceiptOcrApplyPreview(route),
       applyResult: sampleReceiptOcrApplyResult(route),
     );
+    final billRepository = FakeBillRepository(
+      details: [
+        sampleBillDetail(id: _billId),
+        sampleBillDetail(
+          id: _billId,
+          items: const [
+            SettleoraBillItem(
+              id: 'group-applied-item',
+              name: 'Preview Milk',
+              note: null,
+              amount: '10.00',
+              currency: 'USD',
+              sortOrder: 0,
+            ),
+          ],
+        ),
+      ],
+    );
 
     await tester.pumpWidget(
       MaterialApp(
         home: SettleoraGroupBillDetailScreen(
-          repository: FakeBillRepository(),
+          repository: billRepository,
           groupId: _groupId,
           groupName: 'Dinner crew',
           billId: _billId,
@@ -1263,6 +1423,9 @@ void main() {
     expect(receiptRepository.lastPreviewApplyRoute?.groupId, _groupId);
     expect(receiptRepository.applyReviewCalls, 1);
     expect(receiptRepository.lastApplyReviewRoute?.groupId, _groupId);
+    expect(receiptRepository.lastExpectedReviewUpdatedAtUtc, _updatedAtUtc);
+    expect(billRepository.getGroupCalls, 1);
+    expect(find.text('OCR review applied to draft bill.'), findsOneWidget);
   });
 
   testWidgets('group saved OCR review edit preserves group route', (
