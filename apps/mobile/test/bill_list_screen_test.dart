@@ -9219,6 +9219,113 @@ void main() {
     expect(visibleText(tester), isNot(contains('raw OCR full text')));
   });
 
+  testWidgets(
+    'direct saved OCR discovery keeps route identifiers out of labels and semantics',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      await tester.binding.setSurfaceSize(const Size(900, 2400));
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            fileId: 'storage/object/key/receipt.png',
+            contentType: 'signed URL with session token',
+            sizeBytes: 0,
+          ),
+          sampleAttachment(
+            fileId: _uploadedFileId,
+            contentType: 'image/png',
+            sizeBytes: 321,
+          ),
+        ],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final action = find.byKey(
+        const Key('bill-detail-saved-ocr-discovery-open'),
+      );
+      await tester.scrollUntilVisible(
+        action,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(action);
+
+      expect(find.text('Review saved OCR'), findsOneWidget);
+      expect(find.bySemanticsLabel('Review saved OCR'), findsOneWidget);
+      expect(find.text('Choose receipt to review'), findsNothing);
+      expect(
+        find.byKey(const Key('saved-ocr-review-receipt-cancel')),
+        findsNothing,
+      );
+
+      for (final unsafeText in [
+        _billId,
+        _uploadedFileId,
+        'storage/object/key',
+        'signed URL',
+        'session token',
+        'raw OCR full text',
+        'payment details',
+      ]) {
+        expect(visibleText(tester), isNot(contains(unsafeText)));
+        expect(find.byTooltip(unsafeText), findsNothing);
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(unsafeText))),
+          findsNothing,
+        );
+      }
+
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastRoute?.groupId, isNull);
+      expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+      expect(
+        find.text('Receipt, PNG receipt image, 321 bytes'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('saved-ocr-review-receipt-cancel')),
+        findsNothing,
+      );
+      for (final unsafeText in [
+        _billId,
+        _uploadedFileId,
+        'storage/object/key',
+        'signed URL',
+        'session token',
+        'raw OCR full text',
+        'payment details',
+      ]) {
+        expect(visibleText(tester), isNot(contains(unsafeText)));
+        expect(find.byTooltip(unsafeText), findsNothing);
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(unsafeText))),
+          findsNothing,
+        );
+      }
+      semantics.dispose();
+    },
+  );
+
   testWidgets('multiple reviewable attachments show chooser without guessing', (
     tester,
   ) async {
