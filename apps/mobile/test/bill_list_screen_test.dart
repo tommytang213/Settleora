@@ -8015,7 +8015,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.removeCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(
         find.byKey(const Key('bill-attachments-remove-progress')),
         findsNothing,
@@ -8091,7 +8091,7 @@ void main() {
           ),
         ],
         listFailuresByCall: const {
-          2: SettleoraBillAttachmentFailure(
+          3: SettleoraBillAttachmentFailure(
             kind: SettleoraBillAttachmentFailureKind.server,
             message:
                 'SocketException token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] StackTrace',
@@ -8127,7 +8127,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.removeCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(find.text('Attachment removed.'), findsOneWidget);
       expect(find.text('Receipt'), findsNothing);
       expect(
@@ -8593,7 +8593,7 @@ void main() {
     expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
     expect(attachmentRepository.lastUpload?.contentType, 'image/png');
     expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(
       find.text('Receipt uploaded. Review OCR before applying it to a draft.'),
       findsOneWidget,
@@ -8888,7 +8888,7 @@ void main() {
     expect(attachmentRepository.lastUpload?.filename, 'support.pdf');
     expect(attachmentRepository.lastUpload?.contentType, 'application/pdf');
     expect(attachmentRepository.lastUpload?.bytes, const [1, 2, 3]);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(find.text('Attachment uploaded.'), findsOneWidget);
     expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
     expect(find.text('Review receipt'), findsNothing);
@@ -8940,7 +8940,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.attachCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(
         find.text(
           'Receipt uploaded. Review OCR before applying it to a draft.',
@@ -9082,7 +9082,7 @@ void main() {
     await useLargeSurface(tester);
     final attachmentRepository = FakeBillAttachmentRepository(
       listFailuresByCall: const {
-        2: SettleoraBillAttachmentFailure(
+        3: SettleoraBillAttachmentFailure(
           kind: SettleoraBillAttachmentFailureKind.server,
           message: 'Attachments are unavailable right now. Try again later.',
         ),
@@ -9121,7 +9121,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(attachmentRepository.attachCalls, 1);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(find.text('Attachments unavailable'), findsOneWidget);
     expect(
       find.text('Attachments are unavailable right now. Try again later.'),
@@ -9429,7 +9429,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(attachmentRepository.listCalls, 1);
+    expect(attachmentRepository.listCalls, 2);
     expect(attachmentRepository.lastRoute?.billId, _billId);
   });
 

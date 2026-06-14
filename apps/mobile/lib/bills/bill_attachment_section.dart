@@ -16,7 +16,6 @@ class BillAttachmentSection extends StatefulWidget {
     required this.repository,
     required this.fileInput,
     required this.receiptOcrReviewRepository,
-    this.onAttachmentsChanged,
   });
 
   final String keyPrefix;
@@ -25,7 +24,6 @@ class BillAttachmentSection extends StatefulWidget {
   final SettleoraBillAttachmentRepository repository;
   final SettleoraBillAttachmentFileInput? fileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
-  final ValueChanged<List<SettleoraBillAttachment>>? onAttachmentsChanged;
 
   @override
   State<BillAttachmentSection> createState() => _BillAttachmentSectionState();
@@ -164,7 +162,6 @@ class _BillAttachmentSectionState extends State<BillAttachmentSection> {
         _loadInFlight = false;
         _failure = null;
       });
-      widget.onAttachmentsChanged?.call(List.unmodifiable(attachments));
       return attachments;
     } catch (error) {
       if (!_isCurrentLoad(

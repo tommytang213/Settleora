@@ -10260,6 +10260,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   int _attachmentReloadRevision = 0;
+  int _attachmentDiscoveryLoadGeneration = 0;
   List<SettleoraBillAttachment> _attachments = const [];
 
   @override
@@ -10273,6 +10274,11 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       Future<void>.microtask(_load);
     } else {
       Future<void>.microtask(_loadPendingRevisionForInitialBill);
+      Future<void>.microtask(
+        () => _loadSavedReceiptOcrDiscoveryAttachments(
+          SettleoraBillAttachmentRoute.personal(initialBill.id),
+        ),
+      );
     }
   }
 
@@ -10322,6 +10328,9 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         _isLoading = false;
         _attachmentReloadRevision += 1;
       });
+      await _loadSavedReceiptOcrDiscoveryAttachments(
+        SettleoraBillAttachmentRoute.personal(bill.id),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -10537,6 +10546,35 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     );
   }
 
+  Future<void> _loadSavedReceiptOcrDiscoveryAttachments(
+    SettleoraBillAttachmentRoute route,
+  ) async {
+    final repository = widget.attachmentRepository;
+    if (repository == null || widget.receiptOcrReviewRepository == null) {
+      return;
+    }
+
+    final generation = _attachmentDiscoveryLoadGeneration + 1;
+    _attachmentDiscoveryLoadGeneration = generation;
+
+    try {
+      final attachments = await repository.listAttachments(route);
+      if (!mounted || _attachmentDiscoveryLoadGeneration != generation) {
+        return;
+      }
+      setState(() {
+        _attachments = attachments;
+      });
+    } catch (_) {
+      if (!mounted || _attachmentDiscoveryLoadGeneration != generation) {
+        return;
+      }
+      setState(() {
+        _attachments = const [];
+      });
+    }
+  }
+
   Future<void> _handleSavedReceiptOcrReviewRemoved() async {
     if (!mounted) {
       return;
@@ -10695,14 +10733,6 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
-                    onAttachmentsChanged: (attachments) {
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _attachments = attachments;
-                      });
-                    },
                   ),
                   const SizedBox(height: 12),
                   SavedReceiptOcrReviewDiscoveryCard(
@@ -10788,6 +10818,7 @@ class _SettleoraGroupBillDetailScreenState
   String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
   int _attachmentReloadRevision = 0;
+  int _attachmentDiscoveryLoadGeneration = 0;
   List<SettleoraBillAttachment> _attachments = const [];
 
   @override
@@ -10804,6 +10835,14 @@ class _SettleoraGroupBillDetailScreenState
       Future<void>.microtask(_load);
     } else {
       Future<void>.microtask(_loadPendingRevisionForInitialBill);
+      Future<void>.microtask(
+        () => _loadSavedReceiptOcrDiscoveryAttachments(
+          SettleoraBillAttachmentRoute.group(
+            groupId: widget.groupId,
+            billId: initialBill.id,
+          ),
+        ),
+      );
     }
   }
 
@@ -10857,6 +10896,12 @@ class _SettleoraGroupBillDetailScreenState
         _isLoading = false;
         _attachmentReloadRevision += 1;
       });
+      await _loadSavedReceiptOcrDiscoveryAttachments(
+        SettleoraBillAttachmentRoute.group(
+          groupId: widget.groupId,
+          billId: bill.id,
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -11076,6 +11121,35 @@ class _SettleoraGroupBillDetailScreenState
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
+  }
+
+  Future<void> _loadSavedReceiptOcrDiscoveryAttachments(
+    SettleoraBillAttachmentRoute route,
+  ) async {
+    final repository = widget.attachmentRepository;
+    if (repository == null || widget.receiptOcrReviewRepository == null) {
+      return;
+    }
+
+    final generation = _attachmentDiscoveryLoadGeneration + 1;
+    _attachmentDiscoveryLoadGeneration = generation;
+
+    try {
+      final attachments = await repository.listAttachments(route);
+      if (!mounted || _attachmentDiscoveryLoadGeneration != generation) {
+        return;
+      }
+      setState(() {
+        _attachments = attachments;
+      });
+    } catch (_) {
+      if (!mounted || _attachmentDiscoveryLoadGeneration != generation) {
+        return;
+      }
+      setState(() {
+        _attachments = const [];
+      });
+    }
   }
 
   Future<void> _handleSavedReceiptOcrReviewRemoved() async {
@@ -11446,14 +11520,6 @@ class _SettleoraGroupBillDetailScreenState
                     fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
-                    onAttachmentsChanged: (attachments) {
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _attachments = attachments;
-                      });
-                    },
                   ),
                   const SizedBox(height: 12),
                   SavedReceiptOcrReviewDiscoveryCard(
