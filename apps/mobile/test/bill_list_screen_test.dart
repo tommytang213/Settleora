@@ -928,6 +928,343 @@ void main() {
     expect(find.textContaining('Provider object key'), findsNothing);
   });
 
+  testWidgets('personal saved OCR review can load apply preview', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(
+            detail: sampleBillDetail(id: _createdBillId),
+          ),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.previewApplyCalls, 1);
+    expect(receiptRepository.lastPreviewApplyRoute?.billId, _createdBillId);
+    expect(receiptRepository.lastPreviewApplyRoute?.fileId, _uploadedFileId);
+    expect(receiptRepository.lastPreviewApplyRoute?.groupId, isNull);
+    expect(find.text('Apply allowed'), findsOneWidget);
+    expect(find.text('Yes'), findsOneWidget);
+    expect(find.text('Header summary'), findsOneWidget);
+    expect(find.text('Line summary'), findsOneWidget);
+    expect(find.text('Preview Milk'), findsOneWidget);
+    expect(
+      find.text(
+        'Receipt totals, subtotal, discount, tax, service charge, and grand total remain review-only unless the server preview allows safe draft apply.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'personal blocked saved OCR review preview shows reasons and no apply',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        applyPreview: sampleReceiptOcrApplyPreview(
+          route,
+          canApply: false,
+          blockedReasons: const [
+            ReceiptOcrReviewApplyPreviewIssueCodeValues.lineSumMismatch,
+          ],
+          warnings: const [
+            ReceiptOcrReviewApplyPreviewIssueCodeValues.headerTotalMismatch,
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-preview-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Apply allowed'), findsOneWidget);
+      expect(find.text('No'), findsOneWidget);
+      expect(find.text('Line Sum Mismatch'), findsOneWidget);
+      expect(find.text('Header Total Mismatch'), findsOneWidget);
+      expect(find.byKey(const Key('saved-ocr-review-apply')), findsNothing);
+      expect(receiptRepository.applyReviewCalls, 0);
+    },
+  );
+
+  testWidgets('personal allowed saved OCR review requires confirmation', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Apply OCR to draft bill?'), findsOneWidget);
+    expect(receiptRepository.applyReviewCalls, 0);
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.applyReviewCalls, 0);
+  });
+
+  testWidgets(
+    'personal saved OCR review apply success is bounded and refreshes detail',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final billRepository = FakeBillRepository(
+        details: [
+          sampleBillDetail(id: _createdBillId),
+          sampleBillDetail(
+            id: _createdBillId,
+            items: const [
+              SettleoraBillItem(
+                id: 'item-applied',
+                name: 'Preview Milk',
+                note: null,
+                amount: '10.00',
+                currency: 'USD',
+                sortOrder: 0,
+              ),
+            ],
+          ),
+        ],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        applyPreview: sampleReceiptOcrApplyPreview(route),
+        applyResult: sampleReceiptOcrApplyResult(route),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: billRepository,
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-preview-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.applyReviewCalls, 1);
+      expect(receiptRepository.lastApplyReviewRoute?.billId, _createdBillId);
+      expect(
+        receiptRepository.lastExpectedReviewUpdatedAtUtc,
+        sampleReceiptOcrApplyPreview(route).updatedAtUtc,
+      );
+      expect(billRepository.getCalls, 1);
+      expect(find.text('Draft bill updated'), findsOneWidget);
+      expect(
+        find.text(
+          '1 item applied from this saved OCR review. The bill is still a draft.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('raw OCR full text'), findsNothing);
+      expect(find.textContaining('object key'), findsNothing);
+      expect(find.textContaining('signed URL'), findsNothing);
+      expect(find.textContaining('card number'), findsNothing);
+      expect(find.textContaining('bank account'), findsNothing);
+    },
+  );
+
+  testWidgets('personal saved OCR review apply failure keeps review visible', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyFailure: const ReceiptOcrReviewFailure(
+        kind: ReceiptOcrReviewFailureKind.server,
+        message: 'Hidden storage path failed.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(find.byKey(const Key('saved-ocr-review-content')), findsOneWidget);
+    expect(
+      find.text('Review unavailable. The saved OCR review is still available.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Hidden storage path'), findsNothing);
+  });
+
+  testWidgets('group saved OCR review preview and apply preserve group route', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _billId,
+      fileId: _uploadedFileId,
+      groupId: _groupId,
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyResult: sampleReceiptOcrApplyResult(route),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillDetailScreen(
+          repository: FakeBillRepository(),
+          groupId: _groupId,
+          groupName: 'Dinner crew',
+          billId: _billId,
+          initialBill: sampleBillDetail(id: _billId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-detail-ocr-review-open')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.previewApplyCalls, 1);
+    expect(receiptRepository.lastPreviewApplyRoute?.groupId, _groupId);
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(receiptRepository.lastApplyReviewRoute?.groupId, _groupId);
+  });
+
   testWidgets('group saved OCR review edit preserves group route', (
     tester,
   ) async {
@@ -8815,14 +9152,30 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
-  FakeReceiptOcrReviewRepository({this.saveFailure, this.reviewDetail});
+  FakeReceiptOcrReviewRepository({
+    this.saveFailure,
+    this.previewApplyFailure,
+    this.applyFailure,
+    this.reviewDetail,
+    this.applyPreview,
+    this.applyResult,
+  });
 
   Object? saveFailure;
+  Object? previewApplyFailure;
+  Object? applyFailure;
   ReceiptOcrReviewDetail? reviewDetail;
+  ReceiptOcrReviewApplyPreview? applyPreview;
+  ReceiptOcrReviewApplyResult? applyResult;
   int getCalls = 0;
   int saveCalls = 0;
+  int previewApplyCalls = 0;
+  int applyReviewCalls = 0;
   ReceiptOcrReviewRoute? lastRoute;
   ReceiptOcrReviewRoute? lastSaveRoute;
+  ReceiptOcrReviewRoute? lastPreviewApplyRoute;
+  ReceiptOcrReviewRoute? lastApplyReviewRoute;
+  DateTime? lastExpectedReviewUpdatedAtUtc;
   ReceiptOcrReviewSaveRequest? lastSaveRequest;
   final List<ReceiptOcrReviewSaveRequest> saveRequests = [];
 
@@ -8869,16 +9222,31 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   @override
   Future<ReceiptOcrReviewApplyPreview> previewApply(
     ReceiptOcrReviewRoute route,
-  ) {
-    throw UnimplementedError();
+  ) async {
+    previewApplyCalls += 1;
+    lastPreviewApplyRoute = route;
+    final failure = previewApplyFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return applyPreview ?? sampleReceiptOcrApplyPreview(route);
   }
 
   @override
   Future<ReceiptOcrReviewApplyResult> applyReview(
     ReceiptOcrReviewRoute route, {
     required DateTime expectedReviewUpdatedAtUtc,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    applyReviewCalls += 1;
+    lastApplyReviewRoute = route;
+    lastExpectedReviewUpdatedAtUtc = expectedReviewUpdatedAtUtc;
+    final failure = applyFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return applyResult ?? sampleReceiptOcrApplyResult(route);
   }
 }
 
@@ -9240,6 +9608,79 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
     ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+ReceiptOcrReviewApplyPreview sampleReceiptOcrApplyPreview(
+  ReceiptOcrReviewRoute route, {
+  bool canApply = true,
+  List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons = const [],
+  List<ReceiptOcrReviewApplyPreviewIssueCode> warnings = const [],
+}) {
+  return ReceiptOcrReviewApplyPreview(
+    reviewId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    billId: route.billId,
+    groupId: route.groupId,
+    fileId: route.fileId,
+    status: ReceiptOcrReviewStatusValues.provisional,
+    source: ReceiptOcrReviewSourceValues.onDevice,
+    proposedMerchantText: 'Preview Market',
+    proposedReceiptIssuedAtUtc: _createdAtUtc,
+    proposedCurrency: 'USD',
+    proposedSubtotalAmount: '10.00',
+    proposedTaxAmount: '0.80',
+    proposedServiceChargeAmount: null,
+    proposedDiscountAmount: null,
+    proposedGrandTotalAmount: '10.80',
+    proposedLines: const [
+      ReceiptOcrReviewPreviewLine(
+        reviewLineId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+        sortOrder: 0,
+        text: 'Preview Milk',
+        quantity: '1',
+        unitPriceAmount: '10.00',
+        lineTotalAmount: '10.00',
+        proposedLineTotalAmount: '10.00',
+      ),
+    ],
+    summary: const ReceiptOcrReviewPreviewSummary(
+      lineCount: 1,
+      linesWithProposedTotalCount: 1,
+      linesMissingProposedTotalCount: 0,
+      proposedLineTotalSumAmount: '10.00',
+      expectedHeaderTotalAmount: '10.80',
+    ),
+    canApply: canApply,
+    blockedReasons: blockedReasons,
+    warnings: warnings,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+  );
+}
+
+ReceiptOcrReviewApplyResult sampleReceiptOcrApplyResult(
+  ReceiptOcrReviewRoute route,
+) {
+  return ReceiptOcrReviewApplyResult(
+    reviewId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    billId: route.billId,
+    groupId: route.groupId,
+    fileId: route.fileId,
+    applyMode: 'replace_draft_ocr_items',
+    appliedItemCount: 1,
+    currency: 'USD',
+    subtotalAmount: '10.00',
+    grandTotalAmount: '10.80',
+    summary: const ReceiptOcrReviewPreviewSummary(
+      lineCount: 1,
+      linesWithProposedTotalCount: 1,
+      linesMissingProposedTotalCount: 0,
+      proposedLineTotalSumAmount: '10.00',
+      expectedHeaderTotalAmount: '10.80',
+    ),
+    blockedReasons: const [],
+    warnings: const [],
+    appliedAtUtc: _updatedAtUtc,
   );
 }
 
