@@ -8015,7 +8015,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.removeCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(
         find.byKey(const Key('bill-attachments-remove-progress')),
         findsNothing,
@@ -8091,7 +8091,7 @@ void main() {
           ),
         ],
         listFailuresByCall: const {
-          2: SettleoraBillAttachmentFailure(
+          3: SettleoraBillAttachmentFailure(
             kind: SettleoraBillAttachmentFailureKind.server,
             message:
                 'SocketException token C:\\Users\\secret\\receipt.png /var/storage/object-key [1, 2, 3] StackTrace',
@@ -8127,7 +8127,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.removeCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(find.text('Attachment removed.'), findsOneWidget);
       expect(find.text('Receipt'), findsNothing);
       expect(
@@ -8593,7 +8593,7 @@ void main() {
     expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
     expect(attachmentRepository.lastUpload?.contentType, 'image/png');
     expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(
       find.text('Receipt uploaded. Review OCR before applying it to a draft.'),
       findsOneWidget,
@@ -8615,7 +8615,7 @@ void main() {
   });
 
   testWidgets(
-    'personal bill detail surfaces saved OCR review discovery for receipt attachments',
+    'personal bill detail direct saved OCR discovery opens one receipt review',
     (tester) async {
       await useLargeSurface(tester);
       final attachmentRepository = FakeBillAttachmentRepository(
@@ -8646,8 +8646,12 @@ void main() {
       expect(find.text('Saved provisional OCR reviews'), findsOneWidget);
       expect(
         find.text(
-          'Receipt attachments may have a saved provisional OCR review. Use Review receipt on a receipt row to open it before applying any draft changes.',
+          'One receipt attachment can open its saved provisional OCR review directly. Review it before applying any draft changes.',
         ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
         findsOneWidget,
       );
       expect(
@@ -8660,28 +8664,36 @@ void main() {
       expect(visibleText(tester), isNot(contains('signed URL')));
       expect(visibleText(tester), isNot(contains('raw OCR full text')));
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+        180,
+        scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byKey(const ValueKey('bill-attachments-ocr-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+      );
       await tester.pumpAndSettle();
 
       expect(receiptRepository.getCalls, 1);
       expect(receiptRepository.lastRoute?.billId, _billId);
       expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
       expect(receiptRepository.lastRoute?.groupId, isNull);
+      expect(find.text('Saved OCR review'), findsOneWidget);
     },
   );
 
   testWidgets(
-    'personal bill detail keeps saved OCR discovery bounded when route support is missing',
+    'multiple reviewable attachments keep saved OCR discovery from guessing',
     (tester) async {
       await useLargeSurface(tester);
       final attachmentRepository = FakeBillAttachmentRepository(
         attachments: [
-          sampleAttachment(fileId: 'storage/object/key/receipt.png'),
+          sampleAttachment(fileId: _uploadedFileId),
+          sampleAttachment(fileId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'),
         ],
       );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
 
       await tester.pumpWidget(
         MaterialApp(
@@ -8690,33 +8702,90 @@ void main() {
             billId: _billId,
             initialBill: sampleBillDetail(id: _billId),
             attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(
+      await tester.scrollUntilVisible(
         find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+        180,
+        scrollable: find.byType(Scrollable).first,
       );
       expect(
         find.text(
-          'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
+          'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment below before applying any draft changes.',
         ),
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
         findsNothing,
       );
-      expect(find.text('Review receipt'), findsNothing);
-      expect(visibleText(tester), isNot(contains('storage/object/key')));
+      expect(receiptRepository.getCalls, 0);
+      expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+      expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
       expect(visibleText(tester), isNot(contains('signed URL')));
       expect(visibleText(tester), isNot(contains('raw OCR full text')));
     },
   );
 
   testWidgets(
-    'group bill detail opens receipt OCR review with group route context',
+    'personal bill detail keeps saved OCR discovery bounded when route context is unusable',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(fileId: 'storage/object/key/receipt.png'),
+        ],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.text(
+          'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Review saved OCR'), findsNothing);
+      expect(receiptRepository.getCalls, 0);
+      expect(visibleText(tester), isNot(contains('storage/object/key')));
+      expect(visibleText(tester), isNot(contains('signed URL')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+      expect(visibleText(tester), isNot(contains('payment details')));
+      expect(visibleText(tester), isNot(contains('session')));
+    },
+  );
+
+  testWidgets(
+    'group bill detail direct saved OCR discovery preserves group route context',
     (tester) async {
       await useLargeSurface(tester);
       await tester.binding.setSurfaceSize(const Size(900, 2400));
@@ -8740,15 +8809,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('group-bill-detail-saved-ocr-discovery-open')),
+        180,
+        scrollable: find.byType(Scrollable).first,
       );
+      await tester.pumpAndSettle();
       expect(
-        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+        find.byKey(const Key('group-bill-detail-saved-ocr-discovery-open')),
         findsOneWidget,
       );
       await tester.tap(
-        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+        find.byKey(const Key('group-bill-detail-saved-ocr-discovery-open')),
       );
       await tester.pumpAndSettle();
 
@@ -8756,6 +8828,7 @@ void main() {
       expect(receiptRepository.lastRoute?.billId, _billId);
       expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
       expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expect(find.text('Saved OCR review'), findsOneWidget);
       expect(visibleText(tester), isNot(contains(_uploadedFileId)));
       expect(visibleText(tester), isNot(contains('signed URL')));
       expect(visibleText(tester), isNot(contains('raw OCR full text')));
@@ -8815,7 +8888,7 @@ void main() {
     expect(attachmentRepository.lastUpload?.filename, 'support.pdf');
     expect(attachmentRepository.lastUpload?.contentType, 'application/pdf');
     expect(attachmentRepository.lastUpload?.bytes, const [1, 2, 3]);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(find.text('Attachment uploaded.'), findsOneWidget);
     expect(find.widgetWithText(SnackBarAction, 'Review receipt'), findsNothing);
     expect(find.text('Review receipt'), findsNothing);
@@ -8867,7 +8940,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attachmentRepository.attachCalls, 1);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(
         find.text(
           'Receipt uploaded. Review OCR before applying it to a draft.',
@@ -9009,7 +9082,7 @@ void main() {
     await useLargeSurface(tester);
     final attachmentRepository = FakeBillAttachmentRepository(
       listFailuresByCall: const {
-        2: SettleoraBillAttachmentFailure(
+        3: SettleoraBillAttachmentFailure(
           kind: SettleoraBillAttachmentFailureKind.server,
           message: 'Attachments are unavailable right now. Try again later.',
         ),
@@ -9048,7 +9121,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(attachmentRepository.attachCalls, 1);
-    expect(attachmentRepository.listCalls, 2);
+    expect(attachmentRepository.listCalls, 3);
     expect(find.text('Attachments unavailable'), findsOneWidget);
     expect(
       find.text('Attachments are unavailable right now. Try again later.'),
@@ -9356,7 +9429,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(attachmentRepository.listCalls, 1);
+    expect(attachmentRepository.listCalls, 2);
     expect(attachmentRepository.lastRoute?.billId, _billId);
   });
 
