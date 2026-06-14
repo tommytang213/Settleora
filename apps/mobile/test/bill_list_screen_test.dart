@@ -425,6 +425,13 @@ void main() {
     expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
     expect(receiptRepository.lastRoute?.groupId, isNull);
     expect(find.text('Saved OCR review'), findsOneWidget);
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(
+      find.text(
+        'These OCR values are provisional until you apply them to the draft bill.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Provisional review'), findsOneWidget);
     expect(find.text('Header candidates'), findsOneWidget);
     expect(find.text('Line candidates'), findsOneWidget);
@@ -656,6 +663,7 @@ void main() {
     expect(receiptRepository.getCalls, 1);
     expect(receiptRepository.lastRoute, same(firstSaveRoute));
     expect(find.text('Saved OCR review'), findsOneWidget);
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
   });
 
   testWidgets('saved OCR review action is disabled without route context', (
@@ -723,6 +731,14 @@ void main() {
     await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
     await tester.pumpAndSettle();
 
+    expect(
+      find.text('Provisional receipt OCR data saved for this attachment.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('saved-ocr-review-context-label')),
+      findsNothing,
+    );
     expect(find.byKey(const Key('saved-ocr-review-edit')), findsOneWidget);
     expect(find.text('Receipt totals for review only'), findsNothing);
     expect(find.text('Grand total'), findsOneWidget);
@@ -1147,6 +1163,14 @@ void main() {
 
     expect(receiptRepository.getCalls, 2);
     expect(find.byKey(const Key('saved-ocr-review-content')), findsOneWidget);
+    expect(
+      find.text('Provisional receipt OCR data saved for this attachment.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('saved-ocr-review-context-label')),
+      findsNothing,
+    );
     expect(find.text('Corner Market'), findsWidgets);
     expect(
       find.text(
@@ -8680,6 +8704,14 @@ void main() {
       expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
       expect(receiptRepository.lastRoute?.groupId, isNull);
       expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+      expect(find.text('PNG receipt image, 321 bytes'), findsOneWidget);
+      expect(
+        find.text(
+          'These OCR values are provisional until you apply them to the draft bill.',
+        ),
+        findsOneWidget,
+      );
     },
   );
 
@@ -8778,6 +8810,16 @@ void main() {
     );
     expect(receiptRepository.lastRoute?.groupId, isNull);
     expect(find.text('Saved OCR review'), findsOneWidget);
+    expect(find.text('Reviewing saved OCR for Receipt 2.'), findsOneWidget);
+    expect(find.text('JPEG receipt image, 2.0 KB'), findsOneWidget);
+    expect(
+      find.text(
+        'These OCR values are provisional until you apply them to the draft bill.',
+      ),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
   });
 
   testWidgets('multiple receipt chooser can be cancelled without opening', (
@@ -8971,6 +9013,8 @@ void main() {
       expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
       expect(receiptRepository.lastRoute?.groupId, _groupId);
       expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+      expect(find.text('PNG receipt image, 321 bytes'), findsOneWidget);
       expect(visibleText(tester), isNot(contains(_uploadedFileId)));
       expect(visibleText(tester), isNot(contains('signed URL')));
       expect(visibleText(tester), isNot(contains('raw OCR full text')));
@@ -9021,6 +9065,8 @@ void main() {
       expect(receiptRepository.lastRoute?.billId, _billId);
       expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
       expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
       expect(visibleText(tester), isNot(contains(_groupId)));
       expect(visibleText(tester), isNot(contains(_uploadedFileId)));
       expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
