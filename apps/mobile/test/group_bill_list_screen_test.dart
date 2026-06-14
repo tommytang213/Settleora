@@ -1652,7 +1652,7 @@ void main() {
       expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
       expect(attachmentRepository.lastUpload?.contentType, 'image/png');
       expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
-      expect(attachmentRepository.listCalls, 2);
+      expect(attachmentRepository.listCalls, 3);
       expect(
         find.text(
           'Receipt uploaded. Review OCR before applying it to a draft.',
