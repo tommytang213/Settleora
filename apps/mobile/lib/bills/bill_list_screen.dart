@@ -12388,6 +12388,9 @@ class _SavedReceiptOcrReviewSheetState
         widget.route,
         expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
       );
+      if (!mounted) {
+        return;
+      }
       await widget.onApplied();
       if (!mounted) {
         return;
@@ -12468,6 +12471,9 @@ class _SavedReceiptOcrReviewSheetState
       final navigator = Navigator.of(context);
       final messenger = ScaffoldMessenger.maybeOf(context);
       await widget.repository.deleteReview(widget.route);
+      if (!mounted) {
+        return;
+      }
       await widget.onRemoved();
       if (!mounted) {
         return;
@@ -12490,6 +12496,9 @@ class _SavedReceiptOcrReviewSheetState
       if (failure.kind == ReceiptOcrReviewFailureKind.unavailable) {
         final navigator = Navigator.of(context);
         final messenger = ScaffoldMessenger.maybeOf(context);
+        if (!mounted) {
+          return;
+        }
         await widget.onRemoved();
         if (!mounted) {
           return;

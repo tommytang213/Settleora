@@ -1390,6 +1390,147 @@ void main() {
     expect(find.textContaining('path'), findsNothing);
   });
 
+  testWidgets('closing saved OCR review during apply ignores stale callback', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final applyCompleter = Completer<ReceiptOcrReviewApplyResult>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyReviewCompleter: applyCompleter,
+    );
+    final billRepository = FakeBillRepository(
+      detail: sampleBillDetail(id: _createdBillId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: billRepository,
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(find.text('Applying to draft bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-close')));
+    await tester.pumpAndSettle();
+
+    applyCompleter.complete(sampleReceiptOcrApplyResult(route));
+    await tester.pumpAndSettle();
+
+    expect(billRepository.getCalls, 0);
+    expect(find.text('Saved OCR review'), findsNothing);
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Draft bill updated from provisional OCR review data',
+      ),
+      findsNothing,
+    );
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('raw OCR full text')));
+  });
+
+  testWidgets('closing saved OCR review during remove ignores stale callback', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final deleteCompleter = Completer<void>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      deleteReviewCompleter: deleteCompleter,
+    );
+    final billRepository = FakeBillRepository(
+      detail: sampleBillDetail(id: _createdBillId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: billRepository,
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.deleteCalls, 1);
+    expect(
+      find.text(
+        'Saved review actions are disabled while the provisional OCR review is being removed.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-close')));
+    await tester.pumpAndSettle();
+
+    deleteCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(billRepository.getCalls, 0);
+    expect(find.text('Saved OCR review'), findsNothing);
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Saved OCR review removed. The receipt attachment and bill remain available.',
+      ),
+      findsNothing,
+    );
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('storage object')));
+  });
+
   testWidgets('group saved OCR review refresh preserves group route', (
     tester,
   ) async {
