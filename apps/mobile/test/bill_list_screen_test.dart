@@ -427,9 +427,7 @@ void main() {
     expect(find.text('Saved OCR review'), findsOneWidget);
     expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
     expect(
-      find.text(
-        'These OCR values are provisional until you apply them to the draft bill.',
-      ),
+      find.byKey(const Key('saved-ocr-review-context-label')),
       findsOneWidget,
     );
     expect(find.text('Provisional review'), findsOneWidget);
@@ -737,7 +735,7 @@ void main() {
     );
     expect(
       find.byKey(const Key('saved-ocr-review-context-label')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.byKey(const Key('saved-ocr-review-edit')), findsOneWidget);
     expect(find.text('Receipt totals for review only'), findsNothing);
@@ -1063,7 +1061,7 @@ void main() {
     expect(find.text('Preview Milk'), findsOneWidget);
     expect(
       find.text(
-        'Receipt totals, subtotal, discount, tax, service charge, and grand total remain review-only unless the server preview allows safe draft apply.',
+        'Preview validates saved OCR candidates before draft apply. It does not change this bill.',
       ),
       findsOneWidget,
     );
@@ -1169,7 +1167,7 @@ void main() {
     );
     expect(
       find.byKey(const Key('saved-ocr-review-context-label')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.text('Corner Market'), findsWidgets);
     expect(
@@ -1576,6 +1574,14 @@ void main() {
         tester
             .widget<IconButton>(
               find.byKey(const Key('saved-ocr-review-remove')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const Key('saved-ocr-review-preview-apply')),
             )
             .onPressed,
         isNull,
@@ -8670,7 +8676,7 @@ void main() {
       expect(find.text('Saved provisional OCR reviews'), findsOneWidget);
       expect(
         find.text(
-          'One receipt attachment can open its saved provisional OCR review directly. Review it before applying any draft changes.',
+          'One receipt attachment can open its saved provisional OCR review directly.',
         ),
         findsOneWidget,
       );
@@ -8705,11 +8711,8 @@ void main() {
       expect(receiptRepository.lastRoute?.groupId, isNull);
       expect(find.text('Saved OCR review'), findsOneWidget);
       expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
-      expect(find.text('PNG receipt image, 321 bytes'), findsOneWidget);
       expect(
-        find.text(
-          'These OCR values are provisional until you apply them to the draft bill.',
-        ),
+        find.text('Receipt, PNG receipt image, 321 bytes'),
         findsOneWidget,
       );
     },
@@ -8755,7 +8758,7 @@ void main() {
     );
     expect(
       find.text(
-        'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment below before applying any draft changes.',
+        'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment before applying draft changes.',
       ),
       findsOneWidget,
     );
@@ -8785,8 +8788,8 @@ void main() {
     expect(find.text('Choose receipt to review'), findsNWidgets(2));
     expect(find.text('Receipt 1'), findsOneWidget);
     expect(find.text('Receipt 2'), findsOneWidget);
-    expect(find.text('PNG receipt image, 321 bytes'), findsOneWidget);
-    expect(find.text('JPEG receipt image, 2.0 KB'), findsOneWidget);
+    expect(find.text('Receipt, PNG receipt image, 321 bytes'), findsOneWidget);
+    expect(find.text('Receipt, JPEG receipt image, 2.0 KB'), findsOneWidget);
     expect(
       find.byKey(const Key('saved-ocr-review-receipt-cancel')),
       findsOneWidget,
@@ -8811,13 +8814,7 @@ void main() {
     expect(receiptRepository.lastRoute?.groupId, isNull);
     expect(find.text('Saved OCR review'), findsOneWidget);
     expect(find.text('Reviewing saved OCR for Receipt 2.'), findsOneWidget);
-    expect(find.text('JPEG receipt image, 2.0 KB'), findsOneWidget);
-    expect(
-      find.text(
-        'These OCR values are provisional until you apply them to the draft bill.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Receipt, JPEG receipt image, 2.0 KB'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_uploadedFileId)));
     expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
   });
@@ -9014,7 +9011,10 @@ void main() {
       expect(receiptRepository.lastRoute?.groupId, _groupId);
       expect(find.text('Saved OCR review'), findsOneWidget);
       expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
-      expect(find.text('PNG receipt image, 321 bytes'), findsOneWidget);
+      expect(
+        find.text('Receipt, PNG receipt image, 321 bytes'),
+        findsOneWidget,
+      );
       expect(visibleText(tester), isNot(contains(_uploadedFileId)));
       expect(visibleText(tester), isNot(contains('signed URL')));
       expect(visibleText(tester), isNot(contains('raw OCR full text')));

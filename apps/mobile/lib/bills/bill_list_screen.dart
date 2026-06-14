@@ -123,6 +123,61 @@ class ReceiptOcrReviewDisplayContext {
   final String? supportingLabel;
 }
 
+enum _SavedReceiptOcrDiscoveryAction { unavailable, guidanceOnly, open, choose }
+
+class _SavedReceiptOcrDiscoveryState {
+  const _SavedReceiptOcrDiscoveryState({
+    required this.action,
+    required this.choices,
+  });
+
+  final _SavedReceiptOcrDiscoveryAction action;
+  final List<_ReviewableReceiptOcrRoute> choices;
+
+  bool get canOpenDirectly => action == _SavedReceiptOcrDiscoveryAction.open;
+
+  bool get canChooseReceipt => action == _SavedReceiptOcrDiscoveryAction.choose;
+}
+
+enum _SavedReceiptOcrBusyState {
+  idle,
+  savingEdit,
+  refreshing,
+  loadingPreview,
+  applying,
+  removing,
+}
+
+class _SavedReceiptOcrActionAvailability {
+  const _SavedReceiptOcrActionAvailability({
+    required this.hasRouteContext,
+    required this.busyState,
+  });
+
+  final bool hasRouteContext;
+  final _SavedReceiptOcrBusyState busyState;
+
+  bool get isBusy => busyState != _SavedReceiptOcrBusyState.idle;
+
+  bool get canEdit => hasRouteContext && !isBusy;
+
+  bool get canRefresh => hasRouteContext && !isBusy;
+
+  bool get canPreview => hasRouteContext && !isBusy;
+
+  bool get canRemove => hasRouteContext && !isBusy;
+
+  String? get disabledActionMessage {
+    if (!hasRouteContext) {
+      return 'Saved review actions are unavailable until the bill attachment route context is loaded.';
+    }
+    if (!isBusy) {
+      return null;
+    }
+    return _savedReviewActionBusyMessage(busyState);
+  }
+}
+
 final Expando<ReceiptOcrReviewHandoff> _createdBillReceiptOcrReviewHandoffs =
     Expando<ReceiptOcrReviewHandoff>('createdBillReceiptOcrReviewHandoffs');
 
@@ -11653,28 +11708,23 @@ class _SavedReceiptOcrReviewDiscoveryCardState
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    final reviewChoices = _reviewableReceiptOcrRoutes(
+    final discovery = _savedReceiptOcrDiscoveryState(
+      hasReviewRepository: widget.hasReviewRepository,
       route: widget.route,
       attachments: widget.attachments,
     );
-    final canOpenDirectly =
-        widget.hasReviewRepository && reviewChoices.length == 1;
-    final canChooseReceipt =
-        widget.hasReviewRepository && reviewChoices.length > 1;
-    final isSingleOrUnavailable = reviewChoices.length <= 1;
+    final reviewChoices = discovery.choices;
+    final isInfoState =
+        discovery.action != _SavedReceiptOcrDiscoveryAction.choose;
 
     return AppCard(
-      color: widget.hasReviewRepository && isSingleOrUnavailable
-          ? colors.infoSoft
-          : colors.warningSoft,
+      color: isInfoState ? colors.infoSoft : colors.warningSoft,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.fact_check_outlined,
-            color: widget.hasReviewRepository && isSingleOrUnavailable
-                ? colors.onInfoSoft
-                : colors.onWarningSoft,
+            color: isInfoState ? colors.onInfoSoft : colors.onWarningSoft,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -11686,8 +11736,8 @@ class _SavedReceiptOcrReviewDiscoveryCardState
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 4),
-                Text(_savedReceiptOcrDiscoveryMessage(reviewChoices.length)),
-                if (canOpenDirectly) ...[
+                Text(_savedReceiptOcrDiscoveryMessage(discovery)),
+                if (discovery.canOpenDirectly) ...[
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -11700,7 +11750,7 @@ class _SavedReceiptOcrReviewDiscoveryCardState
                       label: const Text('Review saved OCR'),
                     ),
                   ),
-                ] else if (canChooseReceipt) ...[
+                ] else if (discovery.canChooseReceipt) ...[
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -11722,20 +11772,19 @@ class _SavedReceiptOcrReviewDiscoveryCardState
     );
   }
 
-  String _savedReceiptOcrDiscoveryMessage(int reviewableReceiptCount) {
-    if (!widget.hasReviewRepository) {
-      return 'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.';
-    }
-
-    if (reviewableReceiptCount == 1) {
-      return 'One receipt attachment can open its saved provisional OCR review directly. Review it before applying any draft changes.';
-    }
-
-    if (reviewableReceiptCount > 1) {
-      return 'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment below before applying any draft changes.';
-    }
-
-    return 'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.';
+  String _savedReceiptOcrDiscoveryMessage(
+    _SavedReceiptOcrDiscoveryState discovery,
+  ) {
+    return switch (discovery.action) {
+      _SavedReceiptOcrDiscoveryAction.unavailable =>
+        'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
+      _SavedReceiptOcrDiscoveryAction.open =>
+        'One receipt attachment can open its saved provisional OCR review directly.',
+      _SavedReceiptOcrDiscoveryAction.choose =>
+        'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment before applying draft changes.',
+      _SavedReceiptOcrDiscoveryAction.guidanceOnly =>
+        'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.',
+    };
   }
 }
 
@@ -11806,7 +11855,33 @@ Future<_ReviewableReceiptOcrRoute?> _showSavedReceiptOcrReviewChooser({
   );
 }
 
-List<_ReviewableReceiptOcrRoute> _reviewableReceiptOcrRoutes({
+_SavedReceiptOcrDiscoveryState _savedReceiptOcrDiscoveryState({
+  required bool hasReviewRepository,
+  required SettleoraBillAttachmentRoute route,
+  required List<SettleoraBillAttachment> attachments,
+}) {
+  if (!hasReviewRepository) {
+    return const _SavedReceiptOcrDiscoveryState(
+      action: _SavedReceiptOcrDiscoveryAction.unavailable,
+      choices: [],
+    );
+  }
+
+  final choices = _reviewableReceiptOcrRouteCandidates(
+    route: route,
+    attachments: attachments,
+  );
+  return _SavedReceiptOcrDiscoveryState(
+    action: switch (choices.length) {
+      0 => _SavedReceiptOcrDiscoveryAction.guidanceOnly,
+      1 => _SavedReceiptOcrDiscoveryAction.open,
+      _ => _SavedReceiptOcrDiscoveryAction.choose,
+    },
+    choices: choices,
+  );
+}
+
+List<_ReviewableReceiptOcrRoute> _reviewableReceiptOcrRouteCandidates({
   required SettleoraBillAttachmentRoute route,
   required List<SettleoraBillAttachment> attachments,
 }) {
@@ -11850,14 +11925,12 @@ ReceiptOcrReviewDisplayContext? _savedReceiptOcrDisplayContextForRoute({
           groupId: route.groupId!,
           billId: route.billId,
         );
-  final choices = _reviewableReceiptOcrRoutes(
+  final choices = _reviewableReceiptOcrRouteCandidates(
     route: attachmentRoute,
     attachments: attachments,
   );
   for (final choice in choices) {
-    if (choice.route.fileId == route.fileId &&
-        choice.route.billId == route.billId &&
-        choice.route.groupId == route.groupId) {
+    if (_sameReceiptOcrRoute(choice.route, route)) {
       return choice.displayContext;
     }
   }
@@ -11865,12 +11938,36 @@ ReceiptOcrReviewDisplayContext? _savedReceiptOcrDisplayContextForRoute({
 }
 
 String _safeReceiptChooserSupportingLabel(SettleoraBillAttachment attachment) {
+  final purposeLabel = _safeReceiptAttachmentPurposeLabel(attachment.purpose);
   final typeLabel = _safeReceiptAttachmentTypeLabel(attachment.contentType);
   final sizeLabel = _safeByteCountLabel(attachment.sizeBytes);
+  final safeParts = <String>[purposeLabel, typeLabel];
   if (sizeLabel == null) {
-    return typeLabel;
+    return safeParts.join(', ');
   }
-  return '$typeLabel, $sizeLabel';
+  safeParts.add(sizeLabel);
+  return safeParts.join(', ');
+}
+
+bool _sameReceiptOcrRoute(
+  ReceiptOcrReviewRoute left,
+  ReceiptOcrReviewRoute right,
+) {
+  final leftGroupId = left.groupId?.trim();
+  final rightGroupId = right.groupId?.trim();
+  return left.billId.trim() == right.billId.trim() &&
+      left.fileId.trim() == right.fileId.trim() &&
+      ((leftGroupId == null && rightGroupId == null) ||
+          (leftGroupId != null &&
+              rightGroupId != null &&
+              leftGroupId == rightGroupId));
+}
+
+String _safeReceiptAttachmentPurposeLabel(String purpose) {
+  return switch (purpose) {
+    SettleoraBillAttachmentPurposeValues.receipt => 'Receipt',
+    _ => 'Receipt attachment',
+  };
 }
 
 String _safeReceiptAttachmentTypeLabel(String contentType) {
@@ -12022,27 +12119,35 @@ class _SavedReceiptOcrReviewSheetState
             (groupId != null && groupId.isNotEmpty));
   }
 
-  bool get _canEditSavedReview => _hasUsableSavedReviewRoute;
+  _SavedReceiptOcrBusyState get _busyState {
+    if (_isSavingEdit) {
+      return _SavedReceiptOcrBusyState.savingEdit;
+    }
+    if (_isRefreshingReview) {
+      return _SavedReceiptOcrBusyState.refreshing;
+    }
+    if (_isLoadingApplyPreview) {
+      return _SavedReceiptOcrBusyState.loadingPreview;
+    }
+    if (_isApplyingReview) {
+      return _SavedReceiptOcrBusyState.applying;
+    }
+    if (_isRemovingReview) {
+      return _SavedReceiptOcrBusyState.removing;
+    }
+    return _SavedReceiptOcrBusyState.idle;
+  }
 
-  bool get _canRemoveSavedReview => _hasUsableSavedReviewRoute;
-
-  bool get _canRefreshSavedReview =>
-      _hasUsableSavedReviewRoute &&
-      !_isSavingEdit &&
-      !_isRefreshingReview &&
-      !_isRemovingReview;
-
-  bool get _isSavedReviewActionBusy =>
-      _isSavingEdit ||
-      _isRefreshingReview ||
-      _isLoadingApplyPreview ||
-      _isApplyingReview ||
-      _isRemovingReview;
+  _SavedReceiptOcrActionAvailability get _actionAvailability =>
+      _SavedReceiptOcrActionAvailability(
+        hasRouteContext: _hasUsableSavedReviewRoute,
+        busyState: _busyState,
+      );
 
   bool _canPreviewSavedReview(ReceiptOcrReviewDetail review) {
     final routeGroupId = widget.route.groupId?.trim();
     final reviewGroupId = review.groupId?.trim();
-    return _hasUsableSavedReviewRoute &&
+    return _actionAvailability.hasRouteContext &&
         widget.route.billId.trim() == review.billId.trim() &&
         widget.route.fileId.trim() == review.fileId.trim() &&
         ((routeGroupId == null && reviewGroupId == null) ||
@@ -12052,7 +12157,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   void _beginEdit(ReceiptOcrReviewDetail review) {
-    if (!_canEditSavedReview || _isSavedReviewActionBusy) {
+    if (!_actionAvailability.canEdit) {
       return;
     }
     setState(() {
@@ -12141,7 +12246,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   Future<void> _refreshReview() async {
-    if (!_canRefreshSavedReview) {
+    if (!_actionAvailability.canRefresh) {
       return;
     }
 
@@ -12210,9 +12315,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   Future<void> _loadApplyPreview(ReceiptOcrReviewDetail review) async {
-    if (!_canPreviewSavedReview(review) ||
-        _isLoadingApplyPreview ||
-        _isApplyingReview) {
+    if (!_canPreviewSavedReview(review) || !_actionAvailability.canPreview) {
       return;
     }
 
@@ -12246,7 +12349,7 @@ class _SavedReceiptOcrReviewSheetState
   Future<void> _confirmAndApplyPreview(
     ReceiptOcrReviewApplyPreview preview,
   ) async {
-    if (!preview.canApply || _isApplyingReview || _isLoadingApplyPreview) {
+    if (!preview.canApply || !_actionAvailability.canPreview) {
       return;
     }
 
@@ -12271,7 +12374,7 @@ class _SavedReceiptOcrReviewSheetState
         ],
       ),
     );
-    if (shouldApply != true || !mounted) {
+    if (shouldApply != true || !mounted || !_actionAvailability.canPreview) {
       return;
     }
 
@@ -12328,7 +12431,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   Future<void> _confirmAndRemoveReview() async {
-    if (!_canRemoveSavedReview || _isSavedReviewActionBusy) {
+    if (!_actionAvailability.canRemove) {
       return;
     }
 
@@ -12424,6 +12527,9 @@ class _SavedReceiptOcrReviewSheetState
   @override
   Widget build(BuildContext context) {
     final displayContext = widget.displayContext;
+    final contextLabel = displayContext == null
+        ? 'Provisional receipt OCR data saved for this attachment.'
+        : 'Reviewing saved OCR for ${displayContext.receiptLabel}.';
     return SafeArea(
       child: FractionallySizedBox(
         heightFactor: 0.86,
@@ -12450,31 +12556,18 @@ class _SavedReceiptOcrReviewSheetState
                   ),
                 ],
               ),
-              if (displayContext == null)
-                const Text(
-                  'Provisional receipt OCR data saved for this attachment.',
-                )
-              else ...[
+              Text(
+                contextLabel,
+                key: const Key('saved-ocr-review-context-label'),
+              ),
+              if (displayContext?.supportingLabel != null)
                 Text(
-                  'Reviewing saved OCR for ${displayContext.receiptLabel}.',
-                  key: const Key('saved-ocr-review-context-label'),
-                ),
-                if (displayContext.supportingLabel != null)
-                  Text(
-                    displayContext.supportingLabel!,
-                    key: const Key('saved-ocr-review-context-supporting'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: context.settleoraColors.textMuted,
-                    ),
-                  ),
-                Text(
-                  'These OCR values are provisional until you apply them to the draft bill.',
-                  key: const Key('saved-ocr-review-context-provisional'),
+                  displayContext!.supportingLabel!,
+                  key: const Key('saved-ocr-review-context-supporting'),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.settleoraColors.textMuted,
                   ),
                 ),
-              ],
               const SizedBox(height: 12),
               Expanded(
                 child: FutureBuilder<ReceiptOcrReviewDetail>(
@@ -12563,10 +12656,8 @@ class _SavedReceiptOcrReviewSheetState
 
                     return _SavedReceiptOcrReviewContent(
                       review: _loadedReview ?? review,
-                      canEdit: _canEditSavedReview,
-                      canRefresh: _canRefreshSavedReview,
-                      canRemove: _canRemoveSavedReview,
-                      canPreview: _canPreviewSavedReview(
+                      availability: _actionAvailability,
+                      hasPreviewRouteContext: _canPreviewSavedReview(
                         _loadedReview ?? review,
                       ),
                       applyPreview: _applyPreview,
@@ -12600,10 +12691,8 @@ class _SavedReceiptOcrReviewSheetState
 class _SavedReceiptOcrReviewContent extends StatelessWidget {
   const _SavedReceiptOcrReviewContent({
     required this.review,
-    required this.canEdit,
-    required this.canRefresh,
-    required this.canRemove,
-    required this.canPreview,
+    required this.availability,
+    required this.hasPreviewRouteContext,
     required this.applyPreview,
     required this.previewFailure,
     required this.removeFailure,
@@ -12622,10 +12711,8 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   });
 
   final ReceiptOcrReviewDetail review;
-  final bool canEdit;
-  final bool canRefresh;
-  final bool canRemove;
-  final bool canPreview;
+  final _SavedReceiptOcrActionAvailability availability;
+  final bool hasPreviewRouteContext;
   final ReceiptOcrReviewApplyPreview? applyPreview;
   final ReceiptOcrReviewFailure? previewFailure;
   final ReceiptOcrReviewFailure? removeFailure;
@@ -12646,24 +12733,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final lines = [...review.lines]
       ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
-    final isActionBusy =
-        isSavingEdit ||
-        isRefreshing ||
-        isLoadingPreview ||
-        isApplying ||
-        isRemoving;
-    final disabledActionMessage =
-        !_hasSavedReviewActionContext(canEdit: canEdit, canRemove: canRemove)
-        ? 'Saved review actions are unavailable until the bill attachment route context is loaded.'
-        : isActionBusy
-        ? _savedReviewActionBusyMessage(
-            isSavingEdit: isSavingEdit,
-            isRefreshing: isRefreshing,
-            isLoadingPreview: isLoadingPreview,
-            isApplying: isApplying,
-            isRemoving: isRemoving,
-          )
-        : null;
+    final disabledActionMessage = availability.disabledActionMessage;
 
     return ListView(
       key: const Key('saved-ocr-review-content'),
@@ -12715,7 +12785,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                       button: true,
                       child: FilledButton.icon(
                         key: const Key('saved-ocr-review-edit'),
-                        onPressed: canEdit && !isActionBusy ? onEdit : null,
+                        onPressed: availability.canEdit ? onEdit : null,
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Edit saved OCR'),
                       ),
@@ -12728,7 +12798,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                     child: IconButton(
                       key: const Key('saved-ocr-review-refresh'),
                       tooltip: 'Refresh saved OCR review',
-                      onPressed: canRefresh && !isActionBusy ? onRefresh : null,
+                      onPressed: availability.canRefresh ? onRefresh : null,
                       icon: isRefreshing
                           ? const SizedBox(
                               height: 16,
@@ -12747,7 +12817,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                       key: const Key('saved-ocr-review-remove'),
                       tooltip:
                           'Remove saved OCR review only; keeps receipt attachment and bill items',
-                      onPressed: canRemove && !isActionBusy ? onRemove : null,
+                      onPressed: availability.canRemove ? onRemove : null,
                       icon: isRemoving
                           ? const SizedBox(
                               height: 16,
@@ -12795,7 +12865,8 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
           preview: applyPreview,
           failure: previewFailure,
           result: applyResult,
-          canPreview: canPreview,
+          canPreview: hasPreviewRouteContext,
+          availability: availability,
           isLoadingPreview: isLoadingPreview,
           isApplying: isApplying,
           onPreview: onPreviewApply,
@@ -12855,6 +12926,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
     required this.failure,
     required this.result,
     required this.canPreview,
+    required this.availability,
     required this.isLoadingPreview,
     required this.isApplying,
     required this.onPreview,
@@ -12866,6 +12938,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
   final ReceiptOcrReviewFailure? failure;
   final ReceiptOcrReviewApplyResult? result;
   final bool canPreview;
+  final _SavedReceiptOcrActionAvailability availability;
   final bool isLoadingPreview;
   final bool isApplying;
   final VoidCallback onPreview;
@@ -12876,6 +12949,9 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
     final preview = this.preview;
     final failure = this.failure;
     final result = this.result;
+    final canRequestPreview = canPreview && availability.canPreview;
+    final canApplyPreview =
+        availability.canPreview && preview?.canApply == true;
 
     return AppCard(
       child: Column(
@@ -12902,14 +12978,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Preview is provisional and server/API validated. It does not change this bill.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: context.settleoraColors.textMuted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Receipt totals, subtotal, discount, tax, service charge, and grand total remain review-only unless the server preview allows safe draft apply.',
+            'Preview validates saved OCR candidates before draft apply. It does not change this bill.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: context.settleoraColors.textMuted,
             ),
@@ -12922,9 +12991,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
               button: true,
               child: OutlinedButton.icon(
                 key: const Key('saved-ocr-review-preview-apply'),
-                onPressed: canPreview && !isLoadingPreview && !isApplying
-                    ? onPreview
-                    : null,
+                onPressed: canRequestPreview ? onPreview : null,
                 icon: isLoadingPreview
                     ? const SizedBox(
                         height: 16,
@@ -12971,7 +13038,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
                   button: true,
                   child: FilledButton.icon(
                     key: const Key('saved-ocr-review-apply'),
-                    onPressed: isApplying ? null : () => onApply(preview),
+                    onPressed: canApplyPreview ? () => onApply(preview) : null,
                     icon: isApplying
                         ? const SizedBox(
                             height: 16,
@@ -13053,36 +13120,21 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
   }
 }
 
-bool _hasSavedReviewActionContext({
-  required bool canEdit,
-  required bool canRemove,
-}) {
-  return canEdit && canRemove;
-}
-
-String _savedReviewActionBusyMessage({
-  required bool isSavingEdit,
-  required bool isRefreshing,
-  required bool isLoadingPreview,
-  required bool isApplying,
-  required bool isRemoving,
-}) {
-  if (isSavingEdit) {
-    return 'Saved review actions are disabled while edited OCR review data is saving.';
-  }
-  if (isRefreshing) {
-    return 'Saved review actions are disabled while the provisional OCR review is refreshing.';
-  }
-  if (isLoadingPreview) {
-    return 'Saved review actions are disabled while the draft apply preview is loading.';
-  }
-  if (isApplying) {
-    return 'Saved review actions are disabled while the server applies OCR candidates to the draft bill.';
-  }
-  if (isRemoving) {
-    return 'Saved review actions are disabled while the provisional OCR review is being removed.';
-  }
-  return 'Saved review actions are temporarily unavailable.';
+String _savedReviewActionBusyMessage(_SavedReceiptOcrBusyState busyState) {
+  return switch (busyState) {
+    _SavedReceiptOcrBusyState.savingEdit =>
+      'Saved review actions are disabled while edited OCR review data is saving.',
+    _SavedReceiptOcrBusyState.refreshing =>
+      'Saved review actions are disabled while the provisional OCR review is refreshing.',
+    _SavedReceiptOcrBusyState.loadingPreview =>
+      'Saved review actions are disabled while the draft apply preview is loading.',
+    _SavedReceiptOcrBusyState.applying =>
+      'Saved review actions are disabled while the server applies OCR candidates to the draft bill.',
+    _SavedReceiptOcrBusyState.removing =>
+      'Saved review actions are disabled while the provisional OCR review is being removed.',
+    _SavedReceiptOcrBusyState.idle =>
+      'Saved review actions are temporarily unavailable.',
+  };
 }
 
 class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
