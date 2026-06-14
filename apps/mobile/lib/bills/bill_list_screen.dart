@@ -11389,6 +11389,10 @@ class _SavedReceiptOcrReviewSheet extends StatefulWidget {
 class _SavedReceiptOcrReviewSheetState
     extends State<_SavedReceiptOcrReviewSheet> {
   late Future<ReceiptOcrReviewDetail> _reviewFuture;
+  ReceiptOcrReviewDetail? _loadedReview;
+  ReceiptOcrReviewDetail? _editingReview;
+  ReceiptOcrPreview? _editingPreview;
+  bool _isSavingEdit = false;
 
   @override
   void initState() {
@@ -11398,8 +11402,104 @@ class _SavedReceiptOcrReviewSheetState
 
   void _retry() {
     setState(() {
+      _loadedReview = null;
+      _editingReview = null;
+      _editingPreview = null;
       _reviewFuture = widget.repository.getReview(widget.route);
     });
+  }
+
+  bool get _canEditSavedReview {
+    final billId = widget.route.billId.trim();
+    final fileId = widget.route.fileId.trim();
+    final groupId = widget.route.groupId?.trim();
+    return billId.isNotEmpty &&
+        fileId.isNotEmpty &&
+        (widget.route.groupId == null ||
+            (groupId != null && groupId.isNotEmpty));
+  }
+
+  void _beginEdit(ReceiptOcrReviewDetail review) {
+    if (!_canEditSavedReview || _isSavingEdit) {
+      return;
+    }
+    setState(() {
+      _editingReview = review;
+      _editingPreview = _receiptOcrPreviewFromSavedReview(review);
+    });
+  }
+
+  void _cancelEdit() {
+    if (_isSavingEdit) {
+      return;
+    }
+    setState(() {
+      _editingReview = null;
+      _editingPreview = null;
+    });
+  }
+
+  void _resetEdit() {
+    final review = _editingReview;
+    if (review == null || _isSavingEdit) {
+      return;
+    }
+    setState(() {
+      _editingPreview = _receiptOcrPreviewFromSavedReview(review);
+    });
+  }
+
+  Future<void> _saveEdit() async {
+    final review = _editingReview;
+    final preview = _editingPreview;
+    if (review == null || preview == null || _isSavingEdit) {
+      return;
+    }
+
+    final request = _receiptOcrReviewSaveRequestFromSavedEdit(review, preview);
+    setState(() {
+      _isSavingEdit = true;
+    });
+
+    try {
+      final updated = await widget.repository.saveReview(widget.route, request);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadedReview = updated;
+        _editingReview = null;
+        _editingPreview = null;
+        _isSavingEdit = false;
+        _reviewFuture = Future<ReceiptOcrReviewDetail>.value(updated);
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved OCR review updated. Bill items and settlement state were not changed.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final failure = ReceiptOcrReviewFailure.from(error);
+      setState(() {
+        _isSavingEdit = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              '${failure.title}. Keep editing and try saving again.',
+            ),
+          ),
+        );
+    }
   }
 
   @override
@@ -11477,7 +11577,31 @@ class _SavedReceiptOcrReviewSheetState
                       );
                     }
 
-                    return _SavedReceiptOcrReviewContent(review: review);
+                    _loadedReview ??= review;
+                    final editingPreview = _editingPreview;
+                    final editingReview = _editingReview;
+                    if (editingPreview != null && editingReview != null) {
+                      return _SavedReceiptOcrReviewEditContent(
+                        review: editingReview,
+                        preview: editingPreview,
+                        enabled: !_isSavingEdit,
+                        isSaving: _isSavingEdit,
+                        onPreviewChanged: (preview) {
+                          setState(() {
+                            _editingPreview = preview;
+                          });
+                        },
+                        onReset: _resetEdit,
+                        onCancel: _cancelEdit,
+                        onSave: _saveEdit,
+                      );
+                    }
+
+                    return _SavedReceiptOcrReviewContent(
+                      review: _loadedReview ?? review,
+                      canEdit: _canEditSavedReview,
+                      onEdit: () => _beginEdit(_loadedReview ?? review),
+                    );
                   },
                 ),
               ),
@@ -11490,9 +11614,15 @@ class _SavedReceiptOcrReviewSheetState
 }
 
 class _SavedReceiptOcrReviewContent extends StatelessWidget {
-  const _SavedReceiptOcrReviewContent({required this.review});
+  const _SavedReceiptOcrReviewContent({
+    required this.review,
+    required this.canEdit,
+    required this.onEdit,
+  });
 
   final ReceiptOcrReviewDetail review;
+  final bool canEdit;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -11539,6 +11669,25 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                   color: context.settleoraColors.textMuted,
                 ),
               ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  key: const Key('saved-ocr-review-edit'),
+                  onPressed: canEdit ? onEdit : null,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit saved OCR'),
+                ),
+              ),
+              if (!canEdit) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Editing is unavailable until the saved receipt review route context is loaded.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.settleoraColors.textMuted,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -11583,6 +11732,112 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                   ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
+  const _SavedReceiptOcrReviewEditContent({
+    required this.review,
+    required this.preview,
+    required this.enabled,
+    required this.isSaving,
+    required this.onPreviewChanged,
+    required this.onReset,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  final ReceiptOcrReviewDetail review;
+  final ReceiptOcrPreview preview;
+  final bool enabled;
+  final bool isSaving;
+  final ValueChanged<ReceiptOcrPreview> onPreviewChanged;
+  final VoidCallback onReset;
+  final VoidCallback onCancel;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      key: const Key('saved-ocr-review-edit-content'),
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Edit provisional review',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'These edits update saved OCR review data only. They do not apply OCR to this bill.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.settleoraColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _ReceiptOcrEditableReviewForm(
+                keyPrefix: 'saved-ocr-review',
+                preview: preview,
+                enabled: enabled,
+                onChanged: onPreviewChanged,
+                onReset: onReset,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Review-only totals',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (_savedReceiptOcrHeaderRows(review).isEmpty)
+                const Text('No receipt total candidates were saved.')
+              else
+                for (final row in _savedReceiptOcrHeaderRows(review))
+                  _KeyValueText(label: row.$1, value: row.$2),
+              const SizedBox(height: 8),
+              Text(
+                'Receipt totals and charge summary stay review-only here.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.settleoraColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              key: const Key('saved-ocr-review-edit-cancel'),
+              onPressed: enabled ? onCancel : null,
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              key: const Key('saved-ocr-review-edit-save'),
+              onPressed: enabled ? onSave : null,
+              icon: isSaving
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(isSaving ? 'Saving' : 'Save review'),
+            ),
+          ],
         ),
       ],
     );
@@ -13857,6 +14112,64 @@ List<(String, String)> _savedReceiptOcrHeaderRows(
     ('Discount', _savedReceiptOcrMoney(review.discountAmount, currency)),
     ('Grand total', _savedReceiptOcrMoney(review.grandTotalAmount, currency)),
   ].where((row) => row.$2.isNotEmpty).toList(growable: false);
+}
+
+ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
+  ReceiptOcrReviewDetail review,
+) {
+  final sortedLines = [...review.lines]
+    ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+  final currency = review.currency;
+  return ReceiptOcrPreview(
+    merchant: review.merchantText,
+    receiptDate: review.receiptIssuedAtUtc == null
+        ? null
+        : _formatBillDate(review.receiptIssuedAtUtc!),
+    currency: currency,
+    subtotal: review.subtotalAmount,
+    tax: review.taxAmount,
+    service: review.serviceChargeAmount,
+    discount: review.discountAmount,
+    total: review.grandTotalAmount,
+    items: [
+      for (final line in sortedLines)
+        ReceiptOcrItemCandidate(
+          description: line.text,
+          quantity: line.quantity,
+          unitPrice: line.unitPriceAmount,
+          lineTotal: line.lineTotalAmount,
+          currency: currency,
+        ),
+    ],
+  );
+}
+
+ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
+  ReceiptOcrReviewDetail review,
+  ReceiptOcrPreview preview,
+) {
+  return ReceiptOcrReviewSaveRequest(
+    status: ReceiptOcrReviewStatusValues.provisional,
+    source: review.source,
+    merchantText: _nullableTrimmedText(preview.merchant),
+    receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
+    currency: _nullableUppercaseCurrency(preview.currency),
+    subtotalAmount: review.subtotalAmount,
+    taxAmount: review.taxAmount,
+    serviceChargeAmount: review.serviceChargeAmount,
+    discountAmount: review.discountAmount,
+    grandTotalAmount: review.grandTotalAmount,
+    lines: [
+      for (final item in preview.items)
+        if (_receiptOcrItemHasReviewCandidate(item))
+          ReceiptOcrReviewLineSaveRequest(
+            text: item.description.trim(),
+            quantity: _nullableTrimmedText(item.quantity),
+            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
+            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
+          ),
+    ],
+  );
 }
 
 String _savedReceiptOcrMoney(String? amount, String? currency) {
