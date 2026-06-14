@@ -10515,6 +10515,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       context: context,
       repository: repository,
       route: route,
+      onApplied: _load,
     );
   }
 
@@ -10997,6 +10998,7 @@ class _SettleoraGroupBillDetailScreenState
       context: context,
       repository: repository,
       route: route,
+      onApplied: _load,
     );
   }
 
@@ -11363,12 +11365,16 @@ Future<void> _showSavedReceiptOcrReviewSheet({
   required BuildContext context,
   required ReceiptOcrReviewRepository repository,
   required ReceiptOcrReviewRoute route,
+  required Future<void> Function() onApplied,
 }) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (_) =>
-        _SavedReceiptOcrReviewSheet(repository: repository, route: route),
+    builder: (_) => _SavedReceiptOcrReviewSheet(
+      repository: repository,
+      route: route,
+      onApplied: onApplied,
+    ),
   );
 }
 
@@ -11376,10 +11382,12 @@ class _SavedReceiptOcrReviewSheet extends StatefulWidget {
   const _SavedReceiptOcrReviewSheet({
     required this.repository,
     required this.route,
+    required this.onApplied,
   });
 
   final ReceiptOcrReviewRepository repository;
   final ReceiptOcrReviewRoute route;
+  final Future<void> Function() onApplied;
 
   @override
   State<_SavedReceiptOcrReviewSheet> createState() =>
@@ -11392,7 +11400,12 @@ class _SavedReceiptOcrReviewSheetState
   ReceiptOcrReviewDetail? _loadedReview;
   ReceiptOcrReviewDetail? _editingReview;
   ReceiptOcrPreview? _editingPreview;
+  ReceiptOcrReviewApplyPreview? _applyPreview;
+  ReceiptOcrReviewFailure? _applyPreviewFailure;
+  ReceiptOcrReviewApplyResult? _applyResult;
   bool _isSavingEdit = false;
+  bool _isLoadingApplyPreview = false;
+  bool _isApplyingReview = false;
 
   @override
   void initState() {
@@ -11405,11 +11418,14 @@ class _SavedReceiptOcrReviewSheetState
       _loadedReview = null;
       _editingReview = null;
       _editingPreview = null;
+      _applyPreview = null;
+      _applyPreviewFailure = null;
+      _applyResult = null;
       _reviewFuture = widget.repository.getReview(widget.route);
     });
   }
 
-  bool get _canEditSavedReview {
+  bool get _hasUsableSavedReviewRoute {
     final billId = widget.route.billId.trim();
     final fileId = widget.route.fileId.trim();
     final groupId = widget.route.groupId?.trim();
@@ -11417,6 +11433,20 @@ class _SavedReceiptOcrReviewSheetState
         fileId.isNotEmpty &&
         (widget.route.groupId == null ||
             (groupId != null && groupId.isNotEmpty));
+  }
+
+  bool get _canEditSavedReview => _hasUsableSavedReviewRoute;
+
+  bool _canPreviewSavedReview(ReceiptOcrReviewDetail review) {
+    final routeGroupId = widget.route.groupId?.trim();
+    final reviewGroupId = review.groupId?.trim();
+    return _hasUsableSavedReviewRoute &&
+        widget.route.billId.trim() == review.billId.trim() &&
+        widget.route.fileId.trim() == review.fileId.trim() &&
+        ((routeGroupId == null && reviewGroupId == null) ||
+            (routeGroupId != null &&
+                routeGroupId.isNotEmpty &&
+                routeGroupId == reviewGroupId));
   }
 
   void _beginEdit(ReceiptOcrReviewDetail review) {
@@ -11470,6 +11500,9 @@ class _SavedReceiptOcrReviewSheetState
         _loadedReview = updated;
         _editingReview = null;
         _editingPreview = null;
+        _applyPreview = null;
+        _applyPreviewFailure = null;
+        _applyResult = null;
         _isSavingEdit = false;
         _reviewFuture = Future<ReceiptOcrReviewDetail>.value(updated);
       });
@@ -11496,6 +11529,120 @@ class _SavedReceiptOcrReviewSheetState
           SnackBar(
             content: Text(
               '${failure.title}. Keep editing and try saving again.',
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _loadApplyPreview(ReceiptOcrReviewDetail review) async {
+    if (!_canPreviewSavedReview(review) ||
+        _isLoadingApplyPreview ||
+        _isApplyingReview) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingApplyPreview = true;
+      _applyPreviewFailure = null;
+      _applyResult = null;
+    });
+
+    try {
+      final preview = await widget.repository.previewApply(widget.route);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _applyPreview = preview;
+        _isLoadingApplyPreview = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _applyPreviewFailure = ReceiptOcrReviewFailure.from(error);
+        _isLoadingApplyPreview = false;
+      });
+    }
+  }
+
+  Future<void> _confirmAndApplyPreview(
+    ReceiptOcrReviewApplyPreview preview,
+  ) async {
+    if (!preview.canApply || _isApplyingReview || _isLoadingApplyPreview) {
+      return;
+    }
+
+    final shouldApply = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Apply OCR to draft bill?'),
+        content: const Text(
+          'This applies the server-validated OCR line candidates to the draft bill. It will not finalize the bill.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('saved-ocr-review-apply-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('saved-ocr-review-apply-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Apply to draft bill'),
+          ),
+        ],
+      ),
+    );
+    if (shouldApply != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isApplyingReview = true;
+      _applyPreviewFailure = null;
+      _applyResult = null;
+    });
+
+    try {
+      final result = await widget.repository.applyReview(
+        widget.route,
+        expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
+      );
+      await widget.onApplied();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _applyResult = result;
+        _isApplyingReview = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              'OCR review applied to the draft bill. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final failure = ReceiptOcrReviewFailure.from(error);
+      setState(() {
+        _applyPreviewFailure = failure;
+        _isApplyingReview = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              '${failure.title}. The saved OCR review is still available.',
             ),
           ),
         );
@@ -11600,7 +11747,18 @@ class _SavedReceiptOcrReviewSheetState
                     return _SavedReceiptOcrReviewContent(
                       review: _loadedReview ?? review,
                       canEdit: _canEditSavedReview,
+                      canPreview: _canPreviewSavedReview(
+                        _loadedReview ?? review,
+                      ),
+                      applyPreview: _applyPreview,
+                      previewFailure: _applyPreviewFailure,
+                      applyResult: _applyResult,
+                      isLoadingPreview: _isLoadingApplyPreview,
+                      isApplying: _isApplyingReview,
                       onEdit: () => _beginEdit(_loadedReview ?? review),
+                      onPreviewApply: () =>
+                          _loadApplyPreview(_loadedReview ?? review),
+                      onApplyPreview: _confirmAndApplyPreview,
                     );
                   },
                 ),
@@ -11617,12 +11775,28 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   const _SavedReceiptOcrReviewContent({
     required this.review,
     required this.canEdit,
+    required this.canPreview,
+    required this.applyPreview,
+    required this.previewFailure,
+    required this.applyResult,
+    required this.isLoadingPreview,
+    required this.isApplying,
     required this.onEdit,
+    required this.onPreviewApply,
+    required this.onApplyPreview,
   });
 
   final ReceiptOcrReviewDetail review;
   final bool canEdit;
+  final bool canPreview;
+  final ReceiptOcrReviewApplyPreview? applyPreview;
+  final ReceiptOcrReviewFailure? previewFailure;
+  final ReceiptOcrReviewApplyResult? applyResult;
+  final bool isLoadingPreview;
+  final bool isApplying;
   final VoidCallback onEdit;
+  final VoidCallback onPreviewApply;
+  final ValueChanged<ReceiptOcrReviewApplyPreview> onApplyPreview;
 
   @override
   Widget build(BuildContext context) {
@@ -11692,6 +11866,18 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        _SavedReceiptOcrApplyPreviewCard(
+          review: review,
+          preview: applyPreview,
+          failure: previewFailure,
+          result: applyResult,
+          canPreview: canPreview,
+          isLoadingPreview: isLoadingPreview,
+          isApplying: isApplying,
+          onPreview: onPreviewApply,
+          onApply: onApplyPreview,
+        ),
+        const SizedBox(height: 12),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -11734,6 +11920,313 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
+  const _SavedReceiptOcrApplyPreviewCard({
+    required this.review,
+    required this.preview,
+    required this.failure,
+    required this.result,
+    required this.canPreview,
+    required this.isLoadingPreview,
+    required this.isApplying,
+    required this.onPreview,
+    required this.onApply,
+  });
+
+  final ReceiptOcrReviewDetail review;
+  final ReceiptOcrReviewApplyPreview? preview;
+  final ReceiptOcrReviewFailure? failure;
+  final ReceiptOcrReviewApplyResult? result;
+  final bool canPreview;
+  final bool isLoadingPreview;
+  final bool isApplying;
+  final VoidCallback onPreview;
+  final ValueChanged<ReceiptOcrReviewApplyPreview> onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = this.preview;
+    final failure = this.failure;
+    final result = this.result;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  'Draft apply preview',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              if (preview != null)
+                StatusChip(
+                  label: preview.canApply ? 'Allowed' : 'Blocked',
+                  variant: preview.canApply
+                      ? StatusChipVariant.success
+                      : StatusChipVariant.warning,
+                  size: StatusChipSize.small,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Preview is provisional and server/API validated. It does not change this bill.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: context.settleoraColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Receipt totals, subtotal, discount, tax, service charge, and grand total remain review-only unless the server preview allows safe draft apply.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: context.settleoraColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const Key('saved-ocr-review-preview-apply'),
+            onPressed: canPreview && !isLoadingPreview && !isApplying
+                ? onPreview
+                : null,
+            icon: isLoadingPreview
+                ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.fact_check_outlined),
+            label: Text(
+              isLoadingPreview ? 'Loading preview' : 'Preview draft apply',
+            ),
+          ),
+          if (!canPreview) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Apply preview is unavailable until this saved review has complete route context.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+          ],
+          if (failure != null) ...[
+            const SizedBox(height: 12),
+            _SavedReceiptOcrApplyNotice(
+              title: failure.title,
+              message: 'The saved OCR review is still available for review.',
+              variant: StatusChipVariant.warning,
+            ),
+          ],
+          if (preview != null) ...[
+            const SizedBox(height: 12),
+            _SavedReceiptOcrApplyPreviewDetails(preview: preview),
+            if (preview.canApply) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const Key('saved-ocr-review-apply'),
+                onPressed: isApplying ? null : () => onApply(preview),
+                icon: isApplying
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.playlist_add_check_outlined),
+                label: Text(isApplying ? 'Applying' : 'Apply to draft bill'),
+              ),
+            ],
+          ],
+          if (result != null) ...[
+            const SizedBox(height: 12),
+            _SavedReceiptOcrApplyNotice(
+              title: 'Draft bill updated',
+              message:
+                  '${_pluralCount(result.appliedItemCount, 'item')} applied from this saved OCR review. The bill is still a draft.',
+              variant: StatusChipVariant.success,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Saved review updated ${_formatUtcMinute(review.updatedAtUtc)}.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: context.settleoraColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
+  const _SavedReceiptOcrApplyPreviewDetails({required this.preview});
+
+  final ReceiptOcrReviewApplyPreview preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final headerRows = _savedReceiptOcrPreviewHeaderRows(preview);
+    final sortedLines = [...preview.proposedLines]
+      ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _KeyValueText(
+          label: 'Apply allowed',
+          value: preview.canApply ? 'Yes' : 'No',
+        ),
+        if (preview.blockedReasons.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text('Block reasons', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          for (final reason in preview.blockedReasons)
+            Text(_labelFromCode(reason)),
+        ],
+        if (preview.warnings.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text('Warnings', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          for (final warning in preview.warnings) Text(_labelFromCode(warning)),
+        ],
+        const SizedBox(height: 8),
+        Text('Header summary', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        if (headerRows.isEmpty)
+          const Text('No header candidate summary returned.')
+        else
+          for (final row in headerRows)
+            _KeyValueText(label: row.$1, value: row.$2),
+        const SizedBox(height: 8),
+        Text('Line summary', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        _KeyValueText(
+          label: 'Candidates',
+          value: _pluralCount(preview.summary.lineCount, 'line'),
+        ),
+        _KeyValueText(
+          label: 'With totals',
+          value: preview.summary.linesWithProposedTotalCount.toString(),
+        ),
+        _KeyValueText(
+          label: 'Missing totals',
+          value: preview.summary.linesMissingProposedTotalCount.toString(),
+        ),
+        if (_hasNonEmptyCandidate(preview.summary.proposedLineTotalSumAmount))
+          _KeyValueText(
+            label: 'Line sum',
+            value: _savedReceiptOcrMoney(
+              preview.summary.proposedLineTotalSumAmount,
+              preview.proposedCurrency,
+            ),
+          ),
+        if (_hasNonEmptyCandidate(preview.summary.expectedHeaderTotalAmount))
+          _KeyValueText(
+            label: 'Header total',
+            value: _savedReceiptOcrMoney(
+              preview.summary.expectedHeaderTotalAmount,
+              preview.proposedCurrency,
+            ),
+          ),
+        if (sortedLines.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final line in sortedLines)
+            _SavedReceiptOcrPreviewLineTile(
+              key: ValueKey(
+                'saved-ocr-review-preview-line-${line.reviewLineId}',
+              ),
+              line: line,
+              currency: preview.proposedCurrency,
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SavedReceiptOcrPreviewLineTile extends StatelessWidget {
+  const _SavedReceiptOcrPreviewLineTile({
+    super.key,
+    required this.line,
+    required this.currency,
+  });
+
+  final ReceiptOcrReviewPreviewLine line;
+  final String? currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[
+      if (_hasNonEmptyCandidate(line.quantity)) 'Qty ${line.quantity}',
+      if (_hasNonEmptyCandidate(line.proposedLineTotalAmount))
+        'Proposed ${_savedReceiptOcrMoney(line.proposedLineTotalAmount, currency)}',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _hasNonEmptyCandidate(line.text)
+                ? line.text
+                : 'Unnamed line candidate',
+          ),
+          if (parts.isNotEmpty)
+            Text(
+              parts.join(' - '),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedReceiptOcrApplyNotice extends StatelessWidget {
+  const _SavedReceiptOcrApplyNotice({
+    required this.title,
+    required this.message,
+    required this.variant,
+  });
+
+  final String title;
+  final String message;
+  final StatusChipVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: switch (variant) {
+          StatusChipVariant.success => context.settleoraColors.successSoft,
+          StatusChipVariant.warning => context.settleoraColors.warningSoft,
+          StatusChipVariant.danger => context.settleoraColors.dangerSoft,
+          StatusChipVariant.info => context.settleoraColors.infoSoft,
+          StatusChipVariant.neutral => context.settleoraColors.primarySoft,
+        },
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(message),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -14111,6 +14604,36 @@ List<(String, String)> _savedReceiptOcrHeaderRows(
     ),
     ('Discount', _savedReceiptOcrMoney(review.discountAmount, currency)),
     ('Grand total', _savedReceiptOcrMoney(review.grandTotalAmount, currency)),
+  ].where((row) => row.$2.isNotEmpty).toList(growable: false);
+}
+
+List<(String, String)> _savedReceiptOcrPreviewHeaderRows(
+  ReceiptOcrReviewApplyPreview preview,
+) {
+  final currency = preview.proposedCurrency;
+  return [
+    if (_hasNonEmptyCandidate(preview.proposedMerchantText))
+      ('Merchant', preview.proposedMerchantText!.trim()),
+    if (preview.proposedReceiptIssuedAtUtc != null)
+      ('Receipt date', _formatBillDate(preview.proposedReceiptIssuedAtUtc!)),
+    if (_hasNonEmptyCandidate(currency)) ('Currency', currency!.trim()),
+    (
+      'Subtotal',
+      _savedReceiptOcrMoney(preview.proposedSubtotalAmount, currency),
+    ),
+    ('Tax', _savedReceiptOcrMoney(preview.proposedTaxAmount, currency)),
+    (
+      'Service charge',
+      _savedReceiptOcrMoney(preview.proposedServiceChargeAmount, currency),
+    ),
+    (
+      'Discount',
+      _savedReceiptOcrMoney(preview.proposedDiscountAmount, currency),
+    ),
+    (
+      'Grand total',
+      _savedReceiptOcrMoney(preview.proposedGrandTotalAmount, currency),
+    ),
   ].where((row) => row.$2.isNotEmpty).toList(growable: false);
 }
 
