@@ -113,6 +113,16 @@ class ReceiptOcrReviewHandoff {
   final ReceiptOcrReviewSaveRequest? retryRequest;
 }
 
+class ReceiptOcrReviewDisplayContext {
+  const ReceiptOcrReviewDisplayContext({
+    required this.receiptLabel,
+    this.supportingLabel,
+  });
+
+  final String receiptLabel;
+  final String? supportingLabel;
+}
+
 final Expando<ReceiptOcrReviewHandoff> _createdBillReceiptOcrReviewHandoffs =
     Expando<ReceiptOcrReviewHandoff>('createdBillReceiptOcrReviewHandoffs');
 
@@ -10526,6 +10536,10 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       context: context,
       repository: repository,
       route: route,
+      displayContext: _savedReceiptOcrDisplayContextForRoute(
+        route: route,
+        attachments: _attachments,
+      ),
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
@@ -10533,6 +10547,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
 
   Future<void> _openSavedReceiptOcrReviewFromAttachment(
     ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewDisplayContext? displayContext,
   ) {
     final repository = widget.receiptOcrReviewRepository;
     if (repository == null) {
@@ -10543,6 +10558,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       context: context,
       repository: repository,
       route: route,
+      displayContext: displayContext,
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
@@ -11105,6 +11121,10 @@ class _SettleoraGroupBillDetailScreenState
       context: context,
       repository: repository,
       route: route,
+      displayContext: _savedReceiptOcrDisplayContextForRoute(
+        route: route,
+        attachments: _attachments,
+      ),
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
@@ -11112,6 +11132,7 @@ class _SettleoraGroupBillDetailScreenState
 
   Future<void> _openSavedReceiptOcrReviewFromAttachment(
     ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewDisplayContext? displayContext,
   ) {
     final repository = widget.receiptOcrReviewRepository;
     if (repository == null) {
@@ -11122,6 +11143,7 @@ class _SettleoraGroupBillDetailScreenState
       context: context,
       repository: repository,
       route: route,
+      displayContext: displayContext,
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
     );
@@ -11564,7 +11586,11 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatefulWidget {
   final List<SettleoraBillAttachment> attachments;
   final SettleoraBillAttachmentRoute route;
   final Key directActionKey;
-  final Future<void> Function(ReceiptOcrReviewRoute route) onOpenReview;
+  final Future<void> Function(
+    ReceiptOcrReviewRoute route,
+    ReceiptOcrReviewDisplayContext? displayContext,
+  )
+  onOpenReview;
 
   @override
   State<SavedReceiptOcrReviewDiscoveryCard> createState() =>
@@ -11583,7 +11609,7 @@ class _SavedReceiptOcrReviewDiscoveryCardState
       _isOpeningReview = true;
     });
     try {
-      await widget.onOpenReview(choice.route);
+      await widget.onOpenReview(choice.route, choice.displayContext);
     } finally {
       if (mounted) {
         setState(() {
@@ -11614,7 +11640,7 @@ class _SavedReceiptOcrReviewDiscoveryCardState
       return;
     }
     try {
-      await widget.onOpenReview(selected.route);
+      await widget.onOpenReview(selected.route, selected.displayContext);
     } finally {
       if (mounted) {
         setState(() {
@@ -11723,6 +11749,12 @@ class _ReviewableReceiptOcrRoute {
   final ReceiptOcrReviewRoute route;
   final String label;
   final String supportingLabel;
+
+  ReceiptOcrReviewDisplayContext get displayContext =>
+      ReceiptOcrReviewDisplayContext(
+        receiptLabel: label,
+        supportingLabel: supportingLabel,
+      );
 }
 
 Future<_ReviewableReceiptOcrRoute?> _showSavedReceiptOcrReviewChooser({
@@ -11808,6 +11840,30 @@ List<_ReviewableReceiptOcrRoute> _reviewableReceiptOcrRoutes({
   return choices;
 }
 
+ReceiptOcrReviewDisplayContext? _savedReceiptOcrDisplayContextForRoute({
+  required ReceiptOcrReviewRoute route,
+  required List<SettleoraBillAttachment> attachments,
+}) {
+  final attachmentRoute = route.groupId == null
+      ? SettleoraBillAttachmentRoute.personal(route.billId)
+      : SettleoraBillAttachmentRoute.group(
+          groupId: route.groupId!,
+          billId: route.billId,
+        );
+  final choices = _reviewableReceiptOcrRoutes(
+    route: attachmentRoute,
+    attachments: attachments,
+  );
+  for (final choice in choices) {
+    if (choice.route.fileId == route.fileId &&
+        choice.route.billId == route.billId &&
+        choice.route.groupId == route.groupId) {
+      return choice.displayContext;
+    }
+  }
+  return null;
+}
+
 String _safeReceiptChooserSupportingLabel(SettleoraBillAttachment attachment) {
   final typeLabel = _safeReceiptAttachmentTypeLabel(attachment.contentType);
   final sizeLabel = _safeByteCountLabel(attachment.sizeBytes);
@@ -11880,6 +11936,7 @@ Future<void> _showSavedReceiptOcrReviewSheet({
   required BuildContext context,
   required ReceiptOcrReviewRepository repository,
   required ReceiptOcrReviewRoute route,
+  required ReceiptOcrReviewDisplayContext? displayContext,
   required Future<void> Function() onApplied,
   required Future<void> Function() onRemoved,
 }) {
@@ -11889,6 +11946,7 @@ Future<void> _showSavedReceiptOcrReviewSheet({
     builder: (_) => _SavedReceiptOcrReviewSheet(
       repository: repository,
       route: route,
+      displayContext: displayContext,
       onApplied: onApplied,
       onRemoved: onRemoved,
     ),
@@ -11899,12 +11957,14 @@ class _SavedReceiptOcrReviewSheet extends StatefulWidget {
   const _SavedReceiptOcrReviewSheet({
     required this.repository,
     required this.route,
+    required this.displayContext,
     required this.onApplied,
     required this.onRemoved,
   });
 
   final ReceiptOcrReviewRepository repository;
   final ReceiptOcrReviewRoute route;
+  final ReceiptOcrReviewDisplayContext? displayContext;
   final Future<void> Function() onApplied;
   final Future<void> Function() onRemoved;
 
@@ -12363,6 +12423,7 @@ class _SavedReceiptOcrReviewSheetState
 
   @override
   Widget build(BuildContext context) {
+    final displayContext = widget.displayContext;
     return SafeArea(
       child: FractionallySizedBox(
         heightFactor: 0.86,
@@ -12389,9 +12450,31 @@ class _SavedReceiptOcrReviewSheetState
                   ),
                 ],
               ),
-              const Text(
-                'Provisional receipt OCR data saved for this attachment.',
-              ),
+              if (displayContext == null)
+                const Text(
+                  'Provisional receipt OCR data saved for this attachment.',
+                )
+              else ...[
+                Text(
+                  'Reviewing saved OCR for ${displayContext.receiptLabel}.',
+                  key: const Key('saved-ocr-review-context-label'),
+                ),
+                if (displayContext.supportingLabel != null)
+                  Text(
+                    displayContext.supportingLabel!,
+                    key: const Key('saved-ocr-review-context-supporting'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.settleoraColors.textMuted,
+                    ),
+                  ),
+                Text(
+                  'These OCR values are provisional until you apply them to the draft bill.',
+                  key: const Key('saved-ocr-review-context-provisional'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.settleoraColors.textMuted,
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               Expanded(
                 child: FutureBuilder<ReceiptOcrReviewDetail>(
