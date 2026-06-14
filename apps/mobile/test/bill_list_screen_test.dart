@@ -822,6 +822,77 @@ void main() {
     );
   });
 
+  testWidgets('saved OCR review actions expose clear accessible labels', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: FakeReceiptOcrReviewRepository(
+            applyPreview: sampleReceiptOcrApplyPreview(route),
+          ),
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Edit saved OCR review'), findsOneWidget);
+    expect(find.byTooltip('Refresh saved OCR review'), findsOneWidget);
+    expect(
+      find.byTooltip(
+        'Remove saved OCR review only; keeps receipt attachment and bill items',
+      ),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('Edit saved OCR review'), findsOneWidget);
+    expect(find.bySemanticsLabel('Refresh saved OCR review'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(
+        'Remove saved OCR review only; receipt attachment and bill items stay available',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    expect(
+      find.byTooltip('Preview draft apply from saved OCR review'),
+      findsOneWidget,
+    );
+    expect(find.text('Preview draft apply'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    expect(
+      find.byTooltip('Apply saved OCR review to draft bill'),
+      findsOneWidget,
+    );
+    expect(find.text('Apply to draft bill'), findsOneWidget);
+    expect(find.textContaining('/var/'), findsNothing);
+    expect(find.textContaining('object key'), findsNothing);
+    expect(find.textContaining('signed URL'), findsNothing);
+    expect(find.textContaining('raw OCR full text'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets(
     'personal saved OCR review edit cancel leaves repository unchanged',
     (tester) async {
@@ -1409,7 +1480,94 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byTooltip(
+        'Remove saved OCR review only; keeps receipt attachment and bill items',
+      ),
+      findsOneWidget,
+    );
   });
+
+  testWidgets(
+    'saved OCR review preview busy state disables duplicate lifecycle actions',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final previewCompleter = Completer<ReceiptOcrReviewApplyPreview>();
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        previewApplyCompleter: previewCompleter,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-preview-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+      await tester.pump();
+
+      expect(receiptRepository.previewApplyCalls, 1);
+      expect(find.text('Loading apply preview'), findsOneWidget);
+      expect(
+        find.text(
+          'Saved review actions are disabled while the draft apply preview is loading.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('saved-ocr-review-edit')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const Key('saved-ocr-review-refresh')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const Key('saved-ocr-review-remove')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+      await tester.pump();
+      expect(receiptRepository.previewApplyCalls, 1);
+
+      previewCompleter.complete(sampleReceiptOcrApplyPreview(route));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.previewApplyCalls, 1);
+      expect(find.text('Apply allowed'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'personal blocked saved OCR review preview shows reasons and no apply',
@@ -9852,6 +10010,11 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     this.reviewDetail,
     this.applyPreview,
     this.applyResult,
+    this.getReviewCompleter,
+    this.saveReviewCompleter,
+    this.deleteReviewCompleter,
+    this.previewApplyCompleter,
+    this.applyReviewCompleter,
   });
 
   Object? getFailure;
@@ -9862,6 +10025,11 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   ReceiptOcrReviewDetail? reviewDetail;
   ReceiptOcrReviewApplyPreview? applyPreview;
   ReceiptOcrReviewApplyResult? applyResult;
+  Completer<ReceiptOcrReviewDetail>? getReviewCompleter;
+  Completer<ReceiptOcrReviewDetail>? saveReviewCompleter;
+  Completer<void>? deleteReviewCompleter;
+  Completer<ReceiptOcrReviewApplyPreview>? previewApplyCompleter;
+  Completer<ReceiptOcrReviewApplyResult>? applyReviewCompleter;
   int getCalls = 0;
   int saveCalls = 0;
   int deleteCalls = 0;
@@ -9889,6 +10057,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
     getCalls += 1;
     lastRoute = route;
+    final completer = getReviewCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final failure = getFailure;
     if (failure != null) {
       throw failure;
@@ -9906,6 +10078,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     lastSaveRoute = route;
     lastSaveRequest = request;
     saveRequests.add(request);
+    final completer = saveReviewCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final failure = saveFailure;
     if (failure != null) {
       throw failure;
@@ -9920,6 +10096,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   Future<void> deleteReview(ReceiptOcrReviewRoute route) async {
     deleteCalls += 1;
     lastDeleteRoute = route;
+    final completer = deleteReviewCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final failure = deleteFailure;
     if (failure != null) {
       throw failure;
@@ -9933,6 +10113,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   ) async {
     previewApplyCalls += 1;
     lastPreviewApplyRoute = route;
+    final completer = previewApplyCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final failure = previewApplyFailure;
     if (failure != null) {
       throw failure;
@@ -9949,6 +10133,10 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
     applyReviewCalls += 1;
     lastApplyReviewRoute = route;
     lastExpectedReviewUpdatedAtUtc = expectedReviewUpdatedAtUtc;
+    final completer = applyReviewCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final failure = applyFailure;
     if (failure != null) {
       throw failure;

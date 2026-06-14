@@ -11525,6 +11525,13 @@ class _SavedReceiptOcrReviewSheetState
       !_isRefreshingReview &&
       !_isRemovingReview;
 
+  bool get _isSavedReviewActionBusy =>
+      _isSavingEdit ||
+      _isRefreshingReview ||
+      _isLoadingApplyPreview ||
+      _isApplyingReview ||
+      _isRemovingReview;
+
   bool _canPreviewSavedReview(ReceiptOcrReviewDetail review) {
     final routeGroupId = widget.route.groupId?.trim();
     final reviewGroupId = review.groupId?.trim();
@@ -11538,7 +11545,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   void _beginEdit(ReceiptOcrReviewDetail review) {
-    if (!_canEditSavedReview || _isSavingEdit) {
+    if (!_canEditSavedReview || _isSavedReviewActionBusy) {
       return;
     }
     setState(() {
@@ -11814,7 +11821,7 @@ class _SavedReceiptOcrReviewSheetState
   }
 
   Future<void> _confirmAndRemoveReview() async {
-    if (!_canRemoveSavedReview || _isRemovingReview || _isSavingEdit) {
+    if (!_canRemoveSavedReview || _isSavedReviewActionBusy) {
       return;
     }
 
@@ -12040,6 +12047,7 @@ class _SavedReceiptOcrReviewSheetState
                       isLoadingPreview: _isLoadingApplyPreview,
                       isApplying: _isApplyingReview,
                       isRemoving: _isRemovingReview,
+                      isSavingEdit: _isSavingEdit,
                       refreshFailure: _refreshFailure,
                       onEdit: () => _beginEdit(_loadedReview ?? review),
                       onRefresh: _refreshReview,
@@ -12074,6 +12082,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
     required this.isLoadingPreview,
     required this.isApplying,
     required this.isRemoving,
+    required this.isSavingEdit,
     required this.refreshFailure,
     required this.onEdit,
     required this.onRefresh,
@@ -12095,6 +12104,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   final bool isLoadingPreview;
   final bool isApplying;
   final bool isRemoving;
+  final bool isSavingEdit;
   final ReceiptOcrReviewFailure? refreshFailure;
   final VoidCallback onEdit;
   final VoidCallback onRefresh;
@@ -12106,6 +12116,24 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final lines = [...review.lines]
       ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    final isActionBusy =
+        isSavingEdit ||
+        isRefreshing ||
+        isLoadingPreview ||
+        isApplying ||
+        isRemoving;
+    final disabledActionMessage =
+        !_hasSavedReviewActionContext(canEdit: canEdit, canRemove: canRemove)
+        ? 'Saved review actions are unavailable until the bill attachment route context is loaded.'
+        : isActionBusy
+        ? _savedReviewActionBusyMessage(
+            isSavingEdit: isSavingEdit,
+            isRefreshing: isRefreshing,
+            isLoadingPreview: isLoadingPreview,
+            isApplying: isApplying,
+            isRemoving: isRemoving,
+          )
+        : null;
 
     return ListView(
       key: const Key('saved-ocr-review-content'),
@@ -12150,54 +12178,61 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  FilledButton.icon(
-                    key: const Key('saved-ocr-review-edit'),
-                    onPressed: canEdit && !isRemoving && !isRefreshing
-                        ? onEdit
-                        : null,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Edit saved OCR'),
+                  Tooltip(
+                    message: 'Edit saved OCR review',
+                    child: Semantics(
+                      label: 'Edit saved OCR review',
+                      button: true,
+                      child: FilledButton.icon(
+                        key: const Key('saved-ocr-review-edit'),
+                        onPressed: canEdit && !isActionBusy ? onEdit : null,
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Edit saved OCR'),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    key: const Key('saved-ocr-review-refresh'),
-                    tooltip: 'Refresh saved OCR review',
-                    onPressed:
-                        canRefresh &&
-                            !isRefreshing &&
-                            !isLoadingPreview &&
-                            !isApplying
-                        ? onRefresh
-                        : null,
-                    icon: isRefreshing
-                        ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh_rounded),
+                  Semantics(
+                    label: 'Refresh saved OCR review',
+                    button: true,
+                    child: IconButton(
+                      key: const Key('saved-ocr-review-refresh'),
+                      tooltip: 'Refresh saved OCR review',
+                      onPressed: canRefresh && !isActionBusy ? onRefresh : null,
+                      icon: isRefreshing
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                    ),
                   ),
                   const SizedBox(width: 4),
-                  IconButton(
-                    key: const Key('saved-ocr-review-remove'),
-                    tooltip: 'Remove saved OCR review',
-                    onPressed: canRemove && !isRemoving && !isRefreshing
-                        ? onRemove
-                        : null,
-                    icon: isRemoving
-                        ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.delete_outline),
+                  Semantics(
+                    label:
+                        'Remove saved OCR review only; receipt attachment and bill items stay available',
+                    button: true,
+                    child: IconButton(
+                      key: const Key('saved-ocr-review-remove'),
+                      tooltip:
+                          'Remove saved OCR review only; keeps receipt attachment and bill items',
+                      onPressed: canRemove && !isActionBusy ? onRemove : null,
+                      icon: isRemoving
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.delete_outline),
+                    ),
                   ),
                 ],
               ),
-              if (!canEdit || !canRefresh || !canRemove) ...[
+              if (disabledActionMessage != null) ...[
                 const SizedBox(height: 6),
                 Text(
-                  'Saved review actions are unavailable until the bill attachment route context is loaded.',
+                  disabledActionMessage,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.settleoraColors.textMuted,
                   ),
@@ -12350,20 +12385,29 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            key: const Key('saved-ocr-review-preview-apply'),
-            onPressed: canPreview && !isLoadingPreview && !isApplying
-                ? onPreview
-                : null,
-            icon: isLoadingPreview
-                ? const SizedBox(
-                    height: 16,
-                    width: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.fact_check_outlined),
-            label: Text(
-              isLoadingPreview ? 'Loading preview' : 'Preview draft apply',
+          Tooltip(
+            message: 'Preview draft apply from saved OCR review',
+            child: Semantics(
+              label: 'Preview draft apply from saved OCR review',
+              button: true,
+              child: OutlinedButton.icon(
+                key: const Key('saved-ocr-review-preview-apply'),
+                onPressed: canPreview && !isLoadingPreview && !isApplying
+                    ? onPreview
+                    : null,
+                icon: isLoadingPreview
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.fact_check_outlined),
+                label: Text(
+                  isLoadingPreview
+                      ? 'Loading apply preview'
+                      : 'Preview draft apply',
+                ),
+              ),
             ),
           ),
           if (!canPreview) ...[
@@ -12390,17 +12434,28 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
             _SavedReceiptOcrApplyPreviewDetails(preview: preview),
             if (preview.canApply) ...[
               const SizedBox(height: 12),
-              FilledButton.icon(
-                key: const Key('saved-ocr-review-apply'),
-                onPressed: isApplying ? null : () => onApply(preview),
-                icon: isApplying
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.playlist_add_check_outlined),
-                label: Text(isApplying ? 'Applying' : 'Apply to draft bill'),
+              Tooltip(
+                message: 'Apply saved OCR review to draft bill',
+                child: Semantics(
+                  label: 'Apply saved OCR review to draft bill',
+                  button: true,
+                  child: FilledButton.icon(
+                    key: const Key('saved-ocr-review-apply'),
+                    onPressed: isApplying ? null : () => onApply(preview),
+                    icon: isApplying
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.playlist_add_check_outlined),
+                    label: Text(
+                      isApplying
+                          ? 'Applying to draft bill'
+                          : 'Apply to draft bill',
+                    ),
+                  ),
+                ),
               ),
             ] else ...[
               const SizedBox(height: 12),
@@ -12466,6 +12521,38 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _hasSavedReviewActionContext({
+  required bool canEdit,
+  required bool canRemove,
+}) {
+  return canEdit && canRemove;
+}
+
+String _savedReviewActionBusyMessage({
+  required bool isSavingEdit,
+  required bool isRefreshing,
+  required bool isLoadingPreview,
+  required bool isApplying,
+  required bool isRemoving,
+}) {
+  if (isSavingEdit) {
+    return 'Saved review actions are disabled while edited OCR review data is saving.';
+  }
+  if (isRefreshing) {
+    return 'Saved review actions are disabled while the provisional OCR review is refreshing.';
+  }
+  if (isLoadingPreview) {
+    return 'Saved review actions are disabled while the draft apply preview is loading.';
+  }
+  if (isApplying) {
+    return 'Saved review actions are disabled while the server applies OCR candidates to the draft bill.';
+  }
+  if (isRemoving) {
+    return 'Saved review actions are disabled while the provisional OCR review is being removed.';
+  }
+  return 'Saved review actions are temporarily unavailable.';
 }
 
 class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
