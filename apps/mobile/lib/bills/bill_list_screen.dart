@@ -10515,14 +10515,14 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     }
   }
 
-  void _openSavedReceiptOcrReview() {
+  Future<void> _openSavedReceiptOcrReview() {
     final repository = widget.receiptOcrReviewRepository;
     final route = _receiptOcrReviewHandoff?.reviewRoute;
     if (repository == null || route == null) {
-      return;
+      return Future<void>.value();
     }
 
-    _showSavedReceiptOcrReviewSheet(
+    return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
       route: route,
@@ -10531,13 +10531,15 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     );
   }
 
-  void _openSavedReceiptOcrReviewFromAttachment(ReceiptOcrReviewRoute route) {
+  Future<void> _openSavedReceiptOcrReviewFromAttachment(
+    ReceiptOcrReviewRoute route,
+  ) {
     final repository = widget.receiptOcrReviewRepository;
     if (repository == null) {
-      return;
+      return Future<void>.value();
     }
 
-    _showSavedReceiptOcrReviewSheet(
+    return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
       route: route,
@@ -11092,14 +11094,14 @@ class _SettleoraGroupBillDetailScreenState
     }
   }
 
-  void _openSavedReceiptOcrReview() {
+  Future<void> _openSavedReceiptOcrReview() {
     final repository = widget.receiptOcrReviewRepository;
     final route = _receiptOcrReviewHandoff?.reviewRoute;
     if (repository == null || route == null) {
-      return;
+      return Future<void>.value();
     }
 
-    _showSavedReceiptOcrReviewSheet(
+    return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
       route: route,
@@ -11108,13 +11110,15 @@ class _SettleoraGroupBillDetailScreenState
     );
   }
 
-  void _openSavedReceiptOcrReviewFromAttachment(ReceiptOcrReviewRoute route) {
+  Future<void> _openSavedReceiptOcrReviewFromAttachment(
+    ReceiptOcrReviewRoute route,
+  ) {
     final repository = widget.receiptOcrReviewRepository;
     if (repository == null) {
-      return;
+      return Future<void>.value();
     }
 
-    _showSavedReceiptOcrReviewSheet(
+    return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
       route: route,
@@ -11546,7 +11550,7 @@ class _SettleoraGroupBillDetailScreenState
   }
 }
 
-class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
+class SavedReceiptOcrReviewDiscoveryCard extends StatefulWidget {
   const SavedReceiptOcrReviewDiscoveryCard({
     super.key,
     required this.hasReviewRepository,
@@ -11560,19 +11564,81 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
   final List<SettleoraBillAttachment> attachments;
   final SettleoraBillAttachmentRoute route;
   final Key directActionKey;
-  final ValueChanged<ReceiptOcrReviewRoute> onOpenReview;
+  final Future<void> Function(ReceiptOcrReviewRoute route) onOpenReview;
+
+  @override
+  State<SavedReceiptOcrReviewDiscoveryCard> createState() =>
+      _SavedReceiptOcrReviewDiscoveryCardState();
+}
+
+class _SavedReceiptOcrReviewDiscoveryCardState
+    extends State<SavedReceiptOcrReviewDiscoveryCard> {
+  bool _isOpeningReview = false;
+
+  Future<void> _openReview(_ReviewableReceiptOcrRoute choice) async {
+    if (_isOpeningReview) {
+      return;
+    }
+    setState(() {
+      _isOpeningReview = true;
+    });
+    try {
+      await widget.onOpenReview(choice.route);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningReview = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _chooseReview(List<_ReviewableReceiptOcrRoute> choices) async {
+    if (_isOpeningReview) {
+      return;
+    }
+    setState(() {
+      _isOpeningReview = true;
+    });
+    final selected = await _showSavedReceiptOcrReviewChooser(
+      context: context,
+      choices: choices,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (selected == null) {
+      setState(() {
+        _isOpeningReview = false;
+      });
+      return;
+    }
+    try {
+      await widget.onOpenReview(selected.route);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningReview = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    final reviewRoutes = _reviewableReceiptOcrRoutes(
-      route: route,
-      attachments: attachments,
+    final reviewChoices = _reviewableReceiptOcrRoutes(
+      route: widget.route,
+      attachments: widget.attachments,
     );
-    final canOpenDirectly = hasReviewRepository && reviewRoutes.length == 1;
+    final canOpenDirectly =
+        widget.hasReviewRepository && reviewChoices.length == 1;
+    final canChooseReceipt =
+        widget.hasReviewRepository && reviewChoices.length > 1;
+    final isSingleOrUnavailable = reviewChoices.length <= 1;
 
     return AppCard(
-      color: hasReviewRepository && reviewRoutes.length <= 1
+      color: widget.hasReviewRepository && isSingleOrUnavailable
           ? colors.infoSoft
           : colors.warningSoft,
       child: Row(
@@ -11580,7 +11646,7 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
         children: [
           Icon(
             Icons.fact_check_outlined,
-            color: hasReviewRepository && reviewRoutes.length <= 1
+            color: widget.hasReviewRepository && isSingleOrUnavailable
                 ? colors.onInfoSoft
                 : colors.onWarningSoft,
           ),
@@ -11594,16 +11660,31 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 4),
-                Text(_savedReceiptOcrDiscoveryMessage(reviewRoutes.length)),
+                Text(_savedReceiptOcrDiscoveryMessage(reviewChoices.length)),
                 if (canOpenDirectly) ...[
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: FilledButton.icon(
-                      key: directActionKey,
-                      onPressed: () => onOpenReview(reviewRoutes.single),
+                      key: widget.directActionKey,
+                      onPressed: _isOpeningReview
+                          ? null
+                          : () => _openReview(reviewChoices.single),
                       icon: const Icon(Icons.fact_check_outlined),
                       label: const Text('Review saved OCR'),
+                    ),
+                  ),
+                ] else if (canChooseReceipt) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      key: widget.directActionKey,
+                      onPressed: _isOpeningReview
+                          ? null
+                          : () => _chooseReview(reviewChoices),
+                      icon: const Icon(Icons.list_alt_outlined),
+                      label: const Text('Choose receipt to review'),
                     ),
                   ),
                 ],
@@ -11616,7 +11697,7 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
   }
 
   String _savedReceiptOcrDiscoveryMessage(int reviewableReceiptCount) {
-    if (!hasReviewRepository) {
+    if (!widget.hasReviewRepository) {
       return 'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.';
     }
 
@@ -11632,7 +11713,68 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
   }
 }
 
-List<ReceiptOcrReviewRoute> _reviewableReceiptOcrRoutes({
+class _ReviewableReceiptOcrRoute {
+  const _ReviewableReceiptOcrRoute({
+    required this.route,
+    required this.label,
+    required this.supportingLabel,
+  });
+
+  final ReceiptOcrReviewRoute route;
+  final String label;
+  final String supportingLabel;
+}
+
+Future<_ReviewableReceiptOcrRoute?> _showSavedReceiptOcrReviewChooser({
+  required BuildContext context,
+  required List<_ReviewableReceiptOcrRoute> choices,
+}) {
+  return showModalBottomSheet<_ReviewableReceiptOcrRoute>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Choose receipt to review',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Open the saved provisional OCR review for one receipt attachment. This does not apply OCR data to the bill.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              for (final choice in choices)
+                ListTile(
+                  key: ValueKey('saved-ocr-review-receipt-${choice.label}'),
+                  leading: const Icon(Icons.receipt_long_outlined),
+                  title: Text(choice.label),
+                  subtitle: Text(choice.supportingLabel),
+                  onTap: () => Navigator.of(context).pop(choice),
+                ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const Key('saved-ocr-review-receipt-cancel'),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+List<_ReviewableReceiptOcrRoute> _reviewableReceiptOcrRoutes({
   required SettleoraBillAttachmentRoute route,
   required List<SettleoraBillAttachment> attachments,
 }) {
@@ -11643,16 +11785,60 @@ List<ReceiptOcrReviewRoute> _reviewableReceiptOcrRoutes({
     return const [];
   }
 
-  return [
-    for (final attachment in attachments)
-      if (attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt &&
-          _isSafeRouteUuid(attachment.fileId.trim()))
-        ReceiptOcrReviewRoute(
+  final choices = <_ReviewableReceiptOcrRoute>[];
+  for (final attachment in attachments) {
+    final fileId = attachment.fileId.trim();
+    if (attachment.purpose != SettleoraBillAttachmentPurposeValues.receipt ||
+        !_isSafeRouteUuid(fileId)) {
+      continue;
+    }
+    final receiptNumber = choices.length + 1;
+    choices.add(
+      _ReviewableReceiptOcrRoute(
+        route: ReceiptOcrReviewRoute(
           billId: billId,
-          fileId: attachment.fileId.trim(),
+          fileId: fileId,
           groupId: groupId,
         ),
-  ];
+        label: 'Receipt $receiptNumber',
+        supportingLabel: _safeReceiptChooserSupportingLabel(attachment),
+      ),
+    );
+  }
+  return choices;
+}
+
+String _safeReceiptChooserSupportingLabel(SettleoraBillAttachment attachment) {
+  final typeLabel = _safeReceiptAttachmentTypeLabel(attachment.contentType);
+  final sizeLabel = _safeByteCountLabel(attachment.sizeBytes);
+  if (sizeLabel == null) {
+    return typeLabel;
+  }
+  return '$typeLabel, $sizeLabel';
+}
+
+String _safeReceiptAttachmentTypeLabel(String contentType) {
+  return switch (contentType.trim().toLowerCase()) {
+    'image/png' => 'PNG receipt image',
+    'image/jpeg' || 'image/jpg' => 'JPEG receipt image',
+    'image/webp' => 'WEBP receipt image',
+    _ => 'Receipt attachment',
+  };
+}
+
+String? _safeByteCountLabel(int sizeBytes) {
+  if (sizeBytes <= 0) {
+    return null;
+  }
+  if (sizeBytes < 1024) {
+    return '$sizeBytes bytes';
+  }
+  final kib = sizeBytes / 1024;
+  if (kib < 1024) {
+    return '${kib.toStringAsFixed(kib < 10 ? 1 : 0)} KB';
+  }
+  final mib = kib / 1024;
+  return '${mib.toStringAsFixed(mib < 10 ? 1 : 0)} MB';
 }
 
 bool _isSafeRouteUuid(String? value) {
