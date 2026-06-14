@@ -93,6 +93,38 @@ class BillDuplicateWarning {
   final bool canReviewMatchedBill;
 }
 
+enum ReceiptOcrReviewHandoffStatus { saved, failed }
+
+class ReceiptOcrReviewHandoff {
+  const ReceiptOcrReviewHandoff.saved()
+    : status = ReceiptOcrReviewHandoffStatus.saved,
+      retryRoute = null,
+      retryRequest = null;
+
+  const ReceiptOcrReviewHandoff.failed({
+    required this.retryRoute,
+    required this.retryRequest,
+  }) : status = ReceiptOcrReviewHandoffStatus.failed;
+
+  final ReceiptOcrReviewHandoffStatus status;
+  final ReceiptOcrReviewRoute? retryRoute;
+  final ReceiptOcrReviewSaveRequest? retryRequest;
+}
+
+final Expando<ReceiptOcrReviewHandoff> _createdBillReceiptOcrReviewHandoffs =
+    Expando<ReceiptOcrReviewHandoff>('createdBillReceiptOcrReviewHandoffs');
+
+SettleoraBillDetail _createdBillWithReceiptOcrReviewHandoff(
+  SettleoraBillDetail bill,
+  ReceiptOcrReviewHandoff? handoff,
+) {
+  if (handoff != null) {
+    _createdBillReceiptOcrReviewHandoffs[bill] = handoff;
+  }
+
+  return bill;
+}
+
 BillDuplicateWarning? possibleReceiptDuplicateWarning({
   required ReceiptOcrPreview preview,
   required Iterable<BillDuplicateWarningCandidate> existingBills,
@@ -628,6 +660,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           revisionRepository: widget.revisionRepository,
           billId: createdBill.id,
           initialBill: createdBill,
+          initialReceiptOcrReviewHandoff:
+              _createdBillReceiptOcrReviewHandoffs[createdBill],
           onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
@@ -1770,8 +1804,7 @@ class _SettleoraPersonalBillCreateScreenState
       _draftAttachments,
     );
     final uploadedDraftIds = <int>{};
-    var didSaveReceiptOcrReview = false;
-    var didFailReceiptOcrReviewSave = false;
+    ReceiptOcrReviewHandoff? receiptOcrReviewHandoff;
 
     try {
       for (final attachment in pendingUploads) {
@@ -1786,14 +1819,12 @@ class _SettleoraPersonalBillCreateScreenState
         );
         if (attachment.purpose ==
             SettleoraBillAttachmentPurposeValues.receipt) {
-          final saved = await _saveUploadedReceiptOcrReview(
+          final handoff = await _saveUploadedReceiptOcrReview(
             createdBill: createdBill,
             uploadedAttachment: uploadedAttachment,
           );
-          if (saved) {
-            didSaveReceiptOcrReview = true;
-          } else if (_shouldAttemptReceiptOcrReviewSave(uploadedAttachment)) {
-            didFailReceiptOcrReviewSave = true;
+          if (handoff != null) {
+            receiptOcrReviewHandoff = handoff;
           }
         }
         uploadedDraftIds.add(attachment.id);
@@ -1807,11 +1838,13 @@ class _SettleoraPersonalBillCreateScreenState
         _createdBillAwaitingAttachmentUpload = null;
         _isSaving = false;
       });
-      _showPostSaveReceiptOcrReviewNotice(
-        didSave: didSaveReceiptOcrReview,
-        didFail: didFailReceiptOcrReviewSave,
+      _showPostSaveReceiptOcrReviewNotice(handoff: receiptOcrReviewHandoff);
+      await _leaveRoute(
+        _createdBillWithReceiptOcrReviewHandoff(
+          createdBill,
+          receiptOcrReviewHandoff,
+        ),
       );
-      await _leaveRoute(createdBill);
     } catch (error) {
       if (!mounted) {
         return;
@@ -1828,18 +1861,7 @@ class _SettleoraPersonalBillCreateScreenState
     }
   }
 
-  bool _shouldAttemptReceiptOcrReviewSave(
-    SettleoraBillAttachment uploadedAttachment,
-  ) {
-    return widget.receiptOcrReviewRepository != null &&
-        uploadedAttachment.fileId.trim().isNotEmpty &&
-        _receiptOcrReviewSaveRequestFromPreview(
-              _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
-            ) !=
-            null;
-  }
-
-  Future<bool> _saveUploadedReceiptOcrReview({
+  Future<ReceiptOcrReviewHandoff?> _saveUploadedReceiptOcrReview({
     required SettleoraBillDetail createdBill,
     required SettleoraBillAttachment uploadedAttachment,
   }) async {
@@ -1849,31 +1871,34 @@ class _SettleoraPersonalBillCreateScreenState
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
-      return false;
+      return null;
     }
 
+    final route = ReceiptOcrReviewRoute(billId: createdBill.id, fileId: fileId);
     try {
-      await reviewRepository.saveReview(
-        ReceiptOcrReviewRoute(billId: createdBill.id, fileId: fileId),
-        request,
-      );
-      return true;
+      await reviewRepository.saveReview(route, request);
+      return const ReceiptOcrReviewHandoff.saved();
     } catch (_) {
-      return false;
+      return ReceiptOcrReviewHandoff.failed(
+        retryRoute: route,
+        retryRequest: request,
+      );
     }
   }
 
   void _showPostSaveReceiptOcrReviewNotice({
-    required bool didSave,
-    required bool didFail,
+    required ReceiptOcrReviewHandoff? handoff,
   }) {
-    if (!mounted || (!didSave && !didFail)) {
+    if (!mounted || handoff == null) {
       return;
     }
 
-    final message = didFail
-        ? 'Bill saved, but the OCR review could not be saved. You can review the receipt later.'
-        : 'Bill saved with receipt OCR review ready for later review.';
+    final message = switch (handoff.status) {
+      ReceiptOcrReviewHandoffStatus.saved =>
+        'Bill saved. Receipt attached, and a provisional OCR review was saved for later review.',
+      ReceiptOcrReviewHandoffStatus.failed =>
+        'Bill saved and receipt attached, but the provisional OCR review could not be saved. Retry from the bill detail.',
+    };
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger
       ?..hideCurrentSnackBar()
@@ -4346,6 +4371,8 @@ class _SettleoraGroupBillListScreenState
           participantDisplayNames: _participantDisplayNames,
           billId: createdBill.id,
           initialBill: createdBill,
+          initialReceiptOcrReviewHandoff:
+              _createdBillReceiptOcrReviewHandoffs[createdBill],
           onTopLevelDestinationSelected: widget.onTopLevelDestinationSelected,
         ),
       ),
@@ -6029,8 +6056,7 @@ class _SettleoraGroupBillCreateScreenState
       _draftAttachments,
     );
     final uploadedDraftIds = <int>{};
-    var didSaveReceiptOcrReview = false;
-    var didFailReceiptOcrReviewSave = false;
+    ReceiptOcrReviewHandoff? receiptOcrReviewHandoff;
 
     try {
       for (final attachment in pendingUploads) {
@@ -6045,14 +6071,12 @@ class _SettleoraGroupBillCreateScreenState
         );
         if (attachment.purpose ==
             SettleoraBillAttachmentPurposeValues.receipt) {
-          final saved = await _saveUploadedReceiptOcrReview(
+          final handoff = await _saveUploadedReceiptOcrReview(
             createdBill: createdBill,
             uploadedAttachment: uploadedAttachment,
           );
-          if (saved) {
-            didSaveReceiptOcrReview = true;
-          } else if (_shouldAttemptReceiptOcrReviewSave(uploadedAttachment)) {
-            didFailReceiptOcrReviewSave = true;
+          if (handoff != null) {
+            receiptOcrReviewHandoff = handoff;
           }
         }
         uploadedDraftIds.add(attachment.id);
@@ -6064,11 +6088,11 @@ class _SettleoraGroupBillCreateScreenState
       setState(() {
         _draftAttachments.clear();
       });
-      _showPostSaveReceiptOcrReviewNotice(
-        didSave: didSaveReceiptOcrReview,
-        didFail: didFailReceiptOcrReviewSave,
+      _showPostSaveReceiptOcrReviewNotice(handoff: receiptOcrReviewHandoff);
+      await _submitCreatedGroupBill(
+        createdBill,
+        receiptOcrReviewHandoff: receiptOcrReviewHandoff,
       );
-      await _submitCreatedGroupBill(createdBill);
     } catch (error) {
       if (!mounted) {
         return;
@@ -6087,18 +6111,7 @@ class _SettleoraGroupBillCreateScreenState
     }
   }
 
-  bool _shouldAttemptReceiptOcrReviewSave(
-    SettleoraBillAttachment uploadedAttachment,
-  ) {
-    return widget.receiptOcrReviewRepository != null &&
-        uploadedAttachment.fileId.trim().isNotEmpty &&
-        _receiptOcrReviewSaveRequestFromPreview(
-              _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
-            ) !=
-            null;
-  }
-
-  Future<bool> _saveUploadedReceiptOcrReview({
+  Future<ReceiptOcrReviewHandoff?> _saveUploadedReceiptOcrReview({
     required SettleoraBillDetail createdBill,
     required SettleoraBillAttachment uploadedAttachment,
   }) async {
@@ -6108,42 +6121,48 @@ class _SettleoraGroupBillCreateScreenState
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
-      return false;
+      return null;
     }
 
+    final route = ReceiptOcrReviewRoute(
+      billId: createdBill.id,
+      fileId: fileId,
+      groupId: widget.groupId,
+    );
     try {
-      await reviewRepository.saveReview(
-        ReceiptOcrReviewRoute(
-          billId: createdBill.id,
-          fileId: fileId,
-          groupId: widget.groupId,
-        ),
-        request,
-      );
-      return true;
+      await reviewRepository.saveReview(route, request);
+      return const ReceiptOcrReviewHandoff.saved();
     } catch (_) {
-      return false;
+      return ReceiptOcrReviewHandoff.failed(
+        retryRoute: route,
+        retryRequest: request,
+      );
     }
   }
 
   void _showPostSaveReceiptOcrReviewNotice({
-    required bool didSave,
-    required bool didFail,
+    required ReceiptOcrReviewHandoff? handoff,
   }) {
-    if (!mounted || (!didSave && !didFail)) {
+    if (!mounted || handoff == null) {
       return;
     }
 
-    final message = didFail
-        ? 'Bill saved, but the OCR review could not be saved. You can review the receipt later.'
-        : 'Group bill saved with receipt OCR review ready for later review.';
+    final message = switch (handoff.status) {
+      ReceiptOcrReviewHandoffStatus.saved =>
+        'Group bill saved. Receipt attached, and a provisional OCR review was saved for later review.',
+      ReceiptOcrReviewHandoffStatus.failed =>
+        'Group bill saved and receipt attached, but the provisional OCR review could not be saved. Retry from the group bill detail.',
+    };
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _submitCreatedGroupBill(SettleoraBillDetail createdBill) async {
+  Future<void> _submitCreatedGroupBill(
+    SettleoraBillDetail createdBill, {
+    ReceiptOcrReviewHandoff? receiptOcrReviewHandoff,
+  }) async {
     setState(() {
       _isSaving = true;
       _failure = null;
@@ -6164,7 +6183,10 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = createdBill;
         _createdBillSubmittedAwaitingDetail = true;
       });
-      await _loadSubmittedGroupBillDetail(createdBill);
+      await _loadSubmittedGroupBillDetail(
+        createdBill,
+        receiptOcrReviewHandoff: receiptOcrReviewHandoff,
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -6180,8 +6202,9 @@ class _SettleoraGroupBillCreateScreenState
   }
 
   Future<void> _loadSubmittedGroupBillDetail(
-    SettleoraBillDetail createdBill,
-  ) async {
+    SettleoraBillDetail createdBill, {
+    ReceiptOcrReviewHandoff? receiptOcrReviewHandoff,
+  }) async {
     setState(() {
       _isSaving = true;
       _failure = null;
@@ -6203,7 +6226,12 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
       });
-      await _leaveRoute(submittedBill);
+      await _leaveRoute(
+        _createdBillWithReceiptOcrReviewHandoff(
+          submittedBill,
+          receiptOcrReviewHandoff,
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -10195,6 +10223,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
+    this.initialReceiptOcrReviewHandoff,
     this.revisionRepository,
     this.onTopLevelDestinationSelected,
   });
@@ -10205,6 +10234,7 @@ class SettleoraBillDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
+  final ReceiptOcrReviewHandoff? initialReceiptOcrReviewHandoff;
   final SettleoraBillRevisionRepository? revisionRepository;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
@@ -10222,6 +10252,8 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   SettleoraBillRevision? _pendingRevision;
   SettleoraBillRevisionFailure? _revisionFailure;
   SettleoraBillRevisionFailure? _createFailure;
+  late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
+  bool _isRetryingReceiptOcrReviewSave = false;
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   int _attachmentReloadRevision = 0;
@@ -10230,6 +10262,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   void initState() {
     super.initState();
     final initialBill = widget.initialBill;
+    _receiptOcrReviewHandoff = widget.initialReceiptOcrReviewHandoff;
     _bill = initialBill;
     _isLoading = initialBill == null;
     if (initialBill == null) {
@@ -10413,6 +10446,60 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     }
   }
 
+  Future<void> _retryReceiptOcrReviewSave() async {
+    final repository = widget.receiptOcrReviewRepository;
+    final handoff = _receiptOcrReviewHandoff;
+    final route = handoff?.retryRoute;
+    final request = handoff?.retryRequest;
+    if (repository == null ||
+        handoff?.status != ReceiptOcrReviewHandoffStatus.failed ||
+        route == null ||
+        request == null ||
+        _isRetryingReceiptOcrReviewSave) {
+      return;
+    }
+
+    setState(() {
+      _isRetryingReceiptOcrReviewSave = true;
+    });
+
+    try {
+      await repository.saveReview(route, request);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _receiptOcrReviewHandoff = const ReceiptOcrReviewHandoff.saved();
+        _isRetryingReceiptOcrReviewSave = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Provisional OCR review saved. Review it before applying any bill changes.',
+            ),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRetryingReceiptOcrReviewSave = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Provisional OCR review still could not be saved. The bill and receipt remain saved.',
+            ),
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -10458,6 +10545,16 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
               children: [
                 _BillDetailHeader(bill: bill),
+                if (_receiptOcrReviewHandoff != null) ...[
+                  const SizedBox(height: 14),
+                  ReceiptOcrReviewHandoffBanner(
+                    key: const Key('bill-detail-ocr-review-handoff'),
+                    handoff: _receiptOcrReviewHandoff!,
+                    retryButtonKey: const Key('bill-detail-ocr-review-retry'),
+                    isRetrying: _isRetryingReceiptOcrReviewSave,
+                    onRetry: _retryReceiptOcrReviewSave,
+                  ),
+                ],
                 if (_pendingRevision != null) ...[
                   const SizedBox(height: 14),
                   _PendingRevisionBanner(
@@ -10566,6 +10663,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptOcrReviewRepository,
+    this.initialReceiptOcrReviewHandoff,
     this.revisionRepository,
     this.onTopLevelDestinationSelected,
   });
@@ -10575,6 +10673,7 @@ class SettleoraGroupBillDetailScreen extends StatefulWidget {
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
+  final ReceiptOcrReviewHandoff? initialReceiptOcrReviewHandoff;
   final String groupId;
   final String groupName;
   final String billId;
@@ -10603,6 +10702,8 @@ class _SettleoraGroupBillDetailScreenState
   bool _isOpeningCreate = false;
   bool _isAcknowledging = false;
   SettleoraBillFailure? _acknowledgementFailure;
+  late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
+  bool _isRetryingReceiptOcrReviewSave = false;
   int _attachmentReloadRevision = 0;
 
   @override
@@ -10611,6 +10712,7 @@ class _SettleoraGroupBillDetailScreenState
     _participantDisplayNames = _normalizeParticipantDisplayNames(
       widget.participantDisplayNames,
     );
+    _receiptOcrReviewHandoff = widget.initialReceiptOcrReviewHandoff;
     final initialBill = widget.initialBill;
     _bill = initialBill;
     _isLoading = initialBill == null;
@@ -10802,6 +10904,60 @@ class _SettleoraGroupBillDetailScreenState
       return revisionRepository.createBillRevision(freshBill.id, proposal);
     } catch (error) {
       throw _createRevisionFailureFrom(error);
+    }
+  }
+
+  Future<void> _retryReceiptOcrReviewSave() async {
+    final repository = widget.receiptOcrReviewRepository;
+    final handoff = _receiptOcrReviewHandoff;
+    final route = handoff?.retryRoute;
+    final request = handoff?.retryRequest;
+    if (repository == null ||
+        handoff?.status != ReceiptOcrReviewHandoffStatus.failed ||
+        route == null ||
+        request == null ||
+        _isRetryingReceiptOcrReviewSave) {
+      return;
+    }
+
+    setState(() {
+      _isRetryingReceiptOcrReviewSave = true;
+    });
+
+    try {
+      await repository.saveReview(route, request);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _receiptOcrReviewHandoff = const ReceiptOcrReviewHandoff.saved();
+        _isRetryingReceiptOcrReviewSave = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Provisional OCR review saved. Review it before applying any bill changes.',
+            ),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRetryingReceiptOcrReviewSave = false;
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Provisional OCR review still could not be saved. The group bill and receipt remain saved.',
+            ),
+          ),
+        );
     }
   }
 
@@ -11010,6 +11166,18 @@ class _SettleoraGroupBillDetailScreenState
                 _GroupBillContext(groupName: widget.groupName),
                 const SizedBox(height: 20),
                 _BillDetailHeader(bill: bill),
+                if (_receiptOcrReviewHandoff != null) ...[
+                  const SizedBox(height: 14),
+                  ReceiptOcrReviewHandoffBanner(
+                    key: const Key('group-bill-detail-ocr-review-handoff'),
+                    handoff: _receiptOcrReviewHandoff!,
+                    retryButtonKey: const Key(
+                      'group-bill-detail-ocr-review-retry',
+                    ),
+                    isRetrying: _isRetryingReceiptOcrReviewSave,
+                    onRetry: _retryReceiptOcrReviewSave,
+                  ),
+                ],
                 if (_canAcknowledgeCurrentParticipant(
                   bill,
                   widget.currentUserProfileId,
@@ -11140,6 +11308,85 @@ class _SettleoraGroupBillDetailScreenState
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class ReceiptOcrReviewHandoffBanner extends StatelessWidget {
+  const ReceiptOcrReviewHandoffBanner({
+    super.key,
+    required this.handoff,
+    required this.retryButtonKey,
+    required this.isRetrying,
+    required this.onRetry,
+  });
+
+  final ReceiptOcrReviewHandoff handoff;
+  final Key retryButtonKey;
+  final bool isRetrying;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final didSave = handoff.status == ReceiptOcrReviewHandoffStatus.saved;
+
+    return AppCard(
+      color: didSave ? colors.successSoft : colors.warningSoft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                didSave
+                    ? Icons.fact_check_outlined
+                    : Icons.error_outline_rounded,
+                color: didSave ? colors.onSuccessSoft : colors.onWarningSoft,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      didSave
+                          ? 'Receipt OCR review saved'
+                          : 'OCR review still needs saving',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      didSave
+                          ? 'The bill was saved, the receipt was attached, and a provisional OCR review was saved. Review it before applying any bill changes.'
+                          : 'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR candidates to this receipt only.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (!didSave) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                key: retryButtonKey,
+                onPressed: isRetrying ? null : onRetry,
+                icon: isRetrying
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded),
+                label: Text(isRetrying ? 'Retrying' : 'Retry OCR review save'),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
