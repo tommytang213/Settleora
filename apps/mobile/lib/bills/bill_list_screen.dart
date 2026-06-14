@@ -10260,6 +10260,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   int _attachmentReloadRevision = 0;
+  List<SettleoraBillAttachment> _attachments = const [];
 
   @override
   void initState() {
@@ -10521,6 +10522,21 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     );
   }
 
+  void _openSavedReceiptOcrReviewFromAttachment(ReceiptOcrReviewRoute route) {
+    final repository = widget.receiptOcrReviewRepository;
+    if (repository == null) {
+      return;
+    }
+
+    _showSavedReceiptOcrReviewSheet(
+      context: context,
+      repository: repository,
+      route: route,
+      onApplied: _load,
+      onRemoved: _handleSavedReceiptOcrReviewRemoved,
+    );
+  }
+
   Future<void> _handleSavedReceiptOcrReviewRemoved() async {
     if (!mounted) {
       return;
@@ -10679,12 +10695,26 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
+                    onAttachmentsChanged: (attachments) {
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _attachments = attachments;
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
                   SavedReceiptOcrReviewDiscoveryCard(
                     key: const Key('bill-detail-saved-ocr-discovery'),
                     hasReviewRepository:
                         widget.receiptOcrReviewRepository != null,
+                    attachments: _attachments,
+                    route: SettleoraBillAttachmentRoute.personal(bill.id),
+                    directActionKey: const Key(
+                      'bill-detail-saved-ocr-discovery-open',
+                    ),
+                    onOpenReview: _openSavedReceiptOcrReviewFromAttachment,
                   ),
                 ],
               ],
@@ -10758,6 +10788,7 @@ class _SettleoraGroupBillDetailScreenState
   String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
   int _attachmentReloadRevision = 0;
+  List<SettleoraBillAttachment> _attachments = const [];
 
   @override
   void initState() {
@@ -11020,6 +11051,21 @@ class _SettleoraGroupBillDetailScreenState
     final repository = widget.receiptOcrReviewRepository;
     final route = _receiptOcrReviewHandoff?.reviewRoute;
     if (repository == null || route == null) {
+      return;
+    }
+
+    _showSavedReceiptOcrReviewSheet(
+      context: context,
+      repository: repository,
+      route: route,
+      onApplied: _load,
+      onRemoved: _handleSavedReceiptOcrReviewRemoved,
+    );
+  }
+
+  void _openSavedReceiptOcrReviewFromAttachment(ReceiptOcrReviewRoute route) {
+    final repository = widget.receiptOcrReviewRepository;
+    if (repository == null) {
       return;
     }
 
@@ -11400,12 +11446,29 @@ class _SettleoraGroupBillDetailScreenState
                     fileInput: widget.attachmentFileInput,
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
+                    onAttachmentsChanged: (attachments) {
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _attachments = attachments;
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
                   SavedReceiptOcrReviewDiscoveryCard(
                     key: const Key('group-bill-detail-saved-ocr-discovery'),
                     hasReviewRepository:
                         widget.receiptOcrReviewRepository != null,
+                    attachments: _attachments,
+                    route: SettleoraBillAttachmentRoute.group(
+                      groupId: widget.groupId,
+                      billId: bill.id,
+                    ),
+                    directActionKey: const Key(
+                      'group-bill-detail-saved-ocr-discovery-open',
+                    ),
+                    onOpenReview: _openSavedReceiptOcrReviewFromAttachment,
                   ),
                 ],
               ],
@@ -11421,22 +11484,37 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
   const SavedReceiptOcrReviewDiscoveryCard({
     super.key,
     required this.hasReviewRepository,
+    required this.attachments,
+    required this.route,
+    required this.directActionKey,
+    required this.onOpenReview,
   });
 
   final bool hasReviewRepository;
+  final List<SettleoraBillAttachment> attachments;
+  final SettleoraBillAttachmentRoute route;
+  final Key directActionKey;
+  final ValueChanged<ReceiptOcrReviewRoute> onOpenReview;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
+    final reviewRoutes = _reviewableReceiptOcrRoutes(
+      route: route,
+      attachments: attachments,
+    );
+    final canOpenDirectly = hasReviewRepository && reviewRoutes.length == 1;
 
     return AppCard(
-      color: hasReviewRepository ? colors.infoSoft : colors.warningSoft,
+      color: hasReviewRepository && reviewRoutes.length <= 1
+          ? colors.infoSoft
+          : colors.warningSoft,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.fact_check_outlined,
-            color: hasReviewRepository
+            color: hasReviewRepository && reviewRoutes.length <= 1
                 ? colors.onInfoSoft
                 : colors.onWarningSoft,
           ),
@@ -11450,11 +11528,19 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  hasReviewRepository
-                      ? 'Receipt attachments may have a saved provisional OCR review. Use Review receipt on a receipt row to open it before applying any draft changes.'
-                      : 'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
-                ),
+                Text(_savedReceiptOcrDiscoveryMessage(reviewRoutes.length)),
+                if (canOpenDirectly) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      key: directActionKey,
+                      onPressed: () => onOpenReview(reviewRoutes.single),
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('Review saved OCR'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -11462,6 +11548,56 @@ class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
       ),
     );
   }
+
+  String _savedReceiptOcrDiscoveryMessage(int reviewableReceiptCount) {
+    if (!hasReviewRepository) {
+      return 'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.';
+    }
+
+    if (reviewableReceiptCount == 1) {
+      return 'One receipt attachment can open its saved provisional OCR review directly. Review it before applying any draft changes.';
+    }
+
+    if (reviewableReceiptCount > 1) {
+      return 'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment below before applying any draft changes.';
+    }
+
+    return 'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.';
+  }
+}
+
+List<ReceiptOcrReviewRoute> _reviewableReceiptOcrRoutes({
+  required SettleoraBillAttachmentRoute route,
+  required List<SettleoraBillAttachment> attachments,
+}) {
+  final billId = route.billId.trim();
+  final groupId = route.groupId?.trim();
+  if (!_isSafeRouteUuid(billId) ||
+      (route.groupId != null && !_isSafeRouteUuid(groupId))) {
+    return const [];
+  }
+
+  return [
+    for (final attachment in attachments)
+      if (attachment.purpose == SettleoraBillAttachmentPurposeValues.receipt &&
+          _isSafeRouteUuid(attachment.fileId.trim()))
+        ReceiptOcrReviewRoute(
+          billId: billId,
+          fileId: attachment.fileId.trim(),
+          groupId: groupId,
+        ),
+  ];
+}
+
+bool _isSafeRouteUuid(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return false;
+  }
+
+  return RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  ).hasMatch(trimmed);
 }
 
 class _BillDetailNotice extends StatelessWidget {
