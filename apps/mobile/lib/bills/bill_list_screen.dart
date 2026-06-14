@@ -12113,10 +12113,9 @@ class _SavedReceiptOcrReviewSheetState
     final billId = widget.route.billId.trim();
     final fileId = widget.route.fileId.trim();
     final groupId = widget.route.groupId?.trim();
-    return billId.isNotEmpty &&
-        fileId.isNotEmpty &&
-        (widget.route.groupId == null ||
-            (groupId != null && groupId.isNotEmpty));
+    return _isSafeRouteUuid(billId) &&
+        _isSafeRouteUuid(fileId) &&
+        (widget.route.groupId == null || _isSafeRouteUuid(groupId));
   }
 
   _SavedReceiptOcrBusyState get _busyState {
