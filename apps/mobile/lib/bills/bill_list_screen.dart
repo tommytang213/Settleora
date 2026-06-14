@@ -10680,6 +10680,12 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
                   ),
+                  const SizedBox(height: 12),
+                  SavedReceiptOcrReviewDiscoveryCard(
+                    key: const Key('bill-detail-saved-ocr-discovery'),
+                    hasReviewRepository:
+                        widget.receiptOcrReviewRepository != null,
+                  ),
                 ],
               ],
             );
@@ -11395,11 +11401,64 @@ class _SettleoraGroupBillDetailScreenState
                     receiptOcrReviewRepository:
                         widget.receiptOcrReviewRepository,
                   ),
+                  const SizedBox(height: 12),
+                  SavedReceiptOcrReviewDiscoveryCard(
+                    key: const Key('group-bill-detail-saved-ocr-discovery'),
+                    hasReviewRepository:
+                        widget.receiptOcrReviewRepository != null,
+                  ),
                 ],
               ],
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class SavedReceiptOcrReviewDiscoveryCard extends StatelessWidget {
+  const SavedReceiptOcrReviewDiscoveryCard({
+    super.key,
+    required this.hasReviewRepository,
+  });
+
+  final bool hasReviewRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      color: hasReviewRepository ? colors.infoSoft : colors.warningSoft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.fact_check_outlined,
+            color: hasReviewRepository
+                ? colors.onInfoSoft
+                : colors.onWarningSoft,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Saved provisional OCR reviews',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  hasReviewRepository
+                      ? 'Receipt attachments may have a saved provisional OCR review. Use Review receipt on a receipt row to open it before applying any draft changes.'
+                      : 'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

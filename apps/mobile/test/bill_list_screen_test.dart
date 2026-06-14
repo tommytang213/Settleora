@@ -8614,6 +8614,154 @@ void main() {
     expect(receiptRepository.lastRoute?.groupId, isNull);
   });
 
+  testWidgets(
+    'personal bill detail surfaces saved OCR review discovery for receipt attachments',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment(fileId: _uploadedFileId)],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+      );
+      expect(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+        findsOneWidget,
+      );
+      expect(find.text('Saved provisional OCR reviews'), findsOneWidget);
+      expect(
+        find.text(
+          'Receipt attachments may have a saved provisional OCR review. Use Review receipt on a receipt row to open it before applying any draft changes.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        findsOneWidget,
+      );
+      expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+      expect(visibleText(tester), isNot(contains('/var/')));
+      expect(visibleText(tester), isNot(contains('object key')));
+      expect(visibleText(tester), isNot(contains('signed URL')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('bill-attachments-ocr-0')));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastRoute?.groupId, isNull);
+    },
+  );
+
+  testWidgets(
+    'personal bill detail keeps saved OCR discovery bounded when route support is missing',
+    (tester) async {
+      await useLargeSurface(tester);
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(fileId: 'storage/object/key/receipt.png'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+      );
+      expect(
+        find.text(
+          'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('bill-attachments-ocr-0')),
+        findsNothing,
+      );
+      expect(find.text('Review receipt'), findsNothing);
+      expect(visibleText(tester), isNot(contains('storage/object/key')));
+      expect(visibleText(tester), isNot(contains('signed URL')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+    },
+  );
+
+  testWidgets(
+    'group bill detail opens receipt OCR review with group route context',
+    (tester) async {
+      await useLargeSurface(tester);
+      await tester.binding.setSurfaceSize(const Size(900, 2400));
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment(fileId: _uploadedFileId)],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillDetailScreen(
+            repository: FakeBillRepository(),
+            groupId: _groupId,
+            groupName: 'Trip',
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+      );
+      expect(
+        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('group-bill-attachments-ocr-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastRoute?.groupId, _groupId);
+      expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+      expect(visibleText(tester), isNot(contains('signed URL')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+    },
+  );
+
   testWidgets('personal bill attachment upload can choose supporting', (
     tester,
   ) async {
