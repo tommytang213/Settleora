@@ -51,5 +51,5 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Completed task: `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509`
-- Next queued task: `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`
+- Completed task: `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`
+- Next queued task: none. `STOP-M3-001` remains as the controller stop sentinel for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.

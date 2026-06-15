@@ -197,10 +197,15 @@ Focused existing tests:
 - `apps/mobile/test/group_bill_list_screen_test.dart`
   - Group bill creation does not expose the personal bill archive/restore sync queue surface.
 
-Coverage gaps for upcoming M3 tasks:
+Coverage gaps closed during M3:
 
-- Processor behavior for multiple queued items where one session-blocking failure stops later work.
-- UI expectations for failed/conflict queue visibility and safe retry labels.
+- Processor persistence of transient `syncing` state before submit.
+- Session-blocked flush restoration of original queued work.
+- Failed/conflict queue preservation with bounded safe error fields.
+- Retryable failed items later becoming synced.
+- Bill sync controller safe failed/conflict labels and open-operation detection.
+- Generated change-feed bounds/failure mapping and metadata-only hydration flags.
+- Authenticated server-mode app bootstrap sync controller wiring.
 
 M3-002 added focused coverage for:
 
@@ -218,9 +223,11 @@ M3-003 added focused coverage for:
 - Metadata-only change-feed hydration results that explicitly do not hydrate persistent cache or make mobile authoritative for server-mode business truth.
 - Authenticated server-mode sync controller composition from app bootstrap using the existing generated repository seam and secure queue store path.
 
-## M3 Acceptance Targets
+M3-004 finalization confirms this coverage is represented in `.ai` control state and this QA map. It adds no runtime behavior and does not change tests because the focused coverage already exists after M3-001, M3-002, and M3-003.
 
-M3 implementation tasks should keep changes within the current mobile sync/offline queue boundary and validate:
+## M3 Acceptance Result
+
+M3 implementation tasks stayed within the current mobile sync/offline queue boundary and validated:
 
 - Queued bill archive/restore work survives app restarts through secure storage.
 - Session-blocked sync does not mutate pending work.
@@ -231,6 +238,26 @@ M3 implementation tasks should keep changes within the current mobile sync/offli
 - Generated sync repository seams map submit and change-feed calls without hand-editing generated clients.
 - App bootstrap wires sync queue dependencies only in authenticated server mode.
 - No mobile code computes bill, money, settlement, authorization, or conflict-resolution truth client-side.
+
+M3 is finalized as a bounded Day 1 foundation checkpoint. It proves the current archive/restore offline queue, processor state preservation, generated sync repository seam, metadata-only change-feed read seam, and authenticated bootstrap wiring are testable and server-authority preserving. It does not claim full Day 1 offline support.
+
+## Final Validation Coverage
+
+M3 finalization requires the task report to record exact results for:
+
+- `git fetch origin main`
+- `git status --short`
+- `git diff --name-only origin/main...HEAD`
+- `git diff --check origin/main...HEAD`
+- `node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD`
+- `npm run validate:docs`
+- `npm run validate:scaffold`
+- `npm run validate:openapi`
+- `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
+- `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+- `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`
+
+Prior M3 slices also recorded scoped validation for their implementation commits in `.ai/task-queue.json`.
 
 ## Deferred Manual Acceptance Gates
 
@@ -243,6 +270,17 @@ Manual Day 1 acceptance should eventually verify:
 - Conflicts preserve the local pending operation until explicit review.
 - Sync state remains visible across app restart.
 - No queued operation silently changes money, settlement, authorization, storage privacy, or server authority.
+
+## Known Non-Goals And Remaining Day 1 Gaps
+
+The following remain explicit non-goals for M3 and must be handled only by later scoped tasks:
+
+- Persistent offline cache implementation.
+- Cache merge policy and broad hydration triggers.
+- Startup flush, background sync, connectivity-triggered sync, and push/background delivery behavior.
+- Retry backoff, max-attempt policy, automatic compaction, manual discard/cancel, and full conflict-resolution UX.
+- Offline queueing for group bill create/edit, recurring bill lifecycle, OCR capture/apply, settlement mutations, notification actions, and broader product domains.
+- Backend/API sync protocol expansion, OpenAPI/generated-client changes, auth/session/security runtime changes, database schema/migrations, storage privacy policy, money/settlement/bill calculation authority, Docker/deployment/env/CI changes, secrets, or production/public exposure changes.
 
 ## Stop Conditions
 
@@ -261,6 +299,6 @@ Stop and require human review if M3 work requires any of the following:
 - Secrets, tokens, credentials, `.env`, `.ssh`, or local Codex state changes.
 - Reducing Day 1 scope or replacing architecture direction.
 
-## Recommended Next Slice
+## Recommended Next Automated Day 1 Action
 
-`M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` should harden processor and bill-sync state preservation for queued, syncing, synced, failed, and conflict outcomes without changing backend/API contracts, generated clients, auth/session runtime, schema, money logic, storage privacy policy, deployment, or broad mobile UI.
+No safe queued M3 implementation slice remains after `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`. The next automated Day 1 action should come from the repo controller after it stops on `STOP-M3-001`; a reasonable next milestone candidate is a narrow Day 1 acceptance-readiness or mobile offline visibility slice that preserves the same API/auth/schema/storage/money/deployment boundaries. Do not expand M3 ad hoc into persistent cache, background sync, conflict-resolution UX, or unrelated major domains.

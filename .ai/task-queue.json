@@ -98,19 +98,53 @@
     "title": "Mobile sync/offline queue QA finalization",
     "risk": "low",
     "autoMergeAllowed": false,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
     "goal": "Finalize M3 automated QA/control state, record validation coverage and deferred manual Day 1 acceptance gates, and stop before any broader offline, cache, API, storage, auth, schema, money, deployment, or notification scope.",
+    "completedAt": "2026-06-15T16:25:00+08:00",
+    "completionSummary": "Finalized M3 QA/control records after confirming M3-001, M3-002, and M3-003 are complete, documenting actual automated coverage and non-goals, preserving manual UI/code review deferral until Day 1 acceptance, and leaving STOP-M3-001 as the next controller stop sentinel.",
     "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "git diff --check origin/main...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
       "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi",
       "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile",
+      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
+    ],
+    "finalizationCoverage": [
+      "M3-001 completed current-state reconciliation and created docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md.",
+      "M3-002 completed queue processor and bill sync bridge hardening coverage for syncing, synced, failed, conflict, retryable, and session-blocked outcomes.",
+      "M3-003 completed metadata-only change-feed hydration seam and authenticated server-mode bootstrap wiring coverage.",
+      "M3-004 is documentation/control finalization only and intentionally does not add runtime behavior."
+    ],
+    "remainingDay1Gaps": [
+      "Persistent offline cache hydration and cache merge policy.",
+      "Startup flush, background sync, connectivity-triggered sync, and backoff/max-attempt policy.",
+      "Manual discard/cancel and full conflict-resolution UX.",
+      "Offline queueing for group bill create/edit, recurring bill lifecycle, OCR capture/apply, settlements, notifications, and other broader domains."
+    ],
+    "deferredManualAcceptance": [
+      "Manual UI retest remains deferred until Day 1 acceptance and is not passed.",
+      "Manual code review remains deferred until Day 1 acceptance and is not passed."
+    ],
+    "requiredFinalGateValidation": [
+      "git fetch origin main",
+      "git status --short",
+      "git diff --name-only origin/main...HEAD",
+      "git diff --check origin/main...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile",
+      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
       "Manual UI/code review remains deferred until Day 1 acceptance by owner decision",

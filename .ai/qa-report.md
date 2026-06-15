@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M3-003 sync change-feed hydration seam complete; manual UI/code review deferred until Day 1 acceptance; M3-004 ready`
+Status: `M3 sync/offline queue QA finalized; manual UI/code review deferred until Day 1 acceptance; no safe queued M3 task remains`
 
 ## Acceptance Checklist
 
@@ -16,7 +16,8 @@ Status: `M3-003 sync change-feed hydration seam complete; manual UI/code review 
 - [x] M3 mobile sync/offline QA map created at `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
 - [x] M3-002 sync queue processor hardening is complete.
 - [x] M3-003 sync change-feed hydration seam is complete.
-- [x] Next queued implementation slice is `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`.
+- [x] M3-004 sync/offline QA finalization is complete.
+- [x] No safe queued M3 implementation slice remains; `STOP-M3-001` is the controller stop sentinel.
 
 ## M2 Finalization Record
 
@@ -42,7 +43,7 @@ The selection is based on current repo state:
 - `M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509` - Completed. Reconciled current mobile sync/offline queue state and created `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
 - `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Completed. Hardened existing queue processor and bill sync bridge state preservation.
 - `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509` - Completed. Validated bounded generated sync change-feed hydration seams and app wiring without adding cache persistence or mobile business authority.
-- `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509` - Finalize M3 QA/control state.
+- `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509` - Completed. Finalized M3 QA/control state, recorded coverage and remaining Day 1 gaps, preserved deferred manual review status, and left the stop sentinel as the next controller result.
 - `STOP-M3-001` - Stop for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
 
 ## M3-001 Reconciliation Record
@@ -88,6 +89,34 @@ M3-003 made the existing generated change-feed path concrete and testable while 
 - App bootstrap now exposes the authenticated server-mode bill-sync controller composition helper used by the default bootstrap path, with focused tests proving the controller receives the authenticated configuration/access-token seam and preserves empty safe queue payloads.
 - No persistent offline cache, cache merge, background sync, generated-client edit, OpenAPI change, business truth mutation, auth/session runtime change, schema change, storage policy change, money/settlement logic, deployment, Docker, CI, or secret change was added.
 
+## M3-004 QA Finalization Record
+
+M3-004 is a documentation/control finalization slice only. It confirms the M3 implementation work now represented in `.ai` and QA state:
+
+- M3-001 is complete and represented in `.ai/task-queue.json`, `.ai/current-milestone.md`, this QA report, and `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
+- M3-002 is complete and represented with queue processor/bill sync bridge hardening coverage.
+- M3-003 is complete and represented with metadata-only change-feed hydration seam and app bootstrap wiring coverage.
+- M3-004 is complete and records no runtime code, API, OpenAPI/generated-client, auth/session/security, schema/migration, storage privacy, money/settlement, Docker/deployment/env/CI, secret, web/admin runtime UI, push notification, background delivery, broad offline cache, startup flush, backoff, conflict-resolution UX, or manual discard/cancel behavior changes.
+
+Actual automated M3 coverage now includes focused mobile tests for:
+
+- Secure queue persistence, bounded safe payloads, capacity preservation, and archive/restore item creation.
+- Processor transitions through `syncing`, `synced`, retryable `failed`, preserved `conflict`, and session-blocked no-final-mutation behavior.
+- Generated sync submit and change-feed mapping, bounded request inputs, and safe failure mapping.
+- Metadata-only hydration flags proving no persistent cache hydration and no mobile business-truth acceptance.
+- Authenticated server-mode bootstrap sync controller composition over `SecureStorageSyncQueueStore` and the generated sync repository seam.
+- Bill sync bridge snapshots, safe labels, and open-operation detection for queued/syncing/failed/conflict work.
+- Personal bill archive/restore queue UI hooks and explicit absence of group bill creation offline queueing.
+
+Known Day 1 gaps intentionally remain outside M3:
+
+- Persistent offline cache implementation and cache merge policy.
+- Background sync, startup flush, connectivity-triggered sync, backoff policy, max attempts, and queue compaction.
+- Manual discard/cancel and full conflict-resolution UX.
+- Broader offline queueing for group bill create/edit, recurring bill lifecycle, OCR capture/apply, settlements, notifications, and unrelated major domains.
+
+Recommended next automated Day 1 action after M3: start the next scoped Day 1 milestone from the controller-approved queue after the M3 stop sentinel is resolved. A good candidate is a narrow mobile offline visibility or Day 1 acceptance-readiness slice that does not change API/auth/schema/storage/money/deployment behavior, but the next task should come from the repo controller rather than expanding M3 ad hoc.
+
 ## Validation Expectations
 
 Kickoff validation must run:
@@ -103,6 +132,17 @@ M3 mobile implementation tasks should add mobile validation:
 
 - `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
 - `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+
+M3-004 finalization validation additionally requires:
+
+- `git fetch origin main`
+- `git status --short`
+- `git diff --name-only origin/main...HEAD`
+- `git diff --check origin/main...HEAD`
+- `node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD`
+- `npm run validate:scaffold`
+- `npm run validate:openapi`
+- `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`
 
 ## Deferred Manual Acceptance Gates
 
