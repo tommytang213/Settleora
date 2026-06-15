@@ -4,6 +4,8 @@
 
 Define the QA map for M7 `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`.
 
+M7 is finalized and UI-test ready. M7-001 through M7-004 are complete, automated validation coverage is recorded, and there is no remaining automated M7 work.
+
 M7 covers existing mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation-status readout seams. It does not implement runtime behavior in this kickoff and must not add statement import, reconciliation mutations, CSV import/export, backup/restore, backend/API behavior, OpenAPI/generated-client changes, schema/migrations, auth/session/security runtime changes, storage/privacy policy changes, settlement/payment/bill calculation changes, money authority changes, Docker/deployment/CI changes, secrets, or unrelated domain work.
 
 ## Repo-State Basis
@@ -114,14 +116,52 @@ Automated validation coverage added or updated:
 
 - `apps/mobile/test/bill_list_screen_test.dart` now covers personal bill filtered-empty copy, detail filtered-empty copy, loaded-row/local-device scope copy, known and unknown bounded reconciliation labels, bounded server-provided reconciliation note display, unsafe reconciliation status/note suppression, and absence of statement import/matching/mutation/export/backup actions on bill readout surfaces.
 - `apps/mobile/test/group_bill_list_screen_test.dart` now covers group bill loaded-row/local-device scope copy and filtered-empty copy for current-user/filter discovery.
-- Focused command passed with 234 tests: `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart`.
+- Focused command passed with 274 tests: `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_generated_repository_test.dart test/monthly_report_screen_test.dart`.
+- Full mobile validation passed with 690 Flutter tests.
+
+## M7-004 Finalization Coverage
+
+M7-004 changed only `.ai` control files and this QA map.
+
+Finalized state:
+
+- M7-001 is completed as the current-state reconciliation and automated coverage inventory.
+- M7-002 is completed as monthly report discovery and safe aggregate hardening.
+- M7-003 is completed as bill reporting and reconciliation readout hardening.
+- M7-004 is completed as QA/control finalization.
+- M7 is UI-test ready with no remaining automated M7 work.
+- Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+
+Recorded validation coverage:
+
+- M7-002 focused report/dashboard validation: 60 tests from `monthly_report_screen_test.dart`, `report_generated_repository_test.dart`, `dashboard_preview_screen_test.dart`, and `server_mode_shell_dashboard_test.dart`.
+- M7-002 full mobile validation: 688 Flutter tests.
+- M7-003 focused bill/report/reconciliation validation: 274 tests from `bill_list_screen_test.dart`, `group_bill_list_screen_test.dart`, `bill_generated_repository_test.dart`, and `monthly_report_screen_test.dart`.
+- M7-003 full mobile validation: 690 Flutter tests.
+
+## Remaining Out-Of-Scope Areas
+
+The following remain unresolved outside this bounded M7 mobile readout checkpoint:
+
+- full statement import/matching/linking;
+- raw statement row visibility;
+- reconciliation link/unlink/update mutations;
+- CSV import/export;
+- local backup/restore;
+- generated dashboard API;
+- broad report API redesign;
+- storage/privacy changes;
+- money/settlement/bill calculation authority changes;
+- API/contracts/generated-client/schema/auth/security changes;
+- deployment, Docker, CI, or environment changes;
+- notification delivery, web/admin runtime, broad offline cache/sync, or unrelated major-domain work.
 
 ## Current Coverage Gaps And Next Slices
 
 - M7-002 completed monthly report/dashboard discovery hardening: dashboard/report entry clarity, monthly report safe aggregate display, group/month scope clarity, unknown status handling, session/network failure states, retry behavior, and server-authority copy inside existing report/dashboard seams.
 - M7-003 completed bill reporting/reconciliation readout hardening: loaded-row search/filter clarity, filtered-empty copy, reconciliation status/note bounded display, and no-import/no-mutation/server-authority copy inside existing personal/group bill list/detail seams.
-- M7-004 should finalize M7 QA/control state after implementation slices and keep manual UI/code review deferred until Day 1 acceptance.
-- Remaining Day 1 gaps outside this M7 mobile readout slice include CSV import/export, local backup/restore, full statement import/matching/linking, raw statement privacy controls, generated dashboard APIs, broad reporting backend redesign, and any authoritative reconciliation mutations.
+- M7-004 completed QA/control finalization after implementation slices and kept manual UI/code review deferred until Day 1 acceptance.
+- Remaining Day 1/Day 2 gaps outside this M7 mobile readout slice include CSV import/export, local backup/restore, full statement import/matching/linking, raw statement privacy controls, generated dashboard APIs, broad reporting backend redesign, storage/privacy policy changes, and any authoritative reconciliation mutations.
 
 ## Day 1 Requirement Map
 
@@ -136,7 +176,7 @@ Automated validation coverage added or updated:
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`: reconcile current implementation and QA coverage without runtime changes.
 - `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`: completed monthly report discovery, safe aggregate display, group/month scope handling, unknown statuses, failures, and dashboard/report entry within existing seams.
 - `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`: completed bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
-- `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`: finalize QA/control state and mark M7 UI-test ready without runtime behavior.
+- `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`: completed QA/control finalization and marked M7 UI-test ready without runtime behavior.
 - `STOP-M7-001`: stop for broad reporting/reconciliation/import/export/API/storage/money/deployment/security expansion.
 
 ## Stop Conditions
@@ -166,4 +206,4 @@ Future runtime slices should add focused Flutter tests and full mobile validatio
 
 ## Deferred Manual Review
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance. M7 kickoff does not mark either as passed.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance. M7 finalization does not mark either as passed.

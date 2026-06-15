@@ -98,7 +98,7 @@
     "title": "Finalize mobile monthly report and reconciliation readout QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
