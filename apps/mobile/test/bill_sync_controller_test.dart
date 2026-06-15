@@ -87,26 +87,117 @@ void main() {
       expect(outcome.snapshot.items.single.state, 'synced');
       expect(outcome.snapshot.items.single.safeMessage, isNull);
     });
+
+    test('preserves failed work with safe retry-later labels', () async {
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(items: [sampleArchiveItem()]),
+      );
+      final controller = SettleoraBillSyncController(
+        queueStore: store,
+        queueProcessor: SettleoraSyncQueueProcessor(
+          queueStore: store,
+          repository: FakeSyncRepository([
+            sampleOperationResult(
+              status: SettleoraSyncOperationResultStatusValues.rejected,
+              safeErrorCode: 'bill_archived_elsewhere',
+              safeMessage: 'Refresh the bill before trying again.',
+            ),
+          ]),
+          now: () => _attemptedAtUtc,
+        ),
+      );
+
+      final outcome = await controller.flushPending();
+      final item = outcome.snapshot.items.single;
+
+      expect(outcome.result.failedCount, 1);
+      expect(outcome.snapshot.failedCount, 1);
+      expect(item.state, SettleoraSyncQueueItemStateValues.failed);
+      expect(item.payload, isEmpty);
+      expect(outcome.snapshot.hasOpenBillOperation(_billId), isTrue);
+      expect(settleoraBillSyncOperationLabel(item), 'Archive');
+      expect(settleoraBillSyncStateLabel(item), 'Retry later');
+      expect(settleoraBillSyncStateLabel(item), isNot(contains(_billId)));
+      expect(settleoraBillSyncStateLabel(item), isNot(contains('/api/')));
+    });
+
+    test('preserves conflict work with safe needs-review labels', () async {
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(items: [sampleArchiveItem()]),
+      );
+      final controller = SettleoraBillSyncController(
+        queueStore: store,
+        queueProcessor: SettleoraSyncQueueProcessor(
+          queueStore: store,
+          repository: FakeSyncRepository([
+            sampleOperationResult(
+              status: SettleoraSyncOperationResultStatusValues.conflict,
+              safeErrorCode: 'stale_version',
+              safeMessage: 'Review the latest bill before syncing.',
+            ),
+          ]),
+          now: () => _attemptedAtUtc,
+        ),
+      );
+
+      final outcome = await controller.flushPending();
+      final item = outcome.snapshot.items.single;
+
+      expect(outcome.result.conflictCount, 1);
+      expect(outcome.snapshot.conflictCount, 1);
+      expect(item.state, SettleoraSyncQueueItemStateValues.conflict);
+      expect(item.payload, isEmpty);
+      expect(outcome.snapshot.hasOpenBillOperation(_billId), isTrue);
+      expect(settleoraBillSyncOperationLabel(item), 'Archive');
+      expect(settleoraBillSyncStateLabel(item), 'Needs review');
+      expect(settleoraBillSyncStateLabel(item), isNot(contains(_billId)));
+      expect(settleoraBillSyncStateLabel(item), isNot(contains('/api/')));
+    });
+
+    test('treats queued and syncing bill operations as open', () async {
+      final queued = sampleArchiveItem();
+      final syncing = sampleArchiveItem(id: 'queue-2').copyWith(
+        state: SettleoraSyncQueueItemStateValues.syncing,
+        updatedAtUtc: _attemptedAtUtc,
+      );
+      final snapshot = SettleoraBillSyncSnapshot(
+        state: SettleoraSyncQueueState(items: [queued, syncing]),
+      );
+      final latest = snapshot.latestForBill(_billId)!;
+
+      expect(snapshot.queuedCount, 1);
+      expect(snapshot.syncingCount, 1);
+      expect(snapshot.hasOpenBillOperation(_billId), isTrue);
+      expect(latest.id, 'queue-2');
+      expect(settleoraBillSyncStateLabel(queued), 'Queued');
+      expect(settleoraBillSyncStateLabel(syncing), 'Syncing');
+    });
   });
 }
 
-SettleoraSyncQueueItem sampleArchiveItem() {
+SettleoraSyncQueueItem sampleArchiveItem({String id = 'queue-1'}) {
   return SettleoraSyncQueueItem.billArchive(
     resourceId: _billId,
     now: _now,
-    idGenerator: () => 'queue-1',
+    idGenerator: () => id,
   );
 }
 
-SettleoraSyncOperationResult sampleOperationResult() {
-  return const SettleoraSyncOperationResult(
+SettleoraSyncOperationResult sampleOperationResult({
+  SettleoraSyncOperationResultStatus status =
+      SettleoraSyncOperationResultStatusValues.accepted,
+  String? safeErrorCode,
+  String? safeMessage,
+}) {
+  return SettleoraSyncOperationResult(
     operationId: 'server-operation-1',
-    status: SettleoraSyncOperationResultStatusValues.accepted,
+    status: status,
     resourceType: SettleoraSyncResourceTypeValues.expenseBill,
     resourceId: _billId,
-    resultingVersion: 12,
-    safeErrorCode: null,
-    safeMessage: null,
+    resultingVersion:
+        status == SettleoraSyncOperationResultStatusValues.accepted ? 12 : null,
+    safeErrorCode: safeErrorCode,
+    safeMessage: safeMessage,
   );
 }
 

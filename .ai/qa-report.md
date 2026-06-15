@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M3-001 sync/offline state reconciled; manual UI/code review deferred until Day 1 acceptance; M3-002 ready`
+Status: `M3-002 sync queue processor hardened; manual UI/code review deferred until Day 1 acceptance; M3-003 ready`
 
 ## Acceptance Checklist
 
@@ -14,7 +14,8 @@ Status: `M3-001 sync/offline state reconciled; manual UI/code review deferred un
 - [x] No M3 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, or secret changes.
 - [x] M3-001 current-state reconciliation is complete.
 - [x] M3 mobile sync/offline QA map created at `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
-- [x] Next queued implementation slice is `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509`.
+- [x] M3-002 sync queue processor hardening is complete.
+- [x] Next queued implementation slice is `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509`.
 
 ## M2 Finalization Record
 
@@ -38,7 +39,7 @@ The selection is based on current repo state:
 ## M3 Queue Summary
 
 - `M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509` - Completed. Reconciled current mobile sync/offline queue state and created `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
-- `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Queued next. Harden existing queue processor and bill sync bridge state preservation.
+- `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Completed. Hardened existing queue processor and bill sync bridge state preservation.
 - `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509` - Validate bounded generated sync change-feed hydration seams and app wiring.
 - `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509` - Finalize M3 QA/control state.
 - `STOP-M3-001` - Stop for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
@@ -58,11 +59,22 @@ M3-001 found that the current mobile sync/offline queue foundation is intentiona
 
 Current M3 gaps recorded in the QA map:
 
-- `syncing` exists in the model and labels but is not persisted by the processor before submit.
-- Failed-to-retry-to-synced, conflict preservation through the bill sync controller, and app bootstrap default sync wiring need focused tests.
+- App bootstrap default sync wiring still needs focused tests.
 - Change-feed reads are mapped but not yet connected to offline cache hydration.
 - There is no backoff, max-attempt, manual discard/cancel, conflict-resolution workflow, startup flush, background sync, or local cache merge behavior.
 - Offline queueing remains limited to personal bill archive/restore; group bill create/edit, recurring bills, OCR capture/apply, and broader offline cache hydration remain future scoped work.
+
+## M3-002 Hardening Record
+
+M3-002 made the current mobile sync queue processor and bill sync bridge more explicit while preserving server authority:
+
+- Processor flushes now persist each retryable item as `syncing` before submitting the existing bounded payload.
+- Accepted and replayed server results still become `synced`.
+- Rejected validation/domain results still become bounded `failed` items that remain preserved for future retry/review.
+- Conflict results still become bounded `conflict` items preserved for user review and not retried automatically.
+- Retryable network/server failures remain bounded `failed` queue items and can later sync successfully.
+- Session-required/session-expired failures restore the original queued item and return a session-required flush result without final queue mutation.
+- Bill sync bridge tests now cover failed retry-later labels, conflict needs-review labels, and queued/syncing/failed/conflict open-operation detection without exposing raw IDs, API paths, storage paths, tokens, or backend internals in labels.
 
 ## Validation Expectations
 

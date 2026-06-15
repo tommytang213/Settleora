@@ -132,6 +132,40 @@ void main() {
       },
     );
 
+    test('persists syncing state during an in-flight attempt', () async {
+      final completer = Completer<SettleoraSyncOperationResult>();
+      final repository = BlockingSyncRepository(completer);
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(items: [sampleArchiveItem()]),
+      );
+      final processor = SettleoraSyncQueueProcessor(
+        queueStore: store,
+        repository: repository,
+        now: () => _attemptedAtUtc,
+      );
+
+      final flush = processor.flush();
+      await Future<void>.delayed(Duration.zero);
+      final syncingItem = store.state.items.single;
+
+      expect(syncingItem.state, SettleoraSyncQueueItemStateValues.syncing);
+      expect(syncingItem.id, 'queue-1');
+      expect(syncingItem.idempotencyKey, contains('queue-1'));
+      expect(syncingItem.payload, isEmpty);
+      expect(syncingItem.attemptCount, 0);
+      expect(syncingItem.lastAttemptAtUtc, isNull);
+      expect(repository.lastSubmittedItem?.state, 'syncing');
+
+      completer.complete(sampleOperationResult());
+      final result = await flush;
+      final syncedItem = store.state.items.single;
+
+      expect(result.syncedCount, 1);
+      expect(syncedItem.state, SettleoraSyncQueueItemStateValues.synced);
+      expect(syncedItem.payload, isEmpty);
+      expect(syncedItem.attemptCount, 1);
+    });
+
     test('marks accepted and replayed results as synced', () async {
       for (final status in [
         SettleoraSyncOperationResultStatusValues.accepted,
@@ -238,6 +272,42 @@ void main() {
       expect(item.attemptCount, 1);
       expect(item.lastAttemptAtUtc, _attemptedAtUtc);
       expect(item.safeErrorCode, 'network_unavailable');
+    });
+
+    test('keeps retryable failed items available for a later sync', () async {
+      final store = MemorySyncQueueStore(
+        initialState: SettleoraSyncQueueState(items: [sampleArchiveItem()]),
+      );
+      final processor = SettleoraSyncQueueProcessor(
+        queueStore: store,
+        repository: FakeSyncRepository([
+          const SettleoraSyncFailure(
+            kind: SettleoraSyncFailureKind.retryable,
+            message: 'The server is unavailable. Try syncing again later.',
+            safeErrorCode: 'network_unavailable',
+          ),
+          sampleOperationResult(),
+        ]),
+        now: () => _attemptedAtUtc,
+      );
+
+      final failedResult = await processor.flush();
+      final failedItem = store.state.items.single;
+
+      expect(failedResult.failedCount, 1);
+      expect(failedItem.state, SettleoraSyncQueueItemStateValues.failed);
+      expect(failedItem.isRetryable, isTrue);
+      expect(failedItem.payload, isEmpty);
+      expect(failedItem.attemptCount, 1);
+
+      final syncedResult = await processor.flush();
+      final syncedItem = store.state.items.single;
+
+      expect(syncedResult.syncedCount, 1);
+      expect(syncedItem.state, SettleoraSyncQueueItemStateValues.synced);
+      expect(syncedItem.attemptCount, 2);
+      expect(syncedItem.safeErrorCode, isNull);
+      expect(syncedItem.safeMessage, isNull);
     });
 
     test('reuses an in-flight flush instead of duplicate processing', () async {
@@ -587,12 +657,14 @@ class FakeSyncRepository implements SettleoraSyncRepository {
 
   final List<Object> _outcomes;
   int submitCalls = 0;
+  SettleoraSyncQueueItem? lastSubmittedItem;
 
   @override
   Future<SettleoraSyncOperationResult> submitOperation(
     SettleoraSyncQueueItem item,
   ) async {
     submitCalls += 1;
+    lastSubmittedItem = item;
     final outcome = _outcomes.removeAt(0);
     if (outcome is SettleoraSyncOperationResult) {
       return outcome;
@@ -616,12 +688,14 @@ class BlockingSyncRepository implements SettleoraSyncRepository {
 
   final Completer<SettleoraSyncOperationResult> _completer;
   int submitCalls = 0;
+  SettleoraSyncQueueItem? lastSubmittedItem;
 
   @override
   Future<SettleoraSyncOperationResult> submitOperation(
     SettleoraSyncQueueItem item,
   ) {
     submitCalls += 1;
+    lastSubmittedItem = item;
     return _completer.future;
   }
 
