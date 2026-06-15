@@ -48,3 +48,8 @@ Repo-state basis for this milestone:
 - Server-mode change-feed hydration seams are validated without making mobile authoritative for server-mode business truth.
 - M3 QA records automated validation and keeps deferred M2 manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
+
+## Current Task Pointer
+
+- Completed task: `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509`
+- Next queued task: `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`

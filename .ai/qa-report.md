@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M3-002 sync queue processor hardened; manual UI/code review deferred until Day 1 acceptance; M3-003 ready`
+Status: `M3-003 sync change-feed hydration seam complete; manual UI/code review deferred until Day 1 acceptance; M3-004 ready`
 
 ## Acceptance Checklist
 
@@ -15,7 +15,8 @@ Status: `M3-002 sync queue processor hardened; manual UI/code review deferred un
 - [x] M3-001 current-state reconciliation is complete.
 - [x] M3 mobile sync/offline QA map created at `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
 - [x] M3-002 sync queue processor hardening is complete.
-- [x] Next queued implementation slice is `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509`.
+- [x] M3-003 sync change-feed hydration seam is complete.
+- [x] Next queued implementation slice is `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`.
 
 ## M2 Finalization Record
 
@@ -40,7 +41,7 @@ The selection is based on current repo state:
 
 - `M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509` - Completed. Reconciled current mobile sync/offline queue state and created `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
 - `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Completed. Hardened existing queue processor and bill sync bridge state preservation.
-- `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509` - Validate bounded generated sync change-feed hydration seams and app wiring.
+- `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509` - Completed. Validated bounded generated sync change-feed hydration seams and app wiring without adding cache persistence or mobile business authority.
 - `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509` - Finalize M3 QA/control state.
 - `STOP-M3-001` - Stop for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
 
@@ -75,6 +76,17 @@ M3-002 made the current mobile sync queue processor and bill sync bridge more ex
 - Retryable network/server failures remain bounded `failed` queue items and can later sync successfully.
 - Session-required/session-expired failures restore the original queued item and return a session-required flush result without final queue mutation.
 - Bill sync bridge tests now cover failed retry-later labels, conflict needs-review labels, and queued/syncing/failed/conflict open-operation detection without exposing raw IDs, API paths, storage paths, tokens, or backend internals in labels.
+
+## M3-003 Change-Feed Hydration Seam Record
+
+M3-003 made the existing generated change-feed path concrete and testable while keeping it read-only and server-authority preserving:
+
+- Added `SettleoraSyncChangeFeedHydrationSeam` as a metadata-only read seam over the existing `SettleoraSyncRepository.listChanges` contract.
+- The seam bounds `sinceVersion`, `limit`, and `resourceType` before repository reads and fails closed for unsupported future resource types.
+- Hydration results explicitly report `metadataOnly: true`, `persistentCacheHydrated: false`, and `mobileBusinessTruthAccepted: false`.
+- Generated repository tests now cover bounded change-feed request inputs, missing session tokens, and safe mapping of 401, 5xx, and network failures.
+- App bootstrap now exposes the authenticated server-mode bill-sync controller composition helper used by the default bootstrap path, with focused tests proving the controller receives the authenticated configuration/access-token seam and preserves empty safe queue payloads.
+- No persistent offline cache, cache merge, background sync, generated-client edit, OpenAPI change, business truth mutation, auth/session runtime change, schema change, storage policy change, money/settlement logic, deployment, Docker, CI, or secret change was added.
 
 ## Validation Expectations
 

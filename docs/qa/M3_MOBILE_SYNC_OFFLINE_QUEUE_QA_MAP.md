@@ -90,6 +90,7 @@ Current files:
 
 - `apps/mobile/lib/sync/sync_repository.dart`
 - `apps/mobile/lib/sync/generated_sync_repository.dart`
+- `apps/mobile/lib/sync/sync_change_feed_hydration.dart`
 
 Currently represented behavior:
 
@@ -106,8 +107,9 @@ Currently represented behavior:
 - Unknown API failures become bounded server failures.
 - Change feed inputs bound `sinceVersion` to non-negative values and `limit` to 1-100.
 - Known resource types are constrained to `expense_bill`.
+- M3-003 adds a metadata-only hydration seam over `listChanges` with explicit flags that no persistent cache was hydrated and no mobile business truth was accepted.
 
-Current gaps for M3 hardening:
+Remaining gaps:
 
 - Change-feed reads are mapped but not yet connected to a persistent offline cache hydration workflow.
 - Change feed coverage is metadata-only; no local cache merge or UI refresh policy is implemented.
@@ -125,10 +127,10 @@ Currently represented behavior:
 - The default sync repository is `GeneratedSettleoraSyncRepository.fromConfiguration`.
 - Sync wiring is available only after a usable server-mode session is established.
 - Local mode still shows server sync as unavailable until local runtime support exists.
+- M3-003 exposes the authenticated server-mode bill sync controller composition helper used by the default bootstrap path so focused tests can assert the configuration/access-token seam and queue/repository wiring without changing runtime behavior.
 
-Current gaps for M3 hardening:
+Remaining gaps:
 
-- Bootstrap wiring is not yet covered by focused tests that assert the default sync controller/repository/store path is assembled.
 - There is no app-level automatic startup flush, background sync, connectivity listener, or change-feed hydration trigger.
 - No runtime behavior should be added in M3-001; these are targets for later scoped M3 implementation tasks.
 
@@ -182,6 +184,10 @@ Focused existing tests:
   - Generated failure mapping without leaking internal details.
   - Network failure mapping to retryable safe failures.
   - Metadata-only change feed mapping.
+  - Bounded change-feed read inputs before generated calls.
+  - Safe change-feed failure mapping for session, server, and network failures.
+  - Metadata-only hydration seam flags that do not accept mobile business truth or hydrate a persistent cache.
+  - Authenticated server-mode sync controller wiring through the app bootstrap composition helper.
 - `apps/mobile/test/bill_sync_controller_test.dart`
   - Archive and restore queue empty safe payloads.
   - Session-blocked sync preserves queued work.
@@ -193,9 +199,7 @@ Focused existing tests:
 
 Coverage gaps for upcoming M3 tasks:
 
-- App bootstrap default sync wiring.
 - Processor behavior for multiple queued items where one session-blocking failure stops later work.
-- Change-feed seam validation from app wiring without cache mutation.
 - UI expectations for failed/conflict queue visibility and safe retry labels.
 
 M3-002 added focused coverage for:
@@ -206,6 +210,13 @@ M3-002 added focused coverage for:
 - Conflict results preserving conflict items for review.
 - Retryable failures preserving failed items that can later become synced.
 - Bill sync controller failed/conflict snapshot behavior, safe labels, and queued/syncing open-operation detection.
+
+M3-003 added focused coverage for:
+
+- Generated change-feed request bounds and fail-closed unsupported resource handling.
+- Generated change-feed session-required, session-expired, retryable server, and retryable network failure mapping without leaking raw internals.
+- Metadata-only change-feed hydration results that explicitly do not hydrate persistent cache or make mobile authoritative for server-mode business truth.
+- Authenticated server-mode sync controller composition from app bootstrap using the existing generated repository seam and secure queue store path.
 
 ## M3 Acceptance Targets
 
