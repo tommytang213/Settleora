@@ -356,6 +356,187 @@ void main() {
     },
   );
 
+  testWidgets(
+    'bulk mark visible read only affects unread rows in selected filter',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            id: 'notification-bill-visible',
+            safeSummary: 'Visible bill.',
+            expenseBillId: 'bill-visible',
+          ),
+          sampleNotification(
+            id: 'notification-settlement-hidden',
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            eventType: 'settlement.request_created',
+            priority: SettleoraNotificationPriorityValues.urgent,
+            safeSummary: 'Hidden settlement.',
+            settlementRequestId: _settlementId,
+          ),
+          sampleNotification(
+            id: 'notification-bill-read',
+            status: SettleoraNotificationStatusValues.read,
+            readAtUtc: _updatedAtUtc,
+            safeSummary: 'Already read bill.',
+            expenseBillId: 'bill-read',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tapNotificationFilter(tester, 'bills');
+      expectSelectedFilter(tester, 'bills');
+      expect(find.text('Visible bill.'), findsOneWidget);
+      expect(find.text('Already read bill.'), findsOneWidget);
+      expect(find.text('Hidden settlement.'), findsNothing);
+      expect(
+        find.text('1 visible unread notification in Bills'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markReadCalls, 1);
+      expect(repository.markReadIds, ['notification-bill-visible']);
+      expectSelectedFilter(tester, 'bills');
+      expect(find.text('Visible notifications marked read.'), findsOneWidget);
+      expect(find.text('Unread (1)'), findsOneWidget);
+      expect(find.text('Read (2)'), findsOneWidget);
+      expect(find.text('Bills (2)'), findsOneWidget);
+      expect(
+        find.text('0 visible unread notifications in Bills'),
+        findsOneWidget,
+      );
+
+      await tapNotificationFilter(tester, 'unread');
+
+      expect(find.text('Hidden settlement.'), findsOneWidget);
+      expect(find.text('Visible bill.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'bulk mark visible read preserves unread filter and shows empty state',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(id: 'notification-one', safeSummary: 'First.'),
+          sampleNotification(id: 'notification-two', safeSummary: 'Second.'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tapNotificationFilter(tester, 'unread');
+      expectSelectedFilter(tester, 'unread');
+      expect(find.text('Unread (2)'), findsOneWidget);
+      expect(
+        find.text('2 visible unread notifications in Unread'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markReadCalls, 2);
+      expect(repository.markReadIds, ['notification-one', 'notification-two']);
+      expectSelectedFilter(tester, 'unread');
+      expect(find.text('Unread (0)'), findsOneWidget);
+      expect(find.text('Read (2)'), findsOneWidget);
+      expect(find.text('Unread: 0'), findsOneWidget);
+      expect(find.text('No unread notifications'), findsOneWidget);
+      expect(
+        find.text('0 visible unread notifications in Unread'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('duplicate bulk mark visible read taps are single flight', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(id: 'notification-one'),
+        sampleNotification(id: 'notification-two'),
+      ],
+      actionDelay: const Duration(milliseconds: 50),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const Key('notification-mark-visible-read'));
+    await tester.tap(button);
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(repository.markReadCalls, 2);
+    expect(repository.markReadIds, ['notification-one', 'notification-two']);
+    expect(find.text('Unread (0)'), findsOneWidget);
+    expect(find.text('Read (2)'), findsOneWidget);
+  });
+
+  testWidgets(
+    'unsafe bulk failure details are not rendered in text tooltips semantics or snackbars',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeNotificationRepository(
+        markReadFailure: const SettleoraNotificationFailure(
+          kind: SettleoraNotificationFailureKind.server,
+          message:
+              'internal /api/v1/notifications/$_notificationId?token=secret bearer abc',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markReadCalls, 1);
+      expect(
+        find.text('Visible notifications could not be marked read.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getSemantics(
+              find.text('Visible notifications could not be marked read.'),
+            )
+            .label,
+        'Visible notifications could not be marked read.',
+      );
+      semantics.dispose();
+      expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
+      expect(
+        renderedNotificationUiText(tester),
+        isNot(contains(_notificationId)),
+      );
+      expect(
+        renderedNotificationUiText(tester),
+        isNot(contains('token=secret')),
+      );
+      expect(renderedNotificationUiText(tester), isNot(contains('bearer abc')));
+    },
+  );
+
   testWidgets('duplicate archive taps are single flight', (tester) async {
     final repository = FakeNotificationRepository(
       actionDelay: const Duration(milliseconds: 50),
@@ -1736,6 +1917,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   int markAllReadCalls = 0;
   int archiveCalls = 0;
   String? lastNotificationId;
+  final List<String> markReadIds = [];
 
   void completeSummary(SettleoraNotificationSummary summary) {
     _summaryCompleter?.complete(summary);
@@ -1782,6 +1964,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   ) async {
     markReadCalls += 1;
     lastNotificationId = notificationId;
+    markReadIds.add(notificationId);
     if (actionDelay > Duration.zero) {
       await Future<void>.delayed(actionDelay);
     }
