@@ -115,6 +115,8 @@ const m2AllowedPatterns = [
   /^apps\/mobile\/lib\/ui\/settleora_theme\.dart$/,
   /^apps\/mobile\/lib\/bills\/bill_list_screen\.dart$/,
   /^apps\/mobile\/lib\/groups\/group_list_screen\.dart$/,
+  // Day 1 in-app notification surface: routing, filtering, and read/archive state only.
+  /^apps\/mobile\/lib\/notifications\//,
   /^apps\/mobile\/lib\/settlements\/settlement_list_screen\.dart$/,
   /^apps\/mobile\/test\//,
 ];
