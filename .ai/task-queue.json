@@ -66,7 +66,7 @@
     "title": "Mobile sync change-feed hydration seam",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
@@ -75,6 +75,8 @@
       "apps/mobile/test/**"
     ],
     "goal": "Use the existing generated sync repository seam to validate bounded change-feed reads and app wiring for future offline cache hydration, without adding new API contracts, generated clients, cache stores, or server-mode business authority in mobile.",
+    "completedAt": "2026-06-15T16:09:10+08:00",
+    "completionSummary": "Added a metadata-only change-feed hydration seam, exposed authenticated server-mode sync controller composition for bootstrap testing, and strengthened focused sync tests for bounded inputs, safe read failures, app wiring, and no mobile business-truth authority from change-feed availability.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",

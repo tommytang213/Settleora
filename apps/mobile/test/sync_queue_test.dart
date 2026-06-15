@@ -4,8 +4,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
+import 'package:mobile/app/app_bootstrap.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/sync/generated_sync_repository.dart';
+import 'package:mobile/sync/sync_change_feed_hydration.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
@@ -176,9 +178,9 @@ void main() {
         );
         final processor = SettleoraSyncQueueProcessor(
           queueStore: store,
-          repository: FakeSyncRepository([
-            sampleOperationResult(status: status),
-          ]),
+          repository: FakeSyncRepository(
+            outcomes: [sampleOperationResult(status: status)],
+          ),
           now: () => _attemptedAtUtc,
         );
 
@@ -200,13 +202,15 @@ void main() {
       );
       final processor = SettleoraSyncQueueProcessor(
         queueStore: store,
-        repository: FakeSyncRepository([
-          sampleOperationResult(
-            status: SettleoraSyncOperationResultStatusValues.rejected,
-            safeErrorCode: 'bill_archived_elsewhere',
-            safeMessage: 'Refresh the bill before trying again.',
-          ),
-        ]),
+        repository: FakeSyncRepository(
+          outcomes: [
+            sampleOperationResult(
+              status: SettleoraSyncOperationResultStatusValues.rejected,
+              safeErrorCode: 'bill_archived_elsewhere',
+              safeMessage: 'Refresh the bill before trying again.',
+            ),
+          ],
+        ),
         now: () => _attemptedAtUtc,
       );
 
@@ -226,13 +230,15 @@ void main() {
       );
       final processor = SettleoraSyncQueueProcessor(
         queueStore: store,
-        repository: FakeSyncRepository([
-          sampleOperationResult(
-            status: SettleoraSyncOperationResultStatusValues.conflict,
-            safeErrorCode: 'stale_version',
-            safeMessage: 'Review the latest bill before syncing.',
-          ),
-        ]),
+        repository: FakeSyncRepository(
+          outcomes: [
+            sampleOperationResult(
+              status: SettleoraSyncOperationResultStatusValues.conflict,
+              safeErrorCode: 'stale_version',
+              safeMessage: 'Review the latest bill before syncing.',
+            ),
+          ],
+        ),
         now: () => _attemptedAtUtc,
       );
 
@@ -253,13 +259,15 @@ void main() {
       );
       final processor = SettleoraSyncQueueProcessor(
         queueStore: store,
-        repository: FakeSyncRepository([
-          const SettleoraSyncFailure(
-            kind: SettleoraSyncFailureKind.retryable,
-            message: 'The server is unavailable. Try syncing again later.',
-            safeErrorCode: 'network_unavailable',
-          ),
-        ]),
+        repository: FakeSyncRepository(
+          outcomes: const [
+            SettleoraSyncFailure(
+              kind: SettleoraSyncFailureKind.retryable,
+              message: 'The server is unavailable. Try syncing again later.',
+              safeErrorCode: 'network_unavailable',
+            ),
+          ],
+        ),
         now: () => _attemptedAtUtc,
       );
 
@@ -280,14 +288,16 @@ void main() {
       );
       final processor = SettleoraSyncQueueProcessor(
         queueStore: store,
-        repository: FakeSyncRepository([
-          const SettleoraSyncFailure(
-            kind: SettleoraSyncFailureKind.retryable,
-            message: 'The server is unavailable. Try syncing again later.',
-            safeErrorCode: 'network_unavailable',
-          ),
-          sampleOperationResult(),
-        ]),
+        repository: FakeSyncRepository(
+          outcomes: [
+            const SettleoraSyncFailure(
+              kind: SettleoraSyncFailureKind.retryable,
+              message: 'The server is unavailable. Try syncing again later.',
+              safeErrorCode: 'network_unavailable',
+            ),
+            sampleOperationResult(),
+          ],
+        ),
         now: () => _attemptedAtUtc,
       );
 
@@ -474,6 +484,209 @@ void main() {
         SettleoraSyncResourceTypeValues.expenseBill,
       );
     });
+
+    test('bounds change feed request inputs before generated calls', () async {
+      final client = FakeSyncGeneratedClient();
+      final repository = GeneratedSettleoraSyncRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      await expectLater(
+        repository.listChanges(sinceVersion: -1),
+        throwsA(
+          isA<SettleoraSyncFailure>()
+              .having(
+                (failure) => failure.kind,
+                'kind',
+                SettleoraSyncFailureKind.validation,
+              )
+              .having(
+                (failure) => failure.safeErrorCode,
+                'safeErrorCode',
+                'invalid_since_version',
+              ),
+        ),
+      );
+      await expectLater(
+        repository.listChanges(limit: 101),
+        throwsA(
+          isA<SettleoraSyncFailure>().having(
+            (failure) => failure.safeErrorCode,
+            'safeErrorCode',
+            'invalid_limit',
+          ),
+        ),
+      );
+      await expectLater(
+        repository.listChanges(resourceType: 'settlement_payment'),
+        throwsA(
+          isA<SettleoraSyncFailure>().having(
+            (failure) => failure.safeErrorCode,
+            'safeErrorCode',
+            'unsupported_resource_type',
+          ),
+        ),
+      );
+
+      expect(client.listCalls, 0);
+    });
+
+    test('maps change feed failures to bounded safe failures', () async {
+      final cases = <Object, SettleoraSyncFailureKind>{
+        api.SettleoraApiException(401, 'Unauthorized', _hiddenBody):
+            SettleoraSyncFailureKind.sessionExpired,
+        api.SettleoraApiException(500, 'Server Error', _hiddenBody):
+            SettleoraSyncFailureKind.retryable,
+        const SocketException('internal socket detail'):
+            SettleoraSyncFailureKind.retryable,
+      };
+
+      for (final entry in cases.entries) {
+        final repository = GeneratedSettleoraSyncRepository(
+          client: FakeSyncGeneratedClient(failure: entry.key),
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+
+        final failure = await captureSyncFailure(() {
+          return repository.listChanges(
+            sinceVersion: 4,
+            limit: 25,
+            resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+          );
+        });
+
+        expect(failure.kind, entry.value);
+        expect(failure.message, isNot(contains('internal')));
+        expect(failure.toString(), isNot(contains('internal')));
+      }
+    });
+
+    test('requires a session token before reading change feed', () async {
+      final client = FakeSyncGeneratedClient();
+      final repository = GeneratedSettleoraSyncRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('  '),
+      );
+
+      final failure = await captureSyncFailure(() {
+        return repository.listChanges(limit: 25);
+      });
+
+      expect(failure.kind, SettleoraSyncFailureKind.sessionRequired);
+      expect(client.listCalls, 0);
+    });
+  });
+
+  group('SettleoraSyncChangeFeedHydrationSeam', () {
+    test(
+      'returns metadata-only change feed without accepting business truth',
+      () async {
+        final feed = sampleChangeFeed();
+        final repository = FakeSyncRepository(changes: [feed]);
+        final seam = SettleoraSyncChangeFeedHydrationSeam(
+          repository: repository,
+        );
+
+        final result = await seam.readMetadataOnlyChanges(
+          sinceVersion: 4,
+          limit: 25,
+          resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+        );
+
+        expect(result.feed, same(feed));
+        expect(result.metadataOnly, isTrue);
+        expect(result.persistentCacheHydrated, isFalse);
+        expect(result.mobileBusinessTruthAccepted, isFalse);
+        expect(repository.lastSinceVersion, 4);
+        expect(repository.lastLimit, 25);
+        expect(
+          repository.lastResourceType,
+          SettleoraSyncResourceTypeValues.expenseBill,
+        );
+      },
+    );
+
+    test('fails closed for unbounded hydration inputs', () async {
+      final repository = FakeSyncRepository(changes: [sampleChangeFeed()]);
+      final seam = SettleoraSyncChangeFeedHydrationSeam(repository: repository);
+
+      await expectLater(
+        seam.readMetadataOnlyChanges(limit: 0),
+        throwsA(
+          isA<SettleoraSyncFailure>().having(
+            (failure) => failure.safeErrorCode,
+            'safeErrorCode',
+            'invalid_limit',
+          ),
+        ),
+      );
+
+      expect(repository.listCalls, 0);
+    });
+
+    test('preserves safe failure mapping from repository reads', () async {
+      final repository = FakeSyncRepository(
+        changes: const [
+          SettleoraSyncFailure(
+            kind: SettleoraSyncFailureKind.retryable,
+            message: 'The server is unavailable. Try syncing again later.',
+            safeErrorCode: 'network_unavailable',
+          ),
+        ],
+      );
+      final seam = SettleoraSyncChangeFeedHydrationSeam(repository: repository);
+
+      final failure = await captureSyncFailure(() {
+        return seam.readMetadataOnlyChanges(limit: 25);
+      });
+
+      expect(failure.kind, SettleoraSyncFailureKind.retryable);
+      expect(failure.safeErrorCode, 'network_unavailable');
+      expect(failure.message, isNot(contains(_billId)));
+    });
+  });
+
+  group('app bootstrap sync wiring', () {
+    test('creates authenticated server-mode sync controller seam', () async {
+      final store = MemorySyncQueueStore();
+      final repository = FakeSyncRepository(
+        outcomes: [sampleOperationResult()],
+      );
+      final configuration = SettleoraApiConfiguration(
+        baseUri: Uri.parse('https://settleora.example/api/'),
+      );
+      final tokenProvider = FakeAccessTokenProvider('redacted');
+      SettleoraApiConfiguration? capturedConfiguration;
+      SettleoraAccessTokenProvider? capturedTokenProvider;
+
+      final controller = createAuthenticatedServerModeBillSyncController(
+        configuration: configuration,
+        accessTokenProvider: tokenProvider,
+        queueStore: store,
+        syncRepositoryFactory: (configuration, accessTokenProvider) {
+          capturedConfiguration = configuration;
+          capturedTokenProvider = accessTokenProvider;
+          return repository;
+        },
+        now: () => _now,
+        idGenerator: () => 'queue-1',
+      );
+
+      await controller.queueArchive(_billId);
+      final outcome = await controller.flushPending();
+
+      expect(capturedConfiguration, same(configuration));
+      expect(capturedTokenProvider, same(tokenProvider));
+      expect(repository.submitCalls, 1);
+      expect(repository.listCalls, 0);
+      expect(outcome.result.syncedCount, 1);
+      expect(
+        store.state.items.single.state,
+        SettleoraSyncQueueItemStateValues.synced,
+      );
+      expect(store.state.items.single.payload, isEmpty);
+    });
   });
 }
 
@@ -522,6 +735,25 @@ SettleoraSyncOperationResult sampleOperationResult({
         status == SettleoraSyncOperationResultStatusValues.accepted ? 12 : null,
     safeErrorCode: safeErrorCode,
     safeMessage: safeMessage,
+  );
+}
+
+SettleoraSyncChangeFeed sampleChangeFeed() {
+  return SettleoraSyncChangeFeed(
+    sinceVersion: 4,
+    nextSinceVersion: 9,
+    limit: 25,
+    resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+    changes: [
+      SettleoraSyncChange(
+        resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+        resourceId: _billId,
+        version: 9,
+        changedAtUtc: _attemptedAtUtc,
+        changeKind: SettleoraSyncChangeKindValues.archived,
+        groupId: _groupId,
+      ),
+    ],
   );
 }
 
@@ -653,11 +885,18 @@ class FakeSyncGeneratedClient implements SettleoraSyncGeneratedClient {
 }
 
 class FakeSyncRepository implements SettleoraSyncRepository {
-  FakeSyncRepository(this._outcomes);
+  FakeSyncRepository({List<Object>? outcomes, List<Object>? changes})
+    : _outcomes = List<Object>.of(outcomes ?? const <Object>[]),
+      _changes = List<Object>.of(changes ?? const <Object>[]);
 
   final List<Object> _outcomes;
+  final List<Object> _changes;
   int submitCalls = 0;
+  int listCalls = 0;
   SettleoraSyncQueueItem? lastSubmittedItem;
+  int? lastSinceVersion;
+  int? lastLimit;
+  SettleoraSyncResourceType? lastResourceType;
 
   @override
   Future<SettleoraSyncOperationResult> submitOperation(
@@ -678,8 +917,17 @@ class FakeSyncRepository implements SettleoraSyncRepository {
     int? sinceVersion,
     int? limit,
     SettleoraSyncResourceType? resourceType,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    listCalls += 1;
+    lastSinceVersion = sinceVersion;
+    lastLimit = limit;
+    lastResourceType = resourceType;
+    final outcome = _changes.removeAt(0);
+    if (outcome is SettleoraSyncChangeFeed) {
+      return outcome;
+    }
+
+    throw outcome;
   }
 }
 

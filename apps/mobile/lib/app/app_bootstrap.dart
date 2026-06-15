@@ -699,18 +699,35 @@ SettleoraBillSyncController _defaultBillSyncControllerFactory(
   SettleoraApiConfiguration configuration,
   SettleoraAccessTokenProvider accessTokenProvider,
 ) {
-  final queueStore = SecureStorageSyncQueueStore();
-  final syncRepository = _defaultSyncRepositoryFactory(
+  return createAuthenticatedServerModeBillSyncController(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
+  );
+}
+
+SettleoraBillSyncController createAuthenticatedServerModeBillSyncController({
+  required SettleoraApiConfiguration configuration,
+  required SettleoraAccessTokenProvider accessTokenProvider,
+  SettleoraSyncQueueStore? queueStore,
+  SettleoraSyncRepositoryFactory syncRepositoryFactory =
+      _defaultSyncRepositoryFactory,
+  DateTime Function()? now,
+  String Function()? idGenerator,
+}) {
+  final resolvedQueueStore = queueStore ?? SecureStorageSyncQueueStore();
+  final syncRepository = syncRepositoryFactory(
     configuration,
     accessTokenProvider,
   );
 
   return SettleoraBillSyncController(
-    queueStore: queueStore,
+    queueStore: resolvedQueueStore,
     queueProcessor: SettleoraSyncQueueProcessor(
-      queueStore: queueStore,
+      queueStore: resolvedQueueStore,
       repository: syncRepository,
     ),
+    now: now,
+    idGenerator: idGenerator,
   );
 }
 
