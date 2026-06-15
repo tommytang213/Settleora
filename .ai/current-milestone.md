@@ -53,11 +53,18 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
-- Last completed task: `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
-- Current state: M8 is in progress. M8-003 hardened existing mobile settlement residual, allocation, selected-line, balance, loaded-row filter, and counterparty payment-detail readouts without changing backend/API contracts, generated clients, schema, auth, storage/privacy, money, residual policy, basket expansion, balance projection, or settlement authority.
-- Recommended next automated Day 1 task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
-- Stop sentinel: `STOP-M8-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, settlement authority changes, residual/basket/balance policy changes, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
+- Current task: none.
+- Last completed task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
+- Current state: M8 is finalized and UI-test ready with no remaining automated M8 work. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated Day 1 action: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+- Stop sentinel: `STOP-M8-001` remains preserved and stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, settlement authority changes, residual/basket/balance policy changes, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
+
+## M8 Completion Summary
+
+- `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` completed the mobile settlement workflow state reconciliation, QA map, current implementation inventory, automated coverage inventory, Day 1 requirement map, and bounded M8 focus without runtime behavior changes.
+- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` completed request/payment action hardening for role-aware availability, confirmation copy, duplicate-action prevention, safe failure/retry handling, refresh-after-mutation recovery, and server-authority messaging inside existing mobile seams.
+- `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` completed residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readout hardening over server-returned data only.
+- `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` completed control/QA finalization, marked M8 UI-test ready, recorded validation coverage, and preserved deferred manual UI/code review status.
 
 ## M7 Carry-Forward Boundary
 

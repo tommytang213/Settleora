@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M8 in progress; M8-003 completed; M8-004 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8 finalized and UI-test ready; no remaining automated M8 work; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -54,6 +54,8 @@ Status: `M8 in progress; M8-003 completed; M8-004 queued; manual UI/code review 
 - [x] M8-001 reconciled current mobile settlement repository/model boundaries, generated-client mapping, settlement list/detail UI, app-shell/notification handoffs, automated coverage, Day 1 requirement gaps, and M8-002/M8-003 focus without changing runtime behavior.
 - [x] M8-002 hardened mobile settlement request/payment action confirmations, duplicate-action guards, bounded action failure copy, refresh-after-mutation recovery, and server-authority messaging inside existing mobile seams.
 - [x] M8-003 hardened mobile settlement residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readouts over server-returned data only.
+- [x] M8-004 finalized M8 QA/control state, recorded validation coverage, preserved deferred manual UI/code review, and marked M8 UI-test ready with no remaining automated M8 work.
+- [x] Current M8 state preserves `STOP-M8-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## M8 Selection Summary
 
@@ -72,7 +74,7 @@ The selection is based on current repo state:
 - `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Completed. Reconciled current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
 - `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Completed. Hardened settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
 - `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Completed. Hardened residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readouts over server-returned data only.
-- `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Completed. Finalized M8 QA/control state, recorded validation coverage, preserved deferred manual UI/code review status, and marked UI-test ready without runtime behavior changes.
 - `STOP-M8-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment, residual/basket/balance policy, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M8-001 Reconciliation Summary
@@ -134,7 +136,30 @@ Focused automated coverage:
 - Added coverage for balance residual/allocation field readouts, loaded selected-line scope, exact selected total versus actual paid amount separation, allocation facts, residual direction/policy/status labels, counterparty visibility copy, loaded-row local filtering copy, filtered-empty states, and suppression of raw IDs/API/storage strings in new visible copy.
 - Full mobile validation passed with 697 Flutter tests through `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile`.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. M8-004 is complete, and the recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved milestone or queue kickoff.
+
+## M8-004 QA Finalization Summary
+
+M8 is finalized as a bounded Day 1 mobile settlement workflow hardening checkpoint.
+
+Completed M8 slices:
+
+- M8-001 reconciled the current mobile settlement repository/model boundaries, generated-client mapping, settlement list/detail UI, app-shell and notification handoffs, automated coverage, Day 1 requirement map, and bounded M8 focus without runtime behavior changes.
+- M8-002 completed request/payment action hardening for role-aware availability, confirmation copy, duplicate-action prevention, safe failure/retry handling, refresh-after-mutation recovery, and server-authority messaging inside existing mobile seams.
+- M8-003 completed residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readout hardening over server-returned data only.
+- M8-004 completed control/QA finalization and set M8 to UI-test ready with no remaining automated M8 work.
+
+Recorded M8 validation coverage:
+
+- M8-002 focused settlement validation: 31 tests from the focused settlement request/payment action hardening command.
+- M8-002 full mobile validation: 694 Flutter tests.
+- M8-003 focused settlement validation: 34 settlement list/widget tests plus generated settlement repository tests in the same command.
+- M8-003 full mobile validation: 697 Flutter tests.
+- M8-004 final validation includes docs, scaffold, OpenAPI, mobile doctor, full mobile validation, scope guard, and final controller dry run. The final full mobile validation for M8-004 passed with 697 Flutter tests.
+
+M8 remains explicitly out of scope for proof metadata/readout because current mobile settlement seams do not expose safe proof metadata. Basket preview/create, pay-all, select-all-visible, basket expansion authority, provider integrations, direct bank sync, statement import/matching, reconciliation mutation, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, storage/privacy/proof byte policy, money/settlement authority, residual policy, balance projection policy, and generated-client/API changes remain outside M8.
+
+M8-004 validation and PR/merge/CI status are recorded in the external task report at `/workspace/logs/settleora-codex-report-20260616-0039-m8-settlement-workflow-qa-finalize.md`. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M8. Recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved milestone or queue kickoff.
 
 ## M7 Selection Summary
 
