@@ -22,6 +22,7 @@ class _ReceiptOcrReviewQueueScreenState
   List<ReceiptOcrReviewSummary> _reviews = const [];
   ReceiptOcrReviewFailure? _failure;
   int _loadGeneration = 0;
+  String? _openingReviewRouteKey;
   _ReceiptOcrReviewQueueReturnState _returnState =
       const _ReceiptOcrReviewQueueReturnState();
 
@@ -42,6 +43,7 @@ class _ReceiptOcrReviewQueueScreenState
       _isLoading = widget.repository != null;
       _reviews = const [];
       _failure = null;
+      _openingReviewRouteKey = null;
       _returnState = const _ReceiptOcrReviewQueueReturnState();
       ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
       if (widget.repository != null) {
@@ -118,11 +120,15 @@ class _ReceiptOcrReviewQueueScreenState
 
   void _openReview(ReceiptOcrReviewSummary review) {
     final repository = widget.repository;
-    if (repository == null) {
+    final routeKey = _routeKeyForSummary(review);
+    if (repository == null || _openingReviewRouteKey != null) {
       return;
     }
 
     final route = ReceiptOcrReviewRoute.fromSummary(review);
+    setState(() {
+      _openingReviewRouteKey = routeKey;
+    });
     Navigator.of(context)
         .push(
           MaterialPageRoute<_ReceiptOcrReviewDetailResult>(
@@ -134,6 +140,15 @@ class _ReceiptOcrReviewQueueScreenState
           ),
         )
         .then((result) {
+          if (!mounted ||
+              !identical(widget.repository, repository) ||
+              _openingReviewRouteKey != routeKey) {
+            return;
+          }
+
+          setState(() {
+            _openingReviewRouteKey = null;
+          });
           if (result == null) {
             return;
           }

@@ -10322,6 +10322,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
   String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
+  bool _isOpeningSavedReceiptOcrReview = false;
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   int _attachmentReloadRevision = 0;
@@ -10583,10 +10584,15 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
   Future<void> _openSavedReceiptOcrReview() {
     final repository = widget.receiptOcrReviewRepository;
     final route = _receiptOcrReviewHandoff?.reviewRoute;
-    if (repository == null || route == null) {
+    if (repository == null ||
+        route == null ||
+        _isOpeningSavedReceiptOcrReview) {
       return Future<void>.value();
     }
 
+    setState(() {
+      _isOpeningSavedReceiptOcrReview = true;
+    });
     return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
@@ -10597,7 +10603,14 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       ),
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
-    );
+    ).whenComplete(() {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOpeningSavedReceiptOcrReview = false;
+      });
+    });
   }
 
   Future<void> _openSavedReceiptOcrReviewFromAttachment(
@@ -10715,7 +10728,8 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
                     reviewButtonKey: const Key('bill-detail-ocr-review-open'),
                     canOpenReview:
                         widget.receiptOcrReviewRepository != null &&
-                        _receiptOcrReviewHandoff!.reviewRoute != null,
+                        _receiptOcrReviewHandoff!.reviewRoute != null &&
+                        !_isOpeningSavedReceiptOcrReview,
                     isRetrying: _isRetryingReceiptOcrReviewSave,
                     onRetry: _retryReceiptOcrReviewSave,
                     onOpenReview: _openSavedReceiptOcrReview,
@@ -10890,6 +10904,7 @@ class _SettleoraGroupBillDetailScreenState
   late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
   String? _receiptOcrReviewNotice;
   bool _isRetryingReceiptOcrReviewSave = false;
+  bool _isOpeningSavedReceiptOcrReview = false;
   int _attachmentReloadRevision = 0;
   int _attachmentDiscoveryLoadGeneration = 0;
   List<SettleoraBillAttachment> _attachments = const [];
@@ -11168,10 +11183,15 @@ class _SettleoraGroupBillDetailScreenState
   Future<void> _openSavedReceiptOcrReview() {
     final repository = widget.receiptOcrReviewRepository;
     final route = _receiptOcrReviewHandoff?.reviewRoute;
-    if (repository == null || route == null) {
+    if (repository == null ||
+        route == null ||
+        _isOpeningSavedReceiptOcrReview) {
       return Future<void>.value();
     }
 
+    setState(() {
+      _isOpeningSavedReceiptOcrReview = true;
+    });
     return _showSavedReceiptOcrReviewSheet(
       context: context,
       repository: repository,
@@ -11182,7 +11202,14 @@ class _SettleoraGroupBillDetailScreenState
       ),
       onApplied: _load,
       onRemoved: _handleSavedReceiptOcrReviewRemoved,
-    );
+    ).whenComplete(() {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOpeningSavedReceiptOcrReview = false;
+      });
+    });
   }
 
   Future<void> _openSavedReceiptOcrReviewFromAttachment(
@@ -11464,7 +11491,8 @@ class _SettleoraGroupBillDetailScreenState
                     ),
                     canOpenReview:
                         widget.receiptOcrReviewRepository != null &&
-                        _receiptOcrReviewHandoff!.reviewRoute != null,
+                        _receiptOcrReviewHandoff!.reviewRoute != null &&
+                        !_isOpeningSavedReceiptOcrReview,
                     isRetrying: _isRetryingReceiptOcrReviewSave,
                     onRetry: _retryReceiptOcrReviewSave,
                     onOpenReview: _openSavedReceiptOcrReview,

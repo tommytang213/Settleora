@@ -455,6 +455,33 @@ void main() {
       expect(find.text('Personal bill'), findsOneWidget);
     });
 
+    testWidgets('suppresses duplicate queue row opens while route is loading', (
+      tester,
+    ) async {
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [sampleSummary(merchantText: 'Personal Receipt')],
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Personal Receipt'));
+      await tester.tap(find.text('Personal Receipt'), warnIfMissed: false);
+      await tester.pump();
+
+      expect(repository.getCalls, 1);
+      expect(repository.getRoutes.single.groupId, isNull);
+      expect(repository.getRoutes.single.billId, _billId);
+      expect(repository.getRoutes.single.fileId, _fileId);
+
+      repository.completeGet(route, sampleReview(route));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Personal bill'), findsOneWidget);
+      expect(repository.getCalls, 1);
+    });
+
     testWidgets('shows save-return feedback and refreshes queue', (
       tester,
     ) async {

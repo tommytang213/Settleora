@@ -9467,6 +9467,48 @@ void main() {
     },
   );
 
+  testWidgets('saved OCR handoff direct open is single-flight guarded', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final getCompleter = Completer<ReceiptOcrReviewDetail>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      getReviewCompleter: getCompleter,
+    );
+    final route = ReceiptOcrReviewRoute(billId: _billId, fileId: _fileId);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _billId,
+          initialBill: sampleBillDetail(id: _billId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final openButton = find.byKey(const Key('bill-detail-ocr-review-open'));
+    await tester.tap(openButton);
+    await tester.tap(openButton, warnIfMissed: false);
+    await tester.pump();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute?.billId, _billId);
+    expect(receiptRepository.lastRoute?.fileId, _fileId);
+    expect(receiptRepository.lastRoute?.groupId, isNull);
+
+    getCompleter.complete(sampleReceiptOcrReviewDetail(route));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved OCR review'), findsOneWidget);
+    expect(receiptRepository.getCalls, 1);
+  });
+
   testWidgets('multiple reviewable attachments show chooser without guessing', (
     tester,
   ) async {
