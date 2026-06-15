@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M4 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M5 queued; M4 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -18,6 +18,34 @@ Status: `M4 finalized and UI-test ready; manual UI/code review deferred until Da
 - [x] M4-003 hardened existing mobile group bill detail lifecycle acknowledgement failure, retry, duplicate-mutation, revision-entry, attachment/OCR-handoff, member fallback, and terminal/unavailable state coverage within existing mobile seams.
 - [x] M4-004 finalized M4 QA/control state and marked M4 UI-test ready as a controller stop state.
 - [x] Current state pointer no longer targets stale M4 work; next automated Day 1 action is the next controller-approved milestone or queue kickoff.
+- [x] M5 queued as `Day 1 Mobile Recurring Bill Lifecycle UX Hardening`.
+- [x] M5 queue has 2-4 related sub-slices plus a hard stop sentinel.
+- [x] Scope guard allows only narrow M5 docs/control, recurring mobile, app-shell/group-display support, and mobile test paths.
+- [x] No M5 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, worker, notification delivery, reminder, background generation, or secret changes.
+
+## M5 Selection Summary
+
+M5 is `Day 1 Mobile Recurring Bill Lifecycle UX Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the mobile app has a starter recurring-bill template/forecast/detail/draft-generation surface, while recurring bill creation/editing/full lifecycle/offline queueing/reminders/background generation remain future Day 1 work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires recurring bill creation, basic schedules, due-soon visibility, forecasting, and user confirmation for generated recurring bill instances.
+- `docs/features/recurring-bills/TECHNICAL_SPEC.md` confirms backend/generated-client seams already exist for recurring template create/list/get/update/pause/resume/archive, forecast reads, and explicit draft generation.
+- Current mobile code under `apps/mobile/lib/recurring_bills/` already exposes recurring list/detail/forecast/draft-generation seams and focused tests, making mobile-only recurring lifecycle hardening coherent without selecting a task that requires API, contract, generated-client, schema, auth, storage, money, deployment, worker, notification delivery, or recurring background generation changes.
+
+## M5 Queue Summary
+
+- `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825` - Queued. Reconcile current mobile recurring bill lifecycle state and update `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
+- `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825` - Queued. Harden generated-client-backed mobile recurring template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging.
+- `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825` - Queued. Harden recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, and navigation to generated bill context.
+- `STOP-M5-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker/runtime expansion, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
+
+## M5 Kickoff Summary
+
+M5 is queued as a bounded Day 1 mobile recurring bill lifecycle UX hardening milestone. The kickoff moves controller state out of the M4 UI-test-ready stop condition, adds a recurring lifecycle QA map, and updates the scope guard with narrow M5 path allowances only.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
 
 ## M3 Finalization Carry-Forward
 
