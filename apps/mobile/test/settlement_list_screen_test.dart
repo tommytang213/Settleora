@@ -464,7 +464,7 @@ void main() {
     expect(find.text('Mark settlement paid?'), findsOneWidget);
     expect(
       find.text(
-        'Mark paid only after sending payment. The server will verify the claim, update settlement state, and keep the audit trail.',
+        'Mark paid only after sending payment. Mobile asks the API to record the claim; the server verifies authorization, settlement state, residual handling, audit, and money.',
       ),
       findsOneWidget,
     );
@@ -486,6 +486,78 @@ void main() {
     expect(repository.listPaymentsCalls, 2);
     expect(find.text('Payment marked paid.'), findsOneWidget);
   });
+
+  testWidgets(
+    'request action success with refresh failure keeps state and avoids repeat',
+    (tester) async {
+      final repository = FakeSettlementRepository(
+        detail: sampleRequest(),
+        payments: const [],
+        failRefreshAfterMutation: true,
+      );
+
+      await pumpSettlementDetail(
+        tester,
+        repository: repository,
+        currentUserProfileId: _debtorUserProfileId,
+      );
+
+      await tester.tap(find.byKey(const Key('settlement-request-mark-paid')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markPaymentPaidCalls, 1);
+      expect(repository.getRequestCalls, 2);
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(
+        find.text(
+          'Payment marked paid. Refresh failed. Use Refresh to reload server state before repeating any settlement action.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Server unavailable'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'request action failure shows bounded safe copy and preserves state',
+    (tester) async {
+      final repository = FakeSettlementRepository(
+        detail: sampleRequest(),
+        payments: const [],
+        actionFailure: const SettleoraSettlementFailure(
+          kind: SettleoraSettlementFailureKind.server,
+          message:
+              'POST /api/v1/settlements/111 token=secret /home/user stack trace raw body',
+        ),
+      );
+
+      await pumpSettlementDetail(
+        tester,
+        repository: repository,
+        currentUserProfileId: _debtorUserProfileId,
+      );
+
+      await tester.tap(find.byKey(const Key('settlement-request-mark-paid')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markPaymentPaidCalls, 1);
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(
+        find.text(
+          'The API could not complete this settlement action right now. The loaded settlement state was kept.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('/api/v1'), findsNothing);
+      expect(find.textContaining('token=secret'), findsNothing);
+      expect(find.textContaining('/home/user'), findsNothing);
+      expect(find.textContaining('raw body'), findsNothing);
+    },
+  );
 
   testWidgets('settlement detail shows loaded review summary facts', (
     tester,
@@ -725,11 +797,95 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Confirm receipt?'), findsOneWidget);
+    expect(
+      find.text(
+        'Confirm only if you received this payment. Mobile asks the API to confirm receipt; the server decides authorization, settlement state, payment truth, residual blocking, audit, and money.',
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Confirm receipt'));
     await tester.pumpAndSettle();
 
     expect(repository.confirmPaymentCalls, 1);
     expect(find.text('Payment confirmed.'), findsOneWidget);
+  });
+
+  testWidgets('payer cancels payment claim after confirmation', (tester) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(
+        status: SettleoraSettlementRequestStatusValues.markedPaid,
+      ),
+      payments: [
+        samplePayment(
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    final cancel = find.byKey(const ValueKey('settlement-payment-cancel-0'));
+    await scrollTo(tester, cancel);
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancel payment claim?'), findsOneWidget);
+    expect(
+      find.text(
+        'This asks the API to cancel your marked-paid claim. The loaded payer role only guides this button; the server decides whether the transition is allowed.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel claim'));
+    await tester.pumpAndSettle();
+
+    expect(repository.cancelPaymentCalls, 1);
+    expect(repository.lastPaymentId, _paymentId);
+    expect(find.text('Payment cancelled.'), findsOneWidget);
+  });
+
+  testWidgets('receiver disputes payment claim after confirmation', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(
+        status: SettleoraSettlementRequestStatusValues.markedPaid,
+      ),
+      payments: [
+        samplePayment(
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    final dispute = find.byKey(const ValueKey('settlement-payment-dispute-0'));
+    await scrollTo(tester, dispute);
+    await tester.tap(dispute);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dispute payment?'), findsOneWidget);
+    expect(
+      find.text(
+        'This asks the API to dispute the marked-paid claim for correction. Mobile does not decide payment truth, authorization, audit state, or money, and this seam does not support sending a reason yet.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Dispute payment'));
+    await tester.pumpAndSettle();
+
+    expect(repository.disputePaymentCalls, 1);
+    expect(repository.lastPaymentId, _paymentId);
+    expect(find.text('Payment disputed.'), findsOneWidget);
   });
 
   testWidgets('payment action blocks duplicate taps while in flight', (
@@ -789,7 +945,7 @@ void main() {
     expect(find.text('Dispute settlement?'), findsOneWidget);
     expect(
       find.text(
-        'This flags the settlement for correction. This mobile seam does not support sending a reason yet.',
+        'This asks the API to dispute the settlement for correction. Mobile does not decide authorization, payment truth, audit state, or money, and this seam does not support sending a reason yet.',
       ),
       findsOneWidget,
     );
@@ -832,6 +988,12 @@ void main() {
       find.byKey(const ValueKey('settlement-payment-dispute-0')),
       findsNothing,
     );
+    expect(
+      find.text(
+        'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('settlement list shows bounded session failure state', (
@@ -873,6 +1035,8 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     this.paymentDetails,
     this.markPaymentPaidCompleter,
     this.confirmPaymentCompleter,
+    this.actionFailure,
+    this.failRefreshAfterMutation = false,
   }) : detail = detail ?? sampleRequest();
 
   final SettleoraSettlementFailure? failure;
@@ -883,6 +1047,9 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   final SettleoraSettlementCounterpartyPaymentDetails? paymentDetails;
   final Completer<void>? markPaymentPaidCompleter;
   final Completer<void>? confirmPaymentCompleter;
+  final SettleoraSettlementFailure? actionFailure;
+  final bool failRefreshAfterMutation;
+  bool _mutationCompleted = false;
   int listBalancesCalls = 0;
   int listRequestsCalls = 0;
   int getRequestCalls = 0;
@@ -925,6 +1092,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String settlementId,
   ) async {
     getRequestCalls += 1;
+    _throwRefreshFailureIfNeeded();
     _throwIfNeeded();
     return detail;
   }
@@ -934,6 +1102,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String settlementId,
   ) async {
     listPaymentsCalls += 1;
+    _throwRefreshFailureIfNeeded();
     _throwIfNeeded();
     return payments;
   }
@@ -950,6 +1119,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     lastMarkedPaidAmount = amount;
     lastMarkedPaidCurrency = currency;
     lastMarkedPaidPaymentDate = paymentDate;
+    _throwActionIfNeeded();
     final completer = markPaymentPaidCompleter;
     if (completer != null) {
       await completer.future;
@@ -964,6 +1134,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
       status: SettleoraSettlementRequestStatusValues.markedPaid,
     );
     payments = [payment];
+    _mutationCompleted = true;
     return payment;
   }
 
@@ -984,9 +1155,11 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String settlementId,
   ) async {
     cancelRequestCalls += 1;
+    _throwActionIfNeeded();
     detail = sampleRequest(
       status: SettleoraSettlementRequestStatusValues.cancelled,
     );
+    _mutationCompleted = true;
     return detail;
   }
 
@@ -995,9 +1168,11 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String settlementId,
   ) async {
     disputeRequestCalls += 1;
+    _throwActionIfNeeded();
     detail = sampleRequest(
       status: SettleoraSettlementRequestStatusValues.disputed,
     );
+    _mutationCompleted = true;
     return detail;
   }
 
@@ -1007,6 +1182,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
   ) async {
     confirmPaymentCalls += 1;
     lastPaymentId = paymentId;
+    _throwActionIfNeeded();
     final completer = confirmPaymentCompleter;
     if (completer != null) {
       await completer.future;
@@ -1016,6 +1192,7 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
       residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
     );
     payments = [payment];
+    _mutationCompleted = true;
     return payment;
   }
 
@@ -1024,10 +1201,13 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String paymentId,
   ) async {
     cancelPaymentCalls += 1;
+    lastPaymentId = paymentId;
+    _throwActionIfNeeded();
     final payment = samplePayment(
       status: SettleoraSettlementPaymentStatusValues.cancelled,
     );
     payments = [payment];
+    _mutationCompleted = true;
     return payment;
   }
 
@@ -1036,10 +1216,13 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     String paymentId,
   ) async {
     disputePaymentCalls += 1;
+    lastPaymentId = paymentId;
+    _throwActionIfNeeded();
     final payment = samplePayment(
       status: SettleoraSettlementPaymentStatusValues.disputed,
     );
     payments = [payment];
+    _mutationCompleted = true;
     return payment;
   }
 
@@ -1051,11 +1234,29 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
     confirmResidualCalls += 1;
     lastPaymentId = paymentId;
     lastResidualId = residualId;
+    _throwActionIfNeeded();
     final payment = samplePayment(
       residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
     );
     payments = [payment];
+    _mutationCompleted = true;
     return payment;
+  }
+
+  void _throwActionIfNeeded() {
+    final failure = actionFailure;
+    if (failure != null) {
+      throw failure;
+    }
+  }
+
+  void _throwRefreshFailureIfNeeded() {
+    if (failRefreshAfterMutation && _mutationCompleted) {
+      throw const SettleoraSettlementFailure(
+        kind: SettleoraSettlementFailureKind.server,
+        message: 'Settlements are unavailable right now. Try again later.',
+      );
+    }
   }
 
   void _throwIfNeeded() {
