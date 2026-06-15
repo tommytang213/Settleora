@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M7 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8 queued; first task pending; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -47,6 +47,30 @@ Status: `M7 finalized; UI-test ready; manual UI/code review deferred until Day 1
 - [x] M7-003 hardened personal/group bill loaded-row filters, filtered-empty copy, bounded reconciliation status/note readouts, and server-authority/no-import/no-mutation copy inside existing mobile bill seams.
 - [x] M7-004 finalized M7 QA/control state, recorded M7-001 through M7-004 completion and validation coverage, preserved deferred manual UI/code review, and marked M7 UI-test ready with no remaining automated M7 work.
 - [x] Current M7 state preserves `STOP-M7-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+- [x] M8 queued as `Day 1 Mobile Settlement Workflow Hardening`.
+- [x] M8 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
+- [x] Scope guard allows only narrow M8 docs/control, mobile settlements, app-routing support, and mobile test paths.
+- [x] No M8 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, settlement authority, storage privacy, settlement proof byte behavior, provider integration, statement import/matching, export/backup, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+
+## M8 Selection Summary
+
+M8 is `Day 1 Mobile Settlement Workflow Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the mobile app has a starter authenticated settlement balance/request/payment detail foundation backed by generated-client seams.
+- `README.md` says current backend settlement request/payment/proof flows, basket preview/create, balance projection, payment allocations, and residual confirmation runtime already exist.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires settlement requests, settlement baskets, pay-all outstanding, exact selected total versus actual paid amount display, explicit residual handling, mark-paid, receiver confirmation, settlement proof attachments, payment profile display, audit events, and no silent settlement mutation from bill revisions.
+- `docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md`, `docs/architecture/SETTLEMENT_BASKET_RESIDUAL_ARCHITECTURE.md`, and `docs/features/settlements/TECHNICAL_SPEC.md` require API/domain authority for settlement state transitions, selected lines, payment allocations, residual policy, balances, authorization, proof access, and audit.
+- Current mobile code under `apps/mobile/lib/settlements/` and focused tests under `apps/mobile/test/settlement_*` provide bounded seams for mobile-only settlement workflow hardening without requiring API, contract, generated-client, schema, auth, storage, money, deployment, provider, or unrelated-domain changes.
+
+## M8 Queue Summary
+
+- `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Queued. Reconcile current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
+- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Queued. Harden settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
+- `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Queued. Harden residual, allocation, selected-line/basket, balance, and counterparty payment-detail readouts over server-returned data only.
+- `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `STOP-M8-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment, residual/basket/balance policy, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M7 Selection Summary
 
