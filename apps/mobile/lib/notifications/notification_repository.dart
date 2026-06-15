@@ -234,6 +234,10 @@ abstract interface class SettleoraNotificationRepository {
   Future<SettleoraNotificationRow> archiveNotification(String notificationId);
 }
 
+abstract interface class SettleoraNotificationRestoreRepository {
+  Future<SettleoraNotificationRow> restoreNotification(String notificationId);
+}
+
 String settleoraNotificationStatusLabel(SettleoraNotificationStatus status) {
   if (_looksUnsafeForDisplay(status)) {
     return 'Status';
