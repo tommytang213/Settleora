@@ -48,12 +48,26 @@ Repo-state basis for this milestone:
 - Group bill detail/lifecycle surfaces expose server-provided status, participant, revision capability, and attachment state without inferring authorization or financial truth from cached mobile data.
 - M4 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
+- M4 is UI-test ready as a bounded controller stop state; the controller should not reselect stale M4 work.
 
 ## Current Task Pointer
 
-- Completed task: `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`.
-- Next queued task: `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`.
+- Completed task: `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`.
+- Next queued task: none for M4; run the controller to select the next controller-approved Day 1 milestone or queue kickoff.
 - Stop sentinel: `STOP-M4-001` for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, recurring/settlement/reporting/OCR-worker, or unrelated major-domain scope.
+
+## Finalized Controller State
+
+M4 is finalized as a bounded Day 1 mobile group bill lifecycle UX hardening checkpoint and is UI-test ready for deferred Day 1 acceptance review.
+
+Completed slices:
+
+- `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659`: reconciled current mobile group bill lifecycle state and QA map.
+- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`: hardened create/submit continuation, retry, duplicate-mutation, validation, and safe-error behavior.
+- `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`: hardened detail lifecycle acknowledgement failure, retry, duplicate-mutation, revision-entry, attachment/OCR-handoff, member fallback, and terminal/unavailable state coverage.
+- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`: finalized M4 QA/control state and preserved deferred manual review gates.
+
+The next automated Day 1 action is to run the controller for the next approved milestone or queue kickoff, not to expand M4 ad hoc.
 
 ## M3 Carry-Forward Boundary
 

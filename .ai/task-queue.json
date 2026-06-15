@@ -97,7 +97,7 @@
     "title": "Mobile group bill lifecycle QA finalization",
     "risk": "low",
     "autoMergeAllowed": false,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
