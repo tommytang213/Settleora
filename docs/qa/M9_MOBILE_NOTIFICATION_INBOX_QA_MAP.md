@@ -1,6 +1,6 @@
 # M9 Mobile In-App Notification Inbox QA Map
 
-Status: `M9-001 complete; M9-002 current/next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M9-001 and M9-002 complete; M9-003 current/next; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
@@ -135,14 +135,17 @@ M9-001 is complete. It stayed inside docs/control inventory and completed:
 
 ## Gap Focus For M9-002
 
-M9-002 should stay inside existing mobile notification inbox seams and may harden:
+M9-002 is complete. It stayed inside existing mobile notification inbox seams and hardened:
 
-- Summary/list count clarity, local filter copy, archived-row boundary, and filtered-empty states.
-- Read/archive/mark-all/mark-visible confirmations or status copy where current behavior is ambiguous.
+- Summary/list count clarity, local loaded-row filter copy, archived-row boundary, and filtered-empty states.
+- Read/archive/restore-if-present/mark-all/mark-visible success and status copy where current behavior was ambiguous.
 - Duplicate-action prevention across row and bulk notification mutations.
 - Safe bounded failure copy and retry behavior for session, denied, unavailable, conflict, validation, network, and server failures.
 - Refresh-after-mutation behavior that avoids stale repeated actions when the action succeeds but follow-up refresh fails.
-- Server-authority messaging that the API decides notification visibility/read/archive state.
+- Server-authority messaging that the API decides notification visibility, read/archive state, and linked-resource access.
+- Focused notification screen coverage for the above, including a refresh-after-success/list-failure recovery case.
+
+M9-002 changed only `.ai` control files, this QA map, `apps/mobile/lib/notifications/notification_screen.dart`, and focused notification screen tests. It did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization, deployment/CI, web/admin runtime, broad offline sync/cache, secrets, or unrelated major-domain behavior.
 
 ## Gap Focus For M9-003
 
@@ -156,8 +159,8 @@ M9-003 should stay inside existing notification handoff seams and may harden:
 ## Queue Expectations
 
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
-- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Current/next. Harden notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
-- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Queued. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
+- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
+- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Current/next. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
 - `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation, and mark UI-test ready only after M9 implementation slices complete.
 - `STOP-M9-001` - Preserve. Stop for forbidden API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker, linked-resource authorization, web/admin, broad-sync, secrets, or unrelated major-domain scope.
 

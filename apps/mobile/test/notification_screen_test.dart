@@ -44,6 +44,16 @@ void main() {
     expect(find.byKey(const Key('notification-summary')), findsOneWidget);
     expect(find.text('Unread: 1'), findsOneWidget);
     expect(find.text('Attention: 1'), findsOneWidget);
+    expect(
+      find.text(
+        'API summary counts are server-authoritative; Mark All Read asks the API and this button is only UI guidance.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Local filters only hide loaded rows'),
+      findsOneWidget,
+    );
     expect(find.text('Bill submitted'), findsOneWidget);
     expect(find.text('Dinner bill is ready.'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_notificationId)));
@@ -325,7 +335,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.markAllReadCalls, 1);
-    expect(find.text('Notifications marked read.'), findsOneWidget);
+    expect(find.text('Mark-all-read request sent to the API.'), findsOneWidget);
     expect(find.text('Unread: 0'), findsOneWidget);
     expect(find.text('Read'), findsWidgets);
 
@@ -336,7 +346,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.archiveCalls, 1);
-    expect(find.text('Notification archived.'), findsOneWidget);
+    expect(find.text('Notification archived through the API.'), findsOneWidget);
     expect(find.text('No matching notifications'), findsOneWidget);
     expect(find.text('All (0)'), findsOneWidget);
     expect(find.text('Archived (1)'), findsOneWidget);
@@ -377,6 +387,42 @@ void main() {
     expect(find.text('Review me.'), findsOneWidget);
     expect(find.text('Unread (1)'), findsOneWidget);
   });
+
+  testWidgets(
+    'successful archive preserves local state when follow-up refresh fails',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [sampleNotification(safeSummary: 'Refresh risk.')],
+        listFailureOnCall: 2,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('notification-archive-0')));
+      await tester.pumpAndSettle();
+
+      expect(repository.archiveCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(
+        find.text(
+          'Notification was archived through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('No matching notifications'), findsOneWidget);
+      expect(find.text('Archived (1)'), findsOneWidget);
+      expect(find.text('Server unavailable'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
+      await tester.pumpAndSettle();
+
+      expect(repository.archiveCalls, 1);
+      expect(repository.markReadCalls, 0);
+    },
+  );
 
   testWidgets(
     'selected filter is preserved after archive and refresh updates',
@@ -464,7 +510,10 @@ void main() {
       expectSelectedFilter(tester, 'actionable');
       expect(find.text('Openable bill.'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('notification-mark-all-read')));
+      await tapVisibleNotificationControl(
+        tester,
+        const Key('notification-mark-all-read'),
+      );
       await tester.pumpAndSettle();
 
       expect(repository.markAllReadCalls, 1);
@@ -520,7 +569,9 @@ void main() {
       expect(find.text('Already read bill.'), findsOneWidget);
       expect(find.text('Hidden settlement.'), findsNothing);
       expect(
-        find.text('1 visible unread notification in Bills'),
+        find.textContaining(
+          '1 currently visible loaded unread notification in Bills',
+        ),
         findsOneWidget,
       );
 
@@ -530,12 +581,17 @@ void main() {
       expect(repository.markReadCalls, 1);
       expect(repository.markReadIds, ['notification-bill-visible']);
       expectSelectedFilter(tester, 'bills');
-      expect(find.text('Visible notifications marked read.'), findsOneWidget);
+      expect(
+        find.text('Visible loaded notifications marked read through the API.'),
+        findsOneWidget,
+      );
       expect(find.text('Unread (1)'), findsOneWidget);
       expect(find.text('Read (2)'), findsOneWidget);
       expect(find.text('Bills (2)'), findsOneWidget);
       expect(
-        find.text('0 visible unread notifications in Bills'),
+        find.textContaining(
+          '0 currently visible loaded unread notifications in Bills',
+        ),
         findsOneWidget,
       );
 
@@ -566,7 +622,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 visible unread notification in All'), findsOneWidget);
+    expect(
+      find.textContaining(
+        '1 currently visible loaded unread notification in All',
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
     await tester.pumpAndSettle();
 
@@ -578,7 +639,9 @@ void main() {
     await tapNotificationFilter(tester, 'archived');
     expect(find.text('Archived one.'), findsOneWidget);
     expect(
-      find.text('0 visible unread notifications in Archived'),
+      find.textContaining(
+        '0 currently visible loaded unread notifications in Archived',
+      ),
       findsOneWidget,
     );
 
@@ -614,7 +677,9 @@ void main() {
       expectSelectedFilter(tester, 'unread');
       expect(find.text('Unread (2)'), findsOneWidget);
       expect(
-        find.text('2 visible unread notifications in Unread'),
+        find.textContaining(
+          '2 currently visible loaded unread notifications in Unread',
+        ),
         findsOneWidget,
       );
 
@@ -629,7 +694,9 @@ void main() {
       expect(find.text('Unread: 0'), findsOneWidget);
       expect(find.text('No unread notifications'), findsOneWidget);
       expect(
-        find.text('0 visible unread notifications in Unread'),
+        find.textContaining(
+          '0 currently visible loaded unread notifications in Unread',
+        ),
         findsOneWidget,
       );
     },
@@ -869,10 +936,10 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey('notification-open-revision-0')),
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-revision-0'),
     );
-    await tester.pumpAndSettle();
 
     expect(find.text('Revision review'), findsOneWidget);
     expect(revisionRepository.getCalls, 1);
@@ -1201,10 +1268,10 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-group-bill-0'),
     );
-    await tester.pumpAndSettle();
 
     expect(groupRepository.getGroupCalls, 1);
     expect(groupRepository.listMemberCalls, 1);
@@ -1251,10 +1318,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-group-bill-0'),
     );
-    await tester.pumpAndSettle();
 
     expect(groupRepository.listMemberCalls, 1);
     expect(find.text('Group bill'), findsWidgets);
@@ -1353,10 +1420,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('notification-open-group-bill-0')),
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-group-bill-0'),
     );
-    await tester.pumpAndSettle();
 
     expect(groupRepository.getGroupCalls, 1);
     expect(repository.markReadCalls, 0);
@@ -1403,10 +1470,10 @@ void main() {
       );
       expect(find.text('Open settlement'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey('notification-open-settlement-0')),
+      await tapVisibleNotificationControl(
+        tester,
+        const ValueKey('notification-open-settlement-0'),
       );
-      await tester.pumpAndSettle();
 
       expect(settlementRepository.getRequestCalls, 1);
       expect(settlementRepository.listPaymentsCalls, 1);
@@ -1518,10 +1585,10 @@ void main() {
       );
       expect(find.text('Open recurring'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey('notification-open-recurring-0')),
+      await tapVisibleNotificationControl(
+        tester,
+        const ValueKey('notification-open-recurring-0'),
       );
-      await tester.pumpAndSettle();
 
       expect(recurringRepository.getTemplateCalls, 1);
       expect(recurringRepository.lastTemplateId, _recurringTemplateId);
@@ -1909,8 +1976,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tapNotificationFilter(tester, 'bills');
-    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
-    await tester.pumpAndSettle();
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-details-0'),
+    );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Event'), findsOneWidget);
@@ -1932,6 +2001,13 @@ void main() {
     expect(
       find.text(
         'Raw links are ignored. Settleora opens only supported typed destinations.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Authority'), findsOneWidget);
+    expect(
+      find.text(
+        'The API decides notification visibility, read/archive state, and linked-resource access.',
       ),
       findsOneWidget,
     );
@@ -1968,8 +2044,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
-    await tester.pumpAndSettle();
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-details-0'),
+    );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Summary'), findsOneWidget);
@@ -2008,8 +2086,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const ValueKey('notification-details-0')));
-      await tester.pumpAndSettle();
+      await tapVisibleNotificationControl(
+        tester,
+        const ValueKey('notification-details-0'),
+      );
 
       expect(
         find.byKey(const Key('notification-detail-sheet')),
@@ -2068,8 +2148,10 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
-    await tester.pumpAndSettle();
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-details-0'),
+    );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Archived'), findsWidgets);
@@ -2339,9 +2421,16 @@ Future<void> openNotificationAndReturn(
   WidgetTester tester,
   Key openButtonKey,
 ) async {
-  await tester.tap(find.byKey(openButtonKey));
-  await tester.pumpAndSettle();
+  await tapVisibleNotificationControl(tester, openButtonKey);
   await tester.pageBack();
+  await tester.pumpAndSettle();
+}
+
+Future<void> tapVisibleNotificationControl(WidgetTester tester, Key key) async {
+  final finder = find.byKey(key);
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
   await tester.pumpAndSettle();
 }
 
@@ -2356,6 +2445,8 @@ class FakeNotificationRepository
     this.markAllReadFailure,
     this.archiveFailure,
     this.restoreFailure,
+    this.listFailureOnCall,
+    this.listFailure,
     this.actionDelay = Duration.zero,
   }) : notifications = notifications ?? [sampleNotification()],
        _preArchiveStatuses = <String, String>{},
@@ -2369,6 +2460,8 @@ class FakeNotificationRepository
       markAllReadFailure = null,
       archiveFailure = null,
       restoreFailure = null,
+      listFailureOnCall = null,
+      listFailure = null,
       actionDelay = Duration.zero,
       _preArchiveStatuses = <String, String>{},
       _summaryCompleter = Completer<SettleoraNotificationSummary>(),
@@ -2381,6 +2474,8 @@ class FakeNotificationRepository
   final SettleoraNotificationFailure? markAllReadFailure;
   final SettleoraNotificationFailure? archiveFailure;
   final SettleoraNotificationFailure? restoreFailure;
+  final int? listFailureOnCall;
+  final SettleoraNotificationFailure? listFailure;
   final Duration actionDelay;
   final Completer<SettleoraNotificationSummary>? _summaryCompleter;
   final Completer<List<SettleoraNotificationRow>>? _notificationsCompleter;
@@ -2408,6 +2503,14 @@ class FakeNotificationRepository
     DateTime? before,
   }) async {
     listCalls += 1;
+    if (listFailureOnCall == listCalls) {
+      throw listFailure ??
+          const SettleoraNotificationFailure(
+            kind: SettleoraNotificationFailureKind.network,
+            message:
+                'The server is unavailable. Try again when the connection is back.',
+          );
+    }
     final completer = _notificationsCompleter;
     if (completer != null) {
       notifications = await completer.future;
