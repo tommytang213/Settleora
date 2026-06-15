@@ -43,11 +43,20 @@ class SettleoraSyncQueueProcessor {
     var conflictCount = 0;
 
     for (final item in retryableItems) {
+      final startedAtUtc = _currentUtc();
+      final syncingItem = item.copyWith(
+        state: SettleoraSyncQueueItemStateValues.syncing,
+        updatedAtUtc: startedAtUtc,
+        clearSafeError: true,
+      );
+      state = state.replaceItem(syncingItem);
+      await _queueStore.write(state);
+
       try {
-        final response = await _repository.submitOperation(item);
+        final response = await _repository.submitOperation(syncingItem);
         final attemptedAtUtc = _currentUtc();
         final updatedItem = _itemForResult(
-          item,
+          syncingItem,
           response,
           attemptedAtUtc: attemptedAtUtc,
         );
@@ -66,6 +75,9 @@ class SettleoraSyncQueueProcessor {
         }
       } on SettleoraSyncFailure catch (failure) {
         if (failure.isSessionBlocking) {
+          state = state.replaceItem(item);
+          await _queueStore.write(state);
+
           return SettleoraSyncQueueFlushResult(
             processedCount: processedCount,
             syncedCount: syncedCount,
@@ -77,7 +89,7 @@ class SettleoraSyncQueueProcessor {
         }
 
         final attemptedAtUtc = _currentUtc();
-        final updatedItem = item.copyWith(
+        final updatedItem = syncingItem.copyWith(
           state: failure.kind == SettleoraSyncFailureKind.conflict
               ? SettleoraSyncQueueItemStateValues.conflict
               : SettleoraSyncQueueItemStateValues.failed,

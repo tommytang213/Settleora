@@ -71,9 +71,14 @@ Currently represented behavior:
 - Session-required and session-expired failures stop the flush without mutating the queue item.
 - Failed items remain retryable; conflict items are preserved but not retried automatically.
 
-Current gaps for M3 hardening:
+M3-002 hardening:
 
-- The `syncing` state exists in the model and labels, but the processor does not persist a transient `syncing` state before submit.
+- The processor now persists a transient `syncing` state before submit while keeping the original queued operation payload intact.
+- Session-required and session-expired failures restore the original queued item and return a session-required flush result without final queue mutation.
+- Retryable failed items remain preserved and can later transition through `syncing` to `synced`.
+
+Remaining gaps:
+
 - There is no backoff, max-attempt, manual retry, cancellation, discard, or conflict-resolution policy.
 - There is no automatic compaction/removal of old `synced` items.
 - There is no per-item user-review workflow for conflict/failed states beyond labels and queue preservation.
@@ -147,9 +152,14 @@ Current UI bridge behavior in `apps/mobile/lib/bills/bill_list_screen.dart`:
 - A sync panel and per-bill sync badges expose queued state and flush behavior.
 - Group bill create/list tests explicitly expect no offline queueing for group bill creation.
 
-Current gaps for M3 hardening:
+M3-002 hardening:
 
-- Bill bridge tests do not yet cover rejected/failed and conflict outcomes.
+- Bill bridge tests now cover rejected/failed and conflict outcomes.
+- Bill bridge tests assert `Retry later` and `Needs review` labels remain safe and do not expose raw IDs or API paths.
+- Bill bridge tests assert queued and syncing operations remain open for bill-level operation detection.
+
+Remaining gaps:
+
 - The UI surface has no full conflict-review route or manual discard/cancel behavior.
 - Only archive/restore lifecycle actions use the queue today; create/edit/group bill/recurring/OCR offline work remains future scope.
 
@@ -183,13 +193,19 @@ Focused existing tests:
 
 Coverage gaps for upcoming M3 tasks:
 
-- Processor persistence of a transient `syncing` state or an intentional decision not to persist it.
-- Processor behavior for failed-to-retry-to-synced transitions.
-- Processor behavior for multiple queued items where one session-blocking failure stops later work.
-- Bill sync controller conflict and rejected/failed snapshot behavior.
 - App bootstrap default sync wiring.
+- Processor behavior for multiple queued items where one session-blocking failure stops later work.
 - Change-feed seam validation from app wiring without cache mutation.
 - UI expectations for failed/conflict queue visibility and safe retry labels.
+
+M3-002 added focused coverage for:
+
+- Processor persistence of a transient `syncing` state before submit.
+- Session-blocked flushes restoring the original queued item.
+- Rejected results preserving failed items with bounded safe fields.
+- Conflict results preserving conflict items for review.
+- Retryable failures preserving failed items that can later become synced.
+- Bill sync controller failed/conflict snapshot behavior, safe labels, and queued/syncing open-operation detection.
 
 ## M3 Acceptance Targets
 
