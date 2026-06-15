@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 controller-finalized; manual UI/code review deferred until Day 1 acceptance; M3 mobile sync/offline queue automation ready`
+Status: `M3-001 sync/offline state reconciled; manual UI/code review deferred until Day 1 acceptance; M3-002 ready`
 
 ## Acceptance Checklist
 
@@ -12,6 +12,9 @@ Status: `M2 controller-finalized; manual UI/code review deferred until Day 1 acc
 - [x] M3 queue has 2-4 related sub-slices plus a hard stop sentinel.
 - [x] Scope guard is expected to allow M3 docs/control files and only narrow mobile sync/offline implementation paths.
 - [x] No M3 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, or secret changes.
+- [x] M3-001 current-state reconciliation is complete.
+- [x] M3 mobile sync/offline QA map created at `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
+- [x] Next queued implementation slice is `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509`.
 
 ## M2 Finalization Record
 
@@ -34,11 +37,32 @@ The selection is based on current repo state:
 
 ## M3 Queue Summary
 
-- `M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509` - Reconcile current mobile sync/offline queue state and create the QA map.
-- `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Harden existing queue processor and bill sync bridge state preservation.
+- `M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509` - Completed. Reconciled current mobile sync/offline queue state and created `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md`.
+- `M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509` - Queued next. Harden existing queue processor and bill sync bridge state preservation.
 - `M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509` - Validate bounded generated sync change-feed hydration seams and app wiring.
 - `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509` - Finalize M3 QA/control state.
 - `STOP-M3-001` - Stop for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
+
+## M3-001 Reconciliation Record
+
+M3-001 found that the current mobile sync/offline queue foundation is intentionally narrow and server-authority preserving:
+
+- Queue item states represented in code: `queued`, `syncing`, `synced`, `failed`, `conflict`, and `cancelled`.
+- Queue operations currently represented: `bill_archive` and `bill_restore` for `expense_bill`.
+- Queue storage uses bounded secure key-value JSON under `settleora.sync_queue.v1`, with item-count and serialized-size caps.
+- Queue payload validation rejects sensitive-looking token, credential, payment, OCR, receipt, proof, file path, and auth-account content.
+- The processor maps accepted/replayed server results to `synced`, rejected results to `failed`, conflict results to `conflict`, retryable network/server failures to retryable `failed`, and session-required/session-expired failures to a non-mutating session-required flush result.
+- The generated sync repository seam maps submit and change-feed calls through generated clients with bounded inputs and safe failure mapping.
+- App bootstrap wires `SettleoraBillSyncController` in authenticated server mode with `SecureStorageSyncQueueStore` and `GeneratedSettleoraSyncRepository`.
+- The bill sync bridge queues archive/restore, exposes sync snapshots, marks queued/syncing/failed/conflict as open operations, and labels failed as `Retry later` and conflict as `Needs review`.
+
+Current M3 gaps recorded in the QA map:
+
+- `syncing` exists in the model and labels but is not persisted by the processor before submit.
+- Failed-to-retry-to-synced, conflict preservation through the bill sync controller, and app bootstrap default sync wiring need focused tests.
+- Change-feed reads are mapped but not yet connected to offline cache hydration.
+- There is no backoff, max-attempt, manual discard/cancel, conflict-resolution workflow, startup flush, background sync, or local cache merge behavior.
+- Offline queueing remains limited to personal bill archive/restore; group bill create/edit, recurring bills, OCR capture/apply, and broader offline cache hydration remain future scoped work.
 
 ## Validation Expectations
 
