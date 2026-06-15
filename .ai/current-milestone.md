@@ -53,10 +53,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
-- Last completed task: `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306`.
-- Current state: M8 is in progress. M8-002 hardened existing mobile settlement request/payment action flows without changing backend/API contracts, generated clients, schema, auth, storage/privacy, money, or settlement authority.
-- Recommended next automated Day 1 task: `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
+- Current task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
+- Last completed task: `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
+- Current state: M8 is in progress. M8-003 hardened existing mobile settlement residual, allocation, selected-line, balance, loaded-row filter, and counterparty payment-detail readouts without changing backend/API contracts, generated clients, schema, auth, storage/privacy, money, residual policy, basket expansion, balance projection, or settlement authority.
+- Recommended next automated Day 1 task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
 - Stop sentinel: `STOP-M8-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, settlement authority changes, residual/basket/balance policy changes, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M7 Carry-Forward Boundary

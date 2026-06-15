@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M8 in progress; M8-002 completed; M8-003 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8 in progress; M8-003 completed; M8-004 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -53,6 +53,7 @@ Status: `M8 in progress; M8-002 completed; M8-003 queued; manual UI/code review 
 - [x] No M8 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, settlement authority, storage privacy, settlement proof byte behavior, provider integration, statement import/matching, export/backup, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
 - [x] M8-001 reconciled current mobile settlement repository/model boundaries, generated-client mapping, settlement list/detail UI, app-shell/notification handoffs, automated coverage, Day 1 requirement gaps, and M8-002/M8-003 focus without changing runtime behavior.
 - [x] M8-002 hardened mobile settlement request/payment action confirmations, duplicate-action guards, bounded action failure copy, refresh-after-mutation recovery, and server-authority messaging inside existing mobile seams.
+- [x] M8-003 hardened mobile settlement residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readouts over server-returned data only.
 
 ## M8 Selection Summary
 
@@ -70,7 +71,7 @@ The selection is based on current repo state:
 
 - `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Completed. Reconciled current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
 - `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Completed. Hardened settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
-- `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Queued. Harden residual, allocation, selected-line/basket, balance, and counterparty payment-detail readouts over server-returned data only.
+- `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Completed. Hardened residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readouts over server-returned data only.
 - `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M8-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment, residual/basket/balance policy, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
@@ -113,6 +114,27 @@ Focused automated coverage:
 - Added coverage for refresh-after-success failure, bounded unsafe mutation failure copy, payment cancellation, payment dispute, strengthened confirmation copy, and server-authority action guidance.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
+
+## M8-003 Residual/Basket Readout Hardening Summary
+
+Updated `apps/mobile/lib/settlements/settlement_list_screen.dart`, focused settlement screen tests, M8 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Balance tiles now display server-returned selected-line amount, pending claimed, confirmed cleared, remaining unclaimed, confirmed remaining residual, waived residual, credit residual, line count, pending payment count, and confirmed payment count with copy that mobile does not recalculate projection values.
+- Request detail copy now separates server-returned selected total/request amount from actual paid amounts on payment claims and states that mobile shows loaded API rows without expanding baskets or deciding eligibility.
+- Request-line and payment/residual filters now say they hide only loaded API rows locally, distinguish filtered-empty from true-empty, and direct users to clear filters to restore loaded rows.
+- Payment tiles now label actual paid amount, show server-returned allocation clearing facts, and expose residual direction, policy, status, and pending receiver confirmation readouts.
+- Counterparty payment details now explain settlement-scoped, relationship-backed, API-authorized visibility and continue to avoid QR bytes, storage/provider internals, broad profile lookup, and raw identifiers.
+- Proof readouts remain out of scope because current mobile settlement seams do not expose safe proof metadata; no proof byte/storage/file behavior was added.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/settlement_list_screen_test.dart test/settlement_generated_repository_test.dart` passed with 34 settlement list/widget tests plus generated settlement repository tests in the same command.
+- Added coverage for balance residual/allocation field readouts, loaded selected-line scope, exact selected total versus actual paid amount separation, allocation facts, residual direction/policy/status labels, counterparty visibility copy, loaded-row local filtering copy, filtered-empty states, and suppression of raw IDs/API/storage strings in new visible copy.
+- Full mobile validation passed with 697 Flutter tests through `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile`.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
 
 ## M7 Selection Summary
 

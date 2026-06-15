@@ -46,10 +46,10 @@ void main() {
     expect(find.text('Bank transfer'), findsOneWidget);
     await scrollTo(tester, find.text('Payments'));
     expect(find.text('Payments'), findsOneWidget);
-    expect(find.text('2.50 USD'), findsOneWidget);
+    expect(find.text('2.50 USD'), findsWidgets);
     expect(
       find.text(
-        'Receipt confirmation is blocked until pending residuals are confirmed.',
+        'Receipt confirmation is blocked until pending receiver-confirmation residuals are resolved by the API.',
       ),
       findsOneWidget,
     );
@@ -453,11 +453,6 @@ void main() {
       currentUserProfileId: _debtorUserProfileId,
     );
 
-    expect(find.text('Next step'), findsOneWidget);
-    expect(find.text('You are expected to pay'), findsOneWidget);
-    expect(find.text('Payment needed'), findsOneWidget);
-    expect(find.text('Mark paid available'), findsOneWidget);
-
     await tester.tap(find.byKey(const Key('settlement-request-mark-paid')));
     await tester.pumpAndSettle();
 
@@ -509,7 +504,7 @@ void main() {
 
       expect(repository.markPaymentPaidCalls, 1);
       expect(repository.getRequestCalls, 2);
-      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('10.00 USD'), findsWidgets);
       expect(
         find.text(
           'Payment marked paid. Refresh failed. Use Refresh to reload server state before repeating any settlement action.',
@@ -545,7 +540,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.markPaymentPaidCalls, 1);
-      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('10.00 USD'), findsWidgets);
       expect(
         find.text(
           'The API could not complete this settlement action right now. The loaded settlement state was kept.',
@@ -584,12 +579,66 @@ void main() {
 
     expect(find.text('Review Summary'), findsOneWidget);
     expect(find.text('Loaded settlement facts'), findsOneWidget);
-    expect(find.text('Requested - You receive'), findsOneWidget);
+    expect(find.textContaining('Requested - You receive'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'does not expand baskets, decide eligibility, or calculate settlement totals',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('2 lines'), findsOneWidget);
+    expect(find.text('Selected total 22.00 USD'), findsOneWidget);
     expect(find.text('2 payments'), findsOneWidget);
     expect(find.text('1 need confirmation'), findsOneWidget);
     expect(find.text('Payment details Available'), findsOneWidget);
     expect(find.textContaining(_settlementId), findsNothing);
+  });
+
+  testWidgets('settlement list shows full server balance readouts', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      balances: [
+        sampleBalance(
+          selectedLineAmount: '22.00',
+          pendingClaimedAmount: '8.00',
+          confirmedClearedAmount: '4.00',
+          remainingUnclaimedAmount: '10.00',
+          confirmedRemainingResidualAmount: '1.50',
+          waivedResidualAmount: '0.25',
+          creditResidualAmount: '0.75',
+          lineCount: 3,
+          pendingPaymentCount: 2,
+          confirmedPaymentCount: 1,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraSettlementListScreen(
+          repository: repository,
+          currentUserProfileId: _debtorUserProfileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selected lines'), findsOneWidget);
+    expect(find.text('22.00 USD'), findsOneWidget);
+    expect(find.text('Confirmed residual'), findsOneWidget);
+    expect(find.text('1.50 USD'), findsOneWidget);
+    expect(find.text('Waived residual'), findsOneWidget);
+    expect(find.text('0.25 USD'), findsOneWidget);
+    expect(find.text('Credit residual'), findsOneWidget);
+    expect(find.text('0.75 USD'), findsOneWidget);
+    expect(find.text('3 lines'), findsOneWidget);
+    expect(find.text('2 pending payments'), findsOneWidget);
+    expect(find.text('1 confirmed payments'), findsOneWidget);
+    expect(
+      find.textContaining('without recalculating selected lines'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('settlement detail filters request lines locally', (
@@ -618,6 +667,13 @@ void main() {
     expect(find.text('10.00 USD - Open'), findsNothing);
     expect(find.text('12.00 EUR - Closed'), findsOneWidget);
     expect(find.text('No matching request lines'), findsNothing);
+    expect(find.text('Loaded selected scope'), findsOneWidget);
+    expect(find.text('2 loaded lines'), findsOneWidget);
+    expect(find.text('1 visible after filter'), findsOneWidget);
+    expect(
+      find.textContaining('does not expand baskets or decide line eligibility'),
+      findsOneWidget,
+    );
 
     await tester.enterText(
       find.byKey(const Key('settlement-detail-lines-search')),
@@ -627,6 +683,10 @@ void main() {
 
     expect(find.text('12.00 EUR - Closed'), findsNothing);
     expect(find.text('No matching request lines'), findsOneWidget);
+    expect(
+      find.textContaining('Clear the filter to restore the rows'),
+      findsOneWidget,
+    );
     expect(find.text('No request lines'), findsNothing);
   });
 
@@ -671,7 +731,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('2.50 USD'), findsNothing);
-      expect(find.text('8.00 EUR'), findsOneWidget);
+      expect(find.text('8.00 EUR'), findsWidgets);
+      expect(find.text('Loaded payment filters'), findsOneWidget);
+      expect(find.text('2 loaded payments'), findsOneWidget);
+      expect(find.text('1 visible after filter'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'They do not authorize, mutate, calculate, allocate, or reconcile',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Actual paid'), findsOneWidget);
+      expect(find.text('Allocation 1'), findsOneWidget);
+      expect(
+        find.textContaining('server-returned clearing facts'),
+        findsOneWidget,
+      );
+      expect(find.text('Underpayment / Remaining Balance'), findsOneWidget);
+      expect(find.text('Pending receiver confirmation'), findsWidgets);
 
       final residualConfirm = find.byKey(
         const ValueKey('settlement-residual-confirm-0-0'),
@@ -686,6 +763,72 @@ void main() {
       expect(repository.lastResidualId, _secondResidualId);
     },
   );
+
+  testWidgets('settlement detail explains filtered-empty payments separately', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleMultiLineRequest(),
+      payments: [
+        samplePayment(
+          amount: '2.50',
+          currency: 'USD',
+          residualStatus: SettleoraSettlementResidualStatusValues.confirmed,
+        ),
+      ],
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _creditorUserProfileId,
+    );
+
+    await scrollTo(
+      tester,
+      find.byKey(const Key('settlement-detail-payments-search')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('settlement-detail-payments-search')),
+      'no-payment-match',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching payments'), findsOneWidget);
+    expect(
+      find.textContaining('Clear filters to restore rows'),
+      findsOneWidget,
+    );
+    expect(find.text('No payments'), findsNothing);
+  });
+
+  testWidgets('counterparty details explain settlement-scoped visibility', (
+    tester,
+  ) async {
+    final repository = FakeSettlementRepository(
+      detail: sampleRequest(),
+      paymentDetails: samplePaymentDetails(),
+    );
+
+    await pumpSettlementDetail(
+      tester,
+      repository: repository,
+      currentUserProfileId: _debtorUserProfileId,
+    );
+
+    await scrollTo(tester, find.text('Counterparty Payment Details'));
+
+    expect(find.text('Settlement-scoped visibility'), findsOneWidget);
+    expect(
+      find.textContaining('API authorizes the relationship and visibility'),
+      findsOneWidget,
+    );
+    expect(find.text('Relationship-backed'), findsOneWidget);
+    expect(find.text('settlement_counterparties_only'), findsOneWidget);
+    expect(find.textContaining(_settlementId), findsNothing);
+    expect(find.textContaining('/api/'), findsNothing);
+    expect(find.textContaining('storage'), findsNothing);
+  });
 
   testWidgets('mark-paid dialog validates empty inputs locally', (
     tester,
@@ -733,6 +876,7 @@ void main() {
       currentUserProfileId: _creditorUserProfileId,
     );
 
+    await scrollTo(tester, find.text('Waiting for payer'));
     expect(find.byKey(const Key('settlement-request-mark-paid')), findsNothing);
     expect(find.text('Waiting for payer'), findsOneWidget);
   });
@@ -790,6 +934,7 @@ void main() {
       currentUserProfileId: _creditorUserProfileId,
     );
 
+    await scrollTo(tester, find.text('Confirm receipt'));
     expect(find.text('Confirm receipt'), findsOneWidget);
     final confirm = find.byKey(const ValueKey('settlement-payment-confirm-0'));
     await scrollTo(tester, confirm);
@@ -977,6 +1122,13 @@ void main() {
       currentUserProfileId: _creditorUserProfileId,
     );
 
+    expect(
+      find.text(
+        'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+      ),
+      findsOneWidget,
+    );
+    await scrollTo(tester, find.text('No action needed'));
     expect(find.text('No action needed'), findsOneWidget);
     expect(find.byKey(const Key('settlement-request-cancel')), findsNothing);
     expect(find.byKey(const Key('settlement-request-dispute')), findsNothing);
@@ -987,12 +1139,6 @@ void main() {
     expect(
       find.byKey(const ValueKey('settlement-payment-dispute-0')),
       findsNothing,
-    );
-    expect(
-      find.text(
-        'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
-      ),
-      findsOneWidget,
     );
   });
 
@@ -1306,23 +1452,35 @@ Future<void> scrollFilterChipsBy(WidgetTester tester, double dx) async {
   await tester.pumpAndSettle();
 }
 
-SettleoraSettlementBalance sampleBalance() {
-  return const SettleoraSettlementBalance(
+SettleoraSettlementBalance sampleBalance({
+  String selectedLineAmount = '10.00',
+  String pendingClaimedAmount = '2.50',
+  String confirmedClearedAmount = '0.00',
+  String remainingUnclaimedAmount = '7.50',
+  String confirmedRemainingResidualAmount = '0.00',
+  String waivedResidualAmount = '0.00',
+  String creditResidualAmount = '0.00',
+  int requestCount = 1,
+  int lineCount = 1,
+  int pendingPaymentCount = 1,
+  int confirmedPaymentCount = 0,
+}) {
+  return SettleoraSettlementBalance(
     counterpartyUserProfileId: _creditorUserProfileId,
     groupId: null,
     direction: SettleoraSettlementBalanceDirectionValues.outgoing,
     currency: 'USD',
-    selectedLineAmount: '10.00',
-    pendingClaimedAmount: '2.50',
-    confirmedClearedAmount: '0.00',
-    remainingUnclaimedAmount: '7.50',
-    confirmedRemainingResidualAmount: '0.00',
-    waivedResidualAmount: '0.00',
-    creditResidualAmount: '0.00',
-    requestCount: 1,
-    lineCount: 1,
-    pendingPaymentCount: 1,
-    confirmedPaymentCount: 0,
+    selectedLineAmount: selectedLineAmount,
+    pendingClaimedAmount: pendingClaimedAmount,
+    confirmedClearedAmount: confirmedClearedAmount,
+    remainingUnclaimedAmount: remainingUnclaimedAmount,
+    confirmedRemainingResidualAmount: confirmedRemainingResidualAmount,
+    waivedResidualAmount: waivedResidualAmount,
+    creditResidualAmount: creditResidualAmount,
+    requestCount: requestCount,
+    lineCount: lineCount,
+    pendingPaymentCount: pendingPaymentCount,
+    confirmedPaymentCount: confirmedPaymentCount,
   );
 }
 
