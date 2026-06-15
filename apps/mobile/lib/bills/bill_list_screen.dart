@@ -11091,6 +11091,7 @@ class _SettleoraGroupBillDetailScreenState
   _BillDetailFilter _selectedDetailFilter = _BillDetailFilter.all;
   bool _isOpeningCreate = false;
   bool _isAcknowledging = false;
+  _GroupBillAcknowledgementAction? _acknowledgementAction;
   SettleoraBillFailure? _acknowledgementFailure;
   late ReceiptOcrReviewHandoff? _receiptOcrReviewHandoff;
   String? _receiptOcrReviewNotice;
@@ -11472,6 +11473,7 @@ class _SettleoraGroupBillDetailScreenState
 
     setState(() {
       _isAcknowledging = true;
+      _acknowledgementAction = _GroupBillAcknowledgementAction.accept;
       _acknowledgementFailure = null;
     });
 
@@ -11494,6 +11496,7 @@ class _SettleoraGroupBillDetailScreenState
       if (mounted) {
         setState(() {
           _isAcknowledging = false;
+          _acknowledgementAction = null;
         });
       }
     }
@@ -11512,6 +11515,7 @@ class _SettleoraGroupBillDetailScreenState
 
     setState(() {
       _isAcknowledging = true;
+      _acknowledgementAction = _GroupBillAcknowledgementAction.reject;
       _acknowledgementFailure = null;
     });
 
@@ -11535,6 +11539,7 @@ class _SettleoraGroupBillDetailScreenState
       if (mounted) {
         setState(() {
           _isAcknowledging = false;
+          _acknowledgementAction = null;
         });
       }
     }
@@ -11703,9 +11708,11 @@ class _SettleoraGroupBillDetailScreenState
                   const SizedBox(height: 14),
                   _GroupBillAcknowledgementActions(
                     isBusy: _isAcknowledging || _isLoading,
+                    activeAction: _acknowledgementAction,
                     failure: _acknowledgementFailure,
                     onAccept: _acceptParticipantShare,
                     onReject: _rejectParticipantShare,
+                    onRetry: _load,
                   ),
                 ],
                 if (_currentBillDetailParticipant(
@@ -14277,22 +14284,87 @@ class _CreateRevisionAction extends StatelessWidget {
   }
 }
 
+class _InlineFailure extends StatelessWidget {
+  const _InlineFailure({
+    super.key,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      message,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (action != null) ...[
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerRight, child: action!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _GroupBillAcknowledgementActions extends StatelessWidget {
   const _GroupBillAcknowledgementActions({
     required this.isBusy,
+    required this.activeAction,
     required this.failure,
     required this.onAccept,
     required this.onReject,
+    required this.onRetry,
   });
 
   final bool isBusy;
+  final _GroupBillAcknowledgementAction? activeAction;
   final SettleoraBillFailure? failure;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final failure = this.failure;
+    final rejecting = activeAction == _GroupBillAcknowledgementAction.reject;
+    final accepting = activeAction == _GroupBillAcknowledgementAction.accept;
 
     return DecoratedBox(
       key: const Key('group-bill-acknowledgement-actions'),
@@ -14317,12 +14389,22 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            const Text(
+              'Accept or request a correction through the server workflow. Mobile does not decide authorization or final bill state.',
+            ),
             if (failure != null) ...[
               const SizedBox(height: 10),
-              Text(
-                failure.message,
+              _InlineFailure(
                 key: const Key('group-bill-acknowledgement-failure'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                title: failure.title,
+                message: failure.message,
+                action: OutlinedButton.icon(
+                  key: const Key('group-bill-acknowledgement-retry'),
+                  onPressed: isBusy ? null : onRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh bill state'),
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -14334,13 +14416,18 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
                 OutlinedButton.icon(
                   key: const Key('group-bill-reject-share'),
                   onPressed: isBusy ? null : onReject,
-                  icon: const Icon(Icons.close),
+                  icon: rejecting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.close),
                   label: const Text('Reject'),
                 ),
                 FilledButton.icon(
                   key: const Key('group-bill-accept-share'),
                   onPressed: isBusy ? null : onAccept,
-                  icon: isBusy
+                  icon: accepting
                       ? const SizedBox.square(
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
@@ -14356,6 +14443,8 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
     );
   }
 }
+
+enum _GroupBillAcknowledgementAction { accept, reject }
 
 class _GroupBillSharePanel extends StatelessWidget {
   const _GroupBillSharePanel({
