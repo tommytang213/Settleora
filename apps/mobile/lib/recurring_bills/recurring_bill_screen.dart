@@ -29,6 +29,8 @@ class _SettleoraRecurringBillScreenState
   String _searchQuery = '';
   SettleoraRecurringBillFailure? _failure;
   SettleoraRecurringBillFailure? _actionFailure;
+  SettleoraRecurringBillDraftResult? _lastDraftResult;
+  String? _draftRefreshWarning;
 
   @override
   void initState() {
@@ -64,6 +66,7 @@ class _SettleoraRecurringBillScreenState
       _isLoading = true;
       _failure = null;
       _actionFailure = null;
+      _draftRefreshWarning = null;
     });
 
     try {
@@ -77,6 +80,7 @@ class _SettleoraRecurringBillScreenState
         _templates = templates;
         _forecast = forecast;
         _isLoading = false;
+        _lastDraftResult = _reconciledDraftResult(_lastDraftResult, forecast);
       });
     } catch (error) {
       if (!mounted) {
@@ -158,9 +162,13 @@ class _SettleoraRecurringBillScreenState
       }
 
       _showSnackBar(
-        'Draft generated: ${_money(result.totalAmount, result.totalCurrency)}.',
+        'Draft ready: ${_money(result.totalAmount, result.totalCurrency)}.',
       );
-      await _load();
+      setState(() {
+        _lastDraftResult = result;
+        _forecast = _forecastWithDraftResult(_forecast, result);
+      });
+      await _refreshAfterDraftGeneration(result);
     } catch (error) {
       if (!mounted) {
         return;
@@ -175,6 +183,35 @@ class _SettleoraRecurringBillScreenState
           _generatingKey = null;
         });
       }
+    }
+  }
+
+  Future<void> _refreshAfterDraftGeneration(
+    SettleoraRecurringBillDraftResult result,
+  ) async {
+    try {
+      final templates = await widget.repository.listTemplates(maxItems: 100);
+      final forecast = await widget.repository.listForecast(limit: 30);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _templates = templates;
+        _forecast = forecast;
+        _lastDraftResult = _reconciledDraftResult(result, forecast);
+        _draftRefreshWarning = null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _lastDraftResult = result;
+        _draftRefreshWarning =
+            'Draft generation succeeded, but the latest recurring bill state could not be refreshed. Refresh server state to reconcile the forecast without generating another draft.';
+      });
     }
   }
 
@@ -250,6 +287,8 @@ class _SettleoraRecurringBillScreenState
   @override
   Widget build(BuildContext context) {
     final actionFailure = _actionFailure;
+    final draftRefreshWarning = _draftRefreshWarning;
+    final lastDraftResult = _lastDraftResult;
 
     return Scaffold(
       appBar: AppBar(
@@ -304,6 +343,14 @@ class _SettleoraRecurringBillScreenState
                   const SizedBox(height: 20),
                   if (actionFailure != null) ...[
                     _InlineFailure(failure: actionFailure),
+                    const SizedBox(height: 12),
+                  ],
+                  if (lastDraftResult != null) ...[
+                    _GeneratedDraftPanel(
+                      result: lastDraftResult,
+                      refreshWarning: draftRefreshWarning,
+                      onRefresh: _load,
+                    ),
                     const SizedBox(height: 12),
                   ],
                   _Section(
@@ -1424,6 +1471,11 @@ class _ForecastTile extends StatelessWidget {
                   ),
                 if (occurrence.isGroupScoped)
                   const _SoftChip(label: 'Group', icon: Icons.groups_outlined),
+                if (occurrence.generatedBillId != null)
+                  const _SoftChip(
+                    label: 'Draft context',
+                    icon: Icons.receipt_long_outlined,
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -1441,9 +1493,7 @@ class _ForecastTile extends StatelessWidget {
                       )
                     : const Icon(Icons.note_add_outlined),
                 label: Text(
-                  occurrence.draftGenerated
-                      ? 'Draft Generated'
-                      : 'Generate Draft',
+                  occurrence.draftGenerated ? 'Draft Ready' : 'Generate Draft',
                 ),
               ),
             ),
@@ -1452,6 +1502,62 @@ class _ForecastTile extends StatelessWidget {
       ),
     );
   }
+}
+
+List<SettleoraRecurringBillForecastOccurrence> _forecastWithDraftResult(
+  List<SettleoraRecurringBillForecastOccurrence> forecast,
+  SettleoraRecurringBillDraftResult result,
+) {
+  var replaced = false;
+  final updated = forecast
+      .map((occurrence) {
+        final sameOccurrence =
+            occurrence.templateId == result.templateId &&
+            occurrence.occurrenceDate == result.occurrenceDate;
+        if (!sameOccurrence) {
+          return occurrence;
+        }
+
+        replaced = true;
+        return SettleoraRecurringBillForecastOccurrence(
+          templateId: occurrence.templateId,
+          occurrenceId: result.occurrenceId,
+          occurrenceDate: occurrence.occurrenceDate,
+          dueDate: result.dueDate ?? occurrence.dueDate,
+          status: result.occurrenceStatus,
+          draftGenerated: true,
+          generatedBillId: result.generatedBillId,
+          forecastAmount: result.totalAmount,
+          forecastCurrency: result.totalCurrency,
+          merchantName: occurrence.merchantName,
+          isGroupScoped: occurrence.isGroupScoped,
+        );
+      })
+      .toList(growable: false);
+
+  if (replaced) {
+    return updated;
+  }
+
+  return forecast;
+}
+
+SettleoraRecurringBillDraftResult? _reconciledDraftResult(
+  SettleoraRecurringBillDraftResult? result,
+  List<SettleoraRecurringBillForecastOccurrence> forecast,
+) {
+  if (result == null) {
+    return null;
+  }
+
+  final stillGenerated = forecast.any((occurrence) {
+    return occurrence.templateId == result.templateId &&
+        occurrence.occurrenceDate == result.occurrenceDate &&
+        occurrence.draftGenerated &&
+        occurrence.generatedBillId == result.generatedBillId;
+  });
+
+  return stillGenerated ? result : null;
 }
 
 String _templateDueSummary(SettleoraRecurringBillTemplateSummary template) {
@@ -1573,7 +1679,7 @@ String _occurrenceGuidance(
   SettleoraRecurringBillForecastOccurrence occurrence,
 ) {
   if (occurrence.draftGenerated) {
-    return 'A draft already exists for this occurrence.';
+    return 'A draft exists for this occurrence. Open it from Bills, or refresh recurring bills to reconcile the latest server state.';
   }
 
   return switch (occurrence.status) {
@@ -1835,6 +1941,57 @@ class _RefreshWarningPanel extends StatelessWidget {
             const SizedBox(height: 10),
             OutlinedButton.icon(
               key: const Key('recurring-bill-refresh-after-mutation'),
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh server state'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GeneratedDraftPanel extends StatelessWidget {
+  const _GeneratedDraftPanel({
+    required this.result,
+    required this.refreshWarning,
+    required this.onRefresh,
+  });
+
+  final SettleoraRecurringBillDraftResult result;
+  final String? refreshWarning;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final warning = refreshWarning;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Generated draft ready',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'The server returned a ${result.billStatus} bill for ${result.occurrenceDate}: ${_money(result.totalAmount, result.totalCurrency)}. Mobile does not recalculate the draft; refresh recurring bills to reconcile server state.',
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Open the draft from Bills. This recurring screen does not have a safe generated-bill route in the current shell.',
+            ),
+            if (warning != null) ...[const SizedBox(height: 10), Text(warning)],
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const Key('recurring-bill-refresh-after-generate'),
               onPressed: onRefresh,
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh server state'),
