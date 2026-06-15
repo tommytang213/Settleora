@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M6 queued; M5 complete; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6-001 complete; M6-002 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -31,6 +31,8 @@ Status: `M6 queued; M5 complete; manual UI/code review deferred until Day 1 acce
 - [x] M6 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
 - [x] Scope guard allows only narrow M6 docs/control, receipt OCR capture/review, bill handoff, app wiring, and mobile test paths.
 - [x] No M6 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, OCR worker/runtime, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+- [x] M6-001 reconciled current mobile receipt OCR capture/review implementation and automated QA coverage without changing mobile runtime behavior.
+- [x] M6-001 updated the M6 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M6-002/M6-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 
 ## M6 Selection Summary
 
@@ -46,11 +48,33 @@ The selection is based on current repo state:
 
 ## M6 Queue Summary
 
-- `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950` - Queued. Reconcile current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements without changing runtime behavior.
+- `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950` - Completed. Reconciled current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements without changing runtime behavior.
 - `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950` - Queued. Harden mobile receipt intake, unsupported/on-device OCR provider fallback, parser/preview, and bill attachment OCR review save handoff inside existing mobile seams.
 - `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950` - Queued. Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale review data, blocked previews, safe retries, duplicate mutation prevention, and server-authority copy.
 - `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950` - Queued. Finalize M6 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M6-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, secrets, or unrelated major-domain scope.
+
+## M6-001 Reconciliation Summary
+
+Updated `docs/qa/M6_MOBILE_RECEIPT_OCR_CAPTURE_REVIEW_QA_MAP.md` as the current control/QA map for M6. The map records:
+
+- Current mobile implementation inventory for receipt image intake, OCR provider/parser/preview seams, unsupported/manual fallback, personal/group bill create capture flow, receipt attachment OCR handoff, saved-review queue/detail/edit, apply-preview, draft-only apply, app bootstrap wiring, server-mode session gating, and authority boundaries.
+- Day 1 OCR requirement mapping for capture/import, on-device OCR, review/correction, provisional server-mode state, receipt attachment handoff, apply-preview, explicit draft-only apply, manual fallback, and server authority.
+- Existing automated coverage across receipt OCR parser/provider tests, generated receipt OCR review repository tests, saved-review screen tests, bill attachment section tests, and personal/group bill OCR handoff tests.
+- Uncovered areas for full Day 1 receipt normalization, full receipt tax/classification/lineage model, authoritative duplicate detection, server OCR worker/runtime, generic receipt/OCR APIs, non-draft apply, automatic finalization, and split inference.
+- Focus areas for M6-002 capture/intake handoff and M6-003 saved-review/apply handoff.
+- Stop conditions and explicit deferred manual UI/code review status.
+
+Current implementation findings:
+
+- Mobile now has camera/gallery receipt intake, an OCR provider seam, an unsupported provider fallback, and an ML Kit provider default for iOS/Android through app bootstrap.
+- The parser is conservative and provisional. It extracts basic merchant/date/currency/header totals and item candidates, but does not satisfy the full Day 1 receipt edge-case model.
+- Personal and group bill create flows can run local OCR preview, let users edit/select candidate sections, and apply those candidates only to local editable draft form fields before save.
+- Receipt attachment upload can save a provisional OCR review through existing generated-client-backed bill attachment OCR review endpoints; save failure is retryable and does not block bill creation.
+- Saved-review queue/detail and bill-detail sheet flows support route-aware load/edit/save/remove, apply-preview, and explicit draft-only apply using `expectedReviewUpdatedAtUtc`.
+- Mobile does not mutate authoritative existing bill state except through the API's explicit draft-only apply endpoint, and it does not mutate settlement, payment, balance, file/storage, worker/job, non-draft revision, or split authority.
+
+No mobile runtime files or mobile test files were changed by M6-001.
 
 ## M5 Selection Summary
 
