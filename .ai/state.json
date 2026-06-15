@@ -5,12 +5,16 @@
   "integrationBranch": "ai/integration",
   "activeMilestoneId": "M2",
   "activeMilestoneName": "Mobile Navigation + Home Dashboard Shell Polish",
-  "status": "m2_005_completed_human_ui_testing_ready_human_pc_retest_required",
+  "status": "m2_005_completed_manual_ui_retest_deferred_auto_dev_ready",
   "lastCompletedTaskId": "M2-005",
   "currentTaskId": null,
-  "stopReason": "Human PC UI retest required after the M2 Home/dashboard, bottom navigation, and groups/settle handoff polish.",
-  "humanReviewRequired": true,
+  "stopReason": null,
+  "humanReviewRequired": false,
   "forbiddenChangeDetected": false,
   "lastValidatedCommit": null,
-  "uiTestingReady": true
+  "uiTestingReady": false,
+  "automatedValidationComplete": true,
+  "manualUiRetestDeferredUntilDay1": true,
+  "manualUiRetestStatus": "deferred_until_day1_acceptance",
+  "manualUiRetestDecisionAt": "2026-06-15T14:22:03+08:00"
 }

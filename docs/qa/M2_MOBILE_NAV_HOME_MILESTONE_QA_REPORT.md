@@ -4,7 +4,7 @@
 
 - Milestone: `M2` - Mobile Navigation + Home Dashboard Shell Polish.
 - Task: `M2-005` - Mobile nav/home UI testing checklist and milestone QA report.
-- Status: human UI testing checklist complete; required automated validation passed; human PC UI retest still required.
+- Status: human UI testing checklist complete; required automated validation passed; human PC UI retest deferred by owner decision until Day 1 acceptance.
 - Base branch: `ai/integration`.
 - Task branch: `ai/task/m2-005-mobile-nav-home-ui-testing-checklist-and-milesto`.
 - Auto-merge: not allowed for this task.
@@ -15,6 +15,13 @@
 - QA map: `docs/qa/M2_MOBILE_NAV_HOME_DASHBOARD_QA_MAP.md`.
 - Human UI checklist: `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
 - Milestone QA report: `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`.
+
+## Owner Deferral Decision
+
+- Decision timestamp: 2026-06-15 14:22:03 HKT.
+- Decision: manual UI testing is deferred until Day 1 acceptance while automated development continues.
+- Result: human PC UI retest remains pending/deferred and is not marked passed.
+- Safety gates remain active for production deploys, mobile store releases, public/admin exposure changes, destructive migrations/data operations, branch deletion, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and broad cross-domain bundles.
 
 ## Automated Coverage Summary
 
@@ -31,7 +38,7 @@
 - Groups and group bill handoffs: ready for human UI testing.
 - Bills and personal bill handoffs: ready for human UI testing.
 - Settlements/Settle handoffs: ready for human UI testing.
-- Stop condition status: no forbidden-scope blocker identified by the QA artifact pass; human PC UI retest remains required before M2 is considered human-approved.
+- Stop condition status: no forbidden-scope blocker identified by the QA artifact pass; human PC UI retest remains pending/deferred before M2 is considered human-approved, but no longer blocks automated development.
 
 ## Validation Results
 

@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI testing ready; human PC UI retest required`
+Status: `M2 mobile navigation and Home/dashboard shell automated QA complete; human PC UI retest deferred until Day 1 acceptance; automated development ready`
 
 ## Acceptance Checklist
 
@@ -14,8 +14,9 @@ Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI tes
 - [x] Home/dashboard visible redesign implemented and focused-test validated.
 - [x] Bottom navigation clarity polish completed and focused-test validated for Home.
 - [x] Human UI retest checklist updated for Home dashboard regression.
-- [ ] Human PC UI retest confirms visible Home dashboard improvement.
+- [ ] Human PC UI retest confirms visible Home dashboard improvement; deferred by owner decision until Day 1 acceptance, not marked passed.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
+- [x] Retest-only stop state removed so automated development can resume under existing scope guard and safety/manual gates.
 
 ## M2 Kickoff Summary
 
@@ -32,7 +33,8 @@ Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI tes
 - `M2-003` - Bottom navigation labels, active state, and route clarity.
 - `M2-004` - Groups and Settle landing handoff polish.
 - `M2-005` - Mobile nav/home UI testing checklist and milestone QA report.
-- `STOP-M2-001` - Human-gated backend/API/auth/schema/money/deployment blocker.
+- `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422` - In-app notification detail context and Home handoff polish.
+- `STOP-M2-001` - Manual gate backend/API/auth/schema/money/deployment blocker.
 
 ## QA Map
 
@@ -62,7 +64,7 @@ Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI tes
 - Milestone QA report added at `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`.
 - Automated coverage is present for Home/dashboard, dashboard preview variants, Groups, group bills, Bills, Settlements/Settle, and the shared bottom navigation guardrails through focused mobile widget tests.
 - Required validation passed, including `npm run validate:docs`, `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, and `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`.
-- M2 is marked UI-testing ready and human-review required because the Home/dashboard and navigation polish still require human PC UI retest.
+- M2 automated validation remains complete. The Home/dashboard and navigation polish still need human PC UI retest, but the owner deferred that retest until Day 1 acceptance and requested automated development continue.
 - No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, local storage policy, or secret changes were made.
 - `M2-004` added an explicit no-groups empty-state action that opens the existing group creation flow without adding backend, auth, storage, or sync behavior.
 - Group detail now exposes a compact `Shared bill workspace` handoff into the existing group-bill list/create/review flow while preserving current group/member repository boundaries.
@@ -70,9 +72,10 @@ Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI tes
 - Settlement list now includes a bounded `Settle landing` summary using already loaded server-returned balances and settlement requests, with shortcuts that only update existing local list filters.
 - Focused widget coverage was updated for group empty/action handoff, group detail bill handoff, group bill empty handoff, and settlement summary filter shortcuts.
 - No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes were made.
-- `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The latest follow-up keeps Home constrained to a centered phone-width dashboard surface on wide test windows, adds `You owe` and `You're owed` metric cards with honest zero or server-provided balance values, changes `Upcoming bills` into bill-like rows or a compact empty state, changes `Group activity` into feed-style rows or a compact empty state, demotes route access to compact actions, removes the shared-bill seam copy, and adds focused widget coverage that rejects the old route-card primary content. M2 remains human-review required until a PC UI retest confirms the visible change.
-- `M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358`: fixed pending human retest. Human PC UI retest found that Home was missing the persistent M2 bottom navigation and that Create bill routed straight to personal bill creation. Home now uses the app scaffold `NavigationBar` with Home, Bills, Groups, Settle, and Settings labels, with Home selected on the dashboard. The Create bill quick action now opens a chooser with `Personal bill` and `Group bill`; Personal bill preserves the existing personal creation screen, and Group bill routes to Groups so the user can choose a group and use the existing group-bill flow. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
-- `M2-BOTTOM-NAV-DSL-PARITY-20260612-1426`: fixed pending human retest. Human PC UI retest found another page showing bottom navigation drift with extra `Receipts` and `Profile` tabs. The mobile shell now uses one shared bottom navigation widget for the canonical Day 1 set and order: `Home`, `Bills`, `Groups`, `Settle`, and `Settings`. Bills, Groups, Settle, and Settings/Profile top-level routes now keep the same constrained, safe-area-aware, rounded active-chip nav treatment as Home. Receipt review, profile/session, report, notification, and recurring routes remain secondary routes/actions instead of bottom-nav tabs. Focused widget coverage asserts the canonical labels/order, rejects `Receipts` and `Profile` as tab labels, validates active tab state across all five tabs, preserves the Create bill personal/group chooser, and rejects old debug/widget dump text. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
+- `M2-HOME-DASHBOARD-PLAIN-MENU-20260612-0118`: fixed pending deferred human retest. Human screenshot review found the Home screen still looked like a plain vertical menu list with user profile, Today, Create bill/Create group buttons, menu rows, More rows, large unused wide-viewport space, and implementation-oriented copy. The latest follow-up keeps Home constrained to a centered phone-width dashboard surface on wide test windows, adds `You owe` and `You're owed` metric cards with honest zero or server-provided balance values, changes `Upcoming bills` into bill-like rows or a compact empty state, changes `Group activity` into feed-style rows or a compact empty state, demotes route access to compact actions, removes the shared-bill seam copy, and adds focused widget coverage that rejects the old route-card primary content. Human PC UI retest remains pending and deferred until Day 1 acceptance.
+- `M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358`: fixed pending deferred human retest. Human PC UI retest found that Home was missing the persistent M2 bottom navigation and that Create bill routed straight to personal bill creation. Home now uses the app scaffold `NavigationBar` with Home, Bills, Groups, Settle, and Settings labels, with Home selected on the dashboard. The Create bill quick action now opens a chooser with `Personal bill` and `Group bill`; Personal bill preserves the existing personal creation screen, and Group bill routes to Groups so the user can choose a group and use the existing group-bill flow. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
+- `M2-BOTTOM-NAV-DSL-PARITY-20260612-1426`: fixed pending deferred human retest. Human PC UI retest found another page showing bottom navigation drift with extra `Receipts` and `Profile` tabs. The mobile shell now uses one shared bottom navigation widget for the canonical Day 1 set and order: `Home`, `Bills`, `Groups`, `Settle`, and `Settings`. Bills, Groups, Settle, and Settings/Profile top-level routes now keep the same constrained, safe-area-aware, rounded active-chip nav treatment as Home. Receipt review, profile/session, report, notification, and recurring routes remain secondary routes/actions instead of bottom-nav tabs. Focused widget coverage asserts the canonical labels/order, rejects `Receipts` and `Profile` as tab labels, validates active tab state across all five tabs, preserves the Create bill personal/group chooser, and rejects old debug/widget dump text. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
+- Next automated task is queued as `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422`, scoped to active M2 scope-guard paths and existing mobile notification behavior only.
 
 ## Home Dashboard Redesign Fix
 
@@ -81,9 +84,11 @@ Status: `M2 mobile navigation and Home/dashboard shell QA complete; human UI tes
 - Before: Home appeared as a skinny settings-style list and exposed implementation wording about a mobile seam.
 - After: Home has a centered phone-width dashboard surface on wide windows, a colored compact header with signed-in context and refresh/notifications/profile affordances, top `You owe` and `You're owed` balance metric cards, quick action buttons, needs-attention cards, upcoming bill rows, group activity feed rows, this-month summary rows, and a compact secondary More section.
 - Day 1 honesty preserved: counts only use existing loaded mobile overview data; unavailable shared global counts are not invented.
-- Human review state: still required. This fix must be checked in a PC/wide Flutter window and a narrow/mobile-sized viewport before M2 is marked ready.
+- Human UI retest state: pending and deferred until Day 1 acceptance by owner decision. This fix still must be checked in a PC/wide Flutter window and a narrow/mobile-sized viewport before M2 is marked human-approved.
 
-## Required Human UI Retest
+## Deferred Human UI Retest
+
+Owner decision recorded on 2026-06-15 14:22:03 HKT: defer all manual UI testing until Day 1 acceptance and continue automated development. The checks below remain pending/deferred and are not marked passed.
 
 - Confirm the Home screen visibly differs from the previous menu-list page.
 - Confirm the bottom navigation is visible on Home, Bills, Groups, Settle, and Settings/Profile in PC/wide and narrow/mobile-sized windows with the correct active tab selected.
