@@ -1114,6 +1114,148 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+    'group bill participant failure shows bounded retryable state refresh',
+    (tester) async {
+      final repository = FakeBillRepository(
+        groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+        details: [
+          sampleBillDetail(status: 'pending_confirmation'),
+          sampleBillDetail(
+            status: 'confirmed',
+            participantStatus: SettleoraBillParticipantStatusValues.accepted,
+          ),
+        ],
+        participantFailures: [
+          const SettleoraBillFailure(
+            kind: SettleoraBillFailureKind.conflict,
+            message:
+                'The bill state changed. Refresh before trying another response.',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraGroupBillListScreen(
+            repository: repository,
+            groupRepository: FakeGroupRepository(),
+            currentUserProfileId: _profileId,
+            groupId: _groupId,
+            groupName: 'Trip Crew',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Corner Market'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('group-bill-accept-share')));
+      await tester.pumpAndSettle();
+
+      expect(repository.acceptGroupParticipantCalls, 1);
+      expect(find.text('Needs review'), findsOneWidget);
+      expect(
+        find.text(
+          'The bill state changed. Refresh before trying another response.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Accept or request a correction through the server workflow. Mobile does not decide authorization or final bill state.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('group-bill-acknowledgement-retry')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('group-bill-acknowledgement-retry')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.getGroupCalls, 2);
+      expect(find.byKey(const Key('group-bill-accept-share')), findsNothing);
+      expect(find.text('You accepted this share'), findsOneWidget);
+    },
+  );
+
+  testWidgets('group bill detail blocks duplicate reject while in flight', (
+    tester,
+  ) async {
+    final completer = Completer<void>();
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary(status: 'pending_confirmation')],
+      detail: sampleBillDetail(status: 'pending_confirmation'),
+      participantCompleter: completer,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          currentUserProfileId: _profileId,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-reject-share')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('group-bill-reject-reason-wrong_amount')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('group-bill-reject-submit')),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-reject-submit')));
+    await tester.pump();
+
+    expect(repository.rejectGroupParticipantCalls, 1);
+    _expectOutlinedButtonEnabled(
+      tester,
+      const Key('group-bill-reject-share'),
+      isFalse,
+    );
+    _expectFilledButtonEnabled(
+      tester,
+      const Key('group-bill-accept-share'),
+      isFalse,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('group-bill-reject-share')),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('group-bill-reject-share')),
+      warnIfMissed: false,
+    );
+    await tester.tap(
+      find.byKey(const Key('group-bill-accept-share')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+
+    expect(repository.rejectGroupParticipantCalls, 1);
+    expect(repository.acceptGroupParticipantCalls, 0);
+
+    completer.complete();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('group bill detail loads attachments with group route', (
     tester,
   ) async {

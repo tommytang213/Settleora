@@ -8,6 +8,8 @@ M4 may harden existing mobile group bill lifecycle surfaces that already use cur
 
 M4-002 update: the mobile group bill create/submit flow now renders explicit bounded local status labels for ready to submit, creating draft, draft created, attaching, submitting, submitted-detail refresh, retry upload, retry submit, and retry detail refresh. These labels reflect only local in-flight or continuation state plus existing generated-client responses; API/domain services remain authoritative for bill lifecycle, validation, authorization, money, attachment acceptance, and submit state.
 
+M4-003 update: the mobile group bill detail acknowledgement card now distinguishes accept and reject in-flight state, blocks duplicate/conflicting participant actions while either mutation is active, shows bounded failure title/message copy, and offers `Refresh bill state` to reload server state after a failed acknowledgement without automatically retrying the mutation. The detail screen continues to use existing generated-client accept/reject, revision, attachment, and receipt OCR-review seams; API/domain services remain authoritative for authorization, bill status, participant acknowledgement, revision capability, financial truth, and storage access.
+
 ## Day 1 Requirement Boundary
 
 Day 1 requires users to create and review shared group bills, understand participant acknowledgement state, attach receipts/supporting files, use correction proposal/revision flows where available, and preserve API/domain authority for authorization, money, bill status, revision review context, storage access, and audit.
@@ -142,14 +144,14 @@ M4-003 should harden or preserve:
 ## M4 Acceptance Targets
 
 - M4-002: group bill create/submit can be exercised through current mobile UI with safe local validation, no duplicate create on retry, no duplicate submit on submitted-detail retry, safe draft attachment retry, bounded OCR review handoff, and current generated-client seams only.
-- M4-003: group bill detail lifecycle can be exercised through current mobile UI with safe participant actions, revision entry/review navigation, group attachment/OCR review routes, stale capability refresh, member fallback labels, terminal/unavailable states, and current generated-client seams only.
+- M4-003: group bill detail lifecycle can be exercised through current mobile UI with safe participant actions, retryable server-state refresh after acknowledgement failures, revision entry/review navigation, group attachment/OCR review routes, stale capability refresh, member fallback labels, terminal/unavailable states, and current generated-client seams only.
 - M4-004: M4 QA/control state records automated validation and explicitly leaves manual UI/code review deferred until Day 1 acceptance, not passed.
 
 ## Gaps For Next Tasks
 
 - M4-002 completed the create/submit continuation-copy hardening and strengthened focused assertions for retry/no-duplicate-create/no-duplicate-submit/safe-error behavior.
-- M4-003 should review stale participant/revision capability refresh after accept/reject/revision actions and whether terminal status copy is sufficiently explicit for unavailable/conflict/session-expired states.
-- M4-003 should preserve receipt-only OCR review discovery and add focused assertions for multi-receipt choice and unavailable saved-review paths only if implementation hardening changes those paths.
+- M4-003 completed focused detail lifecycle hardening for acknowledgement failure copy, retryable server-state refresh, action-specific duplicate blocking, and server-authority guidance while preserving current revision capability refresh, group attachment/OCR-review routes, member fallback labels, and terminal/unavailable states.
+- M4-004 should finalize the M4 QA/control state, record validation coverage, and leave manual UI/code review deferred until Day 1 acceptance.
 - Manual UI/code review remains deferred by owner decision until Day 1 acceptance and is not passed by this map.
 
 ## Non-Goals
@@ -211,6 +213,29 @@ Automated evidence:
 Remaining M4 work:
 
 - `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` remains queued for detail lifecycle, participant action, revision entry, attachment/OCR-review handoff, stale capability refresh, terminal/unavailable state, and member fallback hardening.
+- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` remains queued for final M4 QA/control closure.
+- `STOP-M4-001` remains the hard stop sentinel for forbidden API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline/sync, OCR-worker/runtime, recurring, settlement, reporting, notification, web/admin, secrets, or unrelated major-domain scope.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is explicitly not passed.
+
+## M4-003 Detail Lifecycle Hardening Result
+
+M4-003 implementation is complete as a mobile-only detail lifecycle hardening slice. It changed only `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/group_bill_list_screen_test.dart`, this QA map, and `.ai` control files.
+
+Runtime evidence:
+
+- Group bill detail acknowledgement state now tracks whether accept or reject is in flight and shows the matching progress affordance.
+- Accept/reject actions remain blocked during any acknowledgement mutation, preserving existing generated-client seams and avoiding duplicate/conflicting mutations.
+- A failed acknowledgement now renders bounded failure title/message copy plus `Refresh bill state`, which reloads the server-authoritative bill state instead of automatically retrying the mutation.
+- Detail lifecycle still preserves group-scoped attachment routes, receipt-only OCR review handoff, revision capability refresh before proposal creation, server-returned revision IDs/actions, participant display fallbacks, and safe terminal/unavailable copy.
+
+Automated evidence:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` passed with 76 tests.
+- New focused tests cover participant-action failure copy and refresh, no duplicate mutation retry, reject in-flight duplicate/conflicting action blocking, and reject-specific busy state.
+
+Remaining M4 work:
+
 - `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` remains queued for final M4 QA/control closure.
 - `STOP-M4-001` remains the hard stop sentinel for forbidden API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline/sync, OCR-worker/runtime, recurring, settlement, reporting, notification, web/admin, secrets, or unrelated major-domain scope.
 

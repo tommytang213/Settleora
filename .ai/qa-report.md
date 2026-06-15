@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M4-002 mobile group bill create/submit hardened; manual UI/code review deferred until Day 1 acceptance`
+Status: `M4-003 mobile group bill detail lifecycle hardened; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -15,7 +15,8 @@ Status: `M4-002 mobile group bill create/submit hardened; manual UI/code review 
 - [x] M4-001 reconciled current mobile group bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M4-001 updated the M4 QA map with current implementation inventory, covered tests, acceptance targets, M4-002/M4-003 gaps, and stop conditions.
 - [x] M4-002 hardened existing mobile group bill create/submit status, retry, duplicate-mutation, validation, and safe-error coverage without changing backend/API contracts, generated clients, schema, auth/session, storage, money, deployment, or offline queueing.
-- [x] Current state pointer and next queued task target `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`.
+- [x] M4-003 hardened existing mobile group bill detail lifecycle acknowledgement failure, retry, duplicate-mutation, revision-entry, attachment/OCR-handoff, member fallback, and terminal/unavailable state coverage within existing mobile seams.
+- [x] Current state pointer and next queued task target `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`.
 
 ## M3 Finalization Carry-Forward
 
@@ -40,7 +41,7 @@ The selection is based on current repo state:
 
 - `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Completed. Reconciled current mobile group bill lifecycle state and updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
 - `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Completed. Hardened existing group bill create/submit UX, safe retries, member/payer/split validation coverage, safe status labels, duplicate-mutation prevention, and bounded unsafe-error display inside current mobile seams.
-- `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Queued. Harden group bill detail lifecycle surfaces for participant actions, revision entry, attachments/OCR-review state, stale capability refreshes, member fallbacks, and safe terminal/unavailable states.
+- `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Completed. Hardened group bill detail lifecycle participant action failure/retry state, action-specific duplicate blocking, server-authority copy, and focused detail tests while preserving current revision, attachment/OCR-review, and member fallback seams.
 - `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Queued. Finalize M4 QA/control state and preserve deferred manual review status.
 - `STOP-M4-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, OCR-worker/runtime expansion, recurring, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
@@ -82,6 +83,24 @@ Focused automated coverage:
 
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` passed with 74 tests.
 - Tests assert no duplicate create after attachment/submit/detail failures, no duplicate submit during in-flight submit, visible retry labels, member/payer/split validation blocking before mutation, and safe bounded create error text.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M4-003 Detail Lifecycle Hardening Summary
+
+Updated `apps/mobile/lib/bills/bill_list_screen.dart` and `apps/mobile/test/group_bill_list_screen_test.dart` only for the mobile group bill detail lifecycle flow.
+
+Runtime hardening:
+
+- Added explicit accept-vs-reject in-flight acknowledgement state so duplicate and conflicting participant actions stay blocked while showing the correct busy affordance.
+- Added bounded acknowledgement failure UI with failure title, safe repository message, and a `Refresh bill state` retry that reloads server state without automatically retrying the money-impacting acknowledgement mutation.
+- Added explicit server-authority guidance to the acknowledgement card so mobile does not imply it decides authorization or final bill state.
+- Preserved current generated-client seams for accept/reject, group-scoped attachment routes, receipt-only OCR review handoff, revision capability refresh, server-returned revision IDs/actions, participant member fallbacks, and terminal/unavailable copy.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` passed with 76 tests.
+- New tests assert bounded participant-action failure copy, retryable server-state refresh after acknowledgement failure, no automatic duplicate mutation retry, reject in-flight duplicate/conflicting action blocking, and reject-specific progress state.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
