@@ -124,6 +124,7 @@ void main() {
     expect(find.text('Settlements (1)'), findsOneWidget);
     expect(find.text('Recurring (2)'), findsOneWidget);
     expect(find.text('Actionable (2)'), findsOneWidget);
+    expect(find.text('Archived (0)'), findsOneWidget);
 
     await tapNotificationFilter(tester, 'urgent');
 
@@ -144,6 +145,90 @@ void main() {
     await tapNotificationFilter(tester, 'bills');
 
     expect(find.text('Group bill ready.'), findsOneWidget);
+  });
+
+  testWidgets('archived filter shows only archived rows', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(id: 'active-one', safeSummary: 'Active row.'),
+        sampleNotification(
+          id: 'archived-one',
+          status: SettleoraNotificationStatusValues.archived,
+          safeSummary: 'Archived row.',
+          archivedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('All (1)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+    expect(find.text('Active row.'), findsOneWidget);
+    expect(find.text('Archived row.'), findsNothing);
+
+    await tapNotificationFilter(tester, 'archived');
+
+    expect(find.text('Archived row.'), findsOneWidget);
+    expect(find.text('Active row.'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('notification-restore-0')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('notification-archive-0')), findsNothing);
+  });
+
+  testWidgets('active filters exclude archived notifications', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          id: 'archived-bill',
+          status: SettleoraNotificationStatusValues.archived,
+          priority: SettleoraNotificationPriorityValues.urgent,
+          safeSummary: 'Archived bill.',
+          expenseBillId: _billId,
+          archivedAtUtc: _updatedAtUtc,
+        ),
+        sampleNotification(
+          id: 'active-settlement',
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementRequest,
+          eventType: 'settlement.request_created',
+          safeSummary: 'Active settlement.',
+          settlementRequestId: _settlementId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: FakeBillRepository(),
+          settlementRepository: FakeSettlementRepository(),
+          currentUserProfileId: _profileId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('All (1)'), findsOneWidget);
+    expect(find.text('Unread (1)'), findsOneWidget);
+    expect(find.text('Attention (1)'), findsOneWidget);
+    expect(find.text('Urgent (0)'), findsOneWidget);
+    expect(find.text('Bills (0)'), findsOneWidget);
+    expect(find.text('Settlements (1)'), findsOneWidget);
+    expect(find.text('Actionable (1)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'bills');
+    expect(find.text('Archived bill.'), findsNothing);
+
+    await tapNotificationFilter(tester, 'archived');
+    expect(find.text('Archived bill.'), findsOneWidget);
+    expect(find.text('Active settlement.'), findsNothing);
   });
 
   testWidgets('read filter stays selected after read action refresh', (
@@ -252,7 +337,45 @@ void main() {
 
     expect(repository.archiveCalls, 1);
     expect(find.text('Notification archived.'), findsOneWidget);
-    expect(find.text('No notifications'), findsOneWidget);
+    expect(find.text('No matching notifications'), findsOneWidget);
+    expect(find.text('All (0)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+  });
+
+  testWidgets('archive moves row into archived filter and restore returns it', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [sampleNotification(safeSummary: 'Review me.')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('notification-archive-0')));
+    await tester.pumpAndSettle();
+
+    expect(repository.archiveCalls, 1);
+    expect(find.text('All (0)'), findsOneWidget);
+    expect(find.text('Unread (0)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+    expect(find.text('No matching notifications'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'archived');
+    expect(find.text('Review me.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('notification-restore-0')));
+    await tester.pumpAndSettle();
+
+    expect(repository.restoreCalls, 1);
+    expect(find.text('Archived (0)'), findsOneWidget);
+    expect(find.text('No archived notifications'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'all');
+    expect(find.text('Review me.'), findsOneWidget);
+    expect(find.text('Unread (1)'), findsOneWidget);
   });
 
   testWidgets(
@@ -294,6 +417,7 @@ void main() {
       expectSelectedFilter(tester, 'bills');
       expect(find.text('Bills (0)'), findsOneWidget);
       expect(find.text('No matching notifications'), findsOneWidget);
+      expect(find.text('Archived (1)'), findsOneWidget);
       expect(find.text('Settlement ready.'), findsNothing);
 
       repository.notifications = [
@@ -422,6 +546,55 @@ void main() {
     },
   );
 
+  testWidgets('bulk read and mark all read do not include archived rows', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(id: 'active-one', safeSummary: 'Active one.'),
+        sampleNotification(
+          id: 'archived-one',
+          status: SettleoraNotificationStatusValues.archived,
+          safeSummary: 'Archived one.',
+          archivedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 visible unread notification in All'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
+    await tester.pumpAndSettle();
+
+    expect(repository.markReadIds, ['active-one']);
+    expect(find.text('Unread (0)'), findsOneWidget);
+    expect(find.text('Read (1)'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'archived');
+    expect(find.text('Archived one.'), findsOneWidget);
+    expect(
+      find.text('0 visible unread notifications in Archived'),
+      findsOneWidget,
+    );
+
+    await tapNotificationFilter(tester, 'all');
+    await tester.tap(find.byKey(const Key('notification-mark-all-read')));
+    await tester.pumpAndSettle();
+
+    expect(repository.markAllReadCalls, 0);
+    expect(
+      repository.notifications
+          .singleWhere((notification) => notification.id == 'archived-one')
+          .status,
+      SettleoraNotificationStatusValues.archived,
+    );
+  });
+
   testWidgets(
     'bulk mark visible read preserves unread filter and shows empty state',
     (tester) async {
@@ -537,6 +710,65 @@ void main() {
     },
   );
 
+  testWidgets('unsafe archive and restore failure details are not rendered', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final repository = FakeNotificationRepository(
+      archiveFailure: const SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.server,
+        message:
+            'internal /api/v1/notifications/$_notificationId?token=secret bearer abc',
+      ),
+      restoreFailure: const SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.server,
+        message:
+            'internal /api/v1/notifications/$_notificationId/restore?secret=true',
+      ),
+      notifications: [
+        sampleNotification(safeSummary: 'Active notification.'),
+        sampleNotification(
+          id: 'archived-notification',
+          status: SettleoraNotificationStatusValues.archived,
+          safeSummary: 'Archived notification.',
+          archivedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('notification-archive-0')));
+    await tester.pumpAndSettle();
+
+    expect(repository.archiveCalls, 1);
+    expect(find.text('Notification could not be archived.'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'archived');
+    await tester.tap(find.byKey(const ValueKey('notification-restore-0')));
+    await tester.pumpAndSettle();
+
+    expect(repository.restoreCalls, 1);
+    expect(find.text('Notification could not be restored.'), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.text('Notification could not be restored.'))
+          .label,
+      'Notification could not be restored.',
+    );
+    semantics.dispose();
+    expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
+    expect(
+      renderedNotificationUiText(tester),
+      isNot(contains(_notificationId)),
+    );
+    expect(renderedNotificationUiText(tester), isNot(contains('token=secret')));
+    expect(renderedNotificationUiText(tester), isNot(contains('bearer abc')));
+  });
+
   testWidgets('duplicate archive taps are single flight', (tester) async {
     final repository = FakeNotificationRepository(
       actionDelay: const Duration(milliseconds: 50),
@@ -554,7 +786,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.archiveCalls, 1);
-    expect(find.text('No notifications'), findsOneWidget);
+    expect(find.text('No matching notifications'), findsOneWidget);
+    expect(find.text('Archived (1)'), findsOneWidget);
+  });
+
+  testWidgets('duplicate restore taps are single flight', (tester) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          status: SettleoraNotificationStatusValues.archived,
+          archivedAtUtc: _updatedAtUtc,
+        ),
+      ],
+      actionDelay: const Duration(milliseconds: 50),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tapNotificationFilter(tester, 'archived');
+
+    final button = find.byKey(const ValueKey('notification-restore-0'));
+    await tester.tap(button);
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(repository.restoreCalls, 1);
+    expect(find.text('Archived (0)'), findsOneWidget);
+    expect(find.text('Read (1)'), findsOneWidget);
   });
 
   testWidgets('duplicate mark-all-read taps are single flight', (tester) async {
@@ -1881,15 +2143,20 @@ Future<void> openNotificationAndReturn(
   await tester.pumpAndSettle();
 }
 
-class FakeNotificationRepository implements SettleoraNotificationRepository {
+class FakeNotificationRepository
+    implements
+        SettleoraNotificationRepository,
+        SettleoraNotificationRestoreRepository {
   FakeNotificationRepository({
     List<SettleoraNotificationRow>? notifications,
     this.loadFailures = const [],
     this.markReadFailure,
     this.markAllReadFailure,
     this.archiveFailure,
+    this.restoreFailure,
     this.actionDelay = Duration.zero,
   }) : notifications = notifications ?? [sampleNotification()],
+       _preArchiveStatuses = <String, String>{},
        _summaryCompleter = null,
        _notificationsCompleter = null;
 
@@ -1899,15 +2166,19 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
       markReadFailure = null,
       markAllReadFailure = null,
       archiveFailure = null,
+      restoreFailure = null,
       actionDelay = Duration.zero,
+      _preArchiveStatuses = <String, String>{},
       _summaryCompleter = Completer<SettleoraNotificationSummary>(),
       _notificationsCompleter = Completer<List<SettleoraNotificationRow>>();
 
   List<SettleoraNotificationRow> notifications;
+  final Map<String, String> _preArchiveStatuses;
   final List<SettleoraNotificationFailure> loadFailures;
   final SettleoraNotificationFailure? markReadFailure;
   final SettleoraNotificationFailure? markAllReadFailure;
   final SettleoraNotificationFailure? archiveFailure;
+  final SettleoraNotificationFailure? restoreFailure;
   final Duration actionDelay;
   final Completer<SettleoraNotificationSummary>? _summaryCompleter;
   final Completer<List<SettleoraNotificationRow>>? _notificationsCompleter;
@@ -1916,6 +2187,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   int markReadCalls = 0;
   int markAllReadCalls = 0;
   int archiveCalls = 0;
+  int restoreCalls = 0;
   String? lastNotificationId;
   final List<String> markReadIds = [];
 
@@ -1940,7 +2212,11 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
       return notifications;
     }
 
-    return notifications;
+    return status == null
+        ? notifications
+        : notifications
+              .where((notification) => notification.status == status)
+              .toList(growable: false);
   }
 
   @override
@@ -1997,11 +2273,13 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
 
     notifications = [
       for (final row in notifications)
-        _copyNotification(
-          row,
-          status: SettleoraNotificationStatusValues.read,
-          readAtUtc: row.readAtUtc ?? _updatedAtUtc,
-        ),
+        row.status == SettleoraNotificationStatusValues.archived
+            ? row
+            : _copyNotification(
+                row,
+                status: SettleoraNotificationStatusValues.read,
+                readAtUtc: row.readAtUtc ?? _updatedAtUtc,
+              ),
     ];
     return _summaryFromRows(notifications);
   }
@@ -2020,16 +2298,49 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
       throw failure;
     }
 
+    final current = notifications.firstWhere((row) => row.id == notificationId);
+    _preArchiveStatuses[notificationId] = current.status;
     final archived = _copyNotification(
-      notifications.firstWhere((row) => row.id == notificationId),
+      current,
       status: SettleoraNotificationStatusValues.archived,
       archivedAtUtc: _updatedAtUtc,
     );
     notifications = [
       for (final row in notifications)
-        if (row.id != notificationId) row,
+        row.id == notificationId ? archived : row,
     ];
     return archived;
+  }
+
+  @override
+  Future<SettleoraNotificationRow> restoreNotification(
+    String notificationId,
+  ) async {
+    restoreCalls += 1;
+    lastNotificationId = notificationId;
+    if (actionDelay > Duration.zero) {
+      await Future<void>.delayed(actionDelay);
+    }
+    final failure = restoreFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    final current = notifications.firstWhere((row) => row.id == notificationId);
+    final restoredStatus =
+        _preArchiveStatuses.remove(notificationId) ??
+        SettleoraNotificationStatusValues.read;
+    final restored = _copyNotification(
+      current,
+      status: restoredStatus,
+      archivedAtUtc: null,
+      clearArchivedAtUtc: true,
+    );
+    notifications = [
+      for (final row in notifications)
+        row.id == notificationId ? restored : row,
+    ];
+    return restored;
   }
 }
 
@@ -2843,6 +3154,7 @@ SettleoraNotificationRow _copyNotification(
   String? status,
   DateTime? readAtUtc,
   DateTime? archivedAtUtc,
+  bool clearArchivedAtUtc = false,
 }) {
   return SettleoraNotificationRow(
     id: row.id,
@@ -2861,7 +3173,9 @@ SettleoraNotificationRow _copyNotification(
     recurringBillOccurrenceId: row.recurringBillOccurrenceId,
     createdAtUtc: row.createdAtUtc,
     readAtUtc: readAtUtc ?? row.readAtUtc,
-    archivedAtUtc: archivedAtUtc ?? row.archivedAtUtc,
+    archivedAtUtc: clearArchivedAtUtc
+        ? null
+        : archivedAtUtc ?? row.archivedAtUtc,
   );
 }
 
@@ -2875,12 +3189,15 @@ SettleoraNotificationSummary _summaryFromRows(
     attentionCount: rows
         .where(
           (row) =>
+              row.status != SettleoraNotificationStatusValues.archived &&
               row.priority == SettleoraNotificationPriorityValues.attention,
         )
         .length,
     urgentCount: rows
         .where(
-          (row) => row.priority == SettleoraNotificationPriorityValues.urgent,
+          (row) =>
+              row.status != SettleoraNotificationStatusValues.archived &&
+              row.priority == SettleoraNotificationPriorityValues.urgent,
         )
         .length,
   );

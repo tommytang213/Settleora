@@ -108,6 +108,7 @@ class _SettleoraNotificationScreenState
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
         _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
         !notification.isUnread) {
       return;
     }
@@ -199,6 +200,10 @@ class _SettleoraNotificationScreenState
     }
 
     final notificationIds = visibleUnreadNotifications
+        .where(
+          (notification) =>
+              notification.status != SettleoraNotificationStatusValues.archived,
+        )
         .map((notification) => notification.id)
         .where((id) => id.trim().isNotEmpty)
         .toList(growable: false);
@@ -246,7 +251,8 @@ class _SettleoraNotificationScreenState
   ) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
-        _isBulkMarkingVisibleRead) {
+        _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived) {
       return;
     }
 
@@ -283,10 +289,59 @@ class _SettleoraNotificationScreenState
     }
   }
 
+  Future<void> _restoreNotification(
+    SettleoraNotificationRow notification,
+  ) async {
+    final restoreRepository =
+        widget.repository is SettleoraNotificationRestoreRepository
+        ? widget.repository as SettleoraNotificationRestoreRepository
+        : null;
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
+        restoreRepository == null ||
+        notification.status != SettleoraNotificationStatusValues.archived) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      await restoreRepository.restoreNotification(notification.id);
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Notification restored.');
+      await _load(showBlockingLoading: false);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = _safeNotificationActionFailure(
+          error,
+          fallbackMessage: 'Notification could not be restored.',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
   Future<void> _markOpenedNotificationRead(
     SettleoraNotificationRow notification,
   ) async {
-    if (!notification.isUnread) {
+    if (!notification.isUnread ||
+        notification.status == SettleoraNotificationStatusValues.archived) {
       return;
     }
 
@@ -311,7 +366,8 @@ class _SettleoraNotificationScreenState
   Future<void> _openBillRevision(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
-        _isBulkMarkingVisibleRead) {
+        _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived) {
       return;
     }
 
@@ -393,6 +449,7 @@ class _SettleoraNotificationScreenState
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
         _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
         !_canOpenGroupBill(notification)) {
       return;
     }
@@ -480,6 +537,7 @@ class _SettleoraNotificationScreenState
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
         _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
         !_canOpenPersonalBill(notification)) {
       return;
     }
@@ -541,6 +599,7 @@ class _SettleoraNotificationScreenState
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
         _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
         !_canOpenSettlement(notification)) {
       return;
     }
@@ -591,6 +650,7 @@ class _SettleoraNotificationScreenState
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
         _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
         !_canOpenRecurringBill(notification)) {
       return;
     }
@@ -655,6 +715,8 @@ class _SettleoraNotificationScreenState
     final loadFailure = _loadFailure;
     final actionFailure = _actionFailure;
     final summary = _summary;
+    final canRestoreArchived =
+        widget.repository is SettleoraNotificationRestoreRepository;
     final counts = _NotificationFilterCounts.fromRows(
       _notifications,
       isActionable: _canOpenAnyTypedTarget,
@@ -669,7 +731,11 @@ class _SettleoraNotificationScreenState
         )
         .toList(growable: false);
     final visibleUnreadNotifications = visibleNotifications
-        .where((notification) => notification.isUnread)
+        .where(
+          (notification) =>
+              notification.isUnread &&
+              notification.status != SettleoraNotificationStatusValues.archived,
+        )
         .toList(growable: false);
     final isBulkBusy = _isMarkingAllRead || _isBulkMarkingVisibleRead;
 
@@ -776,9 +842,12 @@ class _SettleoraNotificationScreenState
                           canOpenRecurringBill: _canOpenRecurringBill(
                             visibleNotifications[index],
                           ),
+                          canRestore: canRestoreArchived,
                           hasOpenTarget: _hasAnyOpenTargetMetadata(
                             visibleNotifications[index],
                           ),
+                          isDisabled:
+                              isBulkBusy || _actingNotificationId != null,
                           isActing:
                               _isBulkMarkingVisibleRead ||
                               _actingNotificationId ==
@@ -804,6 +873,9 @@ class _SettleoraNotificationScreenState
                           archiveButtonKey: ValueKey(
                             'notification-archive-$index',
                           ),
+                          restoreButtonKey: ValueKey(
+                            'notification-restore-$index',
+                          ),
                           onOpenBillRevision: () =>
                               _openBillRevision(visibleNotifications[index]),
                           onOpenGroupBill: () =>
@@ -819,6 +891,8 @@ class _SettleoraNotificationScreenState
                           ),
                           onArchive: () =>
                               _archiveNotification(visibleNotifications[index]),
+                          onRestore: () =>
+                              _restoreNotification(visibleNotifications[index]),
                         ),
                       ),
                 ],
@@ -918,7 +992,8 @@ enum _NotificationFilter {
   bills('Bills'),
   settlements('Settlements'),
   recurring('Recurring'),
-  actionable('Actionable');
+  actionable('Actionable'),
+  archived('Archived');
 
   const _NotificationFilter(this.label);
 
@@ -936,6 +1011,7 @@ class _NotificationFilterCounts {
     required this.settlements,
     required this.recurring,
     required this.actionable,
+    required this.archived,
   });
 
   factory _NotificationFilterCounts.fromRows(
@@ -950,8 +1026,13 @@ class _NotificationFilterCounts {
     var settlements = 0;
     var recurring = 0;
     var actionable = 0;
+    var archived = 0;
 
     for (final row in rows) {
+      if (row.status == SettleoraNotificationStatusValues.archived) {
+        archived += 1;
+        continue;
+      }
       if (row.status == SettleoraNotificationStatusValues.unread) {
         unread += 1;
       }
@@ -994,6 +1075,7 @@ class _NotificationFilterCounts {
       settlements: settlements,
       recurring: recurring,
       actionable: actionable,
+      archived: archived,
     );
   }
 
@@ -1006,10 +1088,11 @@ class _NotificationFilterCounts {
   final int settlements;
   final int recurring;
   final int actionable;
+  final int archived;
 
   int countFor(_NotificationFilter filter) {
     return switch (filter) {
-      _NotificationFilter.all => all,
+      _NotificationFilter.all => all - archived,
       _NotificationFilter.unread => unread,
       _NotificationFilter.read => read,
       _NotificationFilter.attention => attention,
@@ -1018,6 +1101,7 @@ class _NotificationFilterCounts {
       _NotificationFilter.settlements => settlements,
       _NotificationFilter.recurring => recurring,
       _NotificationFilter.actionable => actionable,
+      _NotificationFilter.archived => archived,
     };
   }
 }
@@ -1118,7 +1202,9 @@ class _NotificationTile extends StatelessWidget {
     required this.canOpenPersonalBill,
     required this.canOpenSettlement,
     required this.canOpenRecurringBill,
+    required this.canRestore,
     required this.hasOpenTarget,
+    required this.isDisabled,
     required this.isActing,
     required this.revisionOpenButtonKey,
     required this.groupBillOpenButtonKey,
@@ -1127,6 +1213,7 @@ class _NotificationTile extends StatelessWidget {
     required this.recurringOpenButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
+    required this.restoreButtonKey,
     required this.onOpenBillRevision,
     required this.onOpenGroupBill,
     required this.onOpenPersonalBill,
@@ -1134,6 +1221,7 @@ class _NotificationTile extends StatelessWidget {
     required this.onOpenRecurringBill,
     required this.onMarkRead,
     required this.onArchive,
+    required this.onRestore,
   });
 
   final SettleoraNotificationRow notification;
@@ -1142,7 +1230,9 @@ class _NotificationTile extends StatelessWidget {
   final bool canOpenPersonalBill;
   final bool canOpenSettlement;
   final bool canOpenRecurringBill;
+  final bool canRestore;
   final bool hasOpenTarget;
+  final bool isDisabled;
   final bool isActing;
   final Key revisionOpenButtonKey;
   final Key groupBillOpenButtonKey;
@@ -1151,6 +1241,7 @@ class _NotificationTile extends StatelessWidget {
   final Key recurringOpenButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
+  final Key restoreButtonKey;
   final VoidCallback onOpenBillRevision;
   final VoidCallback onOpenGroupBill;
   final VoidCallback onOpenPersonalBill;
@@ -1158,9 +1249,13 @@ class _NotificationTile extends StatelessWidget {
   final VoidCallback onOpenRecurringBill;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
+  final VoidCallback onRestore;
 
   @override
   Widget build(BuildContext context) {
+    final isArchived =
+        notification.status == SettleoraNotificationStatusValues.archived;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
@@ -1208,47 +1303,47 @@ class _NotificationTile extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text('Received ${_formatTimestamp(notification.createdAtUtc)}'),
-              if (canOpenBillRevision) ...[
+              if (!isArchived && canOpenBillRevision) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: revisionOpenButtonKey,
-                  onPressed: isActing ? null : onOpenBillRevision,
+                  onPressed: isDisabled ? null : onOpenBillRevision,
                   icon: const Icon(Icons.open_in_new_outlined),
                   label: const Text('Open'),
                 ),
-              ] else if (canOpenGroupBill) ...[
+              ] else if (!isArchived && canOpenGroupBill) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: groupBillOpenButtonKey,
-                  onPressed: isActing ? null : onOpenGroupBill,
+                  onPressed: isDisabled ? null : onOpenGroupBill,
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: const Text('Open bill'),
                 ),
-              ] else if (canOpenPersonalBill) ...[
+              ] else if (!isArchived && canOpenPersonalBill) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: personalBillOpenButtonKey,
-                  onPressed: isActing ? null : onOpenPersonalBill,
+                  onPressed: isDisabled ? null : onOpenPersonalBill,
                   icon: const Icon(Icons.receipt_outlined),
                   label: const Text('Open bill'),
                 ),
-              ] else if (canOpenSettlement) ...[
+              ] else if (!isArchived && canOpenSettlement) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: settlementOpenButtonKey,
-                  onPressed: isActing ? null : onOpenSettlement,
+                  onPressed: isDisabled ? null : onOpenSettlement,
                   icon: const Icon(Icons.account_balance_wallet_outlined),
                   label: const Text('Open settlement'),
                 ),
-              ] else if (canOpenRecurringBill) ...[
+              ] else if (!isArchived && canOpenRecurringBill) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: recurringOpenButtonKey,
-                  onPressed: isActing ? null : onOpenRecurringBill,
+                  onPressed: isDisabled ? null : onOpenRecurringBill,
                   icon: const Icon(Icons.event_repeat_outlined),
                   label: const Text('Open recurring'),
                 ),
-              ] else if (hasOpenTarget) ...[
+              ] else if (!isArchived && hasOpenTarget) ...[
                 const SizedBox(height: 8),
                 const Text(
                   'This notification cannot be opened here. Refresh or use the related list.',
@@ -1263,25 +1358,39 @@ class _NotificationTile extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              IconButton(
-                key: markReadButtonKey,
-                tooltip: 'Mark read',
-                onPressed: notification.isUnread && !isActing
-                    ? onMarkRead
-                    : null,
-                icon: isActing
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.mark_email_read_outlined),
-              ),
-              IconButton(
-                key: archiveButtonKey,
-                tooltip: 'Archive',
-                onPressed: isActing ? null : onArchive,
-                icon: const Icon(Icons.archive_outlined),
-              ),
+              if (isArchived)
+                IconButton(
+                  key: restoreButtonKey,
+                  tooltip: 'Restore',
+                  onPressed: !isDisabled && canRestore ? onRestore : null,
+                  icon: isActing
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.unarchive_outlined),
+                )
+              else ...[
+                IconButton(
+                  key: markReadButtonKey,
+                  tooltip: 'Mark read',
+                  onPressed: notification.isUnread && !isDisabled
+                      ? onMarkRead
+                      : null,
+                  icon: isActing
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.mark_email_read_outlined),
+                ),
+                IconButton(
+                  key: archiveButtonKey,
+                  tooltip: 'Archive',
+                  onPressed: isDisabled ? null : onArchive,
+                  icon: const Icon(Icons.archive_outlined),
+                ),
+              ],
             ],
           ),
         ),
@@ -1412,29 +1521,38 @@ bool _matchesFilter(
   required bool Function(SettleoraNotificationRow notification) isActionable,
 }) {
   return switch (filter) {
-    _NotificationFilter.all => true,
+    _NotificationFilter.all =>
+      notification.status != SettleoraNotificationStatusValues.archived,
     _NotificationFilter.unread =>
       notification.status == SettleoraNotificationStatusValues.unread,
     _NotificationFilter.read =>
       notification.status == SettleoraNotificationStatusValues.read,
     _NotificationFilter.attention =>
-      notification.priority == SettleoraNotificationPriorityValues.attention,
+      notification.status != SettleoraNotificationStatusValues.archived &&
+          notification.priority ==
+              SettleoraNotificationPriorityValues.attention,
     _NotificationFilter.urgent =>
-      notification.priority == SettleoraNotificationPriorityValues.urgent,
+      notification.status != SettleoraNotificationStatusValues.archived &&
+          notification.priority == SettleoraNotificationPriorityValues.urgent,
     _NotificationFilter.bills =>
-      notification.subjectType ==
-          SettleoraNotificationSubjectTypeValues.expenseBill,
-    _NotificationFilter.settlements =>
-      notification.subjectType ==
-              SettleoraNotificationSubjectTypeValues.settlementRequest ||
+      notification.status != SettleoraNotificationStatusValues.archived &&
           notification.subjectType ==
-              SettleoraNotificationSubjectTypeValues.settlementPayment,
+              SettleoraNotificationSubjectTypeValues.expenseBill,
+    _NotificationFilter.settlements =>
+      notification.status != SettleoraNotificationStatusValues.archived &&
+          (notification.subjectType ==
+                  SettleoraNotificationSubjectTypeValues.settlementRequest ||
+              notification.subjectType ==
+                  SettleoraNotificationSubjectTypeValues.settlementPayment),
     _NotificationFilter.recurring =>
-      notification.subjectType ==
-          SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
+      notification.status != SettleoraNotificationStatusValues.archived &&
+          notification.subjectType ==
+              SettleoraNotificationSubjectTypeValues.recurringBillOccurrence,
     _NotificationFilter.actionable =>
       notification.status == SettleoraNotificationStatusValues.unread &&
           isActionable(notification),
+    _NotificationFilter.archived =>
+      notification.status == SettleoraNotificationStatusValues.archived,
   };
 }
 
@@ -1447,6 +1565,7 @@ String _emptyTitleForFilter(_NotificationFilter filter) {
   return switch (filter) {
     _NotificationFilter.unread => 'No unread notifications',
     _NotificationFilter.read => 'No read notifications',
+    _NotificationFilter.archived => 'No archived notifications',
     _ => 'No matching notifications',
   };
 }
@@ -1455,6 +1574,7 @@ String _emptyMessageForFilter(_NotificationFilter filter) {
   return switch (filter) {
     _NotificationFilter.unread => 'New unread notifications will appear here.',
     _NotificationFilter.read => 'Notifications you have read will appear here.',
+    _NotificationFilter.archived => 'Archived notifications will appear here.',
     _NotificationFilter.actionable =>
       'Unread notifications with supported actions will appear here.',
     _ => 'Notifications matching this filter will appear here.',
