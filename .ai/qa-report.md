@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M5-002 complete; M5-003 queued next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M5 complete; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -25,7 +25,8 @@ Status: `M5-002 complete; M5-003 queued next; manual UI/code review deferred unt
 - [x] M5-001 reconciled the current mobile recurring bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M5-001 updated the M5 QA map with current implementation inventory, covered tests, acceptance targets, M5-002/M5-003 gaps, stop conditions, and explicit deferred manual UI/code review status.
 - [x] M5-002 hardened mobile recurring template create/edit and pause/resume/archive lifecycle actions within existing generated-client seams.
-- [x] Current M5 state pointer selects M5-003 as the next automated task while M5-003 remains queued and STOP-M5-001 remains preserved.
+- [x] M5-003 hardened mobile recurring forecast and explicit draft-generation handoff states, including generated context, idempotent existing-draft copy, refresh-after-generate failure handling, and safe no-route guidance.
+- [x] Current M5 state is UI-test ready with no remaining queued M5 implementation task; STOP-M5-001 remains preserved.
 
 ## M5 Selection Summary
 
@@ -42,7 +43,7 @@ The selection is based on current repo state:
 
 - `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825` - Completed. Reconciled current mobile recurring bill lifecycle state and updated `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
 - `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825` - Completed. Hardened generated-client-backed mobile recurring template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging.
-- `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825` - Queued. Harden recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, and navigation to generated bill context.
+- `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825` - Completed. Hardened recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, idempotent existing-draft copy, and bounded generated context without inventing a generated-bill route.
 - `STOP-M5-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker/runtime expansion, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
 ## M5-001 Reconciliation Summary
@@ -84,6 +85,26 @@ Focused automated coverage:
 - New tests cover create form validation, create success/reload, duplicate create blocking, edit prefill/update, pause/resume/archive confirmation and refresh, lifecycle failure safe copy, generated repository create/update/lifecycle mapping, token usage, validation, and bounded failure handling.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M5-003 Forecast/Draft Handoff Summary
+
+Updated `apps/mobile/lib/recurring_bills/recurring_bill_screen.dart` and focused recurring screen tests only.
+
+Runtime hardening:
+
+- Added a generated draft handoff panel that shows server-returned generated draft context without raw generated bill IDs, API paths, stack traces, tokens, or local/generated-client internals.
+- Changed post-generate copy to neutral `Draft ready` language so idempotent existing-draft responses are not represented as a newly created mutation.
+- Reconciled the matching forecast row from the generated draft response while waiting for server refresh, and cleared the handoff context only when refreshed server forecast no longer matches the returned generated draft.
+- Preserved generated context if refresh after generation fails, with a refresh action that reloads server state without repeating draft generation.
+- Kept generated, skipped, cancelled, and unknown occurrence states read-only in mobile and preserved server-authority copy for recurrence, authorization, money, generated drafts, and audit.
+- Did not add generated bill navigation because no safe generated-bill route dependency exists in the current recurring screen shell; bounded copy points users to Bills instead.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/recurring_bill_screen_test.dart test/recurring_bill_generated_repository_test.dart` passed with 32 tests.
+- New tests cover generated context after success, idempotent existing-draft copy without new-mutation language, refresh-after-generate failure preserving generated context, and refresh retry without duplicate draft generation.
+
+M5 is now finalized as a bounded Day 1 mobile recurring bill lifecycle UX hardening checkpoint. Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
 ## M5 Kickoff Summary
 

@@ -202,7 +202,7 @@ void main() {
 
     expect(find.text('Gym'), findsWidgets);
     expect(find.text('Rent'), findsNothing);
-    expect(find.text('Draft Generated'), findsOneWidget);
+    expect(find.text('Draft Ready'), findsOneWidget);
     expect(
       tester
           .widget<OutlinedButton>(
@@ -465,9 +465,80 @@ void main() {
     expect(repository.generateDraftCalls, 1);
     expect(repository.lastTemplateId, _templateId);
     expect(repository.lastOccurrenceDate, '2026-06-01');
-    expect(find.text('Draft generated: 1200.00 USD.'), findsOneWidget);
-    expect(find.text('Draft Generated'), findsOneWidget);
+    expect(find.text('Draft ready: 1200.00 USD.'), findsOneWidget);
+    expect(find.text('Draft Ready'), findsOneWidget);
+    expect(find.text('Generated draft ready'), findsOneWidget);
+    expect(find.textContaining('Open the draft from Bills.'), findsOneWidget);
   });
+
+  testWidgets('idempotent draft state is displayed without new mutation copy', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: [
+        sampleOccurrence(
+          status: SettleoraRecurringBillOccurrenceStatusValues.draftGenerated,
+          draftGenerated: true,
+          generatedBillId: _generatedBillId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Draft Ready'), findsOneWidget);
+    expect(
+      find.textContaining('A draft exists for this occurrence.'),
+      findsOneWidget,
+    );
+    expect(find.text('Draft generated: 1200.00 USD.'), findsNothing);
+    expect(repository.generateDraftCalls, 0);
+  });
+
+  testWidgets(
+    'refresh failure after draft generation preserves generated context',
+    (tester) async {
+      final repository = FakeRecurringBillRepository(
+        forecastFailureCallNumbers: const {2},
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tapGenerateDraftButton(tester);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.tap(
+        find.byKey(const Key('recurring-bill-generate-confirm')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(repository.generateDraftCalls, 1);
+      expect(repository.forecastCalls, 2);
+      expect(find.text('Generated draft ready'), findsOneWidget);
+      expect(
+        find.textContaining('The server returned a draft bill'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('could not be refreshed'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('recurring-bill-refresh-after-generate')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.generateDraftCalls, 1);
+      expect(repository.forecastCalls, 3);
+      expect(find.text('Generated draft ready'), findsOneWidget);
+    },
+  );
 
   testWidgets('draft generation failure stays bounded', (tester) async {
     final repository = FakeRecurringBillRepository(
@@ -891,6 +962,7 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
     List<SettleoraRecurringBillForecastOccurrence>? forecast,
     SettleoraRecurringBillTemplateDetail? detail,
     this.listFailures = const [],
+    this.forecastFailureCallNumbers = const {},
     this.generateFailure,
     this.createFailure,
     this.updateFailure,
@@ -906,6 +978,7 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
       forecast = const [],
       detail = sampleDetail(),
       listFailures = const [],
+      forecastFailureCallNumbers = const {},
       generateFailure = null,
       createFailure = null,
       updateFailure = null,
@@ -919,6 +992,7 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   List<SettleoraRecurringBillForecastOccurrence> forecast;
   SettleoraRecurringBillTemplateDetail detail;
   final List<SettleoraRecurringBillFailure> listFailures;
+  final Set<int> forecastFailureCallNumbers;
   final SettleoraRecurringBillFailure? generateFailure;
   final SettleoraRecurringBillFailure? createFailure;
   final SettleoraRecurringBillFailure? updateFailure;
@@ -979,6 +1053,14 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
     String? groupId,
   }) async {
     forecastCalls += 1;
+    if (forecastFailureCallNumbers.contains(forecastCalls)) {
+      throw const SettleoraRecurringBillFailure(
+        kind: SettleoraRecurringBillFailureKind.network,
+        message:
+            'The server is unavailable. Try again when the connection is back.',
+      );
+    }
+
     final completer = _forecastCompleter;
     if (completer != null) {
       forecast = await completer.future;
