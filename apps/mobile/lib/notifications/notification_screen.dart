@@ -51,6 +51,7 @@ class _SettleoraNotificationScreenState
     extends State<SettleoraNotificationScreen> {
   bool _isLoading = true;
   bool _isMarkingAllRead = false;
+  bool _isBulkMarkingVisibleRead = false;
   String? _actingNotificationId;
   SettleoraNotificationSummary? _summary;
   List<SettleoraNotificationRow> _notifications = const [];
@@ -106,6 +107,7 @@ class _SettleoraNotificationScreenState
   ) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         !notification.isUnread) {
       return;
     }
@@ -146,6 +148,7 @@ class _SettleoraNotificationScreenState
   Future<void> _markAllRead() async {
     final summary = _summary;
     if (_isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         _actingNotificationId != null ||
         summary == null ||
         summary.unreadCount <= 0) {
@@ -185,10 +188,65 @@ class _SettleoraNotificationScreenState
     }
   }
 
+  Future<void> _markVisibleNotificationsRead(
+    List<SettleoraNotificationRow> visibleUnreadNotifications,
+  ) async {
+    if (_isBulkMarkingVisibleRead ||
+        _isMarkingAllRead ||
+        _actingNotificationId != null ||
+        visibleUnreadNotifications.isEmpty) {
+      return;
+    }
+
+    final notificationIds = visibleUnreadNotifications
+        .map((notification) => notification.id)
+        .where((id) => id.trim().isNotEmpty)
+        .toList(growable: false);
+    if (notificationIds.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isBulkMarkingVisibleRead = true;
+      _actionFailure = null;
+    });
+
+    try {
+      for (final notificationId in notificationIds) {
+        await widget.repository.markNotificationRead(notificationId);
+      }
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Visible notifications marked read.');
+      await _load(showBlockingLoading: false);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _actionFailure = _safeNotificationActionFailure(
+          error,
+          fallbackMessage: 'Visible notifications could not be marked read.',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBulkMarkingVisibleRead = false;
+        });
+      }
+    }
+  }
+
   Future<void> _archiveNotification(
     SettleoraNotificationRow notification,
   ) async {
-    if (_actingNotificationId != null || _isMarkingAllRead) {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead) {
       return;
     }
 
@@ -251,7 +309,9 @@ class _SettleoraNotificationScreenState
   }
 
   Future<void> _openBillRevision(SettleoraNotificationRow notification) async {
-    if (_actingNotificationId != null || _isMarkingAllRead) {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead) {
       return;
     }
 
@@ -332,6 +392,7 @@ class _SettleoraNotificationScreenState
   Future<void> _openGroupBill(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         !_canOpenGroupBill(notification)) {
       return;
     }
@@ -418,6 +479,7 @@ class _SettleoraNotificationScreenState
   Future<void> _openPersonalBill(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         !_canOpenPersonalBill(notification)) {
       return;
     }
@@ -478,6 +540,7 @@ class _SettleoraNotificationScreenState
   Future<void> _openSettlement(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         !_canOpenSettlement(notification)) {
       return;
     }
@@ -527,6 +590,7 @@ class _SettleoraNotificationScreenState
   Future<void> _openRecurringBill(SettleoraNotificationRow notification) async {
     if (_actingNotificationId != null ||
         _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
         !_canOpenRecurringBill(notification)) {
       return;
     }
@@ -604,6 +668,10 @@ class _SettleoraNotificationScreenState
           ),
         )
         .toList(growable: false);
+    final visibleUnreadNotifications = visibleNotifications
+        .where((notification) => notification.isUnread)
+        .toList(growable: false);
+    final isBulkBusy = _isMarkingAllRead || _isBulkMarkingVisibleRead;
 
     return Scaffold(
       appBar: AppBar(
@@ -612,7 +680,7 @@ class _SettleoraNotificationScreenState
           IconButton(
             key: const Key('notification-refresh'),
             tooltip: 'Refresh',
-            onPressed: _isLoading ? null : () => _load(),
+            onPressed: _isLoading || isBulkBusy ? null : () => _load(),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -647,7 +715,7 @@ class _SettleoraNotificationScreenState
                           attentionCount: 0,
                           urgentCount: 0,
                         ),
-                    isMarkingAllRead: _isMarkingAllRead,
+                    isMarkingAllRead: isBulkBusy,
                     onMarkAllRead: _markAllRead,
                   ),
                   const SizedBox(height: 12),
@@ -659,6 +727,16 @@ class _SettleoraNotificationScreenState
                         _selectedFilter = filter;
                       });
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  _VisibleBulkActionsPanel(
+                    selectedFilterLabel: _selectedFilter.label,
+                    visibleUnreadCount: visibleUnreadNotifications.length,
+                    isMarkingVisibleRead: _isBulkMarkingVisibleRead,
+                    isBusy: isBulkBusy || _actingNotificationId != null,
+                    onMarkVisibleRead: () => _markVisibleNotificationsRead(
+                      visibleUnreadNotifications,
+                    ),
                   ),
                   if (actionFailure != null) ...[
                     const SizedBox(height: 12),
@@ -702,8 +780,9 @@ class _SettleoraNotificationScreenState
                             visibleNotifications[index],
                           ),
                           isActing:
+                              _isBulkMarkingVisibleRead ||
                               _actingNotificationId ==
-                              visibleNotifications[index].id,
+                                  visibleNotifications[index].id,
                           revisionOpenButtonKey: ValueKey(
                             'notification-open-revision-$index',
                           ),
@@ -973,6 +1052,59 @@ class _NotificationFilterBar extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _VisibleBulkActionsPanel extends StatelessWidget {
+  const _VisibleBulkActionsPanel({
+    required this.selectedFilterLabel,
+    required this.visibleUnreadCount,
+    required this.isMarkingVisibleRead,
+    required this.isBusy,
+    required this.onMarkVisibleRead,
+  });
+
+  final String selectedFilterLabel;
+  final int visibleUnreadCount;
+  final bool isMarkingVisibleRead;
+  final bool isBusy;
+  final VoidCallback onMarkVisibleRead;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = visibleUnreadCount == 1
+        ? '1 visible unread notification in $selectedFilterLabel'
+        : '$visibleUnreadCount visible unread notifications in $selectedFilterLabel';
+
+    return DecoratedBox(
+      key: const Key('notification-visible-bulk-actions'),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          children: [
+            Expanded(child: Text(description)),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              key: const Key('notification-mark-visible-read'),
+              onPressed: visibleUnreadCount > 0 && !isBusy
+                  ? onMarkVisibleRead
+                  : null,
+              icon: isMarkingVisibleRead
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.mark_email_read_outlined),
+              label: const Text('Mark Visible Read'),
+            ),
+          ],
+        ),
       ),
     );
   }
