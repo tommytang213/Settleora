@@ -34,7 +34,7 @@
     "title": "Mobile group bill create and submit resilience",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

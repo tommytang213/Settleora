@@ -4164,7 +4164,8 @@ class _CreateBillFailureBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final message = '${failure.title}: ${failure.message}';
+    final message =
+        '${failure.title}: ${_safeCreateFailureMessage(failure.message)}';
 
     return Semantics(
       key: bannerKey,
@@ -4184,6 +4185,85 @@ class _CreateBillFailureBanner extends StatelessWidget {
               const Icon(Icons.info_outline),
               const SizedBox(width: 10),
               Expanded(child: Text(message, semanticsLabel: message)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _safeCreateFailureMessage(String message) {
+  final trimmed = message.trim();
+  if (trimmed.isEmpty) {
+    return 'The bill could not be saved. Check the fields and try again.';
+  }
+
+  final unsafePattern = RegExp(
+    r'(https?:\/\/|\/api\/|bearer\s+|token|secret|stack trace|exception:|[A-Za-z]:\\|\/var\/|\/tmp\/|\/home\/|storage\/)',
+    caseSensitive: false,
+  );
+  if (unsafePattern.hasMatch(trimmed)) {
+    return 'The bill could not be saved. Check the fields and try again.';
+  }
+
+  return trimmed;
+}
+
+class _GroupBillCreateProgressStatus {
+  const _GroupBillCreateProgressStatus({
+    required this.label,
+    required this.message,
+    required this.variant,
+    required this.icon,
+  });
+
+  final String label;
+  final String message;
+  final StatusChipVariant variant;
+  final IconData icon;
+}
+
+class _GroupBillCreateProgressBanner extends StatelessWidget {
+  const _GroupBillCreateProgressBanner({required this.status});
+
+  final _GroupBillCreateProgressStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final semanticLabel = '${status.label}. ${status.message}';
+
+    return Semantics(
+      key: const Key('group-bill-create-progress-status'),
+      container: true,
+      liveRegion: true,
+      label: semanticLabel,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(status.icon),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    StatusChip(
+                      label: status.label,
+                      variant: status.variant,
+                      size: StatusChipSize.small,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(status.message, semanticsLabel: status.message),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -4936,6 +5016,7 @@ class _SettleoraGroupBillCreateScreenState
   SettleoraBillAttachmentFailure? _attachmentUploadFailure;
   SettleoraBillDetail? _createdBillAwaitingCompletion;
   bool _createdBillSubmittedAwaitingDetail = false;
+  _GroupBillCreateOperation _activeOperation = _GroupBillCreateOperation.idle;
   _GroupBillCreateEntryMode _entryMode = _GroupBillCreateEntryMode.manual;
   _GroupBillCreateStep _selectedStep = _GroupBillCreateStep.start;
   _GroupBillSplitMode _selectedSplitMode = _GroupBillSplitMode.byItem;
@@ -6015,6 +6096,7 @@ class _SettleoraGroupBillCreateScreenState
 
     setState(() {
       _isSaving = true;
+      _activeOperation = _GroupBillCreateOperation.creatingDraft;
     });
 
     final draft = SettleoraGroupBillCreateDraft(
@@ -6083,6 +6165,7 @@ class _SettleoraGroupBillCreateScreenState
       setState(() {
         _failure = SettleoraBillFailure.from(error);
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
     }
   }
@@ -6104,12 +6187,14 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = createdBill;
         _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
       return;
     }
 
     setState(() {
       _isSaving = true;
+      _activeOperation = _GroupBillCreateOperation.attaching;
       _failure = null;
       _attachmentUploadFailure = null;
       _attachmentDraftError = null;
@@ -6174,6 +6259,7 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = createdBill;
         _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
     }
   }
@@ -6232,6 +6318,7 @@ class _SettleoraGroupBillCreateScreenState
   }) async {
     setState(() {
       _isSaving = true;
+      _activeOperation = _GroupBillCreateOperation.submitting;
       _failure = null;
       _attachmentUploadFailure = null;
       _attachmentDraftError = null;
@@ -6264,6 +6351,7 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = createdBill;
         _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
     }
   }
@@ -6274,6 +6362,7 @@ class _SettleoraGroupBillCreateScreenState
   }) async {
     setState(() {
       _isSaving = true;
+      _activeOperation = _GroupBillCreateOperation.refreshingSubmittedDetail;
       _failure = null;
       _attachmentUploadFailure = null;
       _attachmentDraftError = null;
@@ -6292,6 +6381,7 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = null;
         _createdBillSubmittedAwaitingDetail = false;
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
       await _leaveRoute(
         _createdBillWithReceiptOcrReviewHandoff(
@@ -6309,6 +6399,7 @@ class _SettleoraGroupBillCreateScreenState
         _createdBillAwaitingCompletion = createdBill;
         _createdBillSubmittedAwaitingDetail = true;
         _isSaving = false;
+        _activeOperation = _GroupBillCreateOperation.idle;
       });
     }
   }
@@ -6465,6 +6556,89 @@ class _SettleoraGroupBillCreateScreenState
     return 'Retry remaining attachment uploads';
   }
 
+  _GroupBillCreateProgressStatus get _progressStatus {
+    if (_isSaving) {
+      return switch (_activeOperation) {
+        _GroupBillCreateOperation.creatingDraft =>
+          const _GroupBillCreateProgressStatus(
+            label: 'Creating draft',
+            message:
+                'The bill draft is being created. Keep this screen open to avoid duplicate requests.',
+            variant: StatusChipVariant.info,
+            icon: Icons.hourglass_top_outlined,
+          ),
+        _GroupBillCreateOperation.attaching =>
+          const _GroupBillCreateProgressStatus(
+            label: 'Attaching',
+            message:
+                'Draft created. Uploading selected attachments before submit.',
+            variant: StatusChipVariant.info,
+            icon: Icons.attach_file_outlined,
+          ),
+        _GroupBillCreateOperation.submitting =>
+          const _GroupBillCreateProgressStatus(
+            label: 'Submitting',
+            message:
+                'Draft created. Submitting the existing bill without creating another draft.',
+            variant: StatusChipVariant.info,
+            icon: Icons.publish_outlined,
+          ),
+        _GroupBillCreateOperation.refreshingSubmittedDetail =>
+          const _GroupBillCreateProgressStatus(
+            label: 'Submitted',
+            message: 'Submit succeeded. Refreshing the submitted bill detail.',
+            variant: StatusChipVariant.success,
+            icon: Icons.check_circle_outline,
+          ),
+        _GroupBillCreateOperation.idle => const _GroupBillCreateProgressStatus(
+          label: 'Working',
+          message: 'The current bill operation is still in progress.',
+          variant: StatusChipVariant.info,
+          icon: Icons.hourglass_top_outlined,
+        ),
+      };
+    }
+
+    final createdBill = _createdBillAwaitingCompletion;
+    if (createdBill == null) {
+      return const _GroupBillCreateProgressStatus(
+        label: 'Ready to submit',
+        message:
+            'Create, attachment upload, submit, and detail refresh will run through server validation.',
+        variant: StatusChipVariant.neutral,
+        icon: Icons.task_alt_outlined,
+      );
+    }
+
+    if (_createdBillSubmittedAwaitingDetail) {
+      return const _GroupBillCreateProgressStatus(
+        label: 'Retry detail refresh',
+        message:
+            'Submit succeeded. Retry loading the submitted bill detail without submitting again.',
+        variant: StatusChipVariant.warning,
+        icon: Icons.refresh_outlined,
+      );
+    }
+
+    if (_draftAttachments.isNotEmpty) {
+      return const _GroupBillCreateProgressStatus(
+        label: 'Retry upload',
+        message:
+            'Draft created. Retry only the remaining selected attachments before submit.',
+        variant: StatusChipVariant.warning,
+        icon: Icons.upload_file_outlined,
+      );
+    }
+
+    return const _GroupBillCreateProgressStatus(
+      label: 'Retry submit',
+      message:
+          'Draft created. Retry submit on the existing bill without creating another draft.',
+      variant: StatusChipVariant.warning,
+      icon: Icons.publish_outlined,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
@@ -6474,6 +6648,7 @@ class _SettleoraGroupBillCreateScreenState
     final splitTotalError = _splitTotalError;
     final payerTotalError = _payerTotalError;
     final saveLabel = _saveLabel;
+    final progressStatus = _progressStatus;
     final shouldShowSaveAction =
         _selectedStep == _GroupBillCreateStep.review ||
         _createdBillAwaitingCompletion != null;
@@ -6537,6 +6712,14 @@ class _SettleoraGroupBillCreateScreenState
                               bannerKey: const Key(
                                 'group-bill-create-attachment-upload-failure',
                               ),
+                            ),
+                          ],
+                          if (_isSaving ||
+                              _createdBillAwaitingCompletion != null ||
+                              _selectedStep == _GroupBillCreateStep.review) ...[
+                            const SizedBox(height: 16),
+                            _GroupBillCreateProgressBanner(
+                              status: progressStatus,
                             ),
                           ],
                           const SizedBox(height: 14),
@@ -7038,6 +7221,14 @@ class _SettleoraGroupBillCreateScreenState
 }
 
 enum _GroupBillCreateEntryMode { manual, receipt }
+
+enum _GroupBillCreateOperation {
+  idle,
+  creatingDraft,
+  attaching,
+  submitting,
+  refreshingSubmittedDetail,
+}
 
 enum _GroupBillCreateStep {
   start('Start', Icons.add_circle_outline),

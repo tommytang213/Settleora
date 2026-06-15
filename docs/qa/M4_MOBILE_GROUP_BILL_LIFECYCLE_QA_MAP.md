@@ -6,6 +6,8 @@ This map defines the QA/control boundary for M4 `Day 1 Mobile Group Bill Lifecyc
 
 M4 may harden existing mobile group bill lifecycle surfaces that already use current repository/generated-client seams. It does not authorize backend/API behavior, OpenAPI or generated-client edits, auth/session/security changes, schema or migration changes, storage/file privacy policy changes, money/settlement/bill calculation authority changes, Docker/deployment/env/CI changes, secrets, web/admin runtime UI, push notification delivery, recurring bill runtime, reporting/import/export runtime, OCR-worker behavior, persistent offline cache, group bill offline queueing, or broad sync expansion.
 
+M4-002 update: the mobile group bill create/submit flow now renders explicit bounded local status labels for ready to submit, creating draft, draft created, attaching, submitting, submitted-detail refresh, retry upload, retry submit, and retry detail refresh. These labels reflect only local in-flight or continuation state plus existing generated-client responses; API/domain services remain authoritative for bill lifecycle, validation, authorization, money, attachment acceptance, and submit state.
+
 ## Day 1 Requirement Boundary
 
 Day 1 requires users to create and review shared group bills, understand participant acknowledgement state, attach receipts/supporting files, use correction proposal/revision flows where available, and preserve API/domain authority for authorization, money, bill status, revision review context, storage access, and audit.
@@ -108,7 +110,7 @@ No M4-001 mobile test files were changed.
 
 ### Create And Submit
 
-M4-002 should keep create/submit within current supported contract fields and harden or preserve:
+M4-002 completed create/submit hardening within current supported contract fields and hardens or preserves:
 
 - Active member selection and member display fallbacks stay bounded.
 - Local split/payer checks are convenience validation only and do not become financial authority.
@@ -117,6 +119,8 @@ M4-002 should keep create/submit within current supported contract fields and ha
 - Submitted-detail refresh failure remains recoverable without losing the created bill.
 - Attachment upload failure after create preserves only remaining failed/unuploaded attachment rows and does not recreate the bill.
 - Duplicate save taps and step changes stay blocked while create, upload, submit, or detail refresh is in flight.
+- Explicit local status labels distinguish ready to submit, creating draft, draft created, attaching, submitting, submitted, retry upload, retry submit, and retry detail refresh.
+- Create failure display has a last-mile guard against obvious raw API paths, tokens/secrets, stack traces, and local/storage paths while preserving bounded repository messages.
 - Receipt OCR apply-to-draft remains local/provisional and does not apply OCR to server truth without the current OCR review API path.
 - Safe errors do not expose raw IDs beyond user-facing context, API paths, storage paths, tokens, generated-client internals, receipt/OCR text, proof bytes, or backend internals.
 - Group bill create does not use the personal bill offline archive/restore queue.
@@ -143,8 +147,7 @@ M4-003 should harden or preserve:
 
 ## Gaps For Next Tasks
 
-- M4-002 should review whether the current create flow needs clearer user-facing continuation copy for each post-create retry state and focused assertions that create failure never starts attachment upload or submit.
-- M4-002 should preserve the existing no-duplicate-create/no-duplicate-submit behavior and add any missing focused coverage only if an implementation change is needed.
+- M4-002 completed the create/submit continuation-copy hardening and strengthened focused assertions for retry/no-duplicate-create/no-duplicate-submit/safe-error behavior.
 - M4-003 should review stale participant/revision capability refresh after accept/reject/revision actions and whether terminal status copy is sufficiently explicit for unavailable/conflict/session-expired states.
 - M4-003 should preserve receipt-only OCR review discovery and add focused assertions for multi-receipt choice and unavailable saved-review paths only if implementation hardening changes those paths.
 - Manual UI/code review remains deferred by owner decision until Day 1 acceptance and is not passed by this map.
@@ -193,5 +196,22 @@ M4 is complete when the existing mobile group bill lifecycle UX is reconciled, h
 ## M4-001 Reconciliation Result
 
 M4-001 reconciliation is complete as a documentation/control-state update. Current evidence supports proceeding to `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is explicitly not passed.
+
+## M4-002 Create/Submit Hardening Result
+
+M4-002 implementation is complete as a mobile-only create/submit hardening slice. It changed only `apps/mobile/lib/bills/bill_list_screen.dart`, `apps/mobile/test/group_bill_list_screen_test.dart`, this QA map, and `.ai` control files.
+
+Automated evidence:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` passed with 74 tests.
+- Focused tests cover submit failure retry without duplicate create, submitted-detail refresh retry without duplicate submit, attachment upload retry without duplicate create, in-flight submit guard, in-flight attachment control disabling, member/payer/split validation blocking before create/upload, visible safe retry labels, and bounded unsafe create error text.
+
+Remaining M4 work:
+
+- `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` remains queued for detail lifecycle, participant action, revision entry, attachment/OCR-review handoff, stale capability refresh, terminal/unavailable state, and member fallback hardening.
+- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` remains queued for final M4 QA/control closure.
+- `STOP-M4-001` remains the hard stop sentinel for forbidden API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline/sync, OCR-worker/runtime, recurring, settlement, reporting, notification, web/admin, secrets, or unrelated major-domain scope.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is explicitly not passed.

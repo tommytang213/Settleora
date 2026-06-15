@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M4-001 mobile group bill lifecycle state reconciled; manual UI/code review deferred until Day 1 acceptance`
+Status: `M4-002 mobile group bill create/submit hardened; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -14,7 +14,8 @@ Status: `M4-001 mobile group bill lifecycle state reconciled; manual UI/code rev
 - [x] No M4 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, or secret changes.
 - [x] M4-001 reconciled current mobile group bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M4-001 updated the M4 QA map with current implementation inventory, covered tests, acceptance targets, M4-002/M4-003 gaps, and stop conditions.
-- [x] Current state pointer and next queued task target `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+- [x] M4-002 hardened existing mobile group bill create/submit status, retry, duplicate-mutation, validation, and safe-error coverage without changing backend/API contracts, generated clients, schema, auth/session, storage, money, deployment, or offline queueing.
+- [x] Current state pointer and next queued task target `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`.
 
 ## M3 Finalization Carry-Forward
 
@@ -38,7 +39,7 @@ The selection is based on current repo state:
 ## M4 Queue Summary
 
 - `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Completed. Reconciled current mobile group bill lifecycle state and updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
-- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Queued as the next controller-selectable task. Harden existing group bill create/submit UX, safe retries, member/payer/split validation, and duplicate-mutation prevention inside current mobile seams.
+- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Completed. Hardened existing group bill create/submit UX, safe retries, member/payer/split validation coverage, safe status labels, duplicate-mutation prevention, and bounded unsafe-error display inside current mobile seams.
 - `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Queued. Harden group bill detail lifecycle surfaces for participant actions, revision entry, attachments/OCR-review state, stale capability refreshes, member fallbacks, and safe terminal/unavailable states.
 - `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Queued. Finalize M4 QA/control state and preserve deferred manual review status.
 - `STOP-M4-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, OCR-worker/runtime expansion, recurring, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
@@ -64,6 +65,25 @@ Current implementation findings:
 - Safe repository failures cover session-required/session-expired, denied, unavailable, conflict, validation, network, and server states.
 
 No mobile runtime files or mobile test files were changed by M4-001.
+
+## M4-002 Create/Submit Hardening Summary
+
+Updated `apps/mobile/lib/bills/bill_list_screen.dart` and `apps/mobile/test/group_bill_list_screen_test.dart` only for the mobile group bill create/submit flow.
+
+Runtime hardening:
+
+- Added explicit local create operation tracking for creating draft, attaching, submitting, and submitted-detail refresh.
+- Rendered bounded status labels and messages for ready to submit, draft created retry upload, retry submit, submitting, submitted, and retry detail refresh.
+- Preserved the created draft bill across attachment, submit, and submitted-detail refresh failures so retry uses the existing bill rather than calling create again.
+- Kept submit and draft attachment controls disabled while create/attachment/submit/detail refresh work is in flight.
+- Added a final UI display guard for create failure messages that suppresses obvious API paths, tokens/secrets, stack traces, and local/storage paths while preserving already-safe bounded repository messages.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` passed with 74 tests.
+- Tests assert no duplicate create after attachment/submit/detail failures, no duplicate submit during in-flight submit, visible retry labels, member/payer/split validation blocking before mutation, and safe bounded create error text.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
 ## Deferred Manual Acceptance Gates
 

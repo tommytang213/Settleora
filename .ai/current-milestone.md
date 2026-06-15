@@ -51,8 +51,8 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Completed task: `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659`.
-- Next queued task: `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+- Completed task: `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+- Next queued task: `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`.
 - Stop sentinel: `STOP-M4-001` for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, recurring/settlement/reporting/OCR-worker, or unrelated major-domain scope.
 
 ## M3 Carry-Forward Boundary
