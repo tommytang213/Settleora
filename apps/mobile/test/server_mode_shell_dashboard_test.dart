@@ -80,6 +80,15 @@ void main() {
     expect(find.text('Upcoming bills'), findsOneWidget);
     expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Monthly report opens server-returned aggregates'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.textContaining('Monthly report opens server-returned aggregates'),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const Key('server-shell-notifications-header')),
       findsOneWidget,

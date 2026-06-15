@@ -67,9 +67,41 @@ M7 covers existing mobile monthly report, dashboard/report entry, bill search/fi
 - `apps/mobile/test/group_bill_list_screen_test.dart` covers group bill list loading/empty/refresh, group bill filters and counts, group bill search combined with chips, current-user-specific filter behavior, filtered empty state when current user is missing, and opening the selected filtered group bill detail.
 - `apps/mobile/test/bill_generated_repository_test.dart` covers generated bill repository mapping for reconciliation status/note fields from personal and group bill generated responses.
 
+## M7-002 Implementation Coverage
+
+M7-002 changed only existing mobile report/dashboard/app seams and focused tests:
+
+- `apps/mobile/lib/reports/report_repository.dart`
+- `apps/mobile/lib/reports/monthly_report_screen.dart`
+- `apps/mobile/lib/app/server_mode_shell.dart`
+- `apps/mobile/test/monthly_report_screen_test.dart`
+- `apps/mobile/test/server_mode_shell_dashboard_test.dart`
+
+Runtime coverage added:
+
+- Monthly report summary copy identifies the report as a server monthly aggregate; filtered-discovery copy clarifies that local search/filter only hides loaded rows while server-returned totals and bill count remain unchanged.
+- Active discovery result counts render before discovery controls so local search/filter results remain visible and clear/retry behavior stays safe.
+- Personal and group scope labels are explicit and bounded: `Personal report`, explicit group labels, or `Group report` fallback without raw group ID leakage.
+- Unknown/future status labels render as bounded `Other status: ...` copy instead of raw generated-client-ish codes.
+- Monthly report failure display and session-ended notices sanitize unsafe upstream failure messages containing raw API paths, tokens, local paths, stack traces, or internal/generated-client details.
+- Authenticated dashboard report entry copy states that monthly reports open server-returned aggregates and preserves the existing monthly report route through `SettleoraMonthlyReportRepository`.
+
+Automated validation coverage added or updated:
+
+- `apps/mobile/test/monthly_report_screen_test.dart` now covers server-aggregate copy, personal and group scope clarity, unknown/future status fallback labels, filtered-empty copy, safe failure sanitization, and session-ended safe copy.
+- `apps/mobile/test/server_mode_shell_dashboard_test.dart` now covers dashboard report-entry aggregate copy while preserving dashboard route behavior.
+- Focused command passed with 60 tests: `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart`.
+
+Remaining M7-003 focus:
+
+- Personal/group bill list and bill detail loaded-row search/filter clarity.
+- Reconciliation status/note bounded display and safe copy over server-provided bill fields.
+- Filtered-empty behavior for bill report/reconciliation readouts.
+- Explicit no statement import, no matching, no reconciliation mutation, no CSV import/export, no backup/restore, and no client-side money/settlement/bill calculation authority.
+
 ## Current Coverage Gaps And Next Slices
 
-- M7-002 should focus on monthly report/dashboard discovery hardening: dashboard/report entry clarity, monthly report safe aggregate display, group/month scope clarity, unknown status handling, session/network failure states, retry behavior, and server-authority copy inside existing report/dashboard seams.
+- M7-002 completed monthly report/dashboard discovery hardening: dashboard/report entry clarity, monthly report safe aggregate display, group/month scope clarity, unknown status handling, session/network failure states, retry behavior, and server-authority copy inside existing report/dashboard seams.
 - M7-003 should focus on bill reporting/reconciliation readout hardening: loaded-row search/filter clarity, filtered-empty copy, reconciliation status/note bounded display, and no-import/no-mutation/server-authority copy inside existing personal/group bill list/detail seams.
 - M7-004 should finalize M7 QA/control state after implementation slices and keep manual UI/code review deferred until Day 1 acceptance.
 - Remaining Day 1 gaps outside this M7 mobile readout slice include CSV import/export, local backup/restore, full statement import/matching/linking, raw statement privacy controls, generated dashboard APIs, broad reporting backend redesign, and any authoritative reconciliation mutations.
@@ -85,7 +117,7 @@ M7 covers existing mobile monthly report, dashboard/report entry, bill search/fi
 ## Planned M7 Task Slices
 
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`: reconcile current implementation and QA coverage without runtime changes.
-- `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`: harden monthly report discovery, safe aggregate display, group/month scope handling, unknown statuses, failures, and dashboard/report entry within existing seams.
+- `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`: completed monthly report discovery, safe aggregate display, group/month scope handling, unknown statuses, failures, and dashboard/report entry within existing seams.
 - `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`: harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
 - `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`: finalize QA/control state and mark M7 UI-test ready without runtime behavior.
 - `STOP-M7-001`: stop for broad reporting/reconciliation/import/export/API/storage/money/deployment/security expansion.

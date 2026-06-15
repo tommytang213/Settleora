@@ -1421,43 +1421,55 @@ class _DashboardMoreSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _DashboardSection(
       title: 'More',
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth >= 380
-              ? (constraints.maxWidth - 8) / 2
-              : constraints.maxWidth;
-          final items = [
-            _DashboardCompactAction(
-              width: width,
-              icon: Icons.account_circle_outlined,
-              title: 'Profile',
-              onTap: onOpenProfile,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Monthly report opens server-returned aggregates for the selected month.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            _DashboardCompactAction(
-              key: const Key('server-shell-receipt-reviews'),
-              width: width,
-              icon: Icons.receipt_long_outlined,
-              title: 'Receipt Reviews',
-              onTap: onOpenReceiptReviews,
-            ),
-            _DashboardCompactAction(
-              key: const Key('server-shell-sessions'),
-              width: width,
-              icon: Icons.devices_outlined,
-              title: 'Sessions',
-              onTap: onOpenSessions,
-            ),
-            _DashboardCompactAction(
-              key: const Key('server-shell-reports'),
-              width: width,
-              icon: Icons.summarize_outlined,
-              title: 'Monthly report',
-              onTap: onOpenMonthlyReport,
-            ),
-          ];
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth >= 380
+                  ? (constraints.maxWidth - 8) / 2
+                  : constraints.maxWidth;
+              final items = [
+                _DashboardCompactAction(
+                  width: width,
+                  icon: Icons.account_circle_outlined,
+                  title: 'Profile',
+                  onTap: onOpenProfile,
+                ),
+                _DashboardCompactAction(
+                  key: const Key('server-shell-receipt-reviews'),
+                  width: width,
+                  icon: Icons.receipt_long_outlined,
+                  title: 'Receipt Reviews',
+                  onTap: onOpenReceiptReviews,
+                ),
+                _DashboardCompactAction(
+                  key: const Key('server-shell-sessions'),
+                  width: width,
+                  icon: Icons.devices_outlined,
+                  title: 'Sessions',
+                  onTap: onOpenSessions,
+                ),
+                _DashboardCompactAction(
+                  key: const Key('server-shell-reports'),
+                  width: width,
+                  icon: Icons.summarize_outlined,
+                  title: 'Monthly report',
+                  onTap: onOpenMonthlyReport,
+                ),
+              ];
 
-          return Wrap(spacing: 8, runSpacing: 8, children: items);
-        },
+              return Wrap(spacing: 8, runSpacing: 8, children: items);
+            },
+          ),
+        ],
       ),
     );
   }

@@ -154,7 +154,7 @@ class _SettleoraMonthlyReportScreenState
       Navigator.of(context).pop();
     }
 
-    await onSessionEnded(failure.message);
+    await onSessionEnded(failure.userMessage);
   }
 
   @override
@@ -232,6 +232,10 @@ class _SettleoraMonthlyReportScreenState
                   ],
                   if (report.hasReportActivity) ...[
                     const SizedBox(height: 14),
+                    if (_hasActiveDiscovery) ...[
+                      _FilteredSummaryPanel(discovery: discovery),
+                      const SizedBox(height: 10),
+                    ],
                     _DiscoveryPanel(
                       searchController: _searchController,
                       selectedFilter: _discoveryFilter,
@@ -240,10 +244,6 @@ class _SettleoraMonthlyReportScreenState
                       onFilterSelected: _selectDiscoveryFilter,
                       onClear: _clearDiscovery,
                     ),
-                    if (_hasActiveDiscovery) ...[
-                      const SizedBox(height: 10),
-                      _FilteredSummaryPanel(discovery: discovery),
-                    ],
                   ],
                   if (discovery.isFilteredEmpty) ...[
                     const SizedBox(height: 14),
@@ -379,6 +379,13 @@ class _SummaryPanel extends StatelessWidget {
               value: _formatTimestamp(report.generatedAtUtc),
             ),
             _KeyValueText(label: 'Bills', value: '${report.billCount}'),
+            const SizedBox(height: 8),
+            Text(
+              'Server monthly aggregate. Search and filters only hide loaded rows on this device.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),
@@ -641,7 +648,7 @@ class _FilteredSummaryPanel extends StatelessWidget {
       icon: Icons.filter_alt_outlined,
       title: '${discovery.visibleRowCount} matching report rows',
       message:
-          'Report totals and bill count remain the server-returned monthly summary.',
+          'Local discovery only changes visible loaded rows. Totals and bill count remain the server-returned monthly summary.',
       compact: true,
     );
   }
@@ -669,7 +676,8 @@ class _CurrencySection extends StatelessWidget {
           _StatePanel(
             icon: Icons.account_balance_wallet_outlined,
             title: emptyLabel,
-            message: 'No currency buckets are visible for this month.',
+            message:
+                'No server-returned currency buckets are visible for this month.',
             compact: true,
           )
         else
@@ -746,7 +754,8 @@ class _StatusSection extends StatelessWidget {
           const _StatePanel(
             icon: Icons.format_list_bulleted_outlined,
             title: 'No status counts',
-            message: 'No status counts are visible for this month.',
+            message:
+                'No server-returned status counts are visible for this month.',
             compact: true,
           )
         else
@@ -804,7 +813,7 @@ class _FailurePanel extends StatelessWidget {
     return _StatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
-      message: failure.message,
+      message: failure.userMessage,
       action: requiresSignIn && onSessionEnded != null
           ? FilledButton.icon(
               key: const Key('monthly-report-sign-in-required'),
@@ -830,7 +839,8 @@ class _ZeroStatePanel extends StatelessWidget {
     return const _StatePanel(
       icon: Icons.calendar_month_outlined,
       title: 'No monthly report activity',
-      message: 'No visible bills or settlement activity are in this month.',
+      message:
+          'The server returned no bills, currency totals, or settlement status activity for this month.',
       compact: true,
     );
   }
@@ -844,7 +854,8 @@ class _FilteredEmptyPanel extends StatelessWidget {
     return const _StatePanel(
       icon: Icons.search_off_outlined,
       title: 'No matching report rows',
-      message: 'Clear search or filters to show the loaded monthly report.',
+      message:
+          'Clear local search or filters to show the loaded server report rows.',
       compact: true,
     );
   }
@@ -994,7 +1005,7 @@ String _scopeLabel({required String? groupId, required String? groupLabel}) {
     return 'Group report';
   }
 
-  return 'Personal';
+  return 'Personal report';
 }
 
 String _formatMonth(DateTime value) {

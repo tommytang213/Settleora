@@ -45,6 +45,7 @@ void main() {
 
     expect(find.byKey(const Key('monthly-report-summary')), findsOneWidget);
     expect(find.text('Roommates'), findsOneWidget);
+    expect(find.textContaining('Server monthly aggregate'), findsOneWidget);
     expect(find.text('Bills'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
     expect(find.text('Total by currency'), findsOneWidget);
@@ -76,7 +77,7 @@ void main() {
 
     expect(find.text('Reconciliation'), findsOneWidget);
     expect(find.text('Unreconciled: 1'), findsOneWidget);
-    expect(find.text('Future Status: 2'), findsOneWidget);
+    expect(find.text('Other status: Future Status: 2'), findsOneWidget);
     expect(find.text('Settlement requests'), findsOneWidget);
     expect(find.text('Partially paid: 1'), findsOneWidget);
     expect(find.text('Settlement payments'), findsOneWidget);
@@ -116,6 +117,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No monthly report activity'), findsOneWidget);
+    expect(find.textContaining('The server returned no bills'), findsOneWidget);
     expect(find.text('No totals'), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -178,8 +180,7 @@ void main() {
     expect(find.text('50.00 EUR'), findsOneWidget);
     expect(find.text('123.4500 USD'), findsNothing);
     expect(find.text('9000 JPY'), findsNothing);
-    expect(find.text('Bills'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    expect(find.textContaining('Totals and bill count remain'), findsOneWidget);
   });
 
   testWidgets('monthly report section chips filter loaded report buckets', (
@@ -241,12 +242,12 @@ void main() {
     expect(find.text('1 matching report rows'), findsOneWidget);
 
     await tester.scrollUntilVisible(
-      find.text('Future Status: 2'),
+      find.text('Other status: Future Status: 2'),
       240,
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('Future Status: 2'), findsOneWidget);
+    expect(find.text('Other status: Future Status: 2'), findsOneWidget);
     expect(find.text('Partially paid: 1'), findsNothing);
   });
 
@@ -275,13 +276,18 @@ void main() {
 
     expect(find.text('1 matching report rows'), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('monthly-report-clear-discovery')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('monthly-report-clear-discovery')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('monthly-report-clear-discovery')));
     await tester.pumpAndSettle();
 
-    final searchField = tester.widget<TextField>(
-      find.byKey(const Key('monthly-report-search')),
-    );
-    expect(searchField.controller?.text, isEmpty);
     expect(
       find.byKey(const Key('monthly-report-clear-discovery')),
       findsNothing,
@@ -327,6 +333,10 @@ void main() {
     );
 
     expect(find.text('No matching report rows'), findsOneWidget);
+    expect(
+      find.textContaining('Clear local search or filters'),
+      findsOneWidget,
+    );
     expect(find.text('No monthly report activity'), findsNothing);
 
     await tester.tap(find.byKey(const Key('monthly-report-clear-discovery')));
@@ -479,6 +489,87 @@ void main() {
     expect(find.text('Monthly report'), findsWidgets);
     expect(find.text('123.4500 USD'), findsOneWidget);
     expect(reportRepository.calls, 1);
+  });
+
+  testWidgets('monthly report screen clarifies personal and group scope', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: FakeMonthlyReportRepository(
+            report: sampleReport(month: '2026-06'),
+          ),
+          initialMonth: '2026-06',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Personal report'), findsOneWidget);
+    expect(find.text('2026-06'), findsWidgets);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: FakeMonthlyReportRepository(),
+          initialMonth: '2026-05',
+          groupId: _groupId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group report'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains(_groupId)));
+  });
+
+  testWidgets('monthly report screen sanitizes unsafe failure messages', (
+    tester,
+  ) async {
+    String? sessionEndedNotice;
+    final repository = FakeMonthlyReportRepository(
+      loadFailures: [
+        const SettleoraMonthlyReportFailure(
+          kind: SettleoraMonthlyReportFailureKind.sessionExpired,
+          message:
+              'GET /api/v1/monthly-reports failed with bearer redacted-token at /workspace/app.dart StackTrace',
+          statusCode: 401,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraMonthlyReportScreen(
+          repository: repository,
+          initialMonth: '2026-05',
+          onSessionEnded: (notice) async {
+            sessionEndedNotice = notice;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in again'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('/api/v1')));
+    expect(visibleText(tester), isNot(contains('redacted-token')));
+    expect(visibleText(tester), isNot(contains('/workspace')));
+    expect(
+      find.text(
+        'Your session has expired. Sign in again before loading monthly reports.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('monthly-report-sign-in-required')));
+    await tester.pumpAndSettle();
+
+    expect(
+      sessionEndedNotice,
+      'Your session has expired. Sign in again before loading monthly reports.',
+    );
   });
 }
 
