@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M6-002 complete; M6-003 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6-003 complete; M6-004 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -34,6 +34,7 @@ Status: `M6-002 complete; M6-003 queued; manual UI/code review deferred until Da
 - [x] M6-001 reconciled current mobile receipt OCR capture/review implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M6-001 updated the M6 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M6-002/M6-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 - [x] M6-002 hardened mobile receipt OCR capture intake and provisional review save handoff by binding local OCR preview state to its source receipt draft, clearing stale preview state when the receipt is removed or no longer receipt-purpose, and saving provisional review data only to the uploaded receipt that produced the active preview.
+- [x] M6-003 hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff so successful draft-only apply is not repeated after post-apply refresh failure and another apply requires a fresh preview.
 
 ## M6 Selection Summary
 
@@ -51,7 +52,7 @@ The selection is based on current repo state:
 
 - `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950` - Completed. Reconciled current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements without changing runtime behavior.
 - `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950` - Completed. Hardened mobile receipt intake, unsupported/on-device OCR provider fallback, parser/preview, and bill attachment OCR review save handoff inside existing mobile seams.
-- `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950` - Queued. Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale review data, blocked previews, safe retries, duplicate mutation prevention, and server-authority copy.
+- `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950` - Completed. Hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale review data, blocked previews, safe retries, duplicate mutation prevention, refresh-after-apply failure recovery, and server-authority copy.
 - `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950` - Queued. Finalize M6 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M6-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
@@ -93,6 +94,24 @@ Focused automated coverage:
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart` passed with 155 tests.
 - Exact focused M6 command passed with 270 tests across receipt OCR parser, bill list, attachment section, and group bill list tests.
 - Full `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 685 Flutter tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M6-003 Saved Review Apply Handoff Summary
+
+Updated `apps/mobile/lib/receipt_ocr_review/receipt_ocr_review_detail_content.dart`, `apps/mobile/lib/bills/bill_list_screen.dart`, focused bill-list tests, M6 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Kept the saved-review apply button disabled after a successful apply result until the user requests a fresh apply preview, preventing duplicate draft-only apply from a stale preview.
+- Preserved successful draft-only apply state in the bill-detail saved-review sheet even when the subsequent bill refresh fails.
+- Added explicit refresh-needed copy for post-apply refresh failure that tells the user to refresh bill state or reopen the bill, not repeat apply just to reload.
+- Kept existing stale-preview conflict, blocked-preview/manual-correction, route mismatch/unavailable review, duplicate save/remove/preview/apply busy guards, and server-authority/no-finalization copy inside current mobile seams.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart --plain-name "personal saved OCR apply refresh failure does not repeat apply mutation"` passed.
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart` is part of M6-003 validation.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 

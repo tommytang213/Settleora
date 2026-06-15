@@ -1,6 +1,6 @@
 # M6 Mobile Receipt OCR Capture + Review Handoff QA Map
 
-Status: `M6-002 implemented; M6-003 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6-003 implemented; M6-004 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -144,7 +144,7 @@ M6-002 must stop if it needs backend/API behavior, OpenAPI/generated-client chan
 
 ## M6-003 Saved Review/Apply Handoff Focus
 
-M6-003 should stay inside current mobile saved-review, bill detail, app wiring, and focused test seams. It should harden:
+M6-003 stayed inside current mobile saved-review, bill detail, app wiring, and focused test seams. It hardened:
 
 - saved-review edit/save failure recovery and stale local preview clearing;
 - refresh after save/apply/remove and unavailable review behavior;
@@ -155,13 +155,20 @@ M6-003 should stay inside current mobile saved-review, bill detail, app wiring, 
 - refresh-after-apply behavior without repeating mutation;
 - server-authority copy for draft-only apply and no finalization claims.
 
+Implementation coverage added by M6-003:
+
+- The global saved-review detail apply button is disabled after a successful apply result until the user requests a fresh apply preview, so stale preview state cannot repeat the draft-only apply mutation.
+- The bill-detail saved-review sheet records successful draft-only apply before refreshing bill detail state, preserves that apply result when refresh fails, and shows explicit refresh-needed recovery copy.
+- Post-apply refresh failure copy tells the user to refresh bill state or reopen the bill and not repeat apply just to reload.
+- Existing blocked-preview, warning, stale conflict, unavailable review, route mismatch, save/remove/preview/apply busy guards, and bounded failure-copy behavior remain preserved in focused tests.
+
 M6-003 must stop for any expansion beyond existing draft-only API behavior, including non-draft shared-bill revision apply, automatic finalization, server-side policy changes, money/split authority changes, settlement/payment/balance effects, worker/runtime changes, or generated-client/OpenAPI changes.
 
 ## Acceptance Targets
 
 - `M6-001`: Completed. Reconciled current receipt OCR capture/review implementation and automated test coverage without runtime changes. Updated this QA map with current-state inventory, covered tests, gaps, and validation expectations.
 - `M6-002`: Implemented. Hardened mobile receipt capture/intake and provisional review save handoff using existing seams, with unsupported-provider/manual-entry fallback, stale preview clearing, receipt-bound provisional review save, retry preservation, no automatic bill mutation, and bounded tests.
-- `M6-003`: Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale/blocked state, duplicate mutation prevention, safe retry behavior, and server-authority copy.
+- `M6-003`: Implemented. Hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale/blocked state, duplicate mutation prevention, refresh-after-apply failure recovery, safe retry behavior, and server-authority copy.
 - `M6-004`: Finalize M6 QA/control state, record validation, mark UI-test ready for deferred Day 1 acceptance, and explicitly leave manual UI/code review deferred and not passed.
 
 ## Non-Goals
