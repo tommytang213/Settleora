@@ -150,9 +150,7 @@ void main() {
     tester,
   ) async {
     final repository = FakeNotificationRepository(
-      notifications: [
-        sampleNotification(safeSummary: 'Needs review.'),
-      ],
+      notifications: [sampleNotification(safeSummary: 'Needs review.')],
     );
 
     await tester.pumpWidget(
@@ -255,6 +253,148 @@ void main() {
     expect(repository.archiveCalls, 1);
     expect(find.text('Notification archived.'), findsOneWidget);
     expect(find.text('No notifications'), findsOneWidget);
+  });
+
+  testWidgets(
+    'selected filter is preserved after archive and refresh updates',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            id: 'notification-bill-1',
+            safeSummary: 'First bill.',
+            expenseBillId: 'bill-1',
+          ),
+          sampleNotification(
+            id: 'notification-settlement-1',
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            eventType: 'settlement.request_created',
+            priority: SettleoraNotificationPriorityValues.urgent,
+            safeSummary: 'Settlement ready.',
+            settlementRequestId: _settlementId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tapNotificationFilter(tester, 'bills');
+      expectSelectedFilter(tester, 'bills');
+      expect(find.text('First bill.'), findsOneWidget);
+      expect(find.text('Settlement ready.'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('notification-archive-0')));
+      await tester.pumpAndSettle();
+
+      expect(repository.archiveCalls, 1);
+      expectSelectedFilter(tester, 'bills');
+      expect(find.text('Bills (0)'), findsOneWidget);
+      expect(find.text('No matching notifications'), findsOneWidget);
+      expect(find.text('Settlement ready.'), findsNothing);
+
+      repository.notifications = [
+        sampleNotification(
+          id: 'notification-bill-2',
+          safeSummary: 'Replacement bill.',
+          expenseBillId: 'bill-2',
+        ),
+      ];
+      await tester.tap(find.byKey(const Key('notification-refresh')));
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 3);
+      expectSelectedFilter(tester, 'bills');
+      expect(find.text('Replacement bill.'), findsOneWidget);
+      expect(find.text('Bills (1)'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'selected filter is preserved after mark all read empties actionable',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            id: 'actionable-notification-1',
+            safeSummary: 'Openable bill.',
+            expenseBillId: _billId,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            billRepository: FakeBillRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tapNotificationFilter(tester, 'actionable');
+      expectSelectedFilter(tester, 'actionable');
+      expect(find.text('Openable bill.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('notification-mark-all-read')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markAllReadCalls, 1);
+      expectSelectedFilter(tester, 'actionable');
+      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Unread: 0'), findsOneWidget);
+      expect(find.text('No matching notifications'), findsOneWidget);
+
+      await tapNotificationFilter(tester, 'read');
+
+      expect(find.text('Openable bill.'), findsOneWidget);
+      expect(find.text('Read (1)'), findsOneWidget);
+    },
+  );
+
+  testWidgets('duplicate archive taps are single flight', (tester) async {
+    final repository = FakeNotificationRepository(
+      actionDelay: const Duration(milliseconds: 50),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const ValueKey('notification-archive-0'));
+    await tester.tap(button);
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(repository.archiveCalls, 1);
+    expect(find.text('No notifications'), findsOneWidget);
+  });
+
+  testWidgets('duplicate mark-all-read taps are single flight', (tester) async {
+    final repository = FakeNotificationRepository(
+      actionDelay: const Duration(milliseconds: 50),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const Key('notification-mark-all-read'));
+    await tester.tap(button);
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(repository.markAllReadCalls, 1);
+    expect(find.text('Unread: 0'), findsOneWidget);
+    expect(find.text('Unread (0)'), findsOneWidget);
   });
 
   testWidgets('bill revision notifications show open action and navigate', (
@@ -1382,6 +1522,51 @@ void main() {
     expect(visibleText(tester), isNot(contains(hiddenValue)));
   });
 
+  testWidgets(
+    'unsafe action failure details are not rendered in text tooltips or semantics',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeNotificationRepository(
+        markReadFailure: const SettleoraNotificationFailure(
+          kind: SettleoraNotificationFailureKind.server,
+          message:
+              'internal /api/v1/notifications/$_notificationId?token=secret bearer abc',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('notification-mark-read-0')));
+      await tester.pumpAndSettle();
+
+      expect(repository.markReadCalls, 1);
+      expect(
+        find.text('Notification could not be marked read.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getSemantics(find.text('Notification could not be marked read.'))
+            .label,
+        'Notification could not be marked read.',
+      );
+      semantics.dispose();
+      expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
+      expect(
+        renderedNotificationUiText(tester),
+        isNot(contains(_notificationId)),
+      );
+      expect(
+        renderedNotificationUiText(tester),
+        isNot(contains('token=secret')),
+      );
+      expect(renderedNotificationUiText(tester), isNot(contains('bearer abc')));
+    },
+  );
+
   testWidgets('notification screen handles expired sessions safely', (
     tester,
   ) async {
@@ -1496,6 +1681,13 @@ Future<void> tapNotificationFilter(
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+}
+
+void expectSelectedFilter(WidgetTester tester, String filterName) {
+  final chip = tester.widget<FilterChip>(
+    find.byKey(ValueKey('notification-filter-$filterName')),
+  );
+  expect(chip.selected, isTrue);
 }
 
 Future<void> openNotificationAndReturn(
@@ -2307,6 +2499,7 @@ SettleoraNotificationSummary sampleSummary() {
 }
 
 SettleoraNotificationRow sampleNotification({
+  String id = _notificationId,
   String eventType = 'bill.submitted',
   String status = SettleoraNotificationStatusValues.unread,
   String priority = SettleoraNotificationPriorityValues.attention,
@@ -2324,7 +2517,7 @@ SettleoraNotificationRow sampleNotification({
   DateTime? archivedAtUtc,
 }) {
   return SettleoraNotificationRow(
-    id: _notificationId,
+    id: id,
     eventType: eventType,
     status: status,
     priority: priority,
@@ -2516,6 +2709,15 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+String renderedNotificationUiText(WidgetTester tester) {
+  final text = visibleText(tester);
+  final tooltips = tester
+      .widgetList<Tooltip>(find.byType(Tooltip))
+      .map((widget) => widget.message)
+      .join('\n');
+  return '$text\n$tooltips';
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {
