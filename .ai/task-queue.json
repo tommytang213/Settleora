@@ -34,7 +34,7 @@
     "title": "Mobile receipt OCR capture intake and provisional review handoff hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

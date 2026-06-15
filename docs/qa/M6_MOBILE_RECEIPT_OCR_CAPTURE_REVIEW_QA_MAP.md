@@ -1,6 +1,6 @@
 # M6 Mobile Receipt OCR Capture + Review Handoff QA Map
 
-Status: `M6-001 reconciled; M6-002 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6-002 implemented; M6-003 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -120,7 +120,7 @@ No mobile tests were changed by M6-001.
 
 ## M6-002 Capture/Intake Handoff Focus
 
-M6-002 should stay inside current mobile receipt capture/intake, bill create, bill attachment, app wiring, and focused test seams. It should harden:
+M6-002 stayed inside current mobile receipt capture/intake, bill create, bill attachment, app wiring, and focused test seams. It hardened:
 
 - camera/gallery/file receipt intake copy and retry states;
 - unsupported provider and extraction failure fallback;
@@ -131,6 +131,14 @@ M6-002 should stay inside current mobile receipt capture/intake, bill create, bi
 - personal/group route preservation;
 - no automatic existing-bill mutation from OCR preview;
 - safe failure copy that avoids raw OCR text, paths, tokens, storage internals, and stack traces.
+
+Implementation coverage added by M6-002:
+
+- Personal and group bill create now bind the active local OCR preview to the specific draft receipt attachment that produced it.
+- Removing that draft receipt, or changing it away from receipt purpose, clears the local OCR preview, section selection, applied state, and extraction state so stale OCR candidates cannot be saved or applied from a removed/supporting attachment.
+- Provisional OCR review save after bill creation now only runs for the uploaded receipt whose draft attachment produced the active preview, preventing a later preview from being saved against an earlier receipt when multiple receipts are attached.
+- Existing unsupported-provider, extraction-failure, duplicate-warning, manual-entry, saved-review retry, personal/group route, and no-existing-bill-mutation behavior remains preserved.
+- Focused `bill_list_screen_test.dart` coverage now includes clearing stale OCR preview after source receipt removal and binding provisional OCR review save to the receipt that produced the active preview.
 
 M6-002 must stop if it needs backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, schema/migrations, storage/privacy policy changes, OCR engine/native/platform decisions, worker/runtime behavior, automatic apply/finalization, non-draft revision apply, split inference, money authority, Docker/env/deployment/CI, secrets, or unrelated domains.
 
@@ -152,7 +160,7 @@ M6-003 must stop for any expansion beyond existing draft-only API behavior, incl
 ## Acceptance Targets
 
 - `M6-001`: Completed. Reconciled current receipt OCR capture/review implementation and automated test coverage without runtime changes. Updated this QA map with current-state inventory, covered tests, gaps, and validation expectations.
-- `M6-002`: Harden mobile receipt capture/intake and provisional review save handoff using existing seams, with unsupported-provider/manual-entry fallback, safe failure copy, retry preservation, no automatic bill mutation, and bounded tests.
+- `M6-002`: Implemented. Hardened mobile receipt capture/intake and provisional review save handoff using existing seams, with unsupported-provider/manual-entry fallback, stale preview clearing, receipt-bound provisional review save, retry preservation, no automatic bill mutation, and bounded tests.
 - `M6-003`: Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale/blocked state, duplicate mutation prevention, safe retry behavior, and server-authority copy.
 - `M6-004`: Finalize M6 QA/control state, record validation, mark UI-test ready for deferred Day 1 acceptance, and explicitly leave manual UI/code review deferred and not passed.
 

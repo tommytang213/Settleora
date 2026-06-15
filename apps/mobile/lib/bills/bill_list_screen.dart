@@ -1039,6 +1039,7 @@ class _SettleoraPersonalBillCreateScreenState
   bool _receiptOcrApplied = false;
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
+  int? _receiptOcrPreviewDraftAttachmentId;
   ReceiptOcrResult? _receiptOcrResult;
   ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   String? _itemListError;
@@ -1320,17 +1321,21 @@ class _SettleoraPersonalBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
           _BillCreateDraftAttachment(
-            id: _nextDraftAttachmentId,
+            id: draftAttachmentId,
             file: validatedFile,
             purpose: SettleoraBillAttachmentPurposeValues.receipt,
           ),
         );
         _nextDraftAttachmentId += 1;
       });
-      await _runReceiptOcrPreview(validatedFile);
+      await _runReceiptOcrPreview(
+        validatedFile,
+        sourceDraftAttachmentId: draftAttachmentId,
+      );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -1461,10 +1466,11 @@ class _SettleoraPersonalBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
+    final draftAttachmentId = _nextDraftAttachmentId;
     setState(() {
       _draftAttachments.add(
         _BillCreateDraftAttachment(
-          id: _nextDraftAttachmentId,
+          id: draftAttachmentId,
           file: validatedFile,
           purpose: purpose,
         ),
@@ -1473,7 +1479,10 @@ class _SettleoraPersonalBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
-      await _runReceiptOcrPreview(validatedFile);
+      await _runReceiptOcrPreview(
+        validatedFile,
+        sourceDraftAttachmentId: draftAttachmentId,
+      );
     }
   }
 
@@ -1530,6 +1539,7 @@ class _SettleoraPersonalBillCreateScreenState
       _attachmentDraftError = null;
       _attachmentUploadFailure = null;
       _draftAttachments.removeWhere((attachment) => attachment.id == id);
+      _clearReceiptOcrPreviewForDraftAttachment(id);
     });
   }
 
@@ -1554,12 +1564,16 @@ class _SettleoraPersonalBillCreateScreenState
       _draftAttachments[index] = _draftAttachments[index].copyWith(
         purpose: purpose,
       );
+      if (purpose != SettleoraBillAttachmentPurposeValues.receipt) {
+        _clearReceiptOcrPreviewForDraftAttachment(id);
+      }
     });
   }
 
   Future<void> _runReceiptOcrPreview(
-    SettleoraPickedBillAttachmentFile pickedFile,
-  ) async {
+    SettleoraPickedBillAttachmentFile pickedFile, {
+    required int sourceDraftAttachmentId,
+  }) async {
     final receiptOcrProvider = widget.receiptOcrProvider;
     if (!mounted || receiptOcrProvider == null) {
       return;
@@ -1568,6 +1582,7 @@ class _SettleoraPersonalBillCreateScreenState
     setState(() {
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
+      _receiptOcrPreviewDraftAttachmentId = sourceDraftAttachmentId;
       _receiptOcrResult = null;
       _receiptOcrCorrectedPreview = null;
     });
@@ -1580,7 +1595,10 @@ class _SettleoraPersonalBillCreateScreenState
           imagePath: pickedFile.localPath,
         ),
       );
-      if (!mounted) {
+      if (!mounted ||
+          !_canUseReceiptOcrPreviewForDraftAttachment(
+            sourceDraftAttachmentId,
+          )) {
         return;
       }
 
@@ -1593,7 +1611,10 @@ class _SettleoraPersonalBillCreateScreenState
         _isExtractingReceiptOcr = false;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!mounted ||
+          !_canUseReceiptOcrPreviewForDraftAttachment(
+            sourceDraftAttachmentId,
+          )) {
         return;
       }
 
@@ -1606,6 +1627,29 @@ class _SettleoraPersonalBillCreateScreenState
         _isExtractingReceiptOcr = false;
       });
     }
+  }
+
+  bool _canUseReceiptOcrPreviewForDraftAttachment(int id) {
+    return _receiptOcrPreviewDraftAttachmentId == id &&
+        _draftAttachments.any(
+          (attachment) =>
+              attachment.id == id &&
+              attachment.purpose ==
+                  SettleoraBillAttachmentPurposeValues.receipt,
+        );
+  }
+
+  void _clearReceiptOcrPreviewForDraftAttachment(int id) {
+    if (_receiptOcrPreviewDraftAttachmentId != id) {
+      return;
+    }
+
+    _receiptOcrPreviewDraftAttachmentId = null;
+    _isExtractingReceiptOcr = false;
+    _receiptOcrApplied = false;
+    _receiptOcrResult = null;
+    _receiptOcrCorrectedPreview = null;
+    _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
   }
 
   _ReceiptOcrApplySelection _defaultPersonalReceiptOcrApplySelection(
@@ -1889,6 +1933,7 @@ class _SettleoraPersonalBillCreateScreenState
           final handoff = await _saveUploadedReceiptOcrReview(
             createdBill: createdBill,
             uploadedAttachment: uploadedAttachment,
+            sourceDraftAttachmentId: attachment.id,
           );
           if (handoff != null) {
             receiptOcrReviewHandoff = handoff;
@@ -1931,9 +1976,13 @@ class _SettleoraPersonalBillCreateScreenState
   Future<ReceiptOcrReviewHandoff?> _saveUploadedReceiptOcrReview({
     required SettleoraBillDetail createdBill,
     required SettleoraBillAttachment uploadedAttachment,
+    required int sourceDraftAttachmentId,
   }) async {
     final reviewRepository = widget.receiptOcrReviewRepository;
     final fileId = uploadedAttachment.fileId.trim();
+    if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
+      return null;
+    }
     final request = _receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
     );
@@ -5008,6 +5057,7 @@ class _SettleoraGroupBillCreateScreenState
   bool _receiptOcrApplied = false;
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
+  int? _receiptOcrPreviewDraftAttachmentId;
   ReceiptOcrResult? _receiptOcrResult;
   ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   List<SettleoraGroupMember> _members = const [];
@@ -5532,17 +5582,21 @@ class _SettleoraGroupBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
           _BillCreateDraftAttachment(
-            id: _nextDraftAttachmentId,
+            id: draftAttachmentId,
             file: validatedFile,
             purpose: SettleoraBillAttachmentPurposeValues.receipt,
           ),
         );
         _nextDraftAttachmentId += 1;
       });
-      await _runReceiptOcrPreview(validatedFile);
+      await _runReceiptOcrPreview(
+        validatedFile,
+        sourceDraftAttachmentId: draftAttachmentId,
+      );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -5673,10 +5727,11 @@ class _SettleoraGroupBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
+    final draftAttachmentId = _nextDraftAttachmentId;
     setState(() {
       _draftAttachments.add(
         _BillCreateDraftAttachment(
-          id: _nextDraftAttachmentId,
+          id: draftAttachmentId,
           file: validatedFile,
           purpose: purpose,
         ),
@@ -5685,13 +5740,17 @@ class _SettleoraGroupBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
-      await _runReceiptOcrPreview(validatedFile);
+      await _runReceiptOcrPreview(
+        validatedFile,
+        sourceDraftAttachmentId: draftAttachmentId,
+      );
     }
   }
 
   Future<void> _runReceiptOcrPreview(
-    SettleoraPickedBillAttachmentFile pickedFile,
-  ) async {
+    SettleoraPickedBillAttachmentFile pickedFile, {
+    required int sourceDraftAttachmentId,
+  }) async {
     final receiptOcrProvider = widget.receiptOcrProvider;
     if (!mounted || receiptOcrProvider == null) {
       return;
@@ -5700,6 +5759,7 @@ class _SettleoraGroupBillCreateScreenState
     setState(() {
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
+      _receiptOcrPreviewDraftAttachmentId = sourceDraftAttachmentId;
       _receiptOcrResult = null;
       _receiptOcrCorrectedPreview = null;
     });
@@ -5712,7 +5772,10 @@ class _SettleoraGroupBillCreateScreenState
           imagePath: pickedFile.localPath,
         ),
       );
-      if (!mounted) {
+      if (!mounted ||
+          !_canUseReceiptOcrPreviewForDraftAttachment(
+            sourceDraftAttachmentId,
+          )) {
         return;
       }
 
@@ -5725,7 +5788,10 @@ class _SettleoraGroupBillCreateScreenState
         _isExtractingReceiptOcr = false;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!mounted ||
+          !_canUseReceiptOcrPreviewForDraftAttachment(
+            sourceDraftAttachmentId,
+          )) {
         return;
       }
 
@@ -5738,6 +5804,29 @@ class _SettleoraGroupBillCreateScreenState
         _isExtractingReceiptOcr = false;
       });
     }
+  }
+
+  bool _canUseReceiptOcrPreviewForDraftAttachment(int id) {
+    return _receiptOcrPreviewDraftAttachmentId == id &&
+        _draftAttachments.any(
+          (attachment) =>
+              attachment.id == id &&
+              attachment.purpose ==
+                  SettleoraBillAttachmentPurposeValues.receipt,
+        );
+  }
+
+  void _clearReceiptOcrPreviewForDraftAttachment(int id) {
+    if (_receiptOcrPreviewDraftAttachmentId != id) {
+      return;
+    }
+
+    _receiptOcrPreviewDraftAttachmentId = null;
+    _isExtractingReceiptOcr = false;
+    _receiptOcrApplied = false;
+    _receiptOcrResult = null;
+    _receiptOcrCorrectedPreview = null;
+    _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
   }
 
   _ReceiptOcrApplySelection _defaultGroupReceiptOcrApplySelection(
@@ -5909,6 +5998,7 @@ class _SettleoraGroupBillCreateScreenState
       _attachmentDraftError = null;
       _attachmentUploadFailure = null;
       _draftAttachments.removeWhere((attachment) => attachment.id == id);
+      _clearReceiptOcrPreviewForDraftAttachment(id);
     });
   }
 
@@ -5933,6 +6023,9 @@ class _SettleoraGroupBillCreateScreenState
       _draftAttachments[index] = _draftAttachments[index].copyWith(
         purpose: purpose,
       );
+      if (purpose != SettleoraBillAttachmentPurposeValues.receipt) {
+        _clearReceiptOcrPreviewForDraftAttachment(id);
+      }
     });
   }
 
@@ -6226,6 +6319,7 @@ class _SettleoraGroupBillCreateScreenState
           final handoff = await _saveUploadedReceiptOcrReview(
             createdBill: createdBill,
             uploadedAttachment: uploadedAttachment,
+            sourceDraftAttachmentId: attachment.id,
           );
           if (handoff != null) {
             receiptOcrReviewHandoff = handoff;
@@ -6267,9 +6361,13 @@ class _SettleoraGroupBillCreateScreenState
   Future<ReceiptOcrReviewHandoff?> _saveUploadedReceiptOcrReview({
     required SettleoraBillDetail createdBill,
     required SettleoraBillAttachment uploadedAttachment,
+    required int sourceDraftAttachmentId,
   }) async {
     final reviewRepository = widget.receiptOcrReviewRepository;
     final fileId = uploadedAttachment.fileId.trim();
+    if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
+      return null;
+    }
     final request = _receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
     );

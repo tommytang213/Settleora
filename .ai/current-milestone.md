@@ -53,9 +53,9 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950`.
-- Last completed task: `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950`.
-- Current state: M6-001 reconciled the current mobile receipt OCR capture/review state and QA coverage without runtime changes. The controller should select M6-002 as the next safe automated task.
+- Current task: `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950`.
+- Last completed task: `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950`.
+- Current state: M6-002 hardened mobile receipt OCR capture intake and provisional review save handoff inside existing mobile seams. The controller should select M6-003 as the next safe automated task.
 - Stop sentinel: `STOP-M6-001` for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, or unrelated major-domain scope.
 
 ## M5 Carry-Forward Boundary
