@@ -1,31 +1,31 @@
 # Current Milestone
 
-- ID: `M7`
-- Name: `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`
+- ID: `M8`
+- Name: `Day 1 Mobile Settlement Workflow Hardening`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M6`
+- Previous milestone ID: `M7`
 
 ## Goal
 
-Advance the next Day 1 blocker after the M6 mobile receipt OCR capture/review checkpoint by hardening existing mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation-status readout surfaces that already depend on server-provided report and bill fields. M7 is intentionally read-oriented: it improves discoverability, safe failure states, bounded local filters, and QA coverage without creating statement import, CSV import/export, backup/restore, reconciliation mutations, backend/API behavior, OpenAPI contracts, generated clients, schema, auth/session runtime, storage/file privacy policy, bill/settlement/payment calculation authority, deployment, Docker, CI, or secrets.
+Advance the next Day 1 blocker after the M7 mobile monthly reports and reconciliation-readout checkpoint by hardening the existing mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket-readout seams. M8 is intentionally mobile and settlement-workflow focused: it improves discoverability, safe state transitions, residual/payment review clarity, bounded local filters, and QA coverage while preserving API/domain authority for money, settlement state, authorization, audit, storage, and balance projection.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the mobile app already has a starter monthly report screen, personal/group bill list/detail surfaces, notification/deep-link targets, settlement screens, and generated-client seams, while search/filter/report/import/export remain incomplete beyond starter surfaces.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires monthly reports, advanced search/filter, reconciliation-related filters where available, and group dashboard basics for Day 1.
-- `docs/features/reconciliation/TECHNICAL_SPEC.md` and `docs/architecture/STATEMENT_RECONCILIATION_ARCHITECTURE.md` make full statement import/matching a future API/storage/privacy domain, so M7 must not implement statement import, raw statement visibility, reconciliation mutations, or new reconciliation persistence.
-- Current mobile code has bounded seams in `apps/mobile/lib/reports/`, `apps/mobile/lib/dashboard/`, and `apps/mobile/lib/bills/bill_list_screen.dart`, with tests under `apps/mobile/test/`, making mobile-only report and reconciliation readout hardening coherent without requiring new API, contract, generated-client, schema, auth, storage, money, settlement, worker, deployment, Docker, CI, or secret changes.
+- `README.md` says the mobile app already has a starter authenticated settlement balance/request/payment detail foundation backed by generated-client seams, while broader product UI remains incomplete.
+- `README.md` and settlement architecture docs say backend settlement request/payment/proof, basket preview/create, balance projection, allocation, and residual confirmation runtime already exists.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires settlement requests, baskets, pay-all outstanding, exact selected total versus actual paid amount display, explicit residual handling, mark-paid, receiver confirmation, proof attachments, counterparty payment profile display, audit events, and no silent settlement mutation from bill revisions.
+- `docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md`, `docs/architecture/SETTLEMENT_BASKET_RESIDUAL_ARCHITECTURE.md`, and `docs/features/settlements/TECHNICAL_SPEC.md` require the API/domain layer to remain authoritative for settlement amounts, selected lines, residual policy, balances, authorization, status transitions, proof access, and audit.
+- Current mobile code under `apps/mobile/lib/settlements/` and focused tests under `apps/mobile/test/settlement_*` already provide bounded seams for settlement list/detail, balances, payment actions, residual confirmation, counterparty payment details, repository mapping, search/filter, and server-authority copy.
 
-## Allowed Scope For Future M7 Tasks
+## Allowed Scope For Future M8 Tasks
 
-- Mobile monthly report screen and generated-client-backed report repository code in `apps/mobile/lib/reports/`.
-- Mobile dashboard/report entry and read-only dashboard preview surfaces in `apps/mobile/lib/dashboard/`.
-- Existing mobile personal/group bill list and detail search/filter/reconciliation readout code in `apps/mobile/lib/bills/bill_list_screen.dart` only when needed to connect loaded bill rows, server-provided reconciliation status/note fields, local filters, or read-only report discovery.
-- Existing authenticated shell/bootstrap entry points in `apps/mobile/lib/app/` only when needed to preserve current report/dashboard routing.
-- Focused mobile tests for monthly report discovery, generated report repository mapping, dashboard/report entry, bill search/filter, reconciliation-status readouts, safe failures, and server-authority copy in `apps/mobile/test/`.
-- M7 QA maps and milestone QA docs under `docs/qa/`.
+- Mobile settlement repository and generated-client mapping code in `apps/mobile/lib/settlements/`.
+- Existing mobile settlement list/detail/payment/residual/counterparty-payment-detail UI in `apps/mobile/lib/settlements/settlement_list_screen.dart`.
+- Existing authenticated app-shell entry points in `apps/mobile/lib/app/` only when needed to preserve settlement routing or dashboard-to-settlement handoff.
+- Focused mobile tests for settlement list/detail, generated settlement repository mapping, settlement action failure/retry states, residual confirmation, payment claim review, basket/line readouts where already exposed by generated-client seams, counterparty payment details, and server-authority copy in `apps/mobile/test/`.
+- M8 QA maps and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M7 path allowances.
+- `scripts/ai/v3-scope-guard.mjs` only for narrow M8 path allowances.
 
 ## Forbidden Without Human Approval
 
@@ -34,105 +34,33 @@ Repo-state basis for this milestone:
 - OpenAPI/generated clients.
 - Auth/session/security runtime or configuration.
 - Database schema/migrations.
-- Settlement/payment/bill calculation logic, reconciliation mutation authority, statement matching authority, or money authority.
-- Storage/file privacy policy, file authorization policy, statement import/upload/download behavior, generic public file APIs, CSV import/export, backup/restore, or private-vault behavior.
+- Settlement/payment/bill calculation logic, residual policy authority, basket expansion authority, balance projection authority, reconciliation mutation authority, statement matching authority, or money authority.
+- Storage/file privacy policy, file authorization policy, settlement proof storage policy, generic public file APIs, statement import/upload/download behavior, CSV import/export, backup/restore, or private-vault behavior.
 - Docker/deployment/env/CI config.
 - Production secrets.
-- OCR engine/worker/runtime behavior, recurring background jobs/reminders, notification delivery providers, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain work.
-- Day 2 statement import/matching, provider payment evidence import, direct bank sync, raw statement row visibility, reconciliation link/unlink mutations, export pipelines, backup/restore, or admin policy changes.
+- Payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, settlement simplification, cross-currency/FX settlement, refund workflows, broad credit ledger behavior, notification delivery providers, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain work.
+- Day 1 scope reduction or architecture direction replacement.
 
 ## Done Criteria
 
-- Current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation-status readout behavior is reconciled against Day 1 requirements and captured in a QA map.
-- Monthly report discovery preserves server-provided aggregate truth, safe unknown status labels, safe failure copy, session handling, group scope labels, and no client-side financial calculation.
-- Bill/report reconciliation readouts preserve local filtering over loaded server data only, clear filtered-empty states, safe status/note display, and no statement import or reconciliation mutation.
-- M7 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
+- Current mobile settlement balance, request, payment, residual, counterparty payment-detail, and available basket/line readout behavior is reconciled against Day 1 settlement requirements and captured in a QA map.
+- Settlement list/detail discovery preserves server-provided balance, request, payment, allocation, residual, and selected-line facts; local search/filter only hides loaded rows and never creates financial truth.
+- Settlement payment and residual action flows preserve explicit confirmation, retry/failure recovery, duplicate-action prevention, role-aware availability, and safe server-authority copy.
+- Counterparty payment details and settlement proof references remain visible only through existing settlement-scoped generated-client seams; M8 does not alter storage/privacy policy or proof byte behavior.
+- M8 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
-- M7 ends in a bounded controller stop state before statement import/matching, CSV import/export, backup/restore, storage/privacy policy, reconciliation mutations, API/contracts, schema, auth, money, deployment, notification delivery, web/admin, or unrelated major-domain work.
+- M8 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, auth/session/security, storage/privacy, money/settlement authority, deployment, statement import/matching, provider integrations, CSV import/export, backup/restore, notification delivery, web/admin, or unrelated major-domain work.
 
 ## Current Task Pointer
 
-- Current task: none.
-- Last completed task: `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`.
-- Current state: M7 is finalized and UI-test ready. M7-001 through M7-004 are complete, automated validation is complete, and there is no remaining automated M7 work.
-- Recommended next automated Day 1 action: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
-- Stop sentinel: `STOP-M7-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
+- Current task: `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306`.
+- Last completed task: none for M8.
+- Current state: M8 is queued. M8-001 should reconcile current mobile settlement workflow state and QA map without runtime behavior changes.
+- Recommended next automated Day 1 task: `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306`.
+- Stop sentinel: `STOP-M8-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, settlement authority changes, residual/basket/balance policy changes, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
-## M6 Carry-Forward Boundary
+## M7 Carry-Forward Boundary
 
-M6 is finalized as `Day 1 Mobile Receipt OCR Capture + Review Handoff Hardening` and remains awaiting deferred Day 1 acceptance review. M7 must not expand M6 ad hoc into OCR engine/native dependencies, OCR worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, API/contracts, schema, money, storage privacy, notification delivery, or unrelated receipt work.
+M7 is finalized as `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening` and remains awaiting deferred Day 1 acceptance review. M8 must not expand M7 ad hoc into statement import/matching, reconciliation mutations, CSV import/export, backup/restore, reporting backend/API redesign, generated dashboard APIs, storage/privacy policy, money authority, notification delivery, web/admin runtime, or unrelated reporting work.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-
-## M7-001 Reconciliation Summary
-
-M7-001 updated the M7 QA map and `.ai` control state only. No mobile runtime, backend/API, OpenAPI, generated-client, schema/migration, auth/session/security, storage/privacy, money/settlement/payment, Docker/deployment/CI, import/export/backup, notification delivery, web/admin, secret, or unrelated-domain files were changed.
-
-Current implementation findings:
-
-- Monthly reports are loaded through `SettleoraMonthlyReportRepository` and `GeneratedSettleoraMonthlyReportRepository`, with the generated repository requiring a session token, normalizing `yyyy-MM` and optional group ID inputs, mapping generated-client `MonthlyReportResponse` fields directly, preserving server money strings, and translating generated/network failures into bounded messages.
-- `SettleoraMonthlyReportScreen` renders server-returned bill count, generated timestamp, group or personal scope label, total/actor-share/actor-paid currency buckets, reconciliation counts, settlement request counts, and settlement payment counts. It supports month previous/next navigation, refresh, pull-to-refresh, loading, zero activity, filtered-empty, retry/error, and expired-session handling.
-- Monthly report discovery is local-only over loaded aggregate rows. Search and section chips can hide visible rows, but the summary copy states that totals and bill count remain the server-returned monthly summary.
-- Dashboard coverage has two surfaces: `DashboardPreviewScreen` is a local/read-only preview with fixture states, while the authenticated server shell dashboard loads existing repository summaries and opens the monthly report route through the report repository seam.
-- Personal and group bill lists search/filter loaded server rows locally and include server-provided reconciliation status in searchable/displayed fields. Bill detail search/filter hides only loaded rows locally and displays server-provided reconciliation status and note from the bill detail model.
-- Current M7 limitations remain: no statement import, raw statement visibility, reconciliation link/unlink, generated dashboard API, CSV import/export, backup/restore, broad report API redesign, or client-side financial/reconciliation authority.
-
-## M7-002 Monthly Report Discovery Summary
-
-M7-002 updated the existing mobile monthly report and dashboard report-entry surfaces inside current repository/generated-client seams.
-
-Runtime hardening:
-
-- Monthly report summary copy now clearly identifies the screen as a server monthly aggregate and states that local search/filters only hide loaded rows on the device.
-- Active discovery results are surfaced before the search/filter controls so local filter outcomes stay visible and retry/clear behavior remains safe.
-- Personal and group report scope labels are explicit as `Personal report`, named group labels, or bounded `Group report` fallback without exposing raw group IDs.
-- Unknown/future report status labels now use bounded `Other status: ...` copy instead of presenting raw/generated-client-ish status codes directly.
-- Failure display and session-ended notices use sanitized user-facing messages if an upstream failure contains raw API paths, tokens, stack traces, local paths, or generated-client/internal details.
-- Dashboard `More` report entry copy now clarifies that the monthly report opens server-returned aggregates for the selected month while preserving the existing route and report repository seam.
-
-Focused automated coverage:
-
-- `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
-
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
-
-## M7-003 Bill Report Reconciliation Readout Summary
-
-M7-003 updated existing mobile bill readout seams only.
-
-Runtime hardening:
-
-- Personal and group bill list discovery now shows loaded versus visible server-row counts and states that search/filter runs locally over already-loaded rows on this device.
-- Personal/group filtered-empty copy is distinct from true-empty copy and tells users to clear local filters to review every loaded server row.
-- Bill detail discovery copy states that local search/filter only hides already-loaded server detail rows and that mobile displays server bill/reconciliation metadata without deciding financial truth or authorization.
-- Reconciliation status display keeps known labels for `unreconciled`, `reconciled`, and `ignored`; unknown/future statuses render as bounded `Other status...` copy, while malformed or unsafe-looking codes collapse to `Other status`.
-- Reconciliation notes render only when server-provided on the loaded bill detail model, are bounded as plain text, and suppress unsafe raw API paths, tokens, local filesystem paths, stack traces, storage/provider internals, and generated-client internals.
-- Bill detail copy clarifies reconciliation readouts are server-provided record metadata, not bank statement matching. No statement import/upload/download, raw statement rows, direct bank sync, reconciliation link/unlink/update, CSV import/export, backup/restore, generated dashboard/report APIs, or client-side money/reconciliation authority were added.
-
-Focused automated coverage:
-
-- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_generated_repository_test.dart test/monthly_report_screen_test.dart` passed with 274 tests.
-
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
-
-## M7-004 QA Finalization Summary
-
-M7 is finalized as a bounded Day 1 mobile monthly reports and reconciliation readout hardening checkpoint.
-
-Completed M7 slices:
-
-- M7-001 reconciled the current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation-status readout implementation, and QA state without runtime changes.
-- M7-002 completed monthly report discovery, safe aggregate display, personal/group scope clarity, unknown status handling, safe failures, and dashboard/report entry hardening inside existing mobile seams.
-- M7-003 completed bill reporting/reconciliation readout hardening for loaded-row filters, filtered-empty copy, bounded reconciliation status/note display, and server-authority/no-import/no-mutation copy inside existing mobile bill seams.
-- M7-004 completed control/QA finalization and set M7 to UI-test ready with no remaining automated M7 work.
-
-Recorded coverage:
-
-- M7-002 focused report/dashboard validation: 60 tests from `monthly_report_screen_test.dart`, `report_generated_repository_test.dart`, `dashboard_preview_screen_test.dart`, and `server_mode_shell_dashboard_test.dart`.
-- M7-002 full mobile validation: 688 Flutter tests.
-- M7-003 focused bill/report/reconciliation validation: 274 tests from `bill_list_screen_test.dart`, `group_bill_list_screen_test.dart`, `bill_generated_repository_test.dart`, and `monthly_report_screen_test.dart`.
-- M7-003 full mobile validation: 690 Flutter tests.
-
-Remaining out-of-scope Day 1/Day 2 areas include statement import/matching/linking, raw statement row visibility, reconciliation mutations, CSV import/export, local backup/restore, generated dashboard APIs, broad reporting backend redesign, storage/privacy policy changes, API/contracts/generated-client/schema/auth/money/deployment/security changes, notification delivery, web/admin runtime, broad offline cache/sync, and unrelated major-domain work.
-
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M7.
