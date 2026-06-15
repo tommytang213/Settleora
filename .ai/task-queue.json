@@ -4,7 +4,7 @@
     "title": "Human-review fix: make Home visibly dashboard-like with bottom nav and bill picker",
     "risk": "medium",
     "autoMergeAllowed": false,
-    "status": "human_review_required",
+    "status": "completed_manual_ui_retest_deferred",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
@@ -25,7 +25,7 @@
       "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Human PC UI retest has not confirmed the dashboard is visibly improved",
+      "Human PC UI retest remains pending and deferred until Day 1 acceptance by owner decision",
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
@@ -163,13 +163,44 @@
     ],
     "stopConditions": [
       "Mobile validation cannot run",
-      "Human-gated blocker remains",
+      "Manual gate blocker remains",
       "Requires backend/API/OpenAPI/generated-client/auth/schema/money/deployment changes"
     ]
   },
   {
+    "id": "M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422",
+    "title": "In-app notification detail context and Home handoff polish",
+    "risk": "medium",
+    "autoMergeAllowed": true,
+    "status": "queued",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**",
+      "apps/mobile/lib/app/**",
+      "apps/mobile/lib/notifications/**",
+      "apps/mobile/test/**"
+    ],
+    "goal": "Improve the Day 1 in-app notification detail context and top-level Home/notification handoffs using existing notification repositories and generated-client seams only, without adding push delivery, backend behavior, OpenAPI changes, auth changes, schema changes, money logic, deployment changes, or local storage policy changes.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+    ],
+    "stopConditions": [
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires settlement/payment/bill calculation logic",
+      "Requires Docker/env/deployment/CI changes",
+      "Requires push notification delivery, notification preferences, background delivery, offline sync policy, local storage policy, web/admin runtime, or secrets"
+    ]
+  },
+  {
     "id": "STOP-M2-001",
-    "title": "Human-gated backend/API/auth/schema/money/deployment blocker",
+    "title": "Manual gate backend/API/auth/schema/money/deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",

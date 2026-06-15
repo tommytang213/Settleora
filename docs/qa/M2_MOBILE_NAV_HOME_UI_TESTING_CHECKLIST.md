@@ -4,6 +4,8 @@
 
 This checklist covers human UI testing for M2 mobile navigation, Home/dashboard shell readiness, and top-level handoffs across Home, Bills, Groups, Settle, and Settings. It is a QA artifact only and does not authorize backend/API behavior, OpenAPI or generated-client changes, auth/session/security changes, schema/migration changes, settlement/payment/bill calculation changes, Docker/env/deployment/CI changes, local storage policy changes, or secrets.
 
+Owner decision recorded on 2026-06-15 14:22:03 HKT: defer manual UI testing until Day 1 acceptance and continue automated development. The checklist remains pending/deferred and must not be treated as passed.
+
 ## Preconditions
 
 - Use the Flutter mobile app in server mode with a signed-in test user.
@@ -44,7 +46,7 @@ This checklist covers human UI testing for M2 mobile navigation, Home/dashboard 
 - If actionable settlement requests are available, open the settlement action shortcut and confirm the settlement list is filtered to needs-action items.
 - Confirm quick actions do not imply push notifications, offline sync policy changes, automatic settlement simplification, refunds, broad credit ledgers, or unavailable OCR finalization.
 
-## Required Home/Nav Retest
+## Deferred Home/Nav Retest
 
 - Confirm the Home screen visibly differs from the previous profile-plus-menu-list page.
 - Confirm Home, Bills, Groups, Settle, and Settings/Profile show the persistent bottom navigation in both PC/wide and narrow/mobile-sized windows.
