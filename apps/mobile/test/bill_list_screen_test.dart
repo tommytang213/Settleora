@@ -2458,6 +2458,87 @@ void main() {
     },
   );
 
+  testWidgets(
+    'personal saved OCR apply refresh failure does not repeat apply mutation',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final billRepository = FakeBillRepository(
+        detailFailuresByCall: const {
+          1: SettleoraBillFailure(
+            kind: SettleoraBillFailureKind.network,
+            message: 'The server is unavailable. Try again when online.',
+          ),
+        },
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        applyPreview: sampleReceiptOcrApplyPreview(route),
+        applyResult: sampleReceiptOcrApplyResult(route),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: billRepository,
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-preview-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('saved-ocr-review-apply')),
+      );
+      await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.applyReviewCalls, 1);
+      expect(billRepository.getCalls, 1);
+      expect(
+        find.text('Draft bill updated from provisional OCR review data.'),
+        findsOneWidget,
+      );
+      expect(find.text('Bill refresh needed'), findsOneWidget);
+      expect(
+        find.text(
+          'The draft apply completed, but the bill refresh did not finish. Refresh bill state or close and reopen the bill; do not apply this saved OCR review again just to reload.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Draft OCR apply completed, but bill refresh failed. Refresh bill state; do not apply again just to reload.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('saved-ocr-review-apply')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.applyReviewCalls, 1);
+      expect(billRepository.getCalls, 1);
+    },
+  );
+
   testWidgets('personal saved OCR review apply failure keeps review visible', (
     tester,
   ) async {
@@ -11008,6 +11089,8 @@ class FakeBillRepository implements SettleoraBillRepository {
     SettleoraBillDetail? createdDetail,
     this.failure,
     this.createFailure,
+    this.detailFailuresByCall = const {},
+    this.groupDetailFailuresByCall = const {},
   }) : details = details ?? [detail ?? sampleBillDetail()],
        createdDetail = createdDetail ?? sampleBillDetail();
 
@@ -11017,6 +11100,8 @@ class FakeBillRepository implements SettleoraBillRepository {
   final SettleoraBillDetail createdDetail;
   final SettleoraBillFailure? failure;
   final SettleoraBillFailure? createFailure;
+  final Map<int, SettleoraBillFailure> detailFailuresByCall;
+  final Map<int, SettleoraBillFailure> groupDetailFailuresByCall;
   int listCalls = 0;
   int createCalls = 0;
   int groupCreateCalls = 0;
@@ -11105,6 +11190,10 @@ class FakeBillRepository implements SettleoraBillRepository {
     String billId,
   ) async {
     getGroupCalls += 1;
+    final failure = groupDetailFailuresByCall[getGroupCalls];
+    if (failure != null) {
+      throw failure;
+    }
     return _detailForCall(getGroupCalls - 1);
   }
 
@@ -11122,6 +11211,10 @@ class FakeBillRepository implements SettleoraBillRepository {
   @override
   Future<SettleoraBillDetail> getPersonalBill(String billId) async {
     getCalls += 1;
+    final failure = detailFailuresByCall[getCalls];
+    if (failure != null) {
+      throw failure;
+    }
     return _detailForCall(getCalls - 1);
   }
 }

@@ -1210,7 +1210,11 @@ class _ApplyPreviewSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = this.preview;
-    final applyEnabled = preview != null && preview.canApply && !actionsBlocked;
+    final applyEnabled =
+        preview != null &&
+        preview.canApply &&
+        applyResult == null &&
+        !actionsBlocked;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

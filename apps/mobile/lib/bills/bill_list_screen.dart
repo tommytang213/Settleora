@@ -10658,7 +10658,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
     });
   }
 
-  Future<void> _load() async {
+  Future<bool> _load() async {
     setState(() {
       _isLoading = true;
       _failure = null;
@@ -10673,7 +10673,7 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         widget.billId,
       );
       if (!mounted) {
-        return;
+        return false;
       }
 
       setState(() {
@@ -10686,15 +10686,17 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
       await _loadSavedReceiptOcrDiscoveryAttachments(
         SettleoraBillAttachmentRoute.personal(bill.id),
       );
+      return true;
     } catch (error) {
       if (!mounted) {
-        return;
+        return false;
       }
 
       setState(() {
         _failure = SettleoraBillFailure.from(error);
         _isLoading = false;
       });
+      return false;
     }
   }
 
@@ -11245,7 +11247,7 @@ class _SettleoraGroupBillDetailScreenState
     });
   }
 
-  Future<void> _load() async {
+  Future<bool> _load() async {
     setState(() {
       _isLoading = true;
       _failure = null;
@@ -11264,7 +11266,7 @@ class _SettleoraGroupBillDetailScreenState
         widget.billId,
       );
       if (!mounted) {
-        return;
+        return false;
       }
 
       setState(() {
@@ -11280,15 +11282,17 @@ class _SettleoraGroupBillDetailScreenState
           billId: bill.id,
         ),
       );
+      return true;
     } catch (error) {
       if (!mounted) {
-        return;
+        return false;
       }
 
       setState(() {
         _failure = SettleoraBillFailure.from(error);
         _isLoading = false;
       });
+      return false;
     }
   }
 
@@ -12358,7 +12362,7 @@ Future<void> _showSavedReceiptOcrReviewSheet({
   required ReceiptOcrReviewRepository repository,
   required ReceiptOcrReviewRoute route,
   required ReceiptOcrReviewDisplayContext? displayContext,
-  required Future<void> Function() onApplied,
+  required Future<bool> Function() onApplied,
   required Future<void> Function() onRemoved,
 }) {
   return showModalBottomSheet<void>(
@@ -12386,7 +12390,7 @@ class _SavedReceiptOcrReviewSheet extends StatefulWidget {
   final ReceiptOcrReviewRepository repository;
   final ReceiptOcrReviewRoute route;
   final ReceiptOcrReviewDisplayContext? displayContext;
-  final Future<void> Function() onApplied;
+  final Future<bool> Function() onApplied;
   final Future<void> Function() onRemoved;
 
   @override
@@ -12405,6 +12409,7 @@ class _SavedReceiptOcrReviewSheetState
   ReceiptOcrReviewFailure? _refreshFailure;
   ReceiptOcrReviewFailure? _removeFailure;
   ReceiptOcrReviewApplyResult? _applyResult;
+  bool _applyRefreshFailed = false;
   bool _isSavingEdit = false;
   bool _isRefreshingReview = false;
   bool _isLoadingApplyPreview = false;
@@ -12428,6 +12433,7 @@ class _SavedReceiptOcrReviewSheetState
       _refreshFailure = null;
       _removeFailure = null;
       _applyResult = null;
+      _applyRefreshFailed = false;
       _savedReviewUnavailable = false;
       _reviewFuture = widget.repository.getReview(widget.route);
     });
@@ -12535,6 +12541,7 @@ class _SavedReceiptOcrReviewSheetState
         _refreshFailure = null;
         _removeFailure = null;
         _applyResult = null;
+        _applyRefreshFailed = false;
         _isSavingEdit = false;
         _savedReviewUnavailable = false;
         _reviewFuture = Future<ReceiptOcrReviewDetail>.value(updated);
@@ -12592,6 +12599,7 @@ class _SavedReceiptOcrReviewSheetState
         _refreshFailure = null;
         _removeFailure = null;
         _applyResult = null;
+        _applyRefreshFailed = false;
         _isRefreshingReview = false;
         _savedReviewUnavailable = false;
         _reviewFuture = Future<ReceiptOcrReviewDetail>.value(refreshed);
@@ -12620,6 +12628,7 @@ class _SavedReceiptOcrReviewSheetState
           _applyPreview = null;
           _applyPreviewFailure = null;
           _applyResult = null;
+          _applyRefreshFailed = false;
           _savedReviewUnavailable = true;
         }
       });
@@ -12646,6 +12655,7 @@ class _SavedReceiptOcrReviewSheetState
       _isLoadingApplyPreview = true;
       _applyPreviewFailure = null;
       _applyResult = null;
+      _applyRefreshFailed = false;
     });
 
     try {
@@ -12705,6 +12715,7 @@ class _SavedReceiptOcrReviewSheetState
       _isApplyingReview = true;
       _applyPreviewFailure = null;
       _applyResult = null;
+      _applyRefreshFailed = false;
     });
 
     try {
@@ -12715,15 +12726,25 @@ class _SavedReceiptOcrReviewSheetState
       if (!mounted) {
         return;
       }
-      await widget.onApplied();
-      if (!mounted) {
-        return;
-      }
       setState(() {
         _applyResult = result;
-        _isApplyingReview = false;
       });
       final hasBlockedResult = result.blockedReasons.isNotEmpty;
+      var refreshFailed = false;
+      if (!hasBlockedResult) {
+        try {
+          refreshFailed = !await widget.onApplied();
+        } catch (_) {
+          refreshFailed = true;
+        }
+        if (!mounted) {
+          return;
+        }
+      }
+      setState(() {
+        _isApplyingReview = false;
+        _applyRefreshFailed = refreshFailed;
+      });
       ScaffoldMessenger.maybeOf(context)
         ?..hideCurrentSnackBar()
         ..showSnackBar(
@@ -12731,6 +12752,8 @@ class _SavedReceiptOcrReviewSheetState
             content: Text(
               hasBlockedResult
                   ? 'OCR review apply needs review. The saved OCR review is still available.'
+                  : refreshFailed
+                  ? 'Draft OCR apply completed, but bill refresh failed. Refresh bill state; do not apply again just to reload.'
                   : 'Draft bill updated from provisional OCR review data. ${_pluralCount(result.appliedItemCount, 'item')} updated.',
             ),
           ),
@@ -12996,6 +13019,7 @@ class _SavedReceiptOcrReviewSheetState
                       previewFailure: _applyPreviewFailure,
                       removeFailure: _removeFailure,
                       applyResult: _applyResult,
+                      applyRefreshFailed: _applyRefreshFailed,
                       isRefreshing: _isRefreshingReview,
                       isLoadingPreview: _isLoadingApplyPreview,
                       isApplying: _isApplyingReview,
@@ -13029,6 +13053,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
     required this.previewFailure,
     required this.removeFailure,
     required this.applyResult,
+    required this.applyRefreshFailed,
     required this.isRefreshing,
     required this.isLoadingPreview,
     required this.isApplying,
@@ -13049,6 +13074,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
   final ReceiptOcrReviewFailure? previewFailure;
   final ReceiptOcrReviewFailure? removeFailure;
   final ReceiptOcrReviewApplyResult? applyResult;
+  final bool applyRefreshFailed;
   final bool isRefreshing;
   final bool isLoadingPreview;
   final bool isApplying;
@@ -13197,6 +13223,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
           preview: applyPreview,
           failure: previewFailure,
           result: applyResult,
+          applyRefreshFailed: applyRefreshFailed,
           canPreview: hasPreviewRouteContext,
           availability: availability,
           isLoadingPreview: isLoadingPreview,
@@ -13257,6 +13284,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
     required this.preview,
     required this.failure,
     required this.result,
+    required this.applyRefreshFailed,
     required this.canPreview,
     required this.availability,
     required this.isLoadingPreview,
@@ -13269,6 +13297,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
   final ReceiptOcrReviewApplyPreview? preview;
   final ReceiptOcrReviewFailure? failure;
   final ReceiptOcrReviewApplyResult? result;
+  final bool applyRefreshFailed;
   final bool canPreview;
   final _SavedReceiptOcrActionAvailability availability;
   final bool isLoadingPreview;
@@ -13283,7 +13312,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
     final result = this.result;
     final canRequestPreview = canPreview && availability.canPreview;
     final canApplyPreview =
-        availability.canPreview && preview?.canApply == true;
+        availability.canPreview && preview?.canApply == true && result == null;
 
     return AppCard(
       child: Column(
@@ -13412,6 +13441,15 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
                     'The apply response returned server blockers. The saved OCR review is still available; preview again or edit saved OCR before retrying.',
                 variant: StatusChipVariant.warning,
               ),
+            if (applyRefreshFailed) ...[
+              const SizedBox(height: 8),
+              _SavedReceiptOcrApplyNotice(
+                title: 'Bill refresh needed',
+                message:
+                    'The draft apply completed, but the bill refresh did not finish. Refresh bill state or close and reopen the bill; do not apply this saved OCR review again just to reload.',
+                variant: StatusChipVariant.warning,
+              ),
+            ],
             if (result.blockedReasons.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
