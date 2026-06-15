@@ -60,7 +60,7 @@ Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/cod
 - [x] M9 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
 - [x] Scope guard allows only narrow M9 docs/control, mobile notifications, app-routing support, and mobile test paths.
 - [x] No M9 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, deployment, Docker, CI, web/admin, broad offline sync/cache, or secret changes.
-- [ ] M9-001 reconciles current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without changing runtime behavior.
+- [x] M9-001 reconciled current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without changing runtime behavior.
 - [ ] M9 implementation hardening slices are complete.
 - [ ] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
@@ -78,11 +78,33 @@ The selection is based on current repo state:
 
 ## M9 Queue Summary
 
-- `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Queued. Reconcile current mobile notification implementation and automated coverage without runtime behavior changes.
-- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Queued. Harden notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
+- `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
+- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Current/next. Harden notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
 - `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Queued. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
 - `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M9-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
+
+## M9-001 Reconciliation Summary
+
+Updated `docs/qa/M9_MOBILE_NOTIFICATION_INBOX_QA_MAP.md` as the current control/QA map for M9. The map records:
+
+- Current mobile notification repository/model inventory for row fields, status/priority/subject/event labels, typed target helpers for bill revision, group bill, personal bill, settlement, and recurring targets, bounded failure kinds, and optional restore support.
+- Generated-client repository mapping for per-call session token handling, list filter normalization, 1-100 limit caps, UTC before-cursor handling, summary/list/read/archive response mapping, trimmed route IDs, blank-ID pre-call failures, and safe generated/transport failure mapping.
+- Mobile inbox UI inventory for initial summary/list load, unread/attention/urgent counts, local filters, archived-row boundary, visible row fields, row and bulk actions, duplicate-action flags, refresh-after-mutation behavior, load/empty/filtered-empty/retry/session/action-failure states, typed handoffs, and raw action URLs as non-authoritative hints only.
+- App-shell and handoff inventory for authenticated notification repository injection, dashboard/header notification affordances, and linked-resource re-fetch expectations through existing authorized bill, bill-revision, settlement, and recurring repository seams.
+- Automated coverage across notification screen tests, generated notification repository tests, server shell/dashboard notification tests, dashboard preview notification copy tests, and related destination screen tests only where relevant.
+- Day 1 requirement mapping for basic in-app inbox, bill and bill-revision events, item claims, settlement events, recurring due soon, sync conflict/failure, security/session events, server OCR completion/failure, and Day 2/non-goal push/email delivery.
+- Focus areas for M9-002 inbox/action hardening and M9-003 typed handoff authority hardening.
+
+Current implementation findings:
+
+- Mobile notification models preserve server-returned safe presentation fields and typed target IDs while bounding unknown display values and suppressing unsafe raw UUID, token, HTTP URL, API path, query, storage, payment, proof, receipt/OCR, and unrelated-user content from visible copy.
+- Generated notification repository calls are session-gated, normalize filters/cursors/limits, trim action IDs, reject blank IDs before generated calls, and map 400/422/401/403/404/410/409/5xx/network failures to bounded mobile failure categories.
+- The mobile notification screen already supports summary/list loading, local filters, archived exclusion outside the archived filter, read/archive/mark-all/mark-visible actions, optional restore support, duplicate-action guards, refresh-after-success, safe failure/retry/session states, detail sheets, and typed handoffs to bill, bill revision, settlement, and recurring destinations.
+- Notification metadata, action URLs, raw IDs, cached rows, and generated-client availability remain navigation hints only; linked resources are expected to be re-fetched through destination repository seams before display/actions.
+- No mobile runtime or test files were changed by M9-001.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055`.
 
 ## M8 Selection Summary
 
