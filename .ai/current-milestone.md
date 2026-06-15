@@ -52,8 +52,8 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Completed task: none for M5 yet.
-- Next queued task: `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825`.
+- Completed task: `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825`.
+- Current/next queued task: `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825`.
 - Stop sentinel: `STOP-M5-001` for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker, settlement/reporting/notification delivery, or unrelated major-domain scope.
 
 ## M4 Carry-Forward Boundary

@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M5 queued; M4 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M5-001 reconciled; M5-002 queued next; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -22,6 +22,9 @@ Status: `M5 queued; M4 finalized and UI-test ready; manual UI/code review deferr
 - [x] M5 queue has 2-4 related sub-slices plus a hard stop sentinel.
 - [x] Scope guard allows only narrow M5 docs/control, recurring mobile, app-shell/group-display support, and mobile test paths.
 - [x] No M5 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, worker, notification delivery, reminder, background generation, or secret changes.
+- [x] M5-001 reconciled the current mobile recurring bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
+- [x] M5-001 updated the M5 QA map with current implementation inventory, covered tests, acceptance targets, M5-002/M5-003 gaps, stop conditions, and explicit deferred manual UI/code review status.
+- [x] Current M5 state pointer selects M5-002 as the next automated task while M5-002 and M5-003 remain queued and STOP-M5-001 remains preserved.
 
 ## M5 Selection Summary
 
@@ -36,10 +39,30 @@ The selection is based on current repo state:
 
 ## M5 Queue Summary
 
-- `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825` - Queued. Reconcile current mobile recurring bill lifecycle state and update `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
+- `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825` - Completed. Reconciled current mobile recurring bill lifecycle state and updated `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
 - `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825` - Queued. Harden generated-client-backed mobile recurring template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging.
 - `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825` - Queued. Harden recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, and navigation to generated bill context.
 - `STOP-M5-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker/runtime expansion, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
+
+## M5-001 Reconciliation Summary
+
+Updated `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` as the current control/QA map for the milestone. The map records:
+
+- Current mobile implementation inventory for recurring template list, read-only template detail, forecast list, explicit confirmed draft generation, loading/empty/retry/error states, generated-client repository seams, server-mode/session-gated behavior, and current tests.
+- Day 1 recurring requirement mapping for creation, schedule display, due-soon visibility, forecast reads, user-confirmed generated draft instances, and server-authoritative recurrence/authorization/money/generated-draft behavior.
+- Covered automated tests in `apps/mobile/test/recurring_bill_screen_test.dart` and `apps/mobile/test/recurring_bill_generated_repository_test.dart`.
+- Focused gaps for M5-002 recurring create/edit/pause/resume/archive lifecycle hardening and M5-003 forecast/draft handoff hardening.
+- Explicit non-goals, stop conditions, and validation expectations.
+
+Current implementation findings:
+
+- Mobile currently supports generated-client-backed template list, template detail, forecast list, and explicit confirmed draft generation only.
+- Current recurring repository methods are `listTemplates`, `listForecast`, `getTemplate`, and `generateDraft`; create/edit/pause/resume/archive methods are not yet exposed in the mobile recurring repository interface.
+- Current UI renders server-provided schedule, status, forecast, generated-draft state, and scope labels without calculating recurrence, authorization, final money, or occurrence state locally.
+- Server-mode access remains session-gated through the secure access-token provider; missing tokens fail before generated-client calls.
+- Draft generation is explicit, confirmation-gated, duplicate-tap blocked while in progress, and refreshes server state after success.
+
+No mobile runtime files or mobile test files were changed by M5-001.
 
 ## M5 Kickoff Summary
 
