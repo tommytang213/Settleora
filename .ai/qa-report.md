@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M8 queued; first task pending; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8 in progress; M8-001 completed; M8-002 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -51,6 +51,7 @@ Status: `M8 queued; first task pending; manual UI/code review deferred until Day
 - [x] M8 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
 - [x] Scope guard allows only narrow M8 docs/control, mobile settlements, app-routing support, and mobile test paths.
 - [x] No M8 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, settlement authority, storage privacy, settlement proof byte behavior, provider integration, statement import/matching, export/backup, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+- [x] M8-001 reconciled current mobile settlement repository/model boundaries, generated-client mapping, settlement list/detail UI, app-shell/notification handoffs, automated coverage, Day 1 requirement gaps, and M8-002/M8-003 focus without changing runtime behavior.
 
 ## M8 Selection Summary
 
@@ -66,11 +67,32 @@ The selection is based on current repo state:
 
 ## M8 Queue Summary
 
-- `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Queued. Reconcile current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
+- `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Completed. Reconciled current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
 - `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Queued. Harden settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
 - `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Queued. Harden residual, allocation, selected-line/basket, balance, and counterparty payment-detail readouts over server-returned data only.
 - `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M8-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment, residual/basket/balance policy, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
+
+## M8-001 Reconciliation Summary
+
+Updated `docs/qa/M8_MOBILE_SETTLEMENT_WORKFLOW_QA_MAP.md` as the current control/QA map for M8. The map records:
+
+- Current mobile repository/model inventory for settlement requests, request lines/selected lines, payments, allocations, residuals, balances, counterparty payment details, failure kinds, and proof-readout absence.
+- Generated-client repository mapping for session token handling, server/current-actor assumptions, request/payment/residual/balance/counterparty payment-detail mapping, bounded failure mapping, and the rule that generated-client availability is not permission.
+- Current mobile UI inventory for landing summaries, balance rows, request search/filter, detail review summary, selected-line/request-line display, payment/allocation/residual readouts, counterparty payment-detail visibility, action availability, refresh/retry/empty/filtered-empty states, and server-authority copy.
+- Automated coverage across `settlement_list_screen_test.dart`, `settlement_generated_repository_test.dart`, app-shell dashboard settlement tests, dashboard preview tests, notification settlement handoff tests, and notification generated-client settlement ID mapping tests.
+- Day 1 requirement mapping for settlement request/create, baskets/pay-all, exact selected total versus actual paid amount, residual handling, mark-paid, partial payment/allocation readout, receiver confirmation, dispute/cancellation, proof readout, payment profile display, settlement audit/authorization, and pending bill revision boundaries.
+- Focus areas for M8-002 request/payment action hardening and M8-003 residual/basket/readout hardening, with stop conditions and non-goals.
+
+Current implementation findings:
+
+- Mobile settlement models preserve server-returned facts and expose UI helper methods only; they do not calculate authoritative money, selected lines, residual policy, balances, authorization, audit, or proof access.
+- Generated settlement repository calls are session-gated and map generated responses into bounded mobile models; 400/401/403/404/409/5xx/network failures are mapped to safe user-facing failure categories.
+- Settlement list/detail UI already supports loaded-row search/filter, server-returned balance/request/payment/residual readouts, counterparty payment detail display, mark-paid, request cancel/dispute, payment confirm/cancel/dispute, residual confirm, refresh/retry/empty states, duplicate-action busy guards for existing paths, and server-authority copy.
+- Current mobile UI does not surface basket preview/create, select-all-visible, proof metadata/readout, QR content, fully itemized allocation details, visible residual direction/policy labels, explicit exact-selected-total versus actual-paid comparison, or all balance residual fields.
+- No mobile runtime or test files were changed by M8-001.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306`.
 
 ## M7 Selection Summary
 
