@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M4 mobile group bill lifecycle queue opened; manual UI/code review deferred until Day 1 acceptance`
+Status: `M4-001 mobile group bill lifecycle state reconciled; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -12,6 +12,9 @@ Status: `M4 mobile group bill lifecycle queue opened; manual UI/code review defe
 - [x] M4 queue has 2-4 related sub-slices plus a hard stop sentinel.
 - [x] Scope guard is expected to allow M4 docs/control files and only narrow mobile group bill lifecycle implementation paths.
 - [x] No M4 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, or secret changes.
+- [x] M4-001 reconciled current mobile group bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
+- [x] M4-001 updated the M4 QA map with current implementation inventory, covered tests, acceptance targets, M4-002/M4-003 gaps, and stop conditions.
+- [x] Current state pointer and next queued task target `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
 
 ## M3 Finalization Carry-Forward
 
@@ -34,21 +37,33 @@ The selection is based on current repo state:
 
 ## M4 Queue Summary
 
-- `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Queued. Reconcile current mobile group bill lifecycle state and create `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
-- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Queued. Harden existing group bill create/submit UX, safe retries, member/payer/split validation, and duplicate-mutation prevention inside current mobile seams.
+- `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Completed. Reconciled current mobile group bill lifecycle state and updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
+- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Queued as the next controller-selectable task. Harden existing group bill create/submit UX, safe retries, member/payer/split validation, and duplicate-mutation prevention inside current mobile seams.
 - `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Queued. Harden group bill detail lifecycle surfaces for participant actions, revision entry, attachments/OCR-review state, stale capability refreshes, member fallbacks, and safe terminal/unavailable states.
 - `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Queued. Finalize M4 QA/control state and preserve deferred manual review status.
 - `STOP-M4-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, OCR-worker/runtime expansion, recurring, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
-## M4 Kickoff QA Map
+## M4-001 Reconciliation Summary
 
-Created `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` as the initial control/QA map for the milestone. The map records:
+Updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` as the current control/QA map for the milestone. The map records:
 
 - Day 1 requirement boundary for group bill lifecycle work.
-- Current mobile surfaces and seams to reconcile during M4-001.
-- Expected future hardening targets for M4-002 and M4-003.
-- Explicit non-goals and hard stop conditions.
-- Validation expectations.
+- Current mobile implementation inventory for group bill list/detail/create/submit, participant actions, attachments, OCR review handoff, correction/revision entry, member display/fallbacks, and safe terminal/unavailable/stale/session-required states.
+- Covered automated tests across group bill screens, generated bill/group/attachment/revision repositories, attachment sections, and revision screens.
+- M4 acceptance targets for M4-002, M4-003, and M4-004.
+- Gaps and next-task focus for M4-002 create/submit hardening and M4-003 detail lifecycle hardening.
+- Explicit non-goals, stop conditions, and validation expectations.
+
+Current implementation findings:
+
+- Group bill create already persists post-create continuation state so attachment upload, submit, and submitted-detail refresh retries can resume without duplicate create.
+- Participant accept/reject actions use the current group/bill/user route and a shared busy state to block duplicate actions.
+- Group bill detail uses group attachment routes and receipt-only OCR review discovery/handoff.
+- Revision entry refreshes current group bill capability before proposal creation and uses server-provided revision IDs/actions for review.
+- Group member display names fall back to bounded participant labels when member loading fails or rows are unknown.
+- Safe repository failures cover session-required/session-expired, denied, unavailable, conflict, validation, network, and server states.
+
+No mobile runtime files or mobile test files were changed by M4-001.
 
 ## Deferred Manual Acceptance Gates
 

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This map defines the QA/control boundary for M4 `Day 1 Mobile Group Bill Lifecycle UX Hardening`. It is a milestone planning artifact for future M4 tasks. The kickoff change does not implement product runtime behavior.
+This map defines the QA/control boundary for M4 `Day 1 Mobile Group Bill Lifecycle UX Hardening`. M4-001 reconciles the current mobile implementation and test state only. It does not implement product runtime behavior.
 
-M4 may harden existing mobile group bill lifecycle surfaces that already use current repository/generated-client seams. It does not authorize backend/API behavior, OpenAPI or generated-client edits, auth/session/security changes, schema or migration changes, storage/file privacy policy changes, money/settlement/bill calculation authority changes, Docker/deployment/env/CI changes, secrets, web/admin runtime UI, push notification delivery, recurring bill runtime, reporting/import/export runtime, OCR-worker behavior, persistent offline cache, or broad sync expansion.
+M4 may harden existing mobile group bill lifecycle surfaces that already use current repository/generated-client seams. It does not authorize backend/API behavior, OpenAPI or generated-client edits, auth/session/security changes, schema or migration changes, storage/file privacy policy changes, money/settlement/bill calculation authority changes, Docker/deployment/env/CI changes, secrets, web/admin runtime UI, push notification delivery, recurring bill runtime, reporting/import/export runtime, OCR-worker behavior, persistent offline cache, group bill offline queueing, or broad sync expansion.
 
 ## Day 1 Requirement Boundary
 
@@ -19,41 +19,111 @@ Current M4 authority boundaries:
 
 ## Current-State Reconciliation Targets
 
-M4-001 should reconcile these existing surfaces before implementation hardening:
+M4-001 inspected these current surfaces before implementation hardening:
 
 - `apps/mobile/lib/bills/bill_repository.dart`
-  - Group bill repository model for list, create, submit, get, participant accept, and participant reject.
-  - Current group bill create draft shape and supported fields.
+  - Defines group bill summaries/details, participant status and rejection reason models, create draft rows, payer rows, and `revisionCreationActions.canCreateRevision`.
+  - Exposes repository seams for group bill list, create, submit, get, participant accept, and participant reject.
 - `apps/mobile/lib/bills/generated_bill_repository.dart`
-  - Generated-client-backed mapping for current group bill API calls and safe failures.
+  - Maps current generated-client calls for `listGroupBills`, `createGroupBill`, `submitGroupBill`, `getGroupBill`, `acceptGroupBillParticipant`, and `rejectGroupBillParticipant`.
+  - Performs bounded ID/text validation before session lookup where applicable and maps API/network failures to safe mobile failure kinds/messages.
 - `apps/mobile/lib/bills/bill_list_screen.dart`
-  - `SettleoraGroupBillListScreen`.
-  - `SettleoraGroupBillCreateScreen`.
-  - `SettleoraGroupBillDetailScreen`.
-  - Group bill attachment section route handling.
-  - Saved receipt OCR review discovery/handoff in group context.
-  - Revision proposal/review entry points from group bill detail.
-- `apps/mobile/lib/groups/group_repository.dart` and `apps/mobile/lib/groups/group_list_screen.dart`
-  - Group member loading, member display names, create-group-to-create-bill flow, and group context navigation.
-- Focused tests in `apps/mobile/test/group_bill_list_screen_test.dart`, `apps/mobile/test/bill_generated_repository_test.dart`, `apps/mobile/test/group_generated_repository_test.dart`, attachment tests, and revision tests.
+  - `SettleoraGroupBillListScreen` loads group bills, loads group members for display names, supports search/filter chips, opens create/detail flows, and refreshes after returning from detail.
+  - `SettleoraGroupBillCreateScreen` loads active group members, supports manual and receipt-assisted entry, item split assignment, payer rows, duplicate receipt warning, draft attachments, create/attachment/submit/detail-load continuation state, and group-context OCR review handoff.
+  - `SettleoraGroupBillDetailScreen` loads group bill detail, displays participant status/share/next-step state, supports current participant accept/reject, loads pending revision state, refreshes revision capability before create, renders attachment section with group routes, and exposes saved OCR review discovery/handoff.
+- `apps/mobile/lib/bills/bill_attachment_repository.dart` and `generated_bill_attachment_repository.dart`
+  - Support personal and group bill attachment routes, receipt/supporting attachment purpose, list/upload/download/remove, session-required behavior, safe failure mapping, and group route validation.
+- `apps/mobile/lib/bills/bill_revision_repository.dart`, `generated_bill_revision_repository.dart`, `bill_revision_proposal_editor_screen.dart`, and `bill_revision_review_screen.dart`
+  - Support proposal create/revise, review context rendering, viewer action capability checks, approval/payer confirmation basis, lifecycle actions, terminal revision states, and safe failure mapping.
+- `apps/mobile/lib/groups/group_repository.dart`, `generated_group_repository.dart`, and `group_list_screen.dart`
+  - Support group list/detail/member management, active/removed member status, safe display name fallback, and group-to-group-bills navigation.
+
+## Current Implementation Inventory
+
+### Group Bill List And Read Surfaces
+
+- Group bill list reads active and archived group bills through the generated repository and current group ID.
+- The list renders group context, loaded participant summaries, current-user action state, search, and filters for all bills, needs response, accepted by current user, rejected by current user, and any rejection.
+- Member display names are loaded from the group repository; failures preserve prior/fallback participant labels instead of blocking bill list rendering.
+- Opening a bill navigates to group detail and reloads the list after returning.
+
+### Group Bill Create And Submit Flow
+
+- Create is server-mode only through `createGroupBill`, followed by optional draft attachment uploads, `submitGroupBill`, and a submitted-detail `getGroupBill` refresh.
+- The create screen keeps `_createdBillAwaitingCompletion` and `_createdBillSubmittedAwaitingDetail` state so retry after attachment, submit, or submitted-detail failure resumes the correct step without issuing another create call.
+- Draft attachment upload happens only after create succeeds; successful upload rows are removed from the retry set, and remaining upload rows can be retried.
+- Split and payer checks are local convenience validation only. API/domain services remain authoritative for membership, authorization, split calculation, totals, status transition, and financial truth.
+- The group create flow does not use the personal bill archive/restore sync queue.
+
+### Participant Accept/Reject Actions
+
+- Detail shows accept/reject only when the current user has a pending participant row on a `pending_confirmation` bill.
+- Accept/reject use current group ID, bill ID, current user profile ID, and bounded rejection reason codes.
+- A shared acknowledgement busy flag blocks duplicate accept/reject taps while a mutation is in flight.
+- Success reloads detail; failures remain on the detail screen with safe failure text.
+
+### Attachments And OCR Review Handoff
+
+- Group detail passes `SettleoraBillAttachmentRoute.group(groupId, billId)` to `BillAttachmentSection`.
+- Attachment metadata uses safe labels and stable file IDs; download/remove/upload actions are covered by group-route tests.
+- Draft receipt attachment upload can save a provisional OCR review after the receipt file exists. A failed OCR review save does not roll back the created bill or attachment and can be retried from detail.
+- Saved OCR review discovery is receipt-only, validates safe route UUIDs, and opens review/apply-preview/apply flows through the receipt OCR review repository. OCR data remains provisional until API validation.
+
+### Correction And Revision Entry
+
+- Detail loads the pending submitted revision, shows an unavailable banner on revision load failure, and opens review with server-returned bill/revision IDs.
+- Create-revision entry is rendered only when a revision repository exists and `bill.revisionCreationActions.canCreateRevision` is true.
+- Create-revision mutation refreshes the group bill and rechecks server capability before opening the proposal editor and before creating the proposal.
+- Revision review actions render and execute from server-provided viewer action flags and approval/payer-confirmation basis.
+
+### Group Member Display And Fallbacks
+
+- Active group members are used in the create form member menus.
+- Detail/list participant labels prefer loaded member display names and fall back to bounded `Participant N` labels, with `(you)` appended for the current actor where known.
+- Removed members are excluded from create member menus but existing participant rows remain displayable through safe fallback labels.
+
+### Terminal, Unavailable, Stale, And Session-Required States
+
+- Bill, group, attachment, revision, receipt OCR review, and notification repositories use bounded failure kinds for session required/expired, denied, unavailable, conflict, validation, network, and server states.
+- Detail refresh handles unavailable bill state and retry.
+- Revision review models terminal states and hides/blocks actions according to server viewer capabilities.
+- Attachment and OCR review sections block conflicting busy actions, expose retryable safe copy, and clear unavailable saved reviews without deleting the parent bill/attachment.
+
+## Covered Automated Tests
+
+- `apps/mobile/test/group_bill_list_screen_test.dart`
+  - Covers group bill list loading/empty/error/refresh, group member display fallback, search/filter counts, selected filtered detail, participant status summaries, accept/reject with reason code, duplicate participant action blocking, group attachment route/list/upload/download/remove/failure behavior, receipt-only OCR review entry, revision create/review entry, create validation, active-member menus, split assignment controls, payer defaults, create draft mapping, happy path create-submit-detail, submit retry without duplicate create, detail-load retry without duplicate submit, draft attachment upload retry without duplicate create, and bounded create failures.
+- `apps/mobile/test/bill_generated_repository_test.dart`
+  - Covers generated group bill list/get/create/submit/accept/reject mapping, pre-session validation, bounded generated/API/network failure mapping, and rejection reason validation.
+- `apps/mobile/test/bill_attachment_section_test.dart` and `apps/mobile/test/bill_attachment_generated_repository_test.dart`
+  - Cover group attachment metadata labels, group route actions, receipt OCR entry only for receipt metadata, duplicate/conflicting action blocking, upload/remove confirmation, and safe failures.
+- `apps/mobile/test/bill_revision_proposal_editor_screen_test.dart`, `apps/mobile/test/bill_revision_review_screen_test.dart`, and `apps/mobile/test/generated_bill_revision_repository_test.dart`
+  - Cover server capability refresh before proposal mutation, review context modes, viewer action rendering, approve/payer-confirmation basis, lifecycle action refresh, terminal/denied action behavior, and safe generated failures.
+- `apps/mobile/test/group_generated_repository_test.dart` and `apps/mobile/test/group_list_screen_test.dart`
+  - Cover session-required group repository behavior, member mapping/fallbacks, group detail navigation, member management, and bounded group failures.
+
+No M4-001 mobile test files were changed.
 
 ## Expected Hardening Themes
 
 ### Create And Submit
 
-M4-002 should keep create/submit within current supported contract fields and verify:
+M4-002 should keep create/submit within current supported contract fields and harden or preserve:
 
 - Active member selection and member display fallbacks stay bounded.
 - Local split/payer checks are convenience validation only and do not become financial authority.
 - Create failure does not upload attachments, submit a bill, or create duplicate mutations.
 - Submit failure after create preserves the returned bill and retries submit without creating another bill.
 - Submitted-detail refresh failure remains recoverable without losing the created bill.
+- Attachment upload failure after create preserves only remaining failed/unuploaded attachment rows and does not recreate the bill.
+- Duplicate save taps and step changes stay blocked while create, upload, submit, or detail refresh is in flight.
+- Receipt OCR apply-to-draft remains local/provisional and does not apply OCR to server truth without the current OCR review API path.
 - Safe errors do not expose raw IDs beyond user-facing context, API paths, storage paths, tokens, generated-client internals, receipt/OCR text, proof bytes, or backend internals.
 - Group bill create does not use the personal bill offline archive/restore queue.
 
 ### Detail Lifecycle
 
-M4-003 should harden existing detail lifecycle behavior and verify:
+M4-003 should harden or preserve:
 
 - Participant accept/reject actions refresh or preserve detail state safely after success/failure.
 - Duplicate taps and conflicting busy states do not create repeated participant actions.
@@ -63,6 +133,21 @@ M4-003 should harden existing detail lifecycle behavior and verify:
 - Attachment list/upload/download/remove uses the group bill route context and safe failure states.
 - Saved OCR review handoff remains provisional and receipt-scoped.
 - Terminal, unavailable, denied, session-expired, and conflict states remain safe and retryable where appropriate.
+- Detail-level tests should continue proving that mobile displays server-provided status/revision/participant state and does not infer authorization or financial truth from hidden controls or cached data.
+
+## M4 Acceptance Targets
+
+- M4-002: group bill create/submit can be exercised through current mobile UI with safe local validation, no duplicate create on retry, no duplicate submit on submitted-detail retry, safe draft attachment retry, bounded OCR review handoff, and current generated-client seams only.
+- M4-003: group bill detail lifecycle can be exercised through current mobile UI with safe participant actions, revision entry/review navigation, group attachment/OCR review routes, stale capability refresh, member fallback labels, terminal/unavailable states, and current generated-client seams only.
+- M4-004: M4 QA/control state records automated validation and explicitly leaves manual UI/code review deferred until Day 1 acceptance, not passed.
+
+## Gaps For Next Tasks
+
+- M4-002 should review whether the current create flow needs clearer user-facing continuation copy for each post-create retry state and focused assertions that create failure never starts attachment upload or submit.
+- M4-002 should preserve the existing no-duplicate-create/no-duplicate-submit behavior and add any missing focused coverage only if an implementation change is needed.
+- M4-003 should review stale participant/revision capability refresh after accept/reject/revision actions and whether terminal status copy is sufficiently explicit for unavailable/conflict/session-expired states.
+- M4-003 should preserve receipt-only OCR review discovery and add focused assertions for multi-receipt choice and unavailable saved-review paths only if implementation hardening changes those paths.
+- Manual UI/code review remains deferred by owner decision until Day 1 acceptance and is not passed by this map.
 
 ## Non-Goals
 
@@ -74,6 +159,14 @@ M4-003 should harden existing detail lifecycle behavior and verify:
 - Changing settlement, payment, bill calculation, or money authority.
 - Adding persistent offline cache, startup/background sync, conflict-resolution UX, backoff/max-attempt policy, or group bill create/edit offline queueing.
 - Adding OCR engine/worker behavior, notification delivery, recurring bill runtime, reporting/import/export runtime, web/admin runtime UI, Docker/deployment/env/CI, or secrets.
+
+## Stop Conditions
+
+Stop and report `BLOCKED` if an M4 task requires:
+
+- Backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, schema/migrations, storage/file privacy policy, settlement/payment/bill calculation authority, Docker/deployment/env/CI, secrets, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, or architecture replacement.
+- Persistent offline cache, background sync, conflict-resolution UX, backoff/max-attempt policy, group bill create/edit offline queueing, OCR-worker/runtime expansion, recurring bill runtime, settlement runtime, reporting/import/export runtime, notification delivery, web/admin runtime UI, or unrelated major-domain scope.
+- Manual UI/code review being marked passed before the owner-approved Day 1 acceptance review.
 
 ## Validation Expectations
 
@@ -96,3 +189,9 @@ M4 implementation validation should add:
 ## Acceptance Result Target
 
 M4 is complete when the existing mobile group bill lifecycle UX is reconciled, hardened, tested, and finalized as a bounded Day 1 checkpoint while preserving API/domain authority and deferred manual UI/code review status until Day 1 acceptance.
+
+## M4-001 Reconciliation Result
+
+M4-001 reconciliation is complete as a documentation/control-state update. Current evidence supports proceeding to `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is explicitly not passed.
