@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M7-003 complete; M7-004 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M7 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -45,6 +45,8 @@ Status: `M7-003 complete; M7-004 queued; manual UI/code review deferred until Da
 - [x] M7-001 updated the M7 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M7-002/M7-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 - [x] M7-002 hardened mobile monthly report discovery, safe aggregate copy, personal/group scope labels, unknown status display, safe failure copy, dashboard report entry clarity, and focused automated coverage inside existing mobile seams.
 - [x] M7-003 hardened personal/group bill loaded-row filters, filtered-empty copy, bounded reconciliation status/note readouts, and server-authority/no-import/no-mutation copy inside existing mobile bill seams.
+- [x] M7-004 finalized M7 QA/control state, recorded M7-001 through M7-004 completion and validation coverage, preserved deferred manual UI/code review, and marked M7 UI-test ready with no remaining automated M7 work.
+- [x] Current M7 state preserves `STOP-M7-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## M7 Selection Summary
 
@@ -62,7 +64,7 @@ The selection is based on current repo state:
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Completed. Reconciled current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
 - `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Completed. Hardened monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
 - `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Completed. Hardened bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
-- `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Queued. Finalize M7 QA/control state and mark UI-test ready without runtime behavior changes.
+- `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Completed. Finalized M7 QA/control state, recorded validation coverage, preserved deferred manual UI/code review status, and marked M7 UI-test ready without runtime behavior changes.
 - `STOP-M7-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M7-001 Reconciliation Summary
@@ -100,6 +102,7 @@ Runtime hardening:
 Focused automated coverage:
 
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
+- Full mobile validation for M7-002 passed with 688 Flutter tests.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
@@ -118,9 +121,32 @@ Runtime hardening:
 
 Focused automated coverage:
 
-- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` passed with 234 tests.
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_generated_repository_test.dart test/monthly_report_screen_test.dart` passed with 274 tests.
+- Full mobile validation for M7-003 passed with 690 Flutter tests.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated Day 1 action is M7-004 mobile report and reconciliation QA finalization.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M7-004 QA Finalization Summary
+
+M7 is finalized as a bounded Day 1 mobile monthly reports and reconciliation readout hardening checkpoint.
+
+Completed M7 slices:
+
+- M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation-status readout implementation, and automated QA coverage without runtime behavior changes.
+- M7-002 completed monthly report discovery, safe aggregate display, personal/group scope clarity, unknown statuses, failures, and dashboard/report entry hardening inside existing mobile seams.
+- M7-003 completed bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
+- M7-004 completed control/QA finalization and set M7 to UI-test ready with no remaining automated M7 work.
+
+Recorded M7 validation coverage:
+
+- M7-002 focused report/dashboard validation: 60 tests from `monthly_report_screen_test.dart`, `report_generated_repository_test.dart`, `dashboard_preview_screen_test.dart`, and `server_mode_shell_dashboard_test.dart`.
+- M7-002 full mobile validation: 688 Flutter tests.
+- M7-003 focused bill/report/reconciliation validation: 274 tests from `bill_list_screen_test.dart`, `group_bill_list_screen_test.dart`, `bill_generated_repository_test.dart`, and `monthly_report_screen_test.dart`.
+- M7-003 full mobile validation: 690 Flutter tests.
+
+M7 remains explicitly out of scope for full statement import/matching/linking, raw statement row visibility, reconciliation link/unlink/update mutations, CSV import/export, local backup/restore, generated dashboard APIs, broad reporting backend redesign, storage/privacy changes, API/contracts/generated-client/schema/auth/money/deployment/security changes, notification delivery, web/admin runtime, broad offline cache/sync, and unrelated major-domain work.
+
+M7-004 validation and PR/merge/CI status are recorded in the external task report at `/workspace/logs/settleora-codex-report-20260615-2249-m7-report-reconciliation-qa-finalize.md`. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M7. Recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## M6 Selection Summary
 
