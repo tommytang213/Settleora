@@ -1,30 +1,30 @@
 # Current Milestone
 
-- ID: `M3`
-- Name: `Day 1 Mobile Sync + Offline Queue Foundation`
+- ID: `M4`
+- Name: `Day 1 Mobile Group Bill Lifecycle UX Hardening`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M2`
+- Previous milestone ID: `M3`
 
 ## Goal
 
-Advance the next Day 1 blocker after M2 mobile navigation polish by making the existing mobile sync/offline queue foundation concrete, visible, and testable without changing backend authority, OpenAPI contracts, generated clients, schema, money calculation, storage privacy policy, deployment, or auth/session runtime.
+Advance the next Day 1 blocker after the M3 mobile sync/offline queue foundation by hardening the existing mobile group bill lifecycle UX within already-available API and generated-client seams. M4 covers group bill list/detail/create/submit, participant accept/reject, attachment/OCR-review handoff, and revision entry points without changing backend authority, OpenAPI contracts, generated clients, schema, auth/session runtime, storage policy, settlement or bill calculation authority, deployment, Docker, CI, or secrets.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the app already has a mobile sync queue foundation and generated sync repository seams, but full offline cache hydration and broader offline support remain future work.
-- `PROGRAM_ARCHITECTURE.md` requires queued, synced, conflict, and failed sync states while keeping server-mode sync acceptance and business truth API-authoritative.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires local offline queues, explicit sync states, and conflict preservation for Day 1.
-- `apps/mobile/lib/sync/` already contains bounded queue, generated repository, and processor primitives, making mobile sync/offline queue hardening a coherent next bundle.
+- `README.md` says starter authenticated mobile group-bill read/list/detail surfaces exist, while mobile group bill create/edit/lifecycle/offline support remains future Day 1 work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires shared bill creation, group bills, participant acknowledgement/approval, attachments, receipt/OCR review, archive/restore where safe, and Day 1 shared-bill trust workflows.
+- `docs/features/expenses-bills/FUNCTIONAL_SPEC.md` and `docs/features/expenses-bills/TECHNICAL_SPEC.md` define shared bill create, submit, participant correction/revision, attachment, and lifecycle expectations while keeping API/domain services authoritative for financial truth.
+- Current mobile code already has bounded group bill seams in `apps/mobile/lib/bills/`, `apps/mobile/lib/groups/`, and focused tests in `apps/mobile/test/group_bill_list_screen_test.dart`, making a mobile-only lifecycle hardening bundle coherent without requiring API, contract, generated-client, schema, money, storage, auth, or deployment changes.
 
-## Allowed Scope For Future M3 Tasks
+## Allowed Scope For Future M4 Tasks
 
-- Mobile sync/offline queue code in `apps/mobile/lib/sync/`.
-- Existing mobile bootstrap wiring for the sync queue in `apps/mobile/lib/app/app_bootstrap.dart`.
-- Existing mobile bill sync bridge code in `apps/mobile/lib/bills/bill_sync_controller.dart`.
-- Focused mobile tests for sync queue, sync processor, app bootstrap wiring, and existing bill sync bridge behavior.
-- M3 QA maps and milestone QA docs under `docs/qa/`.
+- Mobile group bill list/detail/create/submit and lifecycle UX code in `apps/mobile/lib/bills/`.
+- Existing mobile group context and member-display wiring in `apps/mobile/lib/groups/`.
+- Existing mobile receipt OCR review/capture seams only when used through the current group bill create/detail handoff; no new OCR engine, worker, storage, or contract behavior.
+- Focused mobile tests for group bill list/detail/create/submit, participant accept/reject, attachments, OCR-review handoff, revision entry points, safe failures, and member-display behavior in `apps/mobile/test/`.
+- M4 QA maps and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M3 path allowances.
+- `scripts/ai/v3-scope-guard.mjs` only for narrow M4 path allowances.
 
 ## Forbidden Without Human Approval
 
@@ -33,31 +33,30 @@ Repo-state basis for this milestone:
 - OpenAPI/generated clients.
 - Auth/session/security runtime or configuration.
 - Database schema/migrations.
-- Settlement/payment/bill calculation logic.
+- Settlement/payment/bill calculation logic or money authority.
 - Storage/file privacy policy.
 - Docker/deployment/env/CI config.
 - Production secrets.
 - Web/admin runtime UI.
-- Push notification provider, notification delivery, notification preferences, offline sync protocol expansion beyond the queued M3 scope, or local storage policy changes.
-- New broad mobile product UI outside the selected sync/offline queue surfaces.
+- Push notification provider, notification delivery, notification preferences, recurring bill runtime, settlement runtime, broad reporting/import/export, local backup/restore, persistent offline cache, background sync, or unrelated major-domain work.
+- New offline queue operations for group bill create/edit unless a later task explicitly scopes them with no API/auth/schema/storage/money/deployment changes and passes the manual safety review if required.
 
 ## Done Criteria
 
-- Current mobile sync/offline queue behavior is reconciled against Day 1 architecture and captured in a QA map.
-- Existing queued bill archive/restore behavior has clear, bounded sync state handling, retry/error visibility, and conflict/failed preservation in tests.
-- Server-mode change-feed hydration seams are validated without making mobile authoritative for server-mode business truth.
-- M3 QA records automated validation and keeps deferred M2 manual UI/code review as deferred until Day 1 acceptance, not passed.
+- Current mobile group bill lifecycle behavior is reconciled against Day 1 architecture and captured in a QA map.
+- Group bill create/submit, attachment/OCR-review handoff, and participant action flows preserve server authority, safe failure handling, and no duplicate mutation on retry.
+- Group bill detail/lifecycle surfaces expose server-provided status, participant, revision capability, and attachment state without inferring authorization or financial truth from cached mobile data.
+- M4 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
 
 ## Current Task Pointer
 
-- Completed task: `M3-QA-FINALIZE`
-- Next queued task: none. `STOP-M3-001` remains as the controller stop sentinel for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
+- Completed task: none for M4.
+- Next queued task: `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659`.
+- Stop sentinel: `STOP-M4-001` for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, recurring/settlement/reporting/OCR-worker, or unrelated major-domain scope.
 
-## Final Readiness Checkpoint
+## M3 Carry-Forward Boundary
 
-M3 is finalized as a bounded Day 1 mobile sync/offline queue foundation checkpoint. The controller readiness state is set so it does not keep selecting stale M3 QA finalization work after `M3-001`, `M3-002`, `M3-003`, and `M3-004` are complete.
+M3 is finalized as a bounded Day 1 mobile sync/offline queue foundation checkpoint. M4 must not expand M3 ad hoc into persistent offline cache, startup/background sync, conflict-resolution UX, backoff/max-attempt policy, manual discard/cancel, or broad sync work.
 
-This does not mark manual UI testing or manual code review as passed. Both remain deferred until Day 1 acceptance.
-
-Recommended next automated Day 1 action: stop M3 at `STOP-M3-001` and select the next controller-approved Day 1 milestone or acceptance-readiness slice. Do not expand M3 ad hoc into persistent offline cache, startup/background sync, conflict-resolution UX, API/auth/schema/storage/money/deployment, or unrelated major-domain work.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
