@@ -4,7 +4,7 @@
     "title": "Reconcile mobile recurring bill lifecycle state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
