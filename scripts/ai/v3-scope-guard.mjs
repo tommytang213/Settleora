@@ -169,6 +169,19 @@ const m6AllowedPatterns = [
   /^apps\/mobile\/test\//,
 ];
 
+const m7AllowedPatterns = [
+  /^\.ai(?:\/|$)/,
+  /^docs\/qa\//,
+  /^docs\/workflow\/AI_V3_CONTROLLER\.md$/,
+  /^docs\/workflow\/AI_V3_PIPELINE\.md$/,
+  /^scripts\/ai\/v3-scope-guard\.mjs$/,
+  /^apps\/mobile\/lib\/reports\//,
+  /^apps\/mobile\/lib\/dashboard\//,
+  /^apps\/mobile\/lib\/bills\/bill_list_screen\.dart$/,
+  /^apps\/mobile\/lib\/app\//,
+  /^apps\/mobile\/test\//,
+];
+
 const forbiddenPatterns = [
   { pattern: /^services\/api(?:\/|$)/, reason: "API/backend runtime path" },
   { pattern: /^services\/worker-ocr(?:\/|$)/, reason: "OCR worker runtime path" },
@@ -211,6 +224,9 @@ function isAllowedForMilestone(file, milestone) {
   }
   if (milestone === "M6") {
     return m6AllowedPatterns.some((pattern) => pattern.test(file));
+  }
+  if (milestone === "M7") {
+    return m7AllowedPatterns.some((pattern) => pattern.test(file));
   }
   return false;
 }
