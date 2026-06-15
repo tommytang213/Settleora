@@ -495,6 +495,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('group-bill-list-search')), findsOneWidget);
+    expect(find.text('6 of 6 loaded server rows visible.'), findsOneWidget);
+    expect(
+      find.text(
+        'Group bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Needs Current'), findsOneWidget);
     expect(find.text('Pending Other'), findsOneWidget);
     expect(find.text('Accepted Current'), findsOneWidget);
@@ -516,8 +523,11 @@ void main() {
     );
 
     expect(find.text('No matching group bills'), findsOneWidget);
+    expect(find.text('0 of 6 loaded server rows visible.'), findsOneWidget);
     expect(
-      find.text('No group bills match this search and filter.'),
+      find.text(
+        'No already-loaded group bills match this local search and filter. Clear filters to review every loaded server row.',
+      ),
       findsOneWidget,
     );
 
@@ -5773,6 +5783,7 @@ SettleoraBillSummary sampleBillSummary({
   String id = _billId,
   String? merchantName = 'Corner Market',
   String status = 'draft',
+  String reconciliationStatus = 'unreconciled',
   List<SettleoraBillParticipant> participants = const [],
 }) {
   return SettleoraBillSummary(
@@ -5780,7 +5791,7 @@ SettleoraBillSummary sampleBillSummary({
     merchantName: merchantName,
     billDate: '2026-05-17',
     status: status,
-    reconciliationStatus: 'unreconciled',
+    reconciliationStatus: reconciliationStatus,
     totalAmount: '10.80',
     totalCurrency: 'USD',
     archiveState: SettleoraBillArchiveStateValues.active,
@@ -5952,6 +5963,8 @@ SettleoraBillDetail sampleBillDetail({
   String id = _billId,
   String? merchantName = 'Corner Market',
   String status = 'draft',
+  String reconciliationStatus = 'unreconciled',
+  String? reconciliationNote,
   String participantStatus = 'pending_acceptance',
   SettleoraBillParticipantRejectionReasonCode? participantRejectionReasonCode,
   List<SettleoraBillParticipant>? participants,
@@ -5961,8 +5974,8 @@ SettleoraBillDetail sampleBillDetail({
     merchantName: merchantName,
     billDate: '2026-05-17',
     status: status,
-    reconciliationStatus: 'unreconciled',
-    reconciliationNote: null,
+    reconciliationStatus: reconciliationStatus,
+    reconciliationNote: reconciliationNote,
     revisionCreationActions: SettleoraBillRevisionCreationActions(
       canCreateRevision: canCreateRevision,
     ),

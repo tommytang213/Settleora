@@ -835,6 +835,10 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                       keyPrefix: 'bill-list',
                       searchController: _searchController,
                       searchHint: 'Search bills',
+                      loadedCount: _bills.length,
+                      visibleCount: visibleBills.length,
+                      readoutScope:
+                          'Personal bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
                       selectedFilter: _selectedFilter,
                       filters: _PersonalBillListFilter.values,
                       labelForFilter: (filter) =>
@@ -853,7 +857,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                       const _StatePanel(
                         icon: Icons.search_off_outlined,
                         title: 'No matching bills',
-                        message: 'No personal bills match these filters.',
+                        message:
+                            'No already-loaded personal bills match this local search or filter. Clear filters to review every loaded server row.',
                       ),
                     ],
                     for (var index = 0; index < visibleBills.length; index += 1)
@@ -4634,6 +4639,10 @@ class _SettleoraGroupBillListScreenState
                     keyPrefix: 'group-bill-list',
                     searchController: _searchController,
                     searchHint: 'Search group bills',
+                    loadedCount: _bills.length,
+                    visibleCount: visibleBills.length,
+                    readoutScope:
+                        'Group bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
                     selectedFilter: _selectedFilter,
                     filters: _GroupBillListFilter.values,
                     labelForFilter: (filter) =>
@@ -4671,7 +4680,7 @@ class _SettleoraGroupBillListScreenState
                           ? 'No matching group bills'
                           : _selectedFilter.emptyTitle,
                       message: searchQuery.trim().isNotEmpty
-                          ? 'No group bills match this search and filter.'
+                          ? 'No already-loaded group bills match this local search and filter. Clear filters to review every loaded server row.'
                           : _selectedFilter.emptyMessage,
                     ),
                   ] else ...[
@@ -4868,8 +4877,7 @@ bool _billMatchesQuery(
     _money(bill.totalAmount, bill.totalCurrency),
     settleoraBillStatusLabel(bill.status),
     bill.status,
-    settleoraBillReconciliationStatusLabel(bill.reconciliationStatus),
-    bill.reconciliationStatus,
+    _safeBillReconciliationStatusLabel(bill.reconciliationStatus),
     settleoraBillArchiveStateLabel(bill.archiveState),
     bill.archiveState,
     '${bill.itemCount} items',
@@ -4913,6 +4921,9 @@ class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
     required this.keyPrefix,
     required this.searchController,
     required this.searchHint,
+    required this.loadedCount,
+    required this.visibleCount,
+    required this.readoutScope,
     required this.selectedFilter,
     required this.filters,
     required this.labelForFilter,
@@ -4925,6 +4936,9 @@ class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
   final String keyPrefix;
   final TextEditingController searchController;
   final String searchHint;
+  final int loadedCount;
+  final int visibleCount;
+  final String readoutScope;
   final T selectedFilter;
   final List<T> filters;
   final String Function(T filter) labelForFilter;
@@ -4964,6 +4978,14 @@ class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
             border: const OutlineInputBorder(),
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          '$visibleCount of $loadedCount loaded server rows visible.',
+          key: Key('$keyPrefix-visible-count'),
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(readoutScope, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -14047,7 +14069,7 @@ class _BillSummaryTile extends StatelessWidget {
                       size: StatusChipSize.small,
                     ),
                     StatusChip(
-                      label: settleoraBillReconciliationStatusLabel(
+                      label: _safeBillReconciliationStatusLabel(
                         bill.reconciliationStatus,
                       ),
                       icon: Icons.fact_check_outlined,
@@ -15077,7 +15099,7 @@ class _BillDetailDiscoveryControls extends StatelessWidget {
         if (hasFilters) ...[
           const SizedBox(height: 6),
           Text(
-            'Filtered rows are hidden locally only. Clear filters to review every loaded row before responding.',
+            'Search and filters hide already-loaded server detail rows locally only. Mobile displays server bill and reconciliation metadata; it does not decide financial truth or authorization.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -15094,7 +15116,8 @@ class _BillDetailFilteredEmpty extends StatelessWidget {
     return const _StatePanel(
       icon: Icons.search_off,
       title: 'No matching detail rows',
-      message: 'No loaded bill rows match these local filters.',
+      message:
+          'No already-loaded bill detail rows match these local filters. Clear filters to review every loaded server row before responding.',
       compact: true,
     );
   }
@@ -15108,6 +15131,9 @@ class _BillDetailHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
+    final reconciliationNote = _safeBillReconciliationNote(
+      bill.reconciliationNote,
+    );
 
     return AppCard(
       padding: const EdgeInsets.all(SettleoraSpacing.lg),
@@ -15150,7 +15176,7 @@ class _BillDetailHeader extends StatelessWidget {
                 size: StatusChipSize.small,
               ),
               StatusChip(
-                label: settleoraBillReconciliationStatusLabel(
+                label: _safeBillReconciliationStatusLabel(
                   bill.reconciliationStatus,
                 ),
                 icon: Icons.fact_check_outlined,
@@ -15159,9 +15185,14 @@ class _BillDetailHeader extends StatelessWidget {
               ),
             ],
           ),
-          if (bill.reconciliationNote != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Reconciliation is server-provided record metadata, not bank statement matching.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (reconciliationNote != null) ...[
             const SizedBox(height: 12),
-            Text(bill.reconciliationNote!),
+            Text(reconciliationNote),
           ],
         ],
       ),
@@ -17084,6 +17115,87 @@ SettleoraBillRevisionFailureKind _revisionFailureKindFromBillFailure(
       SettleoraBillRevisionFailureKind.network,
     SettleoraBillFailureKind.server => SettleoraBillRevisionFailureKind.server,
   };
+}
+
+String _safeBillReconciliationStatusLabel(
+  SettleoraBillReconciliationStatus status,
+) {
+  return switch (status.trim()) {
+    'unreconciled' => 'Unreconciled',
+    'reconciled' => 'Reconciled',
+    'ignored' => 'Ignored',
+    final code => _safeBillUnknownStatusLabel(code),
+  };
+}
+
+String _safeBillUnknownStatusLabel(String code) {
+  if (code.isEmpty || _containsUnsafeBillReadoutDetail(code)) {
+    return 'Other status';
+  }
+
+  final words = RegExp(r'[A-Za-z0-9]+')
+      .allMatches(code)
+      .map((match) => match.group(0))
+      .whereType<String>()
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+
+  if (words.isEmpty) {
+    return 'Other status';
+  }
+
+  final label = 'Other status: $words';
+  if (label.length <= 56) {
+    return label;
+  }
+
+  return '${label.substring(0, 53)}...';
+}
+
+String? _safeBillReconciliationNote(String? note) {
+  final trimmed = note?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  if (_containsUnsafeBillReadoutDetail(trimmed)) {
+    return 'Server provided a reconciliation note, but mobile hid unsafe internal details.';
+  }
+
+  if (trimmed.length <= 160) {
+    return trimmed;
+  }
+
+  return '${trimmed.substring(0, 157)}...';
+}
+
+bool _containsUnsafeBillReadoutDetail(String value) {
+  final normalized = value.toLowerCase();
+  const unsafeMarkers = [
+    '/api/',
+    'http://',
+    'https://',
+    'bearer ',
+    'token',
+    'stacktrace',
+    'stack trace',
+    'exception',
+    'generated client',
+    'generated-client',
+    'settleora_api_client',
+    '.dart',
+    '.cs',
+    '.js',
+    '/workspace/',
+    '/users/',
+    'c:\\',
+    '\\',
+    'storage provider',
+    'provider object',
+  ];
+
+  return unsafeMarkers.any(normalized.contains);
 }
 
 Future<_PendingRevisionSnapshot> _loadPendingRevision(

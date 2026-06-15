@@ -4258,7 +4258,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No matching bills'), findsOneWidget);
-    expect(find.text('No personal bills match these filters.'), findsOneWidget);
+    expect(
+      find.text(
+        'No already-loaded personal bills match this local search or filter. Clear filters to review every loaded server row.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Train Tickets'), findsNothing);
 
     await tester.tap(find.byKey(const Key('bill-list-clear-filters')));
@@ -8316,10 +8321,150 @@ void main() {
 
     expect(find.text('No matching detail rows'), findsOneWidget);
     expect(
-      find.text('No loaded bill rows match these local filters.'),
+      find.text(
+        'No already-loaded bill detail rows match these local filters. Clear filters to review every loaded server row before responding.',
+      ),
       findsOneWidget,
     );
     expect(find.text('No items'), findsNothing);
+  });
+
+  testWidgets('bill list and detail show bounded reconciliation readouts', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          merchantName: 'Known Status Bill',
+          reconciliationStatus: 'reconciled',
+        ),
+        sampleBillSummary(
+          id: 'future-status-bill-id',
+          merchantName: 'Future Status Bill',
+          reconciliationStatus:
+              'provider_pending_manual_review_with_extra_long_generated_code_value',
+        ),
+      ],
+      detail: sampleBillDetail(
+        merchantName: 'Future Status Bill',
+        reconciliationStatus:
+            'provider_pending_manual_review_with_extra_long_generated_code_value',
+        reconciliationNote:
+            'Reviewed against the server record metadata for this loaded bill.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 of 2 loaded server rows visible.'), findsOneWidget);
+    expect(
+      find.text(
+        'Personal bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Reconciled'), findsOneWidget);
+    expect(
+      find.text('Other status: Provider Pending Manual Review With Ext...'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Future Status Bill'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Other status: Provider Pending Manual Review With Ext...'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Reconciliation is server-provided record metadata, not bank statement matching.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Reviewed against the server record metadata for this loaded bill.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('bill reconciliation readout hides unsafe raw details', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          reconciliationStatus:
+              '/api/v1/reconciliation?token=secret generated client stacktrace',
+        ),
+      ],
+      detail: sampleBillDetail(
+        reconciliationStatus:
+            '/api/v1/reconciliation?token=secret generated client stacktrace',
+        reconciliationNote:
+            'Bearer token abc at /workspace/repos/Settleora/packages/client-dart/lib/generated/api.dart StackTrace storage provider object',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Other status'), findsOneWidget);
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+
+    final visible = visibleText(tester).toLowerCase();
+    expect(find.text('Other status'), findsOneWidget);
+    expect(
+      find.text(
+        'Server provided a reconciliation note, but mobile hid unsafe internal details.',
+      ),
+      findsOneWidget,
+    );
+    for (final unsafeText in [
+      '/api/v1',
+      'token',
+      '/workspace/',
+      'stacktrace',
+      'generated client',
+      'storage provider',
+      'api.dart',
+    ]) {
+      expect(visible, isNot(contains(unsafeText)));
+    }
+    for (final actionText in [
+      'Import statement',
+      'Upload statement',
+      'Download statement',
+      'Link match',
+      'Unlink match',
+      'Update reconciliation',
+      'Export CSV',
+      'Backup',
+      'Restore backup',
+    ]) {
+      expect(find.text(actionText), findsNothing);
+    }
   });
 
   testWidgets('personal bill detail loads and renders attachment metadata', (
@@ -9414,6 +9559,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('bill-detail-saved-ocr-discovery')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(
         find.byKey(const Key('bill-detail-saved-ocr-discovery')),
       );
@@ -9635,7 +9785,7 @@ void main() {
       );
       await tester.scrollUntilVisible(
         action,
-        180,
+        360,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.ensureVisible(action);
@@ -9898,6 +10048,8 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.ensureVisible(action);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
+      await tester.pumpAndSettle();
       await tester.tap(action);
       await tester.pumpAndSettle();
 
@@ -12007,6 +12159,7 @@ SettleoraBillSummary sampleBillSummary({
   String? merchantName = 'Corner Market',
   String billDate = '2026-05-17',
   String status = 'draft',
+  String reconciliationStatus = 'unreconciled',
   String totalAmount = '10.80',
   String totalCurrency = 'USD',
   String archiveState = SettleoraBillArchiveStateValues.active,
@@ -12016,7 +12169,7 @@ SettleoraBillSummary sampleBillSummary({
     merchantName: merchantName,
     billDate: billDate,
     status: status,
-    reconciliationStatus: 'unreconciled',
+    reconciliationStatus: reconciliationStatus,
     totalAmount: totalAmount,
     totalCurrency: totalCurrency,
     archiveState: archiveState,
@@ -12215,6 +12368,8 @@ SettleoraBillDetail sampleBillDetail({
   String? merchantName = 'Corner Market',
   String billDate = '2026-05-17',
   String status = 'draft',
+  String reconciliationStatus = 'unreconciled',
+  String? reconciliationNote,
   String totalAmount = '10.80',
   String totalCurrency = 'USD',
   bool canCreateRevision = false,
@@ -12260,8 +12415,8 @@ SettleoraBillDetail sampleBillDetail({
     merchantName: merchantName,
     billDate: billDate,
     status: status,
-    reconciliationStatus: 'unreconciled',
-    reconciliationNote: null,
+    reconciliationStatus: reconciliationStatus,
+    reconciliationNote: reconciliationNote,
     revisionCreationActions: SettleoraBillRevisionCreationActions(
       canCreateRevision: canCreateRevision,
     ),

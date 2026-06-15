@@ -237,6 +237,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bill'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Lunch'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Lunch'), findsOneWidget);
     expectCanonicalBottomNav(tester, selectedIndex: 1);
 
