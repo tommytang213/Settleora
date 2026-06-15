@@ -1,12 +1,12 @@
 # AI QA Report
 
-Status: `M4-003 mobile group bill detail lifecycle hardened; manual UI/code review deferred until Day 1 acceptance`
+Status: `M4 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
 - [x] M3 mobile sync/offline queue work is controller-finalized as a bounded Day 1 checkpoint.
-- [ ] M2/M3 manual UI retests remain deferred until Day 1 acceptance, not passed.
-- [ ] Manual code review remains deferred until Day 1 acceptance, not passed.
+- [x] M2/M3 manual UI retests remain deferred until Day 1 acceptance, not passed.
+- [x] Manual code review remains deferred until Day 1 acceptance, not passed.
 - [x] Automated development may continue under scoped validation, CI, PR, and merge gates.
 - [x] Current milestone moved to M4 `Day 1 Mobile Group Bill Lifecycle UX Hardening`.
 - [x] M4 queue has 2-4 related sub-slices plus a hard stop sentinel.
@@ -16,7 +16,8 @@ Status: `M4-003 mobile group bill detail lifecycle hardened; manual UI/code revi
 - [x] M4-001 updated the M4 QA map with current implementation inventory, covered tests, acceptance targets, M4-002/M4-003 gaps, and stop conditions.
 - [x] M4-002 hardened existing mobile group bill create/submit status, retry, duplicate-mutation, validation, and safe-error coverage without changing backend/API contracts, generated clients, schema, auth/session, storage, money, deployment, or offline queueing.
 - [x] M4-003 hardened existing mobile group bill detail lifecycle acknowledgement failure, retry, duplicate-mutation, revision-entry, attachment/OCR-handoff, member fallback, and terminal/unavailable state coverage within existing mobile seams.
-- [x] Current state pointer and next queued task target `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`.
+- [x] M4-004 finalized M4 QA/control state and marked M4 UI-test ready as a controller stop state.
+- [x] Current state pointer no longer targets stale M4 work; next automated Day 1 action is the next controller-approved milestone or queue kickoff.
 
 ## M3 Finalization Carry-Forward
 
@@ -42,8 +43,23 @@ The selection is based on current repo state:
 - `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Completed. Reconciled current mobile group bill lifecycle state and updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
 - `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Completed. Hardened existing group bill create/submit UX, safe retries, member/payer/split validation coverage, safe status labels, duplicate-mutation prevention, and bounded unsafe-error display inside current mobile seams.
 - `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Completed. Hardened group bill detail lifecycle participant action failure/retry state, action-specific duplicate blocking, server-authority copy, and focused detail tests while preserving current revision, attachment/OCR-review, and member fallback seams.
-- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Queued. Finalize M4 QA/control state and preserve deferred manual review status.
+- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Completed. Finalized M4 QA/control state, marked M4 UI-test ready, and preserved deferred manual review status.
 - `STOP-M4-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, OCR-worker/runtime expansion, recurring, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
+
+## M4-004 QA Finalization Summary
+
+M4 is finalized as a bounded Day 1 mobile group bill lifecycle UX hardening checkpoint.
+
+Completed M4 slices:
+
+- M4-001 reconciled current mobile group bill lifecycle implementation and QA state.
+- M4-002 completed create/submit resilience hardening within existing mobile seams.
+- M4-003 completed detail lifecycle hardening within existing mobile seams.
+- M4-004 completed control/QA finalization and set M4 to UI-test ready.
+
+Automated validation for the finalization task is recorded in the task report. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M4.
+
+M4 makes no claims of backend/API/contract/auth/schema/storage/money changes, broad offline queue/cache/sync expansion, recurring/reporting/notification/OCR-worker/web-admin expansion, or manual UI acceptance. The recommended next automated Day 1 action is to run the controller and select the next controller-approved milestone or queue kickoff.
 
 ## M4-001 Reconciliation Summary
 

@@ -10,6 +10,8 @@ M4-002 update: the mobile group bill create/submit flow now renders explicit bou
 
 M4-003 update: the mobile group bill detail acknowledgement card now distinguishes accept and reject in-flight state, blocks duplicate/conflicting participant actions while either mutation is active, shows bounded failure title/message copy, and offers `Refresh bill state` to reload server state after a failed acknowledgement without automatically retrying the mutation. The detail screen continues to use existing generated-client accept/reject, revision, attachment, and receipt OCR-review seams; API/domain services remain authoritative for authorization, bill status, participant acknowledgement, revision capability, financial truth, and storage access.
 
+M4-004 update: M4 QA/control state is finalized as a bounded Day 1 mobile group bill lifecycle UX hardening checkpoint. M4 is UI-test ready for deferred Day 1 acceptance review. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+
 ## Day 1 Requirement Boundary
 
 Day 1 requires users to create and review shared group bills, understand participant acknowledgement state, attach receipts/supporting files, use correction proposal/revision flows where available, and preserve API/domain authority for authorization, money, bill status, revision review context, storage access, and audit.
@@ -145,13 +147,13 @@ M4-003 should harden or preserve:
 
 - M4-002: group bill create/submit can be exercised through current mobile UI with safe local validation, no duplicate create on retry, no duplicate submit on submitted-detail retry, safe draft attachment retry, bounded OCR review handoff, and current generated-client seams only.
 - M4-003: group bill detail lifecycle can be exercised through current mobile UI with safe participant actions, retryable server-state refresh after acknowledgement failures, revision entry/review navigation, group attachment/OCR review routes, stale capability refresh, member fallback labels, terminal/unavailable states, and current generated-client seams only.
-- M4-004: M4 QA/control state records automated validation and explicitly leaves manual UI/code review deferred until Day 1 acceptance, not passed.
+- M4-004: M4 QA/control state records automated validation, marks M4 UI-test ready as the controller stop state, and explicitly leaves manual UI/code review deferred until Day 1 acceptance, not passed.
 
 ## Gaps For Next Tasks
 
 - M4-002 completed the create/submit continuation-copy hardening and strengthened focused assertions for retry/no-duplicate-create/no-duplicate-submit/safe-error behavior.
 - M4-003 completed focused detail lifecycle hardening for acknowledgement failure copy, retryable server-state refresh, action-specific duplicate blocking, and server-authority guidance while preserving current revision capability refresh, group attachment/OCR-review routes, member fallback labels, and terminal/unavailable states.
-- M4-004 should finalize the M4 QA/control state, record validation coverage, and leave manual UI/code review deferred until Day 1 acceptance.
+- M4-004 finalized the M4 QA/control state, records validation coverage in the task report, marks M4 UI-test ready, and leaves manual UI/code review deferred until Day 1 acceptance.
 - Manual UI/code review remains deferred by owner decision until Day 1 acceptance and is not passed by this map.
 
 ## Non-Goals
@@ -194,6 +196,31 @@ M4 implementation validation should add:
 ## Acceptance Result Target
 
 M4 is complete when the existing mobile group bill lifecycle UX is reconciled, hardened, tested, and finalized as a bounded Day 1 checkpoint while preserving API/domain authority and deferred manual UI/code review status until Day 1 acceptance.
+
+## M4 Finalization Result
+
+M4-004 QA finalization is complete as a documentation/control-state update. The M4 queue state is reconciled as:
+
+- `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659`: complete.
+- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`: complete.
+- `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659`: complete.
+- `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659`: complete.
+
+M4 is UI-test ready for deferred Day 1 acceptance review. The controller should stop on M4 readiness and should not reselect stale M4 work. The next automated Day 1 action is selecting the next controller-approved milestone or queue kickoff, not expanding M4 ad hoc.
+
+Automated validation summary:
+
+- M4-001 focused validation reconciled the QA map and state without mobile runtime edits.
+- M4-002 focused group bill create/submit validation passed `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` with 74 tests.
+- M4-003 focused group bill detail lifecycle validation passed `cd apps/mobile && /opt/flutter/bin/flutter test test/group_bill_list_screen_test.dart` with 76 tests.
+- M4-004 final validation is recorded in the task report and includes full mobile validation.
+
+Explicit M4 non-claims:
+
+- No backend/API behavior, OpenAPI contract, generated-client, auth/session/security runtime, database schema/migration, storage/file privacy policy, money, settlement, payment, bill calculation authority, Docker/deployment/env/CI, secret, or production exposure changes.
+- No broad offline queue/cache/sync expansion, persistent offline cache, startup/background sync, conflict-resolution UX, retry/backoff policy, or group bill create/edit offline queueing.
+- No recurring bill runtime, reporting/import/export runtime, notification delivery, OCR-worker/runtime, web/admin runtime UI, or unrelated major-domain expansion.
+- No manual UI acceptance, manual UI retest pass, or manual code review pass.
 
 ## M4-001 Reconciliation Result
 
