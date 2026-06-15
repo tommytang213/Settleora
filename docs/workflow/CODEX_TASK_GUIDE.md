@@ -63,7 +63,28 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - Stage only the intended files by explicit path.
 - Commit with the requested message when one is provided.
 - Push only the task branch unless asked otherwise.
-- Do not merge to `main` unless the task explicitly asks for it.
+- Do not merge to `main` unless the task explicitly asks for a PR/merge-gate action and the development-stage main merge policy permits it.
+
+## Development-Stage Main Merge Policy
+
+Settleora is currently in development stage with no production deployment. Future explicit PR/merge-gate tasks may auto-merge to `main` only through a GitHub PR when all required gates pass:
+
+- Worktree is clean before validation and immediately before merge.
+- Source branch head matches the expected SHA.
+- `origin/main` matches the expected starting SHA immediately before merge.
+- PR base, head branch, and head SHA match the task.
+- Changed files are within the task's allowed scope.
+- Required local validation passes and exact commands are reported.
+- GitHub CI/checks pass on the exact PR head.
+- PR is mergeable and clean.
+- PR head is unchanged immediately before merge.
+- No manual gate is triggered.
+- Merge is a normal GitHub merge commit unless the task explicitly says otherwise.
+- Source branch is not deleted unless the human explicitly requests deletion.
+
+Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security, destructive, or otherwise manual-gated work.
+
+Manual gates remain required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
 ## Final Report Format
 
