@@ -129,7 +129,10 @@ class _SettleoraNotificationScreenState
       }
 
       setState(() {
-        _actionFailure = SettleoraNotificationFailure.from(error);
+        _actionFailure = _safeNotificationActionFailure(
+          error,
+          fallbackMessage: 'Notification could not be marked read.',
+        );
       });
     } finally {
       if (mounted) {
@@ -168,7 +171,10 @@ class _SettleoraNotificationScreenState
       }
 
       setState(() {
-        _actionFailure = SettleoraNotificationFailure.from(error);
+        _actionFailure = _safeNotificationActionFailure(
+          error,
+          fallbackMessage: 'Notifications could not be marked read.',
+        );
       });
     } finally {
       if (mounted) {
@@ -205,7 +211,10 @@ class _SettleoraNotificationScreenState
       }
 
       setState(() {
-        _actionFailure = SettleoraNotificationFailure.from(error);
+        _actionFailure = _safeNotificationActionFailure(
+          error,
+          fallbackMessage: 'Notification could not be archived.',
+        );
       });
     } finally {
       if (mounted) {
@@ -1223,6 +1232,36 @@ SettleoraNotificationFailure _safeOpenReadFailure(Object error) {
     statusCode: failure.statusCode,
   );
 }
+
+SettleoraNotificationFailure _safeNotificationActionFailure(
+  Object error, {
+  required String fallbackMessage,
+}) {
+  final failure = SettleoraNotificationFailure.from(error);
+  return SettleoraNotificationFailure(
+    kind: failure.kind,
+    message: _isUnsafeNotificationUiText(failure.message)
+        ? fallbackMessage
+        : failure.message,
+    statusCode: failure.statusCode,
+  );
+}
+
+bool _isUnsafeNotificationUiText(String value) {
+  final lower = value.toLowerCase();
+  return _notificationUuidPattern.hasMatch(value) ||
+      lower.contains('token=') ||
+      lower.contains('secret') ||
+      lower.contains('bearer ') ||
+      lower.contains('http://') ||
+      lower.contains('https://') ||
+      value.contains('/api/') ||
+      value.contains('?');
+}
+
+final _notificationUuidPattern = RegExp(
+  r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+);
 
 Map<String, String> _participantDisplayNamesFromMembers(
   Iterable<SettleoraGroupMember> members,
