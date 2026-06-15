@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M5-001 reconciled; M5-002 queued next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M5-002 complete; M5-003 queued next; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -24,7 +24,8 @@ Status: `M5-001 reconciled; M5-002 queued next; manual UI/code review deferred u
 - [x] No M5 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, worker, notification delivery, reminder, background generation, or secret changes.
 - [x] M5-001 reconciled the current mobile recurring bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M5-001 updated the M5 QA map with current implementation inventory, covered tests, acceptance targets, M5-002/M5-003 gaps, stop conditions, and explicit deferred manual UI/code review status.
-- [x] Current M5 state pointer selects M5-002 as the next automated task while M5-002 and M5-003 remain queued and STOP-M5-001 remains preserved.
+- [x] M5-002 hardened mobile recurring template create/edit and pause/resume/archive lifecycle actions within existing generated-client seams.
+- [x] Current M5 state pointer selects M5-003 as the next automated task while M5-003 remains queued and STOP-M5-001 remains preserved.
 
 ## M5 Selection Summary
 
@@ -40,7 +41,7 @@ The selection is based on current repo state:
 ## M5 Queue Summary
 
 - `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825` - Completed. Reconciled current mobile recurring bill lifecycle state and updated `docs/qa/M5_MOBILE_RECURRING_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
-- `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825` - Queued. Harden generated-client-backed mobile recurring template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging.
+- `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825` - Completed. Hardened generated-client-backed mobile recurring template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging.
 - `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825` - Queued. Harden recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, and navigation to generated bill context.
 - `STOP-M5-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker/runtime expansion, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
@@ -63,6 +64,26 @@ Current implementation findings:
 - Draft generation is explicit, confirmation-gated, duplicate-tap blocked while in progress, and refreshes server state after success.
 
 No mobile runtime files or mobile test files were changed by M5-001.
+
+## M5-002 Create/Edit Lifecycle Hardening Summary
+
+Updated `apps/mobile/lib/recurring_bills/` and focused recurring tests only for the mobile recurring bill create/edit/lifecycle flow.
+
+Runtime hardening:
+
+- Added generated-client-backed mobile repository methods for recurring template create, update, pause, resume, and archive using existing OpenAPI/Dart client seams.
+- Added a recurring template create form for contract-supported display, optional group ID, schedule, currency, and one minimal item payload field set.
+- Added edit from template detail for server-returned display fields and schedule fields; raw payload editing remains bounded by what the read response exposes.
+- Added pause/resume/archive lifecycle actions with confirmation, action-specific in-flight state, duplicate/conflicting mutation blocking, safe terminal archived copy, and server refresh after success.
+- Added server-authority copy clarifying that recurrence, group membership, authorization, money, generated drafts, and audit remain API/domain authoritative.
+- Preserved existing template list, detail, forecast, and explicit draft-generation behavior.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/recurring_bill_screen_test.dart test/recurring_bill_generated_repository_test.dart` passed with 30 tests.
+- New tests cover create form validation, create success/reload, duplicate create blocking, edit prefill/update, pause/resume/archive confirmation and refresh, lifecycle failure safe copy, generated repository create/update/lifecycle mapping, token usage, validation, and bounded failure handling.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
 ## M5 Kickoff Summary
 

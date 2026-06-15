@@ -2066,6 +2066,42 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   }
 
   @override
+  Future<SettleoraRecurringBillTemplateDetail> createTemplate(
+    SettleoraRecurringBillCreateDraft draft,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> updateTemplate({
+    required String templateId,
+    required SettleoraRecurringBillUpdateDraft draft,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> pauseTemplate(
+    String templateId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> resumeTemplate(
+    String templateId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> archiveTemplate(
+    String templateId,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraRecurringBillDraftResult> generateDraft({
     required String templateId,
     required String occurrenceDate,

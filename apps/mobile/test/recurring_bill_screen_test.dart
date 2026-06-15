@@ -432,6 +432,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Due 3 days after each occurrence.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Payload'), 120);
     expect(find.text('Payload'), findsOneWidget);
     expect(find.text('Version 1'), findsOneWidget);
   });
@@ -581,7 +582,7 @@ void main() {
 
     expect(
       find.text(
-        'This template is paused. Mobile can show it, but pause and resume actions are not available in this surface yet.',
+        'This template is paused. Resume asks the server to recompute the next occurrence.',
       ),
       findsOneWidget,
     );
@@ -589,6 +590,259 @@ void main() {
       find.text('No upcoming occurrence is available from the server.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('create form validates input before calling repository', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-create')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('recurring-bill-form-save')),
+    );
+    await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter a date.'), findsOneWidget);
+    expect(find.text('Enter item name.'), findsOneWidget);
+    expect(repository.createTemplateCalls, 0);
+  });
+
+  testWidgets('create success calls repository once and refreshes', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-merchant')),
+      'Internet',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-start-date'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-start-date')),
+      '2026-07-01',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-name'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-name')),
+      'Fiber plan',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-amount'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-amount')),
+      '88.50',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('recurring-bill-form-save')),
+    );
+    await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createTemplateCalls, 1);
+    expect(repository.lastCreateDraft?.merchantName, 'Internet');
+    expect(repository.lastCreateDraft?.items.single.amount, '88.50');
+    expect(repository.listTemplateCalls, 2);
+    expect(find.text('Internet'), findsWidgets);
+  });
+
+  testWidgets('duplicate create tap is blocked while saving', (tester) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-create')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-start-date'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-start-date')),
+      '2026-07-01',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-name'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-name')),
+      'Fiber plan',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-amount'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-amount')),
+      '88.50',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('recurring-bill-form-save')),
+    );
+    await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+    await tester.tap(
+      find.byKey(const Key('recurring-bill-form-save')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.createTemplateCalls, 1);
+  });
+
+  testWidgets('edit form opens with returned values and updates detail', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-bill-detail-edit')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('recurring-bill-form-merchant')),
+          )
+          .controller
+          ?.text,
+      'Rent',
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-merchant')),
+      'Rent v2',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-start-date'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-start-date')),
+      '2026-05-08',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('recurring-bill-form-save')),
+    );
+    await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.updateTemplateCalls, 1);
+    expect(repository.getTemplateCalls, 2);
+    expect(repository.lastUpdateDraft?.merchantName, 'Rent v2');
+    expect(find.text('Rent v2'), findsWidgets);
+  });
+
+  testWidgets('pause resume and archive require confirmation and refresh', (
+    tester,
+  ) async {
+    final repository = FakeRecurringBillRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-pause')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pause recurring bill?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('recurring-bill-pause-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.pauseTemplateCalls, 1);
+    expect(repository.getTemplateCalls, 2);
+    expect(find.byKey(const Key('recurring-bill-resume')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('recurring-bill-resume')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-bill-resume-confirm')));
+    await tester.pumpAndSettle();
+    expect(repository.resumeTemplateCalls, 1);
+
+    await tester.tap(find.byKey(const Key('recurring-bill-archive')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-bill-archive-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.archiveTemplateCalls, 1);
+    expect(find.text('Archived template'), findsOneWidget);
+    expect(find.byKey(const Key('recurring-bill-detail-edit')), findsNothing);
+  });
+
+  testWidgets('lifecycle failure shows bounded retry copy', (tester) async {
+    final repository = FakeRecurringBillRepository(
+      lifecycleFailure: const SettleoraRecurringBillFailure(
+        kind: SettleoraRecurringBillFailureKind.conflict,
+        message: 'Refresh recurring bills and try again.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-bill-pause')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-bill-pause-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.pauseTemplateCalls, 1);
+    expect(find.text('Refresh recurring bills and try again.'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('/api/v1')));
   });
 
   testWidgets('authenticated server shell opens recurring bills', (
@@ -638,6 +892,9 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
     SettleoraRecurringBillTemplateDetail? detail,
     this.listFailures = const [],
     this.generateFailure,
+    this.createFailure,
+    this.updateFailure,
+    this.lifecycleFailure,
   }) : templates = templates ?? [sampleTemplate()],
        forecast = forecast ?? [sampleOccurrence()],
        detail = detail ?? sampleDetail(),
@@ -650,6 +907,9 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
       detail = sampleDetail(),
       listFailures = const [],
       generateFailure = null,
+      createFailure = null,
+      updateFailure = null,
+      lifecycleFailure = null,
       _templateCompleter =
           Completer<List<SettleoraRecurringBillTemplateSummary>>(),
       _forecastCompleter =
@@ -657,9 +917,12 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
 
   List<SettleoraRecurringBillTemplateSummary> templates;
   List<SettleoraRecurringBillForecastOccurrence> forecast;
-  final SettleoraRecurringBillTemplateDetail detail;
+  SettleoraRecurringBillTemplateDetail detail;
   final List<SettleoraRecurringBillFailure> listFailures;
   final SettleoraRecurringBillFailure? generateFailure;
+  final SettleoraRecurringBillFailure? createFailure;
+  final SettleoraRecurringBillFailure? updateFailure;
+  final SettleoraRecurringBillFailure? lifecycleFailure;
   final Completer<List<SettleoraRecurringBillTemplateSummary>>?
   _templateCompleter;
   final Completer<List<SettleoraRecurringBillForecastOccurrence>>?
@@ -667,7 +930,14 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   int listTemplateCalls = 0;
   int forecastCalls = 0;
   int getTemplateCalls = 0;
+  int createTemplateCalls = 0;
+  int updateTemplateCalls = 0;
+  int pauseTemplateCalls = 0;
+  int resumeTemplateCalls = 0;
+  int archiveTemplateCalls = 0;
   int generateDraftCalls = 0;
+  SettleoraRecurringBillCreateDraft? lastCreateDraft;
+  SettleoraRecurringBillUpdateDraft? lastUpdateDraft;
   String? lastTemplateId;
   String? lastOccurrenceDate;
 
@@ -724,6 +994,90 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   ) async {
     getTemplateCalls += 1;
     lastTemplateId = templateId;
+    return detail;
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> createTemplate(
+    SettleoraRecurringBillCreateDraft draft,
+  ) async {
+    createTemplateCalls += 1;
+    lastCreateDraft = draft;
+    final failure = createFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    detail = sampleDetail();
+    templates = [sampleTemplate(merchantName: draft.merchantName?.trim())];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> updateTemplate({
+    required String templateId,
+    required SettleoraRecurringBillUpdateDraft draft,
+  }) async {
+    updateTemplateCalls += 1;
+    lastTemplateId = templateId;
+    lastUpdateDraft = draft;
+    final failure = updateFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    detail = sampleDetail(
+      merchantName: draft.merchantName?.trim(),
+      description: draft.description?.trim(),
+      schedule: SettleoraRecurringBillSchedule(
+        type: draft.schedule.type,
+        intervalCount: draft.schedule.intervalCount,
+        intervalDays: draft.schedule.intervalDays,
+        startDate: draft.schedule.startDate.trim(),
+        endDate: draft.schedule.endDate?.trim(),
+        dueOffsetDays: draft.schedule.dueOffsetDays,
+      ),
+    );
+    templates = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> pauseTemplate(
+    String templateId,
+  ) async {
+    pauseTemplateCalls += 1;
+    lastTemplateId = templateId;
+    return _lifecycleResult(SettleoraRecurringBillTemplateStatusValues.paused);
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> resumeTemplate(
+    String templateId,
+  ) async {
+    resumeTemplateCalls += 1;
+    lastTemplateId = templateId;
+    return _lifecycleResult(SettleoraRecurringBillTemplateStatusValues.active);
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> archiveTemplate(
+    String templateId,
+  ) async {
+    archiveTemplateCalls += 1;
+    lastTemplateId = templateId;
+    return _lifecycleResult(
+      SettleoraRecurringBillTemplateStatusValues.archived,
+    );
+  }
+
+  SettleoraRecurringBillTemplateDetail _lifecycleResult(String status) {
+    final failure = lifecycleFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    detail = sampleDetail(status: status);
+    templates = [detail];
     return detail;
   }
 
@@ -1215,11 +1569,16 @@ SettleoraRecurringBillTemplateSummary sampleTemplate({
 }
 
 SettleoraRecurringBillTemplateDetail sampleDetail({
+  String? merchantName = 'Rent',
+  String? description = 'Monthly apartment rent',
   String status = SettleoraRecurringBillTemplateStatusValues.active,
   String? nextOccurrenceDate = '2026-06-01',
   bool isGroupScoped = false,
+  SettleoraRecurringBillSchedule? schedule,
 }) {
   final template = sampleTemplate(
+    merchantName: merchantName,
+    description: description,
     status: status,
     nextOccurrenceDate: nextOccurrenceDate,
     isGroupScoped: isGroupScoped,
@@ -1229,7 +1588,7 @@ SettleoraRecurringBillTemplateDetail sampleDetail({
     merchantName: template.merchantName,
     description: template.description,
     status: template.status,
-    schedule: template.schedule,
+    schedule: schedule ?? template.schedule,
     forecastAmount: template.forecastAmount,
     forecastCurrency: template.forecastCurrency,
     nextOccurrenceDate: template.nextOccurrenceDate,
