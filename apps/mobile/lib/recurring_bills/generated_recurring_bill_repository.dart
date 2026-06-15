@@ -7,6 +7,11 @@ import '../api/settleora_api_client.dart';
 import 'recurring_bill_repository.dart';
 
 abstract interface class SettleoraRecurringBillGeneratedClient {
+  Future<api.RecurringBillTemplateResponse> createRecurringBillTemplate(
+    api.CreateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  });
+
   Future<api.RecurringBillTemplateListResponse> listRecurringBillTemplates({
     api.RecurringBillTemplateStatus? status,
     String? groupId,
@@ -28,6 +33,27 @@ abstract interface class SettleoraRecurringBillGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.RecurringBillTemplateResponse> updateRecurringBillTemplate(
+    String templateId,
+    api.UpdateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  });
+
+  Future<api.RecurringBillTemplateResponse> pauseRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  });
+
+  Future<api.RecurringBillTemplateResponse> resumeRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  });
+
+  Future<api.RecurringBillTemplateResponse> archiveRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  });
+
   Future<api.RecurringBillGenerateDraftResponse> generateRecurringBillDraft(
     String templateId,
     String occurrenceDate, {
@@ -40,6 +66,14 @@ class SettleoraGeneratedRecurringBillClient
   const SettleoraGeneratedRecurringBillClient(this._client);
 
   final api.SettleoraApiClient _client;
+
+  @override
+  Future<api.RecurringBillTemplateResponse> createRecurringBillTemplate(
+    api.CreateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  }) {
+    return _client.createRecurringBillTemplate(body, accessToken: accessToken);
+  }
 
   @override
   Future<api.RecurringBillTemplateListResponse> listRecurringBillTemplates({
@@ -81,6 +115,52 @@ class SettleoraGeneratedRecurringBillClient
     required String accessToken,
   }) {
     return _client.getRecurringBillTemplate(
+      templateId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> updateRecurringBillTemplate(
+    String templateId,
+    api.UpdateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  }) {
+    return _client.updateRecurringBillTemplate(
+      templateId,
+      body,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> pauseRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) {
+    return _client.pauseRecurringBillTemplate(
+      templateId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> resumeRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) {
+    return _client.resumeRecurringBillTemplate(
+      templateId,
+      accessToken: accessToken,
+    );
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> archiveRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) {
+    return _client.archiveRecurringBillTemplate(
       templateId,
       accessToken: accessToken,
     );
@@ -215,6 +295,90 @@ class GeneratedSettleoraRecurringBillRepository
   }
 
   @override
+  Future<SettleoraRecurringBillTemplateDetail> createTemplate(
+    SettleoraRecurringBillCreateDraft draft,
+  ) {
+    final request = _createRequest(draft);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.createRecurringBillTemplate(
+          request,
+          accessToken: accessToken,
+        );
+        return _mapTemplateDetail(response);
+      } on SettleoraRecurringBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> updateTemplate({
+    required String templateId,
+    required SettleoraRecurringBillUpdateDraft draft,
+  }) {
+    final trimmedTemplateId = _requiredId(
+      templateId,
+      message: 'Choose a recurring bill before saving changes.',
+    );
+    final request = _updateRequest(draft);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.updateRecurringBillTemplate(
+          trimmedTemplateId,
+          request,
+          accessToken: accessToken,
+        );
+        return _mapTemplateDetail(response);
+      } on SettleoraRecurringBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> pauseTemplate(
+    String templateId,
+  ) {
+    return _lifecycleTemplate(
+      templateId,
+      emptyIdMessage: 'Choose a recurring bill before pausing it.',
+      operation: (id, accessToken) =>
+          _client.pauseRecurringBillTemplate(id, accessToken: accessToken),
+    );
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> resumeTemplate(
+    String templateId,
+  ) {
+    return _lifecycleTemplate(
+      templateId,
+      emptyIdMessage: 'Choose a recurring bill before resuming it.',
+      operation: (id, accessToken) =>
+          _client.resumeRecurringBillTemplate(id, accessToken: accessToken),
+    );
+  }
+
+  @override
+  Future<SettleoraRecurringBillTemplateDetail> archiveTemplate(
+    String templateId,
+  ) {
+    return _lifecycleTemplate(
+      templateId,
+      emptyIdMessage: 'Choose a recurring bill before archiving it.',
+      operation: (id, accessToken) =>
+          _client.archiveRecurringBillTemplate(id, accessToken: accessToken),
+    );
+  }
+
+  @override
   Future<SettleoraRecurringBillDraftResult> generateDraft({
     required String templateId,
     required String occurrenceDate,
@@ -258,6 +422,29 @@ class GeneratedSettleoraRecurringBillRepository
     return operation(accessToken);
   }
 
+  Future<SettleoraRecurringBillTemplateDetail> _lifecycleTemplate(
+    String templateId, {
+    required String emptyIdMessage,
+    required Future<api.RecurringBillTemplateResponse> Function(
+      String templateId,
+      String accessToken,
+    )
+    operation,
+  }) {
+    final trimmedTemplateId = _requiredId(templateId, message: emptyIdMessage);
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await operation(trimmedTemplateId, accessToken);
+        return _mapTemplateDetail(response);
+      } on SettleoraRecurringBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
   Future<String?> _readAccessToken() async {
     try {
       final accessToken = await _accessTokenProvider.accessToken();
@@ -271,6 +458,122 @@ class GeneratedSettleoraRecurringBillRepository
       return null;
     }
   }
+}
+
+api.CreateRecurringBillTemplateRequest _createRequest(
+  SettleoraRecurringBillCreateDraft draft,
+) {
+  final items = draft.items.map(_payloadItemRequest).toList(growable: false);
+  if (items.isEmpty) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Add at least one recurring bill item.',
+    );
+  }
+
+  return api.CreateRecurringBillTemplateRequest(
+    groupId: _optionalId(draft.groupId),
+    merchantName: _optionalBoundedText(
+      draft.merchantName,
+      maxLength: 200,
+      fieldName: 'merchant name',
+    ),
+    description: _optionalBoundedText(
+      draft.description,
+      maxLength: 1000,
+      fieldName: 'description',
+    ),
+    schedule: _scheduleRequest(draft.schedule),
+    billPayload: api.RecurringBillTemplatePayload(
+      currency: _requiredCurrency(draft.currency),
+      items: items,
+    ),
+  );
+}
+
+api.UpdateRecurringBillTemplateRequest _updateRequest(
+  SettleoraRecurringBillUpdateDraft draft,
+) {
+  return api.UpdateRecurringBillTemplateRequest(
+    merchantName: _optionalBoundedText(
+      draft.merchantName,
+      maxLength: 200,
+      fieldName: 'merchant name',
+    ),
+    description: _optionalBoundedText(
+      draft.description,
+      maxLength: 1000,
+      fieldName: 'description',
+    ),
+    schedule: _scheduleRequest(draft.schedule),
+  );
+}
+
+api.RecurringBillScheduleRequest _scheduleRequest(
+  SettleoraRecurringBillScheduleDraft draft,
+) {
+  final type = _requiredScheduleType(draft.type);
+  final intervalCount = draft.intervalCount;
+  final intervalDays = draft.intervalDays;
+  if (type == SettleoraRecurringBillScheduleTypeValues.customIntervalDays) {
+    if (intervalDays == null || intervalDays < 1 || intervalDays > 3660) {
+      throw const SettleoraRecurringBillFailure(
+        kind: SettleoraRecurringBillFailureKind.validation,
+        message: 'Choose a custom interval from 1 to 3660 days.',
+      );
+    }
+  } else if (intervalCount == null ||
+      intervalCount < 1 ||
+      intervalCount > 120) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Choose a schedule interval from 1 to 120.',
+    );
+  }
+
+  final dueOffsetDays = draft.dueOffsetDays;
+  if (dueOffsetDays != null && (dueOffsetDays < -365 || dueOffsetDays > 365)) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Choose a due offset from -365 to 365 days.',
+    );
+  }
+
+  return api.RecurringBillScheduleRequest(
+    type: type,
+    intervalCount:
+        type == SettleoraRecurringBillScheduleTypeValues.customIntervalDays
+        ? null
+        : intervalCount,
+    intervalDays:
+        type == SettleoraRecurringBillScheduleTypeValues.customIntervalDays
+        ? intervalDays
+        : null,
+    startDate: _requiredIsoDate(
+      draft.startDate,
+      message: 'Choose a valid schedule start date.',
+    ),
+    endDate: _optionalIsoDate(draft.endDate),
+    dueOffsetDays: dueOffsetDays,
+  );
+}
+
+api.RecurringBillTemplatePayloadItem _payloadItemRequest(
+  SettleoraRecurringBillTemplatePayloadItemDraft draft,
+) {
+  return api.RecurringBillTemplatePayloadItem(
+    name: _requiredBoundedText(
+      draft.name,
+      maxLength: 240,
+      fieldName: 'item name',
+    ),
+    note: _optionalBoundedText(
+      draft.note,
+      maxLength: 1000,
+      fieldName: 'item note',
+    ),
+    amount: _requiredDecimal(draft.amount),
+  );
 }
 
 SettleoraRecurringBillTemplateSummary _mapTemplateSummary(
@@ -469,6 +772,89 @@ SettleoraRecurringBillTemplateStatus? _optionalTemplateStatus(
     throw const SettleoraRecurringBillFailure(
       kind: SettleoraRecurringBillFailureKind.validation,
       message: 'Choose a supported recurring bill status.',
+    );
+  }
+
+  return trimmed;
+}
+
+SettleoraRecurringBillScheduleType _requiredScheduleType(String value) {
+  final trimmed = value.trim();
+  const values = {
+    SettleoraRecurringBillScheduleTypeValues.weekly,
+    SettleoraRecurringBillScheduleTypeValues.monthly,
+    SettleoraRecurringBillScheduleTypeValues.yearly,
+    SettleoraRecurringBillScheduleTypeValues.customIntervalDays,
+  };
+  if (!values.contains(trimmed)) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Choose a supported recurring bill schedule.',
+    );
+  }
+
+  return trimmed;
+}
+
+String _requiredCurrency(String value) {
+  final trimmed = value.trim().toUpperCase();
+  if (!RegExp(r'^[A-Z]{3}$').hasMatch(trimmed)) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Choose a three-letter currency code.',
+    );
+  }
+
+  return trimmed;
+}
+
+String _requiredDecimal(String value) {
+  final trimmed = value.trim();
+  if (!RegExp(r'^\d+(\.\d{1,4})?$').hasMatch(trimmed)) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Enter an amount using digits and an optional decimal.',
+    );
+  }
+
+  return trimmed;
+}
+
+String _requiredBoundedText(
+  String value, {
+  required int maxLength,
+  required String fieldName,
+}) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    throw SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Enter a recurring bill $fieldName.',
+    );
+  }
+  if (trimmed.length > maxLength) {
+    throw SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Shorten the recurring bill $fieldName.',
+    );
+  }
+
+  return trimmed;
+}
+
+String? _optionalBoundedText(
+  String? value, {
+  required int maxLength,
+  required String fieldName,
+}) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+  if (trimmed.length > maxLength) {
+    throw SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Shorten the recurring bill $fieldName.',
     );
   }
 

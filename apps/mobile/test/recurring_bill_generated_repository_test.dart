@@ -124,6 +124,89 @@ void main() {
       expect(client.accessTokens, ['redacted', 'redacted']);
     });
 
+    test(
+      'creates, updates, and runs lifecycle through generated client',
+      () async {
+        final client = FakeRecurringBillGeneratedClient();
+        final repository = GeneratedSettleoraRecurringBillRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider(' redacted '),
+        );
+
+        final created = await repository.createTemplate(
+          const SettleoraRecurringBillCreateDraft(
+            groupId: ' 66666666-6666-6666-6666-666666666666 ',
+            merchantName: ' Rent ',
+            description: ' Monthly rent ',
+            schedule: SettleoraRecurringBillScheduleDraft(
+              type: SettleoraRecurringBillScheduleTypeValues.monthly,
+              intervalCount: 1,
+              intervalDays: null,
+              startDate: ' 2026-05-01 ',
+              endDate: null,
+              dueOffsetDays: 3,
+            ),
+            currency: ' usd ',
+            items: [
+              SettleoraRecurringBillTemplatePayloadItemDraft(
+                name: ' Base rent ',
+                amount: ' 1200.00 ',
+                note: ' Apartment ',
+              ),
+            ],
+          ),
+        );
+        final updated = await repository.updateTemplate(
+          templateId: ' $_templateId ',
+          draft: const SettleoraRecurringBillUpdateDraft(
+            merchantName: ' Rent v2 ',
+            description: '',
+            schedule: SettleoraRecurringBillScheduleDraft(
+              type: SettleoraRecurringBillScheduleTypeValues.weekly,
+              intervalCount: 2,
+              intervalDays: null,
+              startDate: '2026-05-08',
+              endDate: '2026-06-08',
+              dueOffsetDays: 0,
+            ),
+          ),
+        );
+        await repository.pauseTemplate(' $_templateId ');
+        await repository.resumeTemplate(' $_templateId ');
+        await repository.archiveTemplate(' $_templateId ');
+
+        expect(created.id, _templateId);
+        expect(updated.id, _templateId);
+        expect(client.createTemplateCalls, 1);
+        expect(client.updateTemplateCalls, 1);
+        expect(client.pauseTemplateCalls, 1);
+        expect(client.resumeTemplateCalls, 1);
+        expect(client.archiveTemplateCalls, 1);
+        expect(client.lastCreateRequest?.groupId, _groupId);
+        expect(client.lastCreateRequest?.merchantName, 'Rent');
+        expect(client.lastCreateRequest?.billPayload.currency, 'USD');
+        expect(
+          client.lastCreateRequest?.billPayload.items.single.name,
+          'Base rent',
+        );
+        expect(
+          client.lastCreateRequest?.billPayload.items.single.amount,
+          '1200.00',
+        );
+        expect(client.lastUpdateRequest?.merchantName, 'Rent v2');
+        expect(client.lastUpdateRequest?.description, isNull);
+        expect(client.lastUpdateRequest?.schedule?.type, 'weekly');
+        expect(client.lastTemplateId, _templateId);
+        expect(client.accessTokens, [
+          'redacted',
+          'redacted',
+          'redacted',
+          'redacted',
+          'redacted',
+        ]);
+      },
+    );
+
     test('maps 401 responses to session-expired failures', () async {
       final repository = GeneratedSettleoraRecurringBillRepository(
         client: FakeRecurringBillGeneratedClient(
@@ -171,6 +254,28 @@ void main() {
           () => repository.generateDraft(
             templateId: _templateId,
             occurrenceDate: '2026-99-99',
+          ),
+        )).kind,
+        SettleoraRecurringBillFailureKind.validation,
+      );
+      expect(
+        (await captureRecurringBillFailure(
+          () => repository.createTemplate(
+            const SettleoraRecurringBillCreateDraft(
+              groupId: null,
+              merchantName: null,
+              description: null,
+              schedule: SettleoraRecurringBillScheduleDraft(
+                type: SettleoraRecurringBillScheduleTypeValues.monthly,
+                intervalCount: 0,
+                intervalDays: null,
+                startDate: '2026-05-01',
+                endDate: null,
+                dueOffsetDays: null,
+              ),
+              currency: 'US',
+              items: [],
+            ),
           ),
         )).kind,
         SettleoraRecurringBillFailureKind.validation,
@@ -254,7 +359,14 @@ class FakeRecurringBillGeneratedClient
   int listTemplateCalls = 0;
   int forecastCalls = 0;
   int getTemplateCalls = 0;
+  int createTemplateCalls = 0;
+  int updateTemplateCalls = 0;
+  int pauseTemplateCalls = 0;
+  int resumeTemplateCalls = 0;
+  int archiveTemplateCalls = 0;
   int generateDraftCalls = 0;
+  api.CreateRecurringBillTemplateRequest? lastCreateRequest;
+  api.UpdateRecurringBillTemplateRequest? lastUpdateRequest;
   String? lastStatus;
   String? lastGroupId;
   String? lastFromDate;
@@ -262,6 +374,18 @@ class FakeRecurringBillGeneratedClient
   int? lastLimit;
   String? lastTemplateId;
   String? lastOccurrenceDate;
+
+  @override
+  Future<api.RecurringBillTemplateResponse> createRecurringBillTemplate(
+    api.CreateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  }) async {
+    createTemplateCalls += 1;
+    lastCreateRequest = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return detail;
+  }
 
   @override
   Future<api.RecurringBillTemplateListResponse> listRecurringBillTemplates({
@@ -305,6 +429,56 @@ class FakeRecurringBillGeneratedClient
     required String accessToken,
   }) async {
     getTemplateCalls += 1;
+    lastTemplateId = templateId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return detail;
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> updateRecurringBillTemplate(
+    String templateId,
+    api.UpdateRecurringBillTemplateRequest body, {
+    required String accessToken,
+  }) async {
+    updateTemplateCalls += 1;
+    lastTemplateId = templateId;
+    lastUpdateRequest = body;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return detail;
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> pauseRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) async {
+    pauseTemplateCalls += 1;
+    lastTemplateId = templateId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return detail;
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> resumeRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) async {
+    resumeTemplateCalls += 1;
+    lastTemplateId = templateId;
+    accessTokens.add(accessToken);
+    _throwIfNeeded();
+    return detail;
+  }
+
+  @override
+  Future<api.RecurringBillTemplateResponse> archiveRecurringBillTemplate(
+    String templateId, {
+    required String accessToken,
+  }) async {
+    archiveTemplateCalls += 1;
     lastTemplateId = templateId;
     accessTokens.add(accessToken);
     _throwIfNeeded();

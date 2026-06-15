@@ -109,6 +109,21 @@ class _SettleoraRecurringBillScreenState
     }
   }
 
+  Future<void> _openCreateTemplate() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SettleoraRecurringBillTemplateFormScreen.create(
+          repository: widget.repository,
+        ),
+      ),
+    );
+
+    if (mounted && changed == true) {
+      _showSnackBar('Recurring bill saved. Refreshing server state.');
+      await _load();
+    }
+  }
+
   Future<void> _generateDraft(
     SettleoraRecurringBillForecastOccurrence occurrence,
   ) async {
@@ -240,6 +255,12 @@ class _SettleoraRecurringBillScreenState
       appBar: AppBar(
         title: const Text('Recurring bills'),
         actions: [
+          IconButton(
+            key: const Key('recurring-bill-create'),
+            tooltip: 'Create recurring bill',
+            onPressed: _isLoading ? null : _openCreateTemplate,
+            icon: const Icon(Icons.add),
+          ),
           IconButton(
             key: const Key('recurring-bill-refresh'),
             tooltip: 'Refresh',
@@ -520,6 +541,16 @@ class _RecurringForecastFilterCounts {
   int count(_RecurringForecastFilter filter) => _counts[filter] ?? 0;
 }
 
+enum _TemplateLifecycleAction {
+  pause(key: 'pause'),
+  resume(key: 'resume'),
+  archive(key: 'archive');
+
+  const _TemplateLifecycleAction({required this.key});
+
+  final String key;
+}
+
 class SettleoraRecurringBillDetailScreen extends StatefulWidget {
   const SettleoraRecurringBillDetailScreen({
     super.key,
@@ -540,6 +571,9 @@ class _SettleoraRecurringBillDetailScreenState
   bool _isLoading = true;
   SettleoraRecurringBillTemplateDetail? _template;
   SettleoraRecurringBillFailure? _failure;
+  SettleoraRecurringBillFailure? _actionFailure;
+  String? _refreshWarning;
+  _TemplateLifecycleAction? _inFlightAction;
 
   @override
   void initState() {
@@ -551,6 +585,8 @@ class _SettleoraRecurringBillDetailScreenState
     setState(() {
       _isLoading = true;
       _failure = null;
+      _actionFailure = null;
+      _refreshWarning = null;
     });
 
     try {
@@ -575,12 +611,151 @@ class _SettleoraRecurringBillDetailScreenState
     }
   }
 
+  Future<void> _openEditTemplate() async {
+    final template = _template;
+    if (template == null ||
+        template.status ==
+            SettleoraRecurringBillTemplateStatusValues.archived) {
+      return;
+    }
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SettleoraRecurringBillTemplateFormScreen.edit(
+          repository: widget.repository,
+          template: template,
+        ),
+      ),
+    );
+
+    if (mounted && changed == true) {
+      await _refreshAfterMutation('Recurring bill updated.');
+    }
+  }
+
+  Future<void> _runLifecycleAction(_TemplateLifecycleAction action) async {
+    final template = _template;
+    if (template == null || _inFlightAction != null) {
+      return;
+    }
+    if (!_canRunLifecycleAction(template, action)) {
+      return;
+    }
+
+    final confirmed = await _confirmLifecycleAction(action, template);
+    if (!mounted || !confirmed) {
+      return;
+    }
+
+    setState(() {
+      _inFlightAction = action;
+      _actionFailure = null;
+      _refreshWarning = null;
+    });
+
+    try {
+      final updated = switch (action) {
+        _TemplateLifecycleAction.pause => await widget.repository.pauseTemplate(
+          template.id,
+        ),
+        _TemplateLifecycleAction.resume =>
+          await widget.repository.resumeTemplate(template.id),
+        _TemplateLifecycleAction.archive =>
+          await widget.repository.archiveTemplate(template.id),
+      };
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _template = updated;
+      });
+      await _refreshAfterMutation(_lifecycleSuccessMessage(action));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = SettleoraRecurringBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _inFlightAction = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshAfterMutation(String successMessage) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final refreshed = await widget.repository.getTemplate(widget.templateId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _template = refreshed;
+        _actionFailure = null;
+        _refreshWarning = null;
+      });
+      messenger.showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _refreshWarning =
+            '$successMessage Server accepted the change, but the latest recurring bill state could not be refreshed.';
+      });
+    }
+  }
+
+  Future<bool> _confirmLifecycleAction(
+    _TemplateLifecycleAction action,
+    SettleoraRecurringBillTemplateDetail template,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${_lifecycleVerb(action)} recurring bill?'),
+        content: Text(
+          '${_lifecycleConfirmationCopy(action)} The server will re-check authorization and template state before applying this change.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('recurring-bill-lifecycle-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: Key('recurring-bill-${action.key}-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(_lifecycleVerb(action)),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Recurring bill'),
         actions: [
+          if (_template != null &&
+              _template!.status !=
+                  SettleoraRecurringBillTemplateStatusValues.archived)
+            IconButton(
+              key: const Key('recurring-bill-detail-edit'),
+              tooltip: 'Edit recurring bill',
+              onPressed: _isLoading || _inFlightAction != null
+                  ? null
+                  : _openEditTemplate,
+              icon: const Icon(Icons.edit_outlined),
+            ),
           IconButton(
             key: const Key('recurring-bill-detail-refresh'),
             tooltip: 'Refresh',
@@ -616,6 +791,30 @@ class _SettleoraRecurringBillDetailScreenState
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _TemplateHeader(template: template),
+                const SizedBox(height: 16),
+                _ServerAuthorityPanel(compact: true),
+                if (_actionFailure != null) ...[
+                  const SizedBox(height: 12),
+                  _InlineFailure(failure: _actionFailure!),
+                ],
+                if (_refreshWarning != null) ...[
+                  const SizedBox(height: 12),
+                  _RefreshWarningPanel(
+                    message: _refreshWarning!,
+                    onRefresh: _load,
+                  ),
+                ],
+                const SizedBox(height: 20),
+                _TemplateLifecycleActions(
+                  template: template,
+                  inFlightAction: _inFlightAction,
+                  onPause: () =>
+                      _runLifecycleAction(_TemplateLifecycleAction.pause),
+                  onResume: () =>
+                      _runLifecycleAction(_TemplateLifecycleAction.resume),
+                  onArchive: () =>
+                      _runLifecycleAction(_TemplateLifecycleAction.archive),
+                ),
                 const SizedBox(height: 20),
                 _Section(
                   title: 'Schedule',
@@ -687,6 +886,397 @@ class _SettleoraRecurringBillDetailScreenState
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class SettleoraRecurringBillTemplateFormScreen extends StatefulWidget {
+  const SettleoraRecurringBillTemplateFormScreen.create({
+    super.key,
+    required this.repository,
+  }) : template = null;
+
+  const SettleoraRecurringBillTemplateFormScreen.edit({
+    super.key,
+    required this.repository,
+    required this.template,
+  });
+
+  final SettleoraRecurringBillRepository repository;
+  final SettleoraRecurringBillTemplateDetail? template;
+
+  bool get isEditing => template != null;
+
+  @override
+  State<SettleoraRecurringBillTemplateFormScreen> createState() =>
+      _SettleoraRecurringBillTemplateFormScreenState();
+}
+
+class _SettleoraRecurringBillTemplateFormScreenState
+    extends State<SettleoraRecurringBillTemplateFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _merchantController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _groupIdController;
+  late final TextEditingController _startDateController;
+  late final TextEditingController _endDateController;
+  late final TextEditingController _intervalController;
+  late final TextEditingController _dueOffsetController;
+  late final TextEditingController _currencyController;
+  late final TextEditingController _itemNameController;
+  late final TextEditingController _itemAmountController;
+  late final TextEditingController _itemNoteController;
+  String _scheduleType = SettleoraRecurringBillScheduleTypeValues.monthly;
+  bool _isSaving = false;
+  SettleoraRecurringBillFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    final template = widget.template;
+    final schedule = template?.schedule;
+    _merchantController = TextEditingController(
+      text: template?.merchantName ?? '',
+    );
+    _descriptionController = TextEditingController(
+      text: template?.description ?? '',
+    );
+    _groupIdController = TextEditingController();
+    _startDateController = TextEditingController(
+      text: schedule?.startDate ?? '',
+    );
+    _endDateController = TextEditingController(text: schedule?.endDate ?? '');
+    _scheduleType =
+        schedule?.type ?? SettleoraRecurringBillScheduleTypeValues.monthly;
+    _intervalController = TextEditingController(
+      text:
+          (schedule?.type ==
+                      SettleoraRecurringBillScheduleTypeValues
+                          .customIntervalDays
+                  ? schedule?.intervalDays
+                  : schedule?.intervalCount ?? 1)
+              .toString(),
+    );
+    _dueOffsetController = TextEditingController(
+      text: schedule?.dueOffsetDays?.toString() ?? '0',
+    );
+    _currencyController = TextEditingController(text: 'USD');
+    _itemNameController = TextEditingController();
+    _itemAmountController = TextEditingController();
+    _itemNoteController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _descriptionController.dispose();
+    _groupIdController.dispose();
+    _startDateController.dispose();
+    _endDateController.dispose();
+    _intervalController.dispose();
+    _dueOffsetController.dispose();
+    _currencyController.dispose();
+    _itemNameController.dispose();
+    _itemAmountController.dispose();
+    _itemNoteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_isSaving) {
+      return;
+    }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+    });
+
+    try {
+      if (widget.isEditing) {
+        await widget.repository.updateTemplate(
+          templateId: widget.template!.id,
+          draft: SettleoraRecurringBillUpdateDraft(
+            merchantName: _merchantController.text,
+            description: _descriptionController.text,
+            schedule: _scheduleDraft(),
+          ),
+        );
+      } else {
+        await widget.repository.createTemplate(
+          SettleoraRecurringBillCreateDraft(
+            groupId: _groupIdController.text,
+            merchantName: _merchantController.text,
+            description: _descriptionController.text,
+            schedule: _scheduleDraft(),
+            currency: _currencyController.text,
+            items: [
+              SettleoraRecurringBillTemplatePayloadItemDraft(
+                name: _itemNameController.text,
+                amount: _itemAmountController.text,
+                note: _itemNoteController.text,
+              ),
+            ],
+          ),
+        );
+      }
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _failure = SettleoraRecurringBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  SettleoraRecurringBillScheduleDraft _scheduleDraft() {
+    final interval = int.parse(_intervalController.text.trim());
+    final dueOffset = int.tryParse(_dueOffsetController.text.trim());
+    return SettleoraRecurringBillScheduleDraft(
+      type: _scheduleType,
+      intervalCount:
+          _scheduleType ==
+              SettleoraRecurringBillScheduleTypeValues.customIntervalDays
+          ? null
+          : interval,
+      intervalDays:
+          _scheduleType ==
+              SettleoraRecurringBillScheduleTypeValues.customIntervalDays
+          ? interval
+          : null,
+      startDate: _startDateController.text,
+      endDate: _endDateController.text,
+      dueOffsetDays: dueOffset,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.isEditing;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit recurring bill' : 'New recurring bill'),
+      ),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _ServerAuthorityPanel(compact: false),
+                if (_failure != null) ...[
+                  const SizedBox(height: 12),
+                  _InlineFailure(failure: _failure!),
+                ],
+                const SizedBox(height: 18),
+                _Section(
+                  title: 'Template',
+                  children: [
+                    TextFormField(
+                      key: const Key('recurring-bill-form-merchant'),
+                      controller: _merchantController,
+                      decoration: const InputDecoration(
+                        labelText: 'Merchant or name',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _maxLengthValidator(value, 200, 'name'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('recurring-bill-form-description'),
+                      controller: _descriptionController,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _maxLengthValidator(value, 1000, 'description'),
+                    ),
+                    if (!isEditing) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const Key('recurring-bill-form-group-id'),
+                        controller: _groupIdController,
+                        decoration: const InputDecoration(
+                          labelText: 'Group ID (optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 20),
+                _Section(
+                  title: 'Schedule',
+                  children: [
+                    DropdownButtonFormField<String>(
+                      key: const Key('recurring-bill-form-schedule-type'),
+                      initialValue: _scheduleType,
+                      decoration: const InputDecoration(
+                        labelText: 'Frequency',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'weekly',
+                          child: Text('Weekly'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'monthly',
+                          child: Text('Monthly'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'yearly',
+                          child: Text('Yearly'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'custom_interval_days',
+                          child: Text('Custom days'),
+                        ),
+                      ],
+                      onChanged: _isSaving
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => _scheduleType = value);
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('recurring-bill-form-interval'),
+                      controller: _intervalController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Interval',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _intervalValidator,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('recurring-bill-form-start-date'),
+                      controller: _startDateController,
+                      decoration: const InputDecoration(
+                        labelText: 'Start date (YYYY-MM-DD)',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _isoDateValidator(value, required: true),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('recurring-bill-form-end-date'),
+                      controller: _endDateController,
+                      decoration: const InputDecoration(
+                        labelText: 'End date (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _isoDateValidator(value, required: false),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const Key('recurring-bill-form-due-offset'),
+                      controller: _dueOffsetController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Due offset days',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _dueOffsetValidator,
+                    ),
+                  ],
+                ),
+                if (!isEditing) ...[
+                  const SizedBox(height: 20),
+                  _Section(
+                    title: 'Bill Payload',
+                    children: [
+                      TextFormField(
+                        key: const Key('recurring-bill-form-currency'),
+                        controller: _currencyController,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Currency',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _currencyValidator,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const Key('recurring-bill-form-item-name'),
+                        controller: _itemNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Item name',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            _requiredTextValidator(value, 'item name', 240),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const Key('recurring-bill-form-item-amount'),
+                        controller: _itemAmountController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Item amount',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _amountValidator,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const Key('recurring-bill-form-item-note'),
+                        controller: _itemNoteController,
+                        decoration: const InputDecoration(
+                          labelText: 'Item note',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            _maxLengthValidator(value, 1000, 'item note'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 22),
+                FilledButton.icon(
+                  key: const Key('recurring-bill-form-save'),
+                  onPressed: _isSaving ? null : _save,
+                  icon: _isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(_isSaving ? 'Saving' : 'Save'),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -889,11 +1479,66 @@ String _templateGuidance(SettleoraRecurringBillTemplateSummary template) {
     SettleoraRecurringBillTemplateStatusValues.active =>
       'This template is active, but the server did not return a next occurrence.',
     SettleoraRecurringBillTemplateStatusValues.paused =>
-      'This template is paused. Mobile can show it, but pause and resume actions are not available in this surface yet.',
+      'This template is paused. Resume asks the server to recompute the next occurrence.',
     SettleoraRecurringBillTemplateStatusValues.archived =>
       'This template is archived. Mobile keeps it read-only and does not offer future generation.',
     _ =>
       'Mobile is showing the server-provided recurring bill state without local lifecycle changes.',
+  };
+}
+
+bool _canRunLifecycleAction(
+  SettleoraRecurringBillTemplateDetail template,
+  _TemplateLifecycleAction action,
+) {
+  return switch (action) {
+    _TemplateLifecycleAction.pause =>
+      template.status == SettleoraRecurringBillTemplateStatusValues.active,
+    _TemplateLifecycleAction.resume =>
+      template.status == SettleoraRecurringBillTemplateStatusValues.paused,
+    _TemplateLifecycleAction.archive =>
+      template.status != SettleoraRecurringBillTemplateStatusValues.archived,
+  };
+}
+
+String _lifecycleVerb(_TemplateLifecycleAction action) {
+  return switch (action) {
+    _TemplateLifecycleAction.pause => 'Pause',
+    _TemplateLifecycleAction.resume => 'Resume',
+    _TemplateLifecycleAction.archive => 'Archive',
+  };
+}
+
+String _lifecycleSuccessMessage(_TemplateLifecycleAction action) {
+  return switch (action) {
+    _TemplateLifecycleAction.pause => 'Recurring bill paused.',
+    _TemplateLifecycleAction.resume => 'Recurring bill resumed.',
+    _TemplateLifecycleAction.archive => 'Recurring bill archived.',
+  };
+}
+
+String _lifecycleConfirmationCopy(_TemplateLifecycleAction action) {
+  return switch (action) {
+    _TemplateLifecycleAction.pause =>
+      'Paused templates stay readable but cannot generate new drafts.',
+    _TemplateLifecycleAction.resume =>
+      'Resuming asks the server to make the template active again.',
+    _TemplateLifecycleAction.archive =>
+      'Archiving makes the recurring bill read-only and stops future generation.',
+  };
+}
+
+String _lifecycleAvailabilityCopy(
+  SettleoraRecurringBillTemplateDetail template,
+) {
+  return switch (template.status) {
+    SettleoraRecurringBillTemplateStatusValues.active =>
+      'Active templates can be paused or archived after confirmation.',
+    SettleoraRecurringBillTemplateStatusValues.paused =>
+      'Paused templates can be resumed or archived after confirmation.',
+    SettleoraRecurringBillTemplateStatusValues.archived =>
+      'Archived templates are terminal in mobile.',
+    _ => 'Refresh server state before changing this recurring bill lifecycle.',
   };
 }
 
@@ -1151,6 +1796,162 @@ class _InlineFailure extends StatelessWidget {
   }
 }
 
+class _ServerAuthorityPanel extends StatelessWidget {
+  const _ServerAuthorityPanel({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.verified_user_outlined,
+      title: 'Server checked',
+      message:
+          'The server validates recurrence, group membership, authorization, money, generated drafts, and audit. Mobile only submits form fields and renders returned state.',
+      compact: compact,
+    );
+  }
+}
+
+class _RefreshWarningPanel extends StatelessWidget {
+  const _RefreshWarningPanel({required this.message, required this.onRefresh});
+
+  final String message;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const Key('recurring-bill-refresh-after-mutation'),
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh server state'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TemplateLifecycleActions extends StatelessWidget {
+  const _TemplateLifecycleActions({
+    required this.template,
+    required this.inFlightAction,
+    required this.onPause,
+    required this.onResume,
+    required this.onArchive,
+  });
+
+  final SettleoraRecurringBillTemplateDetail template;
+  final _TemplateLifecycleAction? inFlightAction;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onArchive;
+
+  @override
+  Widget build(BuildContext context) {
+    final archived =
+        template.status == SettleoraRecurringBillTemplateStatusValues.archived;
+    if (archived) {
+      return const _StatePanel(
+        icon: Icons.archive_outlined,
+        title: 'Archived template',
+        message:
+            'Archived recurring bills are read-only in mobile and cannot be resumed or edited.',
+        compact: true,
+      );
+    }
+
+    final paused =
+        template.status == SettleoraRecurringBillTemplateStatusValues.paused;
+    return _Section(
+      title: 'Lifecycle',
+      children: [
+        Text(_lifecycleAvailabilityCopy(template)),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
+          children: [
+            if (!paused)
+              _LifecycleButton(
+                key: const Key('recurring-bill-pause'),
+                action: _TemplateLifecycleAction.pause,
+                inFlightAction: inFlightAction,
+                label: 'Pause',
+                icon: Icons.pause_circle_outline,
+                onPressed: onPause,
+              ),
+            if (paused)
+              _LifecycleButton(
+                key: const Key('recurring-bill-resume'),
+                action: _TemplateLifecycleAction.resume,
+                inFlightAction: inFlightAction,
+                label: 'Resume',
+                icon: Icons.play_circle_outline,
+                onPressed: onResume,
+              ),
+            _LifecycleButton(
+              key: const Key('recurring-bill-archive'),
+              action: _TemplateLifecycleAction.archive,
+              inFlightAction: inFlightAction,
+              label: 'Archive',
+              icon: Icons.archive_outlined,
+              onPressed: onArchive,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LifecycleButton extends StatelessWidget {
+  const _LifecycleButton({
+    super.key,
+    required this.action,
+    required this.inFlightAction,
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final _TemplateLifecycleAction action;
+  final _TemplateLifecycleAction? inFlightAction;
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final inFlight = inFlightAction == action;
+    return OutlinedButton.icon(
+      onPressed: inFlightAction == null ? onPressed : null,
+      icon: inFlight
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon),
+      label: Text(inFlight ? '$label...' : label),
+    );
+  }
+}
+
 class _StatePanel extends StatelessWidget {
   const _StatePanel({
     required this.icon,
@@ -1314,6 +2115,91 @@ String _formatTimestamp(DateTime value) {
 
 String _operationKey(SettleoraRecurringBillForecastOccurrence occurrence) {
   return '${occurrence.templateId}|${occurrence.occurrenceDate}';
+}
+
+String? _requiredTextValidator(String? value, String field, int maxLength) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) {
+    return 'Enter $field.';
+  }
+  if (trimmed.length > maxLength) {
+    return 'Shorten $field.';
+  }
+
+  return null;
+}
+
+String? _maxLengthValidator(String? value, int maxLength, String field) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.length > maxLength) {
+    return 'Shorten $field.';
+  }
+
+  return null;
+}
+
+String? _intervalValidator(String? value) {
+  final parsed = int.tryParse(value?.trim() ?? '');
+  if (parsed == null || parsed < 1 || parsed > 3660) {
+    return 'Enter an interval from 1 to 3660.';
+  }
+
+  return null;
+}
+
+String? _dueOffsetValidator(String? value) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  final parsed = int.tryParse(trimmed);
+  if (parsed == null || parsed < -365 || parsed > 365) {
+    return 'Enter a due offset from -365 to 365.';
+  }
+
+  return null;
+}
+
+String? _currencyValidator(String? value) {
+  if (!RegExp(r'^[A-Za-z]{3}$').hasMatch(value?.trim() ?? '')) {
+    return 'Enter a three-letter currency.';
+  }
+
+  return null;
+}
+
+String? _amountValidator(String? value) {
+  if (!RegExp(r'^\d+(\.\d{1,4})?$').hasMatch(value?.trim() ?? '')) {
+    return 'Enter an amount using digits and an optional decimal.';
+  }
+
+  return null;
+}
+
+String? _isoDateValidator(String? value, {required bool required}) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) {
+    return required ? 'Enter a date.' : null;
+  }
+  final parts = trimmed.split('-');
+  if (parts.length != 3 ||
+      parts[0].length != 4 ||
+      parts[1].length != 2 ||
+      parts[2].length != 2) {
+    return 'Use YYYY-MM-DD.';
+  }
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  final day = int.tryParse(parts[2]);
+  if (year == null || month == null || day == null) {
+    return 'Use YYYY-MM-DD.';
+  }
+  final parsed = DateTime.utc(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return 'Use a real calendar date.';
+  }
+
+  return null;
 }
 
 List<String> _searchTerms(String query) {

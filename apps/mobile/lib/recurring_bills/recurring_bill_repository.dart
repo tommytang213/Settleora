@@ -227,6 +227,66 @@ class SettleoraRecurringBillDraftResult {
   final String totalCurrency;
 }
 
+class SettleoraRecurringBillScheduleDraft {
+  const SettleoraRecurringBillScheduleDraft({
+    required this.type,
+    required this.intervalCount,
+    required this.intervalDays,
+    required this.startDate,
+    required this.endDate,
+    required this.dueOffsetDays,
+  });
+
+  final SettleoraRecurringBillScheduleType type;
+  final int? intervalCount;
+  final int? intervalDays;
+  final String startDate;
+  final String? endDate;
+  final int? dueOffsetDays;
+}
+
+class SettleoraRecurringBillTemplatePayloadItemDraft {
+  const SettleoraRecurringBillTemplatePayloadItemDraft({
+    required this.name,
+    required this.amount,
+    required this.note,
+  });
+
+  final String name;
+  final String amount;
+  final String? note;
+}
+
+class SettleoraRecurringBillCreateDraft {
+  const SettleoraRecurringBillCreateDraft({
+    required this.groupId,
+    required this.merchantName,
+    required this.description,
+    required this.schedule,
+    required this.currency,
+    required this.items,
+  });
+
+  final String? groupId;
+  final String? merchantName;
+  final String? description;
+  final SettleoraRecurringBillScheduleDraft schedule;
+  final String currency;
+  final List<SettleoraRecurringBillTemplatePayloadItemDraft> items;
+}
+
+class SettleoraRecurringBillUpdateDraft {
+  const SettleoraRecurringBillUpdateDraft({
+    required this.merchantName,
+    required this.description,
+    required this.schedule,
+  });
+
+  final String? merchantName;
+  final String? description;
+  final SettleoraRecurringBillScheduleDraft schedule;
+}
+
 abstract interface class SettleoraRecurringBillRepository {
   Future<List<SettleoraRecurringBillTemplateSummary>> listTemplates({
     SettleoraRecurringBillTemplateStatus? status,
@@ -244,6 +304,25 @@ abstract interface class SettleoraRecurringBillRepository {
   });
 
   Future<SettleoraRecurringBillTemplateDetail> getTemplate(String templateId);
+
+  Future<SettleoraRecurringBillTemplateDetail> createTemplate(
+    SettleoraRecurringBillCreateDraft draft,
+  );
+
+  Future<SettleoraRecurringBillTemplateDetail> updateTemplate({
+    required String templateId,
+    required SettleoraRecurringBillUpdateDraft draft,
+  });
+
+  Future<SettleoraRecurringBillTemplateDetail> pauseTemplate(String templateId);
+
+  Future<SettleoraRecurringBillTemplateDetail> resumeTemplate(
+    String templateId,
+  );
+
+  Future<SettleoraRecurringBillTemplateDetail> archiveTemplate(
+    String templateId,
+  );
 
   Future<SettleoraRecurringBillDraftResult> generateDraft({
     required String templateId,
