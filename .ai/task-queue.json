@@ -4,7 +4,7 @@
     "title": "Reconcile mobile group bill lifecycle state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
@@ -34,7 +34,7 @@
     "title": "Mobile group bill create and submit resilience",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "current",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
