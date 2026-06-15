@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M6 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M7 queued; first mobile monthly report/reconciliation readout task ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -37,6 +37,29 @@ Status: `M6 finalized; UI-test ready; manual UI/code review deferred until Day 1
 - [x] M6-003 hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff so successful draft-only apply is not repeated after post-apply refresh failure and another apply requires a fresh preview.
 - [x] M6-004 finalized M6 QA/control state and marked M6 UI-test ready with no remaining automated M6 work.
 - [x] Current M6 state preserves `STOP-M6-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+- [x] M7 queued as `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`.
+- [x] M7 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
+- [x] Scope guard allows only narrow M7 docs/control, mobile reports, dashboard, bill-list readout, app wiring, and mobile test paths.
+- [x] No M7 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+
+## M7 Selection Summary
+
+M7 is `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the mobile app has a starter monthly report screen, personal/group bill list/detail surfaces, and generated-client-backed report/bill seams, while broader search/filter/report/import/export remain incomplete.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires monthly reports, advanced search/filter, reconciliation-related filters where available, and group dashboard basics for Day 1.
+- `docs/features/reconciliation/TECHNICAL_SPEC.md` and `docs/architecture/STATEMENT_RECONCILIATION_ARCHITECTURE.md` make statement import/matching, raw statement visibility, reconciliation link/unlink, and related persistence/storage/privacy work a broader future domain, so M7 is limited to read-only mobile report/reconciliation readouts over existing server-provided fields.
+- Current mobile code under `apps/mobile/lib/reports/`, `apps/mobile/lib/dashboard/`, and `apps/mobile/lib/bills/bill_list_screen.dart` already provides bounded seams and tests for monthly reports, dashboard previews, bill search/filter, and reconciliation status/note display.
+
+## M7 Queue Summary
+
+- `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Queued/current. Reconcile current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
+- `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Queued. Harden monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
+- `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Queued. Harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
+- `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Queued. Finalize M7 QA/control state and mark UI-test ready without runtime behavior changes.
+- `STOP-M7-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M6 Selection Summary
 

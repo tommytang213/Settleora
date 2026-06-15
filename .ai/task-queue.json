@@ -1,16 +1,16 @@
 [
   {
-    "id": "M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950",
-    "title": "Reconcile mobile receipt OCR capture and review handoff state",
+    "id": "M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123",
+    "title": "Reconcile mobile monthly report and reconciliation readout state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map the current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements and existing backend/generated-client seams, then create focused QA expectations without changing runtime behavior.",
+    "goal": "Map current mobile monthly report, dashboard/report entry, personal/group bill search/filter, and reconciliation-status readout implementation against Day 1 reporting/search/reconciliation-readout requirements and existing generated-client/API seams, then create focused QA expectations without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -22,28 +22,27 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy or generic file/receipt/OCR API changes",
-      "Requires settlement/payment/bill calculation, OCR apply authority, or money authority changes",
+      "Requires storage/file privacy policy, statement import/upload/download behavior, CSV import/export, backup/restore, or generic file API changes",
+      "Requires settlement/payment/bill calculation, reconciliation mutation authority, statement matching authority, or money authority changes",
       "Requires Docker/env/deployment/CI changes",
-      "Requires OCR engine native dependency selection, OCR worker/runtime behavior, worker jobs, or server OCR result ingestion",
-      "Requires automatic OCR-to-bill finalization, non-draft shared-bill revision apply, multi-participant OCR split inference, notification delivery, broad offline cache/sync, web/admin, reporting, reconciliation, or unrelated major-domain scope"
+      "Requires Day 2 statement import/matching, provider payment evidence import, direct bank sync, raw statement row visibility, reconciliation link/unlink mutations, notification delivery, broad offline cache/sync, web/admin, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950",
-    "title": "Mobile receipt OCR capture intake and provisional review handoff hardening",
+    "id": "M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123",
+    "title": "Mobile monthly report discovery and safe aggregate hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/receipt_ocr_capture/**",
-      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/reports/**",
+      "apps/mobile/lib/dashboard/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden the existing mobile receipt intake, unsupported/on-device OCR provider fallback, parser/preview, and bill attachment OCR review save handoff so captured or imported receipt data remains provisional, retryable, manually correctable, and never automatically authoritative.",
+    "goal": "Harden the existing mobile monthly report and dashboard/report entry surfaces for safe aggregate discovery, month/group scope clarity, unknown status handling, session/network failures, retry states, and server-authority copy while preserving current generated-client seams.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -56,27 +55,26 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, file authorization, generic receipt APIs, thumbnails, or raw receipt retention policy changes",
-      "Requires OCR engine package/native dependency/platform configuration changes",
-      "Requires OCR worker/runtime behavior, worker jobs, or server OCR result ingestion",
-      "Requires automatic bill mutation/finalization, non-draft shared-bill revision apply, OCR split inference, money authority, or Docker/env/deployment/CI changes"
+      "Requires storage/file privacy policy, CSV import/export, backup/restore, statement import/matching, or reconciliation mutation changes",
+      "Requires settlement/payment/bill calculation or money authority changes",
+      "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950",
-    "title": "Mobile saved receipt OCR review preview and draft-apply handoff hardening",
+    "id": "M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123",
+    "title": "Mobile bill report filters and reconciliation readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/receipt_ocr_review/**",
-      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/bills/bill_list_screen.dart",
+      "apps/mobile/lib/reports/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff states for stale review data, blocked previews, safe retries, duplicate mutation prevention, and server-authority copy while preserving current generated-client seams.",
+    "goal": "Harden loaded personal/group bill search/filter and reconciliation-status readout surfaces so reporting-related discovery remains local to loaded server data, clearly distinguishes filtered-empty states, shows bounded reconciliation status/note copy, and does not imply statement import, matching, or mutation behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -89,22 +87,23 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy or generic receipt APIs",
-      "Requires settlement/payment/bill calculation, OCR apply authority beyond existing draft-only endpoint, or money authority changes",
-      "Requires automatic OCR finalization, non-draft shared-bill revision apply, multi-participant split inference, OCR worker/runtime, notification delivery, broad offline cache/sync, or Docker/env/deployment/CI changes"
+      "Requires storage/file privacy policy, statement import/upload/download behavior, CSV import/export, backup/restore, or generic file API changes",
+      "Requires reconciliation link/unlink mutations, statement matching, settlement/payment/bill calculation, or money authority changes",
+      "Requires Docker/env/deployment/CI changes",
+      "Requires broad offline cache/sync, notification delivery, web/admin, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950",
-    "title": "Finalize mobile receipt OCR capture and review handoff QA state",
+    "id": "M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123",
+    "title": "Finalize mobile monthly report and reconciliation readout QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M6 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M7 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -114,31 +113,30 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M6 implementation slices are incomplete",
+      "M7 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, money, OCR worker, deployment, secret, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, money, reconciliation mutation, statement import, export/backup, deployment, secret, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M6-001",
-    "title": "Manual gate broad receipt OCR/API/storage/money/worker/deployment blocker",
+    "id": "STOP-M7-001",
+    "title": "Manual gate broad reporting/reconciliation/import/export/API/storage/money/deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M6 immediately if receipt OCR capture/review handoff work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, money, settlement, deployment, secret, OCR worker/runtime, generic receipt API, automatic finalization, non-draft revision apply, multi-participant split inference, offline cache/sync, web/admin, or unrelated major-domain scope.",
+    "goal": "Stop M7 immediately if mobile report/reconciliation readout work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, money, settlement, deployment, secret, statement import/matching, reconciliation mutation, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M6 task requires backend/API behavior",
-      "Any M6 task requires OpenAPI/generated-client changes",
-      "Any M6 task requires auth/session/security changes",
-      "Any M6 task requires database schema/migrations",
-      "Any M6 task requires storage/file privacy policy, file authorization, generic public file/receipt/OCR APIs, thumbnails, raw receipt retention, or private-vault behavior changes",
-      "Any M6 task requires settlement/payment/bill calculation, OCR apply authority, or money authority changes",
-      "Any M6 task requires Docker/env/deployment/CI changes",
-      "Any M6 task requires OCR engine native dependency/platform configuration changes, OCR worker/runtime, worker jobs, server OCR result ingestion, automatic OCR-to-bill finalization, non-draft shared-bill revision apply, or multi-participant OCR-to-split inference",
-      "Any M6 task requires persistent offline cache, background sync, notification delivery, reporting/import/export, reconciliation mutation runtime, web/admin runtime UI, secrets, tokens, credentials, or local auth/session config",
-      "Any M6 task expands across unrelated major domains"
+      "Any M7 task requires backend/API behavior",
+      "Any M7 task requires OpenAPI/generated-client changes",
+      "Any M7 task requires auth/session/security changes",
+      "Any M7 task requires database schema/migrations",
+      "Any M7 task requires storage/file privacy policy, file authorization, generic public file APIs, statement import/upload/download behavior, CSV import/export, backup/restore, or private-vault behavior changes",
+      "Any M7 task requires settlement/payment/bill calculation, reconciliation mutation authority, statement matching authority, or money authority changes",
+      "Any M7 task requires Docker/env/deployment/CI changes",
+      "Any M7 task requires OCR worker/runtime, recurring background jobs/reminders, notification delivery providers, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
+      "Any M7 task expands across unrelated major domains"
     ]
   }
 ]
