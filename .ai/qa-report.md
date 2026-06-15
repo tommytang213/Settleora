@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M5 complete; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6 queued; M5 complete; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -27,6 +27,30 @@ Status: `M5 complete; UI-test ready; manual UI/code review deferred until Day 1 
 - [x] M5-002 hardened mobile recurring template create/edit and pause/resume/archive lifecycle actions within existing generated-client seams.
 - [x] M5-003 hardened mobile recurring forecast and explicit draft-generation handoff states, including generated context, idempotent existing-draft copy, refresh-after-generate failure handling, and safe no-route guidance.
 - [x] Current M5 state is UI-test ready with no remaining queued M5 implementation task; STOP-M5-001 remains preserved.
+- [x] M6 queued as `Day 1 Mobile Receipt OCR Capture + Review Handoff Hardening`.
+- [x] M6 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
+- [x] Scope guard allows only narrow M6 docs/control, receipt OCR capture/review, bill handoff, app wiring, and mobile test paths.
+- [x] No M6 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, OCR worker/runtime, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+
+## M6 Selection Summary
+
+M6 is `Day 1 Mobile Receipt OCR Capture + Review Handoff Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the mobile app has a starter receipt OCR review queue/detail/edit foundation, while mobile OCR extraction/capture, automatic OCR-to-bill finalization, non-draft OCR revision apply, and OCR worker/runtime behavior remain future work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires mobile receipt capture/import, policy-driven receipt image normalization before OCR/upload/storage, on-device OCR, OCR review/correction, provisional server-mode validation, and manual fallback.
+- `docs/architecture/OCR_ARCHITECTURE.md` records existing bill-scoped receipt OCR review intake/list/read/apply-preview/draft-only apply endpoints for existing receipt attachments, while OCR engine/worker behavior, generic receipt APIs, thumbnails, and automatic finalization remain non-goals.
+- `docs/architecture/RECEIPT_OCR_REVIEW_UX_FLOW.md` says current mobile has saved OCR review queue/detail/edit foundations and defines the next mobile-first capture/review/apply handoff flow.
+- Current mobile code under `apps/mobile/lib/receipt_ocr_capture/`, `apps/mobile/lib/receipt_ocr_review/`, and `apps/mobile/lib/bills/` already provides bounded seams for receipt intake/provider/parser, saved-review UI/repository, and bill attachment OCR handoff, making a mobile-only handoff milestone coherent without selecting a task that requires API, contract, generated-client, schema, storage/privacy, auth, money, OCR worker, deployment, Docker, CI, secrets, or unrelated domain changes.
+
+## M6 Queue Summary
+
+- `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950` - Queued. Reconcile current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements without changing runtime behavior.
+- `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950` - Queued. Harden mobile receipt intake, unsupported/on-device OCR provider fallback, parser/preview, and bill attachment OCR review save handoff inside existing mobile seams.
+- `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950` - Queued. Harden saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale review data, blocked previews, safe retries, duplicate mutation prevention, and server-authority copy.
+- `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950` - Queued. Finalize M6 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `STOP-M6-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, secrets, or unrelated major-domain scope.
 
 ## M5 Selection Summary
 
