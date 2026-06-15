@@ -92,17 +92,34 @@ Automated validation coverage added or updated:
 - `apps/mobile/test/server_mode_shell_dashboard_test.dart` now covers dashboard report-entry aggregate copy while preserving dashboard route behavior.
 - Focused command passed with 60 tests: `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart`.
 
-Remaining M7-003 focus:
+## M7-003 Implementation Coverage
 
-- Personal/group bill list and bill detail loaded-row search/filter clarity.
-- Reconciliation status/note bounded display and safe copy over server-provided bill fields.
-- Filtered-empty behavior for bill report/reconciliation readouts.
-- Explicit no statement import, no matching, no reconciliation mutation, no CSV import/export, no backup/restore, and no client-side money/settlement/bill calculation authority.
+M7-003 changed only existing mobile bill readout seams and focused tests:
+
+- `apps/mobile/lib/bills/bill_list_screen.dart`
+- `apps/mobile/test/bill_list_screen_test.dart`
+- `apps/mobile/test/group_bill_list_screen_test.dart`
+
+Runtime coverage added:
+
+- Personal and group bill lists now show visible/loaded server row counts and copy that search/filter runs locally over already-loaded rows on this device.
+- Personal and group filtered-empty states remain distinct from true-empty states and tell users to clear local filters to review every loaded server row.
+- Bill detail discovery copy states that search/filter hides already-loaded server detail rows locally only and that mobile displays server bill/reconciliation metadata without deciding financial truth or authorization.
+- Reconciliation status display preserves known labels for `unreconciled`, `reconciled`, and `ignored`; unknown/future statuses render as bounded `Other status...` copy, and empty/malformed/unsafe-looking codes collapse to bounded user-facing fallback copy.
+- Server-provided reconciliation notes render only from the loaded bill detail model as bounded plain text. Unsafe raw API paths, tokens, local filesystem paths, stack traces, storage/provider internals, and generated-client internals are suppressed.
+- Bill detail copy clarifies reconciliation readouts are server-provided record metadata, not bank statement matching.
+- No statement import/upload/download, raw statement rows, direct bank sync, reconciliation link/unlink/update, CSV import/export, backup/restore, generated dashboard/report API, backend/API behavior, OpenAPI/generated-client change, schema/migration, auth/session/security change, storage/privacy change, or money/settlement/bill calculation authority was added.
+
+Automated validation coverage added or updated:
+
+- `apps/mobile/test/bill_list_screen_test.dart` now covers personal bill filtered-empty copy, detail filtered-empty copy, loaded-row/local-device scope copy, known and unknown bounded reconciliation labels, bounded server-provided reconciliation note display, unsafe reconciliation status/note suppression, and absence of statement import/matching/mutation/export/backup actions on bill readout surfaces.
+- `apps/mobile/test/group_bill_list_screen_test.dart` now covers group bill loaded-row/local-device scope copy and filtered-empty copy for current-user/filter discovery.
+- Focused command passed with 234 tests: `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart`.
 
 ## Current Coverage Gaps And Next Slices
 
 - M7-002 completed monthly report/dashboard discovery hardening: dashboard/report entry clarity, monthly report safe aggregate display, group/month scope clarity, unknown status handling, session/network failure states, retry behavior, and server-authority copy inside existing report/dashboard seams.
-- M7-003 should focus on bill reporting/reconciliation readout hardening: loaded-row search/filter clarity, filtered-empty copy, reconciliation status/note bounded display, and no-import/no-mutation/server-authority copy inside existing personal/group bill list/detail seams.
+- M7-003 completed bill reporting/reconciliation readout hardening: loaded-row search/filter clarity, filtered-empty copy, reconciliation status/note bounded display, and no-import/no-mutation/server-authority copy inside existing personal/group bill list/detail seams.
 - M7-004 should finalize M7 QA/control state after implementation slices and keep manual UI/code review deferred until Day 1 acceptance.
 - Remaining Day 1 gaps outside this M7 mobile readout slice include CSV import/export, local backup/restore, full statement import/matching/linking, raw statement privacy controls, generated dashboard APIs, broad reporting backend redesign, and any authoritative reconciliation mutations.
 
@@ -118,7 +135,7 @@ Remaining M7-003 focus:
 
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`: reconcile current implementation and QA coverage without runtime changes.
 - `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`: completed monthly report discovery, safe aggregate display, group/month scope handling, unknown statuses, failures, and dashboard/report entry within existing seams.
-- `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`: harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
+- `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`: completed bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
 - `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`: finalize QA/control state and mark M7 UI-test ready without runtime behavior.
 - `STOP-M7-001`: stop for broad reporting/reconciliation/import/export/API/storage/money/deployment/security expansion.
 

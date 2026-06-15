@@ -52,10 +52,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`.
-- Last completed task: `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`.
-- Current state: M7-002 hardened mobile monthly report discovery, safe aggregate display, personal/group scope copy, unknown status labels, safe failure copy, and dashboard report entry clarity inside existing mobile seams. M7-003 and M7-004 remain queued.
-- Recommended next automated Day 1 action: run the AI V3 controller for M7-003 mobile bill report filters and reconciliation readout hardening.
+- Current task: `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123`.
+- Last completed task: `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`.
+- Current state: M7-003 hardened personal/group bill loaded-row filters, filtered-empty copy, bounded reconciliation status/note readouts, and server-authority/no-import/no-mutation copy inside existing mobile bill seams. M7-004 remains queued.
+- Recommended next automated Day 1 action: run the AI V3 controller for M7-004 mobile report and reconciliation QA finalization.
 - Stop sentinel: `STOP-M7-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M6 Carry-Forward Boundary
@@ -93,5 +93,24 @@ Runtime hardening:
 Focused automated coverage:
 
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M7-003 Bill Report Reconciliation Readout Summary
+
+M7-003 updated existing mobile bill readout seams only.
+
+Runtime hardening:
+
+- Personal and group bill list discovery now shows loaded versus visible server-row counts and states that search/filter runs locally over already-loaded rows on this device.
+- Personal/group filtered-empty copy is distinct from true-empty copy and tells users to clear local filters to review every loaded server row.
+- Bill detail discovery copy states that local search/filter only hides already-loaded server detail rows and that mobile displays server bill/reconciliation metadata without deciding financial truth or authorization.
+- Reconciliation status display keeps known labels for `unreconciled`, `reconciled`, and `ignored`; unknown/future statuses render as bounded `Other status...` copy, while malformed or unsafe-looking codes collapse to `Other status`.
+- Reconciliation notes render only when server-provided on the loaded bill detail model, are bounded as plain text, and suppress unsafe raw API paths, tokens, local filesystem paths, stack traces, storage/provider internals, and generated-client internals.
+- Bill detail copy clarifies reconciliation readouts are server-provided record metadata, not bank statement matching. No statement import/upload/download, raw statement rows, direct bank sync, reconciliation link/unlink/update, CSV import/export, backup/restore, generated dashboard/report APIs, or client-side money/reconciliation authority were added.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` passed with 234 tests.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.

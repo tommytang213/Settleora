@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M7-002 complete; M7-003 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M7-003 complete; M7-004 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -44,6 +44,7 @@ Status: `M7-002 complete; M7-003 queued; manual UI/code review deferred until Da
 - [x] M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation-status readout implementation, and automated QA coverage without changing runtime behavior.
 - [x] M7-001 updated the M7 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M7-002/M7-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 - [x] M7-002 hardened mobile monthly report discovery, safe aggregate copy, personal/group scope labels, unknown status display, safe failure copy, dashboard report entry clarity, and focused automated coverage inside existing mobile seams.
+- [x] M7-003 hardened personal/group bill loaded-row filters, filtered-empty copy, bounded reconciliation status/note readouts, and server-authority/no-import/no-mutation copy inside existing mobile bill seams.
 
 ## M7 Selection Summary
 
@@ -60,7 +61,7 @@ The selection is based on current repo state:
 
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Completed. Reconciled current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
 - `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Completed. Hardened monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
-- `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Queued. Harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
+- `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Completed. Hardened bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
 - `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Queued. Finalize M7 QA/control state and mark UI-test ready without runtime behavior changes.
 - `STOP-M7-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
@@ -100,7 +101,26 @@ Focused automated coverage:
 
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated Day 1 action is M7-003 mobile bill report filters and reconciliation readout hardening.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M7-003 Bill Report Reconciliation Readout Summary
+
+Updated `apps/mobile/lib/bills/bill_list_screen.dart`, focused bill-list tests, M7 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Personal and group bill lists now show visible/loaded server row counts and copy that search/filter is local to already-loaded rows on this device.
+- Personal/group filtered-empty states now differ from true-empty states and point users back to clearing local filters to review every loaded server row.
+- Bill detail discovery copy clarifies local row hiding over loaded server detail rows and preserves server authority for bill/reconciliation metadata, financial truth, and authorization.
+- Reconciliation status labels preserve known values and bound unknown/future, malformed, or hostile-looking codes without showing generated-client-like or internal details.
+- Server-provided reconciliation notes are bounded plain text; unsafe raw API paths, tokens, local filesystem paths, stack traces, storage/provider internals, and generated-client internals are suppressed.
+- Detail copy clarifies reconciliation readouts are record metadata, not bank statement matching, and no statement import, statement matching, reconciliation mutation, CSV import/export, backup/restore, generated dashboard/report API, or client-side money authority was added.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart` passed with 234 tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated Day 1 action is M7-004 mobile report and reconciliation QA finalization.
 
 ## M6 Selection Summary
 
