@@ -119,13 +119,19 @@ class _SettleoraNotificationScreenState
     });
 
     try {
-      await widget.repository.markNotificationRead(notification.id);
+      final updated = await widget.repository.markNotificationRead(
+        notification.id,
+      );
       if (!mounted) {
         return;
       }
 
-      _showSnackBar('Notification marked read.');
-      await _load(showBlockingLoading: false);
+      _replaceNotification(updated);
+      _showSnackBar('Notification marked read through the API.');
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Notification was marked read through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -162,13 +168,17 @@ class _SettleoraNotificationScreenState
     });
 
     try {
-      await widget.repository.markAllNotificationsRead();
+      final updatedSummary = await widget.repository.markAllNotificationsRead();
       if (!mounted) {
         return;
       }
 
-      _showSnackBar('Notifications marked read.');
-      await _load(showBlockingLoading: false);
+      _markLoadedNotificationsRead(updatedSummary);
+      _showSnackBar('Mark-all-read request sent to the API.');
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Mark all read was sent to the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -217,15 +227,24 @@ class _SettleoraNotificationScreenState
     });
 
     try {
+      final updatedRows = <SettleoraNotificationRow>[];
       for (final notificationId in notificationIds) {
-        await widget.repository.markNotificationRead(notificationId);
+        updatedRows.add(
+          await widget.repository.markNotificationRead(notificationId),
+        );
       }
       if (!mounted) {
         return;
       }
 
-      _showSnackBar('Visible notifications marked read.');
-      await _load(showBlockingLoading: false);
+      _replaceNotifications(updatedRows);
+      _showSnackBar(
+        'Visible loaded notifications marked read through the API.',
+      );
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Visible loaded notifications were marked read through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -262,13 +281,19 @@ class _SettleoraNotificationScreenState
     });
 
     try {
-      await widget.repository.archiveNotification(notification.id);
+      final updated = await widget.repository.archiveNotification(
+        notification.id,
+      );
       if (!mounted) {
         return;
       }
 
-      _showSnackBar('Notification archived.');
-      await _load(showBlockingLoading: false);
+      _replaceNotification(updated);
+      _showSnackBar('Notification archived through the API.');
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Notification was archived through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -310,13 +335,19 @@ class _SettleoraNotificationScreenState
     });
 
     try {
-      await restoreRepository.restoreNotification(notification.id);
+      final updated = await restoreRepository.restoreNotification(
+        notification.id,
+      );
       if (!mounted) {
         return;
       }
 
-      _showSnackBar('Notification restored.');
-      await _load(showBlockingLoading: false);
+      _replaceNotification(updated);
+      _showSnackBar('Notification restore request sent to the API.');
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Notification restore was sent to the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -351,7 +382,10 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _load(showBlockingLoading: false);
+      await _refreshAfterMutation(
+        refreshFailureMessage:
+            'Notification was opened and its read update was sent, but the inbox could not refresh. Use Refresh to reload server state.',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -710,6 +744,71 @@ class _SettleoraNotificationScreenState
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _refreshAfterMutation({
+    required String refreshFailureMessage,
+  }) async {
+    try {
+      final summary = await widget.repository.getNotificationSummary();
+      final notifications = await widget.repository.listNotifications(
+        limit: 50,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _summary = summary;
+        _notifications = notifications;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final failure = SettleoraNotificationFailure.from(error);
+      setState(() {
+        _actionFailure = SettleoraNotificationFailure(
+          kind: failure.kind,
+          message: refreshFailureMessage,
+          statusCode: failure.statusCode,
+        );
+      });
+    }
+  }
+
+  void _replaceNotification(SettleoraNotificationRow updated) {
+    setState(() {
+      _notifications = [
+        for (final notification in _notifications)
+          notification.id == updated.id ? updated : notification,
+      ];
+    });
+  }
+
+  void _replaceNotifications(List<SettleoraNotificationRow> updatedRows) {
+    final updatedById = {
+      for (final notification in updatedRows) notification.id: notification,
+    };
+    setState(() {
+      _notifications = [
+        for (final notification in _notifications)
+          updatedById[notification.id] ?? notification,
+      ];
+    });
+  }
+
+  void _markLoadedNotificationsRead(SettleoraNotificationSummary summary) {
+    setState(() {
+      _summary = summary;
+      _notifications = [
+        for (final notification in _notifications)
+          notification.status == SettleoraNotificationStatusValues.archived
+              ? notification
+              : _copyNotificationRead(notification),
+      ];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final loadFailure = _loadFailure;
@@ -793,6 +892,13 @@ class _SettleoraNotificationScreenState
                         _selectedFilter = filter;
                       });
                     },
+                  ),
+                  const SizedBox(height: 8),
+                  _LoadedFilterScopeNote(
+                    loadedCount: _notifications.length,
+                    visibleCount: visibleNotifications.length,
+                    selectedFilterLabel: _selectedFilter.label,
+                    selectedFilter: _selectedFilter,
                   ),
                   const SizedBox(height: 12),
                   _VisibleBulkActionsPanel(
@@ -981,6 +1087,11 @@ class _SummaryPanel extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Text(
+              'API summary counts are server-authoritative; Mark All Read asks the API and this button is only UI guidance.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -1168,6 +1279,31 @@ class _NotificationFilterBar extends StatelessWidget {
   }
 }
 
+class _LoadedFilterScopeNote extends StatelessWidget {
+  const _LoadedFilterScopeNote({
+    required this.loadedCount,
+    required this.visibleCount,
+    required this.selectedFilterLabel,
+    required this.selectedFilter,
+  });
+
+  final int loadedCount;
+  final int visibleCount;
+  final String selectedFilterLabel;
+  final _NotificationFilter selectedFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final archivedCopy = selectedFilter == _NotificationFilter.archived
+        ? 'The Archived filter is the only filter that shows archived loaded rows.'
+        : 'Active filters exclude archived rows unless Archived is selected.';
+    return Text(
+      'Showing $visibleCount of $loadedCount loaded rows for $selectedFilterLabel. Local filters only hide loaded rows; clearing filters restores loaded rows, not new server truth. $archivedCopy',
+      style: Theme.of(context).textTheme.bodySmall,
+    );
+  }
+}
+
 class _VisibleBulkActionsPanel extends StatelessWidget {
   const _VisibleBulkActionsPanel({
     required this.selectedFilterLabel,
@@ -1186,8 +1322,8 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final description = visibleUnreadCount == 1
-        ? '1 visible unread notification in $selectedFilterLabel'
-        : '$visibleUnreadCount visible unread notifications in $selectedFilterLabel';
+        ? '1 currently visible loaded unread notification in $selectedFilterLabel'
+        : '$visibleUnreadCount currently visible loaded unread notifications in $selectedFilterLabel';
 
     return DecoratedBox(
       key: const Key('notification-visible-bulk-actions'),
@@ -1199,7 +1335,7 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Row(
           children: [
-            Expanded(child: Text(description)),
+            Expanded(child: Text('$description; API decides final state.')),
             const SizedBox(width: 12),
             OutlinedButton.icon(
               key: const Key('notification-mark-visible-read'),
@@ -1541,6 +1677,11 @@ class _NotificationDetailSheet extends StatelessWidget {
                     'Raw links are ignored. Settleora opens only supported typed destinations.',
               ),
               _DetailRow(label: 'Current filter', value: selectedFilterLabel),
+              const _DetailRow(
+                label: 'Authority',
+                value:
+                    'The API decides notification visibility, read/archive state, and linked-resource access.',
+              ),
               if (isArchived)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
@@ -1798,12 +1939,16 @@ String _emptyTitleForFilter(_NotificationFilter filter) {
 
 String _emptyMessageForFilter(_NotificationFilter filter) {
   return switch (filter) {
-    _NotificationFilter.unread => 'New unread notifications will appear here.',
-    _NotificationFilter.read => 'Notifications you have read will appear here.',
-    _NotificationFilter.archived => 'Archived notifications will appear here.',
+    _NotificationFilter.unread =>
+      'No loaded unread rows match. Refresh to ask the API for current notification state.',
+    _NotificationFilter.read =>
+      'No loaded read rows match. Clearing filters restores already-loaded rows only.',
+    _NotificationFilter.archived =>
+      'Archived loaded rows appear only in this filter. Refresh to ask the API for current notification state.',
     _NotificationFilter.actionable =>
-      'Unread notifications with supported actions will appear here.',
-    _ => 'Notifications matching this filter will appear here.',
+      'No currently loaded unread rows have a supported action. Notification metadata is not permission.',
+    _ =>
+      'No loaded rows match this local filter. Clearing filters restores already-loaded rows only.',
   };
 }
 
@@ -2042,4 +2187,33 @@ DateTime? _latestNotificationUpdate(SettleoraNotificationRow notification) {
   }
 
   return readAt.isAfter(archivedAt) ? readAt : archivedAt;
+}
+
+SettleoraNotificationRow _copyNotificationRead(
+  SettleoraNotificationRow notification,
+) {
+  if (notification.status == SettleoraNotificationStatusValues.archived ||
+      notification.status == SettleoraNotificationStatusValues.read) {
+    return notification;
+  }
+
+  return SettleoraNotificationRow(
+    id: notification.id,
+    eventType: notification.eventType,
+    status: SettleoraNotificationStatusValues.read,
+    priority: notification.priority,
+    subjectType: notification.subjectType,
+    safeSummary: notification.safeSummary,
+    actionUrl: notification.actionUrl,
+    groupId: notification.groupId,
+    expenseBillId: notification.expenseBillId,
+    expenseBillRevisionId: notification.expenseBillRevisionId,
+    settlementRequestId: notification.settlementRequestId,
+    settlementPaymentId: notification.settlementPaymentId,
+    recurringBillTemplateId: notification.recurringBillTemplateId,
+    recurringBillOccurrenceId: notification.recurringBillOccurrenceId,
+    createdAtUtc: notification.createdAtUtc,
+    readAtUtc: notification.readAtUtc ?? notification.createdAtUtc,
+    archivedAtUtc: notification.archivedAtUtc,
+  );
 }

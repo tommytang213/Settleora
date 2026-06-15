@@ -61,6 +61,7 @@ Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/cod
 - [x] Scope guard allows only narrow M9 docs/control, mobile notifications, app-routing support, and mobile test paths.
 - [x] No M9 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, deployment, Docker, CI, web/admin, broad offline sync/cache, or secret changes.
 - [x] M9-001 reconciled current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without changing runtime behavior.
+- [x] M9-002 hardened mobile notification inbox count clarity, local loaded-row filter copy, archived boundaries, row/bulk action copy, duplicate-action guards, bounded failure copy, refresh-after-mutation recovery, mark-visible semantics, and server-authority messaging.
 - [ ] M9 implementation hardening slices are complete.
 - [ ] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
@@ -79,8 +80,8 @@ The selection is based on current repo state:
 ## M9 Queue Summary
 
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
-- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Current/next. Harden notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
-- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Queued. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
+- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
+- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Current/next. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
 - `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M9-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
@@ -104,7 +105,27 @@ Current implementation findings:
 - Notification metadata, action URLs, raw IDs, cached rows, and generated-client availability remain navigation hints only; linked resources are expected to be re-fetched through destination repository seams before display/actions.
 - No mobile runtime or test files were changed by M9-001.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055`.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. M9-002 is now complete; recommended next automated task is `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
+
+## M9-002 Inbox Action Hardening Summary
+
+Updated `apps/mobile/lib/notifications/notification_screen.dart`, focused notification screen tests, M9 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Notification summary copy now distinguishes server-authoritative API summary counts from local loaded-row filter counts.
+- Local filter copy now says filters only hide loaded rows, clearing filters restores already-loaded rows rather than new server truth, and active filters exclude archived rows unless Archived is selected.
+- Mark-all and mark-visible copy now says actions ask the API to mutate server-authorized notification state, while Mark Visible targets currently visible loaded unread rows only.
+- Row and bulk mutations update loaded rows after successful API responses before attempting a follow-up refresh, so a refresh failure does not ask the user to repeat the mutation.
+- Refresh-after-mutation failures now preserve loaded state and show bounded refresh guidance without exposing raw notification IDs, linked-resource IDs, action URLs, API paths, tokens, storage paths, payment/proof/OCR content, or generated-client internals.
+- Notification details now include bounded server-authority copy for visibility, read/archive state, and linked-resource access.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/notification_screen_test.dart` passed with 56 tests.
+- Added/updated coverage for count clarity, loaded-row local filter copy, archived-row boundaries, filtered-empty versus true-empty copy, action duplicate guards, bounded unsafe failure copy, refresh-after-mutation recovery, mark-visible loaded-row semantics, and server-authority copy.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
 
 ## M8 Selection Summary
 
