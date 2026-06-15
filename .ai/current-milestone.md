@@ -18,7 +18,7 @@ Make the mobile app feel coherent after the M1 group-bill flow by improving the 
 
 ## Forbidden Without Human Approval
 
-- Main merge.
+- Main merge, except explicit development-stage PR/merge-gate tasks that pass the repository main merge policy.
 - Backend/API behavior.
 - OpenAPI/generated clients.
 - Auth/session/security.

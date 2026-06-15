@@ -12,4 +12,6 @@ For each iteration:
 6. Ask the QA prompt to update milestone readiness where relevant.
 7. Merge only eligible PRs into `ai/integration` when policy allows.
 
-Never merge to `main`, enable auto-merge to `main`, force push, delete branches, change GitHub settings, or continue after a forbidden scope change.
+For `main`, merge only when the task is explicitly marked as a development-stage PR/merge gate and all main merge gates pass: clean worktree before validation and immediately before merge, expected source SHA, expected `origin/main` starting SHA, matching PR base/head/head SHA, changed files within allowed scope, required local validation, GitHub CI/checks on the exact PR head, clean mergeability, unchanged PR head immediately before merge, no manual gate, normal GitHub merge commit unless explicitly overridden, and no source-branch deletion unless the human explicitly requests it.
+
+Never direct-push to `main`, force push, delete branches without explicit human approval, change GitHub settings, skip validation or CI, merge dirty/stale/changed-head PRs, merge production/security/destructive/manual-gated work, or continue after a forbidden scope change.

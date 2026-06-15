@@ -2,7 +2,7 @@
 
 The AI V3 controller is a single-DevBox loop for advancing safe task PRs into `ai/integration`. It reads the `.ai` milestone state, selects the next safe queued task or safe QA bugfix, writes a full Codex task prompt under `/workspace/logs/ai-v3-controller/tasks/`, and can invoke `codex-vm-full` with that prompt on stdin when run explicitly in real-run mode.
 
-GitHub Actions does not call GPT or Codex directly in v0. Actions only provide repository checks and scope guard feedback. The DevBox remains the execution boundary for Codex credentials, local logs, prompt generation, PR creation, check waiting, and controlled auto-merge into `ai/integration`.
+GitHub Actions does not call GPT or Codex directly in v0. Actions only provide repository checks and scope guard feedback. The DevBox remains the execution boundary for Codex credentials, local logs, prompt generation, PR creation, check waiting, and controlled auto-merge into `ai/integration`. During development stage, a separate explicit PR/merge-gate task may also auto-merge to `main` only after the main merge gates pass.
 
 ## Execution Model
 
@@ -54,7 +54,11 @@ Pass the bounded iteration count as the first argument or set `SETTLEORA_AI_V3_M
 
 ## Auto-Merge Constraints
 
-The controller may only auto-merge into `ai/integration`. It rechecks PR base branch, draft state, merge state, checks, changed-file scope, forbidden paths, scope guard output, updated task-branch `.ai` state, GitHub review state, and the expected head SHA before merge. It must never merge into `main`, force push, delete branches, or bypass failing or ambiguous checks.
+The controller may auto-merge normal queued milestone task PRs only into `ai/integration`. It rechecks PR base branch, draft state, merge state, checks, changed-file scope, forbidden paths, scope guard output, updated task-branch `.ai` state, GitHub review state, and the expected head SHA before merge. It must never force push, delete branches, or bypass failing or ambiguous checks.
+
+For `main`, auto-merge is allowed only for a task explicitly marked as a development-stage PR/merge gate. Before merging, the merge gate must confirm a clean worktree before validation and immediately before merge, source branch head SHA, expected `origin/main` starting SHA, PR base/head/head SHA, changed-file scope, required local validation, GitHub CI on the exact PR head, clean mergeability, unchanged PR head immediately before merge, and absence of manual gates. The merge must be a normal GitHub merge commit unless the task explicitly says otherwise, and the source branch must not be deleted unless the human explicitly requests deletion.
+
+Main auto-merge remains blocked for direct pushes, force pushes, skipped validation, skipped GitHub CI, dirty/stale/unstable/changed-head PRs, production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
 Auto-merge is blocked when the task branch marks itself human-gated, records a stop reason, records a forbidden change, marks the selected queue item as human-required or non-auto-mergable, records blocked/failed validation language in `.ai/qa-report.md` or `.ai/task-queue.json`, has unresolved `CHANGES_REQUESTED`, has Codex review suggestions from `chatgpt-codex-connector[bot]`, or cannot be inspected unambiguously. The run log records the precise `autoMergeBlockReason` for these stops instead of relying on the merge command to fail.
 
