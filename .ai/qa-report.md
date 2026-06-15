@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M6-003 complete; M6-004 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -35,6 +35,8 @@ Status: `M6-003 complete; M6-004 queued; manual UI/code review deferred until Da
 - [x] M6-001 updated the M6 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M6-002/M6-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 - [x] M6-002 hardened mobile receipt OCR capture intake and provisional review save handoff by binding local OCR preview state to its source receipt draft, clearing stale preview state when the receipt is removed or no longer receipt-purpose, and saving provisional review data only to the uploaded receipt that produced the active preview.
 - [x] M6-003 hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff so successful draft-only apply is not repeated after post-apply refresh failure and another apply requires a fresh preview.
+- [x] M6-004 finalized M6 QA/control state and marked M6 UI-test ready with no remaining automated M6 work.
+- [x] Current M6 state preserves `STOP-M6-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## M6 Selection Summary
 
@@ -53,8 +55,23 @@ The selection is based on current repo state:
 - `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950` - Completed. Reconciled current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff implementation against Day 1 OCR requirements without changing runtime behavior.
 - `M6-002-RECEIPT-OCR-CAPTURE-INTAKE-HANDOFF-20260615-1950` - Completed. Hardened mobile receipt intake, unsupported/on-device OCR provider fallback, parser/preview, and bill attachment OCR review save handoff inside existing mobile seams.
 - `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950` - Completed. Hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale review data, blocked previews, safe retries, duplicate mutation prevention, refresh-after-apply failure recovery, and server-authority copy.
-- `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950` - Queued. Finalize M6 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950` - Completed. Finalized M6 QA/control state, recorded validation coverage, preserved deferred manual UI/code review status, and marked UI-test ready without runtime behavior changes.
 - `STOP-M6-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, secrets, or unrelated major-domain scope.
+
+## M6-004 QA Finalization Summary
+
+M6 is finalized as a bounded Day 1 mobile receipt OCR capture and review handoff hardening checkpoint.
+
+Completed M6 slices:
+
+- M6-001 reconciled the current mobile receipt OCR capture/review implementation and QA state without runtime changes.
+- M6-002 completed capture/intake and provisional review-save handoff hardening inside existing mobile seams.
+- M6-003 completed saved-review edit, apply-preview, and explicit draft-only apply handoff hardening inside existing mobile seams.
+- M6-004 completed control/QA finalization and set M6 to UI-test ready with no remaining automated M6 work.
+
+Automated validation for the finalization task is recorded in the task report. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M6.
+
+M6 makes no claims of backend/API/contract/generated-client/auth/schema/storage/privacy/money/settlement/payment/OCR-worker/deployment/CI/runtime changes, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant split inference, broad offline cache/sync, notification delivery, web/admin UI, or manual UI acceptance. The recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved milestone or queue kickoff.
 
 ## M6-001 Reconciliation Summary
 

@@ -53,10 +53,11 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950`.
-- Last completed task: `M6-003-RECEIPT-OCR-SAVED-REVIEW-APPLY-HANDOFF-20260615-1950`.
-- Current state: M6-003 hardened saved mobile receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff inside existing mobile seams. The controller should select M6-004 as the next safe automated QA finalization task.
-- Stop sentinel: `STOP-M6-001` for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, or unrelated major-domain scope.
+- Current task: none. M6 is finalized and UI-test ready.
+- Last completed task: `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950`.
+- Current state: M6-001 reconciled the mobile receipt OCR capture/review state, M6-002 hardened capture/intake and provisional review-save handoff, M6-003 hardened saved-review/apply-preview/draft-only apply handoff, and M6-004 finalized QA/control state. There is no remaining automated M6 work.
+- Recommended next automated Day 1 action: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+- Stop sentinel: `STOP-M6-001` remains preserved for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, or unrelated major-domain scope.
 
 ## M5 Carry-Forward Boundary
 

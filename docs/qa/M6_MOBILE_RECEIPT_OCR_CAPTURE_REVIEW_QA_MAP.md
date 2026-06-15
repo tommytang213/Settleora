@@ -1,10 +1,25 @@
 # M6 Mobile Receipt OCR Capture + Review Handoff QA Map
 
-Status: `M6-003 implemented; M6-004 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M6 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
 M6 hardens the mobile receipt OCR capture, provisional saved-review, apply-preview, and draft-only apply handoff UX inside existing backend and generated-client seams. It does not authorize backend/API behavior, OpenAPI/generated-client changes, schema/migration changes, auth/session/security changes, storage/file privacy or authorization policy changes, generic file/receipt/OCR APIs, OCR worker/runtime behavior, OCR engine native dependency or platform configuration changes, money or settlement calculation changes, automatic OCR finalization, non-draft shared-bill revision apply, deployment, Docker, CI, secrets, web/admin runtime UI, or broad offline cache/sync work.
+
+## M6 Finalization Summary
+
+M6 is finalized as UI-test ready with no remaining automated M6 work.
+
+Completed M6 slices:
+
+- M6-001 reconciled the current mobile receipt OCR capture/provider/parser, bill attachment, saved OCR review, apply-preview, and draft-only apply handoff state against Day 1 OCR requirements and created this QA map without runtime changes.
+- M6-002 hardened receipt capture/intake and provisional review-save handoff by binding local OCR preview state to the source receipt draft, clearing stale preview state when that receipt is removed or changed away from receipt purpose, and saving provisional review data only to the uploaded receipt that produced the active preview.
+- M6-003 hardened saved-review edit, refresh, apply-preview, and explicit draft-only apply handoff by disabling stale post-apply previews, preserving successful draft-only apply state through post-apply refresh failure, and keeping recovery bounded to refresh/reopen guidance rather than repeat mutation.
+- M6-004 finalized M6 QA/control state, recorded completed coverage, preserved manual UI/code review deferral, and marked the milestone UI-test ready without runtime behavior changes.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M6.
+
+Recommended next automated Day 1 action: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## Repo-State Basis
 
@@ -140,6 +155,12 @@ Implementation coverage added by M6-002:
 - Existing unsupported-provider, extraction-failure, duplicate-warning, manual-entry, saved-review retry, personal/group route, and no-existing-bill-mutation behavior remains preserved.
 - Focused `bill_list_screen_test.dart` coverage now includes clearing stale OCR preview after source receipt removal and binding provisional OCR review save to the receipt that produced the active preview.
 
+Validation coverage recorded from M6-002:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart` passed with 155 tests.
+- Focused M6 receipt OCR command passed with 270 tests across receipt OCR parser, bill list, attachment section, and group bill list tests.
+- Full `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 685 Flutter tests.
+
 M6-002 must stop if it needs backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, schema/migrations, storage/privacy policy changes, OCR engine/native/platform decisions, worker/runtime behavior, automatic apply/finalization, non-draft revision apply, split inference, money authority, Docker/env/deployment/CI, secrets, or unrelated domains.
 
 ## M6-003 Saved Review/Apply Handoff Focus
@@ -162,14 +183,38 @@ Implementation coverage added by M6-003:
 - Post-apply refresh failure copy tells the user to refresh bill state or reopen the bill and not repeat apply just to reload.
 - Existing blocked-preview, warning, stale conflict, unavailable review, route mismatch, save/remove/preview/apply busy guards, and bounded failure-copy behavior remain preserved in focused tests.
 
+Validation coverage recorded from M6-003:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart --plain-name "personal saved OCR apply refresh failure does not repeat apply mutation"` passed.
+- Focused Flutter validation passed with 309 tests.
+- Full `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 686 Flutter tests.
+
 M6-003 must stop for any expansion beyond existing draft-only API behavior, including non-draft shared-bill revision apply, automatic finalization, server-side policy changes, money/split authority changes, settlement/payment/balance effects, worker/runtime changes, or generated-client/OpenAPI changes.
 
 ## Acceptance Targets
 
 - `M6-001`: Completed. Reconciled current receipt OCR capture/review implementation and automated test coverage without runtime changes. Updated this QA map with current-state inventory, covered tests, gaps, and validation expectations.
-- `M6-002`: Implemented. Hardened mobile receipt capture/intake and provisional review save handoff using existing seams, with unsupported-provider/manual-entry fallback, stale preview clearing, receipt-bound provisional review save, retry preservation, no automatic bill mutation, and bounded tests.
-- `M6-003`: Implemented. Hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale/blocked state, duplicate mutation prevention, refresh-after-apply failure recovery, safe retry behavior, and server-authority copy.
-- `M6-004`: Finalize M6 QA/control state, record validation, mark UI-test ready for deferred Day 1 acceptance, and explicitly leave manual UI/code review deferred and not passed.
+- `M6-002`: Completed. Hardened mobile receipt capture/intake and provisional review save handoff using existing seams, with unsupported-provider/manual-entry fallback, stale preview clearing, receipt-bound provisional review save, retry preservation, no automatic bill mutation, and bounded tests.
+- `M6-003`: Completed. Hardened saved receipt OCR review edit, refresh, apply-preview, and explicit draft-only apply handoff for stale/blocked state, duplicate mutation prevention, refresh-after-apply failure recovery, safe retry behavior, and server-authority copy.
+- `M6-004`: Completed. Finalized M6 QA/control state, recorded prior validation coverage, marked UI-test ready for deferred Day 1 acceptance, and explicitly left manual UI/code review deferred and not passed.
+
+## Preserved Unresolved And Out-Of-Scope Areas
+
+The following remain unresolved or outside M6 and must not be treated as completed by this QA finalization:
+
+- full receipt image normalization policy;
+- raw source retention policy;
+- thumbnails;
+- full Day 1 receipt tax/classification/lineage model;
+- authoritative duplicate detection;
+- OCR worker/runtime;
+- generic receipt/OCR APIs;
+- automatic OCR-to-bill finalization;
+- non-draft shared-bill revision apply;
+- multi-participant OCR-to-split inference;
+- broad offline cache/sync;
+- notification delivery;
+- web/admin OCR UI.
 
 ## Non-Goals
 
@@ -210,3 +255,17 @@ M6 implementation validation should add:
 
 - `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
 - `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+
+M6-004 finalization validation adds the full final checkpoint requested by the task:
+
+- `git fetch origin main`
+- `git status --short`
+- `git diff --name-only origin/main...HEAD`
+- `git diff --check origin/main...HEAD`
+- `node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD`
+- `npm run validate:docs`
+- `npm run validate:scaffold`
+- `npm run validate:openapi`
+- `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
+- `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+- `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`
