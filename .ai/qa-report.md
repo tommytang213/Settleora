@@ -14,7 +14,7 @@ Status: `M4-001 mobile group bill lifecycle state reconciled; manual UI/code rev
 - [x] No M4 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, deployment, Docker, CI, or secret changes.
 - [x] M4-001 reconciled current mobile group bill lifecycle implementation and automated QA coverage without changing mobile runtime behavior.
 - [x] M4-001 updated the M4 QA map with current implementation inventory, covered tests, acceptance targets, M4-002/M4-003 gaps, and stop conditions.
-- [x] Current/next task is `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
+- [x] Current state pointer and next queued task target `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659`.
 
 ## M3 Finalization Carry-Forward
 
@@ -38,7 +38,7 @@ The selection is based on current repo state:
 ## M4 Queue Summary
 
 - `M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659` - Completed. Reconciled current mobile group bill lifecycle state and updated `docs/qa/M4_MOBILE_GROUP_BILL_LIFECYCLE_QA_MAP.md` without changing runtime behavior.
-- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Current. Harden existing group bill create/submit UX, safe retries, member/payer/split validation, and duplicate-mutation prevention inside current mobile seams.
+- `M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659` - Queued as the next controller-selectable task. Harden existing group bill create/submit UX, safe retries, member/payer/split validation, and duplicate-mutation prevention inside current mobile seams.
 - `M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659` - Queued. Harden group bill detail lifecycle surfaces for participant actions, revision entry, attachments/OCR-review state, stale capability refreshes, member fallbacks, and safe terminal/unavailable states.
 - `M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659` - Queued. Finalize M4 QA/control state and preserve deferred manual review status.
 - `STOP-M4-001` - Stop for API/contracts/generated-client/auth/schema/storage/money/deployment, broader offline queue/cache/sync, OCR-worker/runtime expansion, recurring, settlement, reporting/import/export, notification delivery, web/admin, secrets, or unrelated major-domain scope.
