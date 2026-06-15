@@ -259,6 +259,14 @@ M3 finalization requires the task report to record exact results for:
 
 Prior M3 slices also recorded scoped validation for their implementation commits in `.ai/task-queue.json`.
 
+## Controller Readiness Reconciliation
+
+M3 is finalized as a bounded Day 1 mobile sync/offline queue foundation checkpoint. `.ai/state.json` now uses controller-facing readiness to stop stale re-selection of `M3-QA-FINALIZE` after M3 work has already been finalized.
+
+This readiness is not a manual pass. Manual UI retest and manual code review remain deferred until Day 1 acceptance.
+
+Expected post-finalization controller result: the controller should stop on M3 readiness instead of selecting another stale M3 QA finalization task. `STOP-M3-001` remains the M3 sentinel for broad sync/API/auth/schema/storage/money/deployment, persistent cache, background sync, conflict-resolution UX, notification delivery, or unrelated major-domain scope.
+
 ## Deferred Manual Acceptance Gates
 
 Owner decision recorded on 2026-06-15 14:22:03 HKT: manual UI testing and manual code review are deferred until Day 1 acceptance and are not marked passed.
@@ -301,4 +309,4 @@ Stop and require human review if M3 work requires any of the following:
 
 ## Recommended Next Automated Day 1 Action
 
-No safe queued M3 implementation slice remains after `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`. The next automated Day 1 action should come from the repo controller after it stops on `STOP-M3-001`; a reasonable next milestone candidate is a narrow Day 1 acceptance-readiness or mobile offline visibility slice that preserves the same API/auth/schema/storage/money/deployment boundaries. Do not expand M3 ad hoc into persistent cache, background sync, conflict-resolution UX, or unrelated major domains.
+No safe queued M3 implementation slice remains after `M3-QA-FINALIZE`. The next automated Day 1 action should come from the repo controller after it stops M3 readiness; a reasonable next milestone candidate is a narrow Day 1 acceptance-readiness or mobile offline visibility slice that preserves the same API/auth/schema/storage/money/deployment boundaries. Do not expand M3 ad hoc into persistent cache, background sync, conflict-resolution UX, or unrelated major domains.

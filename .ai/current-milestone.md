@@ -51,5 +51,13 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Completed task: `M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509`
+- Completed task: `M3-QA-FINALIZE`
 - Next queued task: none. `STOP-M3-001` remains as the controller stop sentinel for broad sync/API/auth/schema/storage/money/deployment or unrelated major-domain scope.
+
+## Final Readiness Checkpoint
+
+M3 is finalized as a bounded Day 1 mobile sync/offline queue foundation checkpoint. The controller readiness state is set so it does not keep selecting stale M3 QA finalization work after `M3-001`, `M3-002`, `M3-003`, and `M3-004` are complete.
+
+This does not mark manual UI testing or manual code review as passed. Both remain deferred until Day 1 acceptance.
+
+Recommended next automated Day 1 action: stop M3 at `STOP-M3-001` and select the next controller-approved Day 1 milestone or acceptance-readiness slice. Do not expand M3 ad hoc into persistent offline cache, startup/background sync, conflict-resolution UX, API/auth/schema/storage/money/deployment, or unrelated major-domain work.
