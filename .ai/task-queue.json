@@ -1,18 +1,16 @@
 [
   {
-    "id": "M3-001-SYNC-OFFLINE-STATE-RECONCILE-20260615-1509",
-    "title": "Reconcile mobile sync/offline queue state and QA map",
+    "id": "M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659",
+    "title": "Reconcile mobile group bill lifecycle state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map the current mobile sync queue, generated sync repository, processor, app bootstrap wiring, and existing bill sync bridge against Day 1 offline/sync requirements, then create focused QA expectations without changing runtime behavior.",
-    "completedAt": "2026-06-15T15:26:00+08:00",
-    "completionSummary": "Created docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md and updated M3 controller state to make M3-002 the next queued implementation slice.",
+    "goal": "Map the current mobile group bill list/detail/create/submit, participant action, attachment/OCR-review handoff, revision entry, and group member display behavior against Day 1 shared-bill requirements, then create focused QA expectations without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -24,27 +22,27 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires settlement/payment/bill calculation logic",
+      "Requires storage/file privacy policy changes",
+      "Requires settlement/payment/bill calculation or money authority changes",
       "Requires Docker/env/deployment/CI changes",
-      "Requires broad mobile UI outside sync/offline queue scope"
+      "Requires broad offline queue/cache/sync implementation",
+      "Requires unrelated recurring, settlement, reporting, OCR-worker, web/admin, or notification runtime scope"
     ]
   },
   {
-    "id": "M3-002-SYNC-QUEUE-PROCESSOR-HARDENING-20260615-1509",
-    "title": "Mobile sync queue processor state preservation",
+    "id": "M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659",
+    "title": "Mobile group bill create and submit resilience",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/sync/**",
-      "apps/mobile/lib/bills/bill_sync_controller.dart",
+      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/groups/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden the existing mobile sync queue processor and bill sync bridge so queued, syncing, synced, conflict, and failed states remain bounded, retryable where safe, and preserved for user review without making mobile authoritative for server-mode acceptance.",
-    "completedAt": "2026-06-15T15:46:31+08:00",
-    "completionSummary": "Persisted processor syncing state during in-flight attempts, restored original queue items for session-blocking failures, preserved failed/conflict/retryable outcomes, and strengthened focused sync queue and bill sync controller tests for safe labels and open-operation detection.",
+    "goal": "Harden the existing mobile group bill create/submit UX for current-contract fields, member selection, payer/split convenience validation, safe retry after create/submit/refresh failures, and duplicate-mutation prevention while preserving server authoritative validation and generated-client boundaries.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -56,87 +54,57 @@
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
-      "Requires local storage policy changes beyond the existing sync queue store",
-      "Requires money, settlement, or bill calculation behavior changes",
-      "Requires migration, Docker, env, deployment, CI, or secret changes"
-    ]
-  },
-  {
-    "id": "M3-003-SYNC-CHANGE-FEED-HYDRATION-SEAM-20260615-1509",
-    "title": "Mobile sync change-feed hydration seam",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/lib/sync/**",
-      "apps/mobile/lib/app/app_bootstrap.dart",
-      "apps/mobile/test/**"
-    ],
-    "goal": "Use the existing generated sync repository seam to validate bounded change-feed reads and app wiring for future offline cache hydration, without adding new API contracts, generated clients, cache stores, or server-mode business authority in mobile.",
-    "completedAt": "2026-06-15T16:09:10+08:00",
-    "completionSummary": "Added a metadata-only change-feed hydration seam, exposed authenticated server-mode sync controller composition for bootstrap testing, and strengthened focused sync tests for bounded inputs, safe read failures, app wiring, and no mobile business-truth authority from change-feed availability.",
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API behavior",
-      "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires new persistent cache schema or storage privacy policy changes",
-      "Requires settlement/payment/bill calculation logic",
+      "Requires database schema/migrations",
+      "Requires money, settlement, payment, or bill calculation authority changes",
+      "Requires offline queueing for group bill create/edit",
       "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M3-004-SYNC-OFFLINE-QA-FINALIZE-20260615-1509",
-    "title": "Mobile sync/offline queue QA finalization",
+    "id": "M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659",
+    "title": "Mobile group bill detail lifecycle hardening",
+    "risk": "medium",
+    "autoMergeAllowed": true,
+    "status": "queued",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**",
+      "apps/mobile/lib/bills/**",
+      "apps/mobile/lib/groups/**",
+      "apps/mobile/test/**"
+    ],
+    "goal": "Harden the existing mobile group bill detail lifecycle surfaces for participant accept/reject, revision capability entry, attachment/OCR-review handoff state, member display fallbacks, stale capability refreshes, and safe terminal/unavailable states without expanding API contracts or mobile financial authority.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
+    ],
+    "stopConditions": [
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires storage/file privacy policy changes",
+      "Requires money, settlement, payment, or bill calculation authority changes",
+      "Requires push notification/deep-link/background delivery behavior",
+      "Requires Docker/env/deployment/CI changes"
+    ]
+  },
+  {
+    "id": "M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659",
+    "title": "Mobile group bill lifecycle QA finalization",
     "risk": "low",
     "autoMergeAllowed": false,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Finalize M3 automated QA/control state, record validation coverage and deferred manual Day 1 acceptance gates, and stop before any broader offline, cache, API, storage, auth, schema, money, deployment, or notification scope.",
-    "completedAt": "2026-06-15T16:25:00+08:00",
-    "completionSummary": "Finalized M3 QA/control records after confirming M3-001, M3-002, and M3-003 are complete, documenting actual automated coverage and non-goals, preserving manual UI/code review deferral until Day 1 acceptance, and leaving STOP-M3-001 as the next controller stop sentinel.",
+    "goal": "Finalize M4 automated QA/control state, record validation coverage and deferred manual Day 1 acceptance gates, and stop before API, contract, generated-client, auth, schema, storage, money, settlement, deployment, broad offline, or unrelated major-domain scope.",
     "validation": [
-      "git diff --check origin/main...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
-      "npm run validate:docs",
-      "npm run validate:scaffold",
-      "npm run validate:openapi",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile",
-      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
-    ],
-    "finalizationCoverage": [
-      "M3-001 completed current-state reconciliation and created docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md.",
-      "M3-002 completed queue processor and bill sync bridge hardening coverage for syncing, synced, failed, conflict, retryable, and session-blocked outcomes.",
-      "M3-003 completed metadata-only change-feed hydration seam and authenticated server-mode bootstrap wiring coverage.",
-      "M3-004 is documentation/control finalization only and intentionally does not add runtime behavior."
-    ],
-    "remainingDay1Gaps": [
-      "Persistent offline cache hydration and cache merge policy.",
-      "Startup flush, background sync, connectivity-triggered sync, and backoff/max-attempt policy.",
-      "Manual discard/cancel and full conflict-resolution UX.",
-      "Offline queueing for group bill create/edit, recurring bill lifecycle, OCR capture/apply, settlements, notifications, and other broader domains."
-    ],
-    "deferredManualAcceptance": [
-      "Manual UI retest remains deferred until Day 1 acceptance and is not passed.",
-      "Manual code review remains deferred until Day 1 acceptance and is not passed."
-    ],
-    "requiredFinalGateValidation": [
-      "git fetch origin main",
-      "git status --short",
-      "git diff --name-only origin/main...HEAD",
       "git diff --check origin/main...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
       "npm run validate:docs",
@@ -152,31 +120,32 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires settlement/payment/bill calculation logic",
+      "Requires storage/file privacy policy changes",
+      "Requires settlement/payment/bill calculation or money authority changes",
       "Requires Docker/env/deployment/CI changes",
       "Requires production deploy, public/admin exposure, branch deletion, force/history operations, secrets/auth config, architecture replacement, or Day 1 scope reduction"
     ]
   },
   {
-    "id": "STOP-M3-001",
-    "title": "Manual gate broad sync/API/auth/schema/storage/money/deployment blocker",
+    "id": "STOP-M4-001",
+    "title": "Manual gate broad group bill/API/auth/schema/storage/money/deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M3 immediately if mobile sync/offline queue work requires broader API, contract, generated-client, auth, schema, storage privacy, money, settlement, deployment, secret, or major-domain scope.",
+    "goal": "Stop M4 immediately if mobile group bill lifecycle work requires broader API, contract, generated-client, auth, schema, storage privacy, money, settlement, deployment, secret, offline cache/sync, OCR-worker, recurring, reporting, notification, web/admin, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M3 task requires backend/API behavior",
-      "Any M3 task requires OpenAPI/generated-client changes",
-      "Any M3 task requires auth/session/security changes",
-      "Any M3 task requires database schema/migrations",
-      "Any M3 task requires storage/file privacy policy changes",
-      "Any M3 task requires settlement/payment/bill calculation logic",
-      "Any M3 task requires Docker/env/deployment/CI changes",
-      "Any M3 task requires push notification provider/background delivery behavior",
-      "Any M3 task requires secrets, tokens, credentials, or local auth/session config",
-      "Any M3 task expands across unrelated major domains"
+      "Any M4 task requires backend/API behavior",
+      "Any M4 task requires OpenAPI/generated-client changes",
+      "Any M4 task requires auth/session/security changes",
+      "Any M4 task requires database schema/migrations",
+      "Any M4 task requires storage/file privacy policy changes",
+      "Any M4 task requires settlement/payment/bill calculation or money authority changes",
+      "Any M4 task requires Docker/env/deployment/CI changes",
+      "Any M4 task requires persistent offline cache, background sync, or group bill create/edit offline queueing beyond an explicitly approved bounded slice",
+      "Any M4 task requires OCR-worker/runtime expansion, recurring bill runtime, reporting/import/export, notification delivery, web/admin runtime UI, secrets, tokens, credentials, or local auth/session config",
+      "Any M4 task expands across unrelated major domains"
     ]
   }
 ]
