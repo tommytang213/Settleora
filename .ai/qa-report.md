@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M3 sync/offline queue QA finalized; manual UI/code review deferred until Day 1 acceptance; no safe queued M3 task remains`
+Status: `M3 sync/offline queue QA finalized as a bounded Day 1 checkpoint; manual UI/code review deferred until Day 1 acceptance; no safe queued M3 task remains`
 
 ## Acceptance Checklist
 
@@ -17,6 +17,7 @@ Status: `M3 sync/offline queue QA finalized; manual UI/code review deferred unti
 - [x] M3-002 sync queue processor hardening is complete.
 - [x] M3-003 sync change-feed hydration seam is complete.
 - [x] M3-004 sync/offline QA finalization is complete.
+- [x] M3-QA-FINALIZE readiness reconciliation is complete; the controller should stop instead of reselecting stale M3 finalization work.
 - [x] No safe queued M3 implementation slice remains; `STOP-M3-001` is the controller stop sentinel.
 
 ## M2 Finalization Record
@@ -115,7 +116,17 @@ Known Day 1 gaps intentionally remain outside M3:
 - Manual discard/cancel and full conflict-resolution UX.
 - Broader offline queueing for group bill create/edit, recurring bill lifecycle, OCR capture/apply, settlements, notifications, and unrelated major domains.
 
-Recommended next automated Day 1 action after M3: start the next scoped Day 1 milestone from the controller-approved queue after the M3 stop sentinel is resolved. A good candidate is a narrow mobile offline visibility or Day 1 acceptance-readiness slice that does not change API/auth/schema/storage/money/deployment behavior, but the next task should come from the repo controller rather than expanding M3 ad hoc.
+## M3-QA-FINALIZE Readiness Reconciliation Record
+
+The final readiness checkpoint reconciles `.ai/state.json`, `.ai/current-milestone.md`, this QA report, and `docs/qa/M3_MOBILE_SYNC_OFFLINE_QUEUE_QA_MAP.md` so the controller no longer loops on stale M3 QA finalization state.
+
+Controller-facing readiness now means M3 automated QA/control finalization is complete as a bounded Day 1 mobile sync/offline queue foundation checkpoint. It does not mean manual UI testing or manual code review passed.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance, not passed.
+
+No safe queued M3 implementation slice remains after this checkpoint. `STOP-M3-001` remains the stop sentinel for broad sync/API/auth/schema/storage/money/deployment, persistent cache, background sync, conflict-resolution UX, notification delivery, or unrelated major-domain scope.
+
+Recommended next automated Day 1 action after M3: stop M3 at `STOP-M3-001` and select the next controller-approved Day 1 milestone or acceptance-readiness slice. A reasonable candidate remains a narrow mobile offline visibility or Day 1 acceptance-readiness slice that preserves API/auth/schema/storage/money/deployment boundaries, but the next task should come from the repo controller rather than expanding M3 ad hoc.
 
 ## Validation Expectations
 
