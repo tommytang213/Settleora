@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M8 finalized and UI-test ready; no remaining automated M8 work; manual UI/code review deferred until Day 1 acceptance`
+Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -56,6 +56,33 @@ Status: `M8 finalized and UI-test ready; no remaining automated M8 work; manual 
 - [x] M8-003 hardened mobile settlement residual, allocation, selected-line/basket, balance, loaded-row filter, and counterparty payment-detail readouts over server-returned data only.
 - [x] M8-004 finalized M8 QA/control state, recorded validation coverage, preserved deferred manual UI/code review, and marked M8 UI-test ready with no remaining automated M8 work.
 - [x] Current M8 state preserves `STOP-M8-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+- [x] M9 queued as `Day 1 Mobile In-App Notification Inbox Hardening`.
+- [x] M9 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
+- [x] Scope guard allows only narrow M9 docs/control, mobile notifications, app-routing support, and mobile test paths.
+- [x] No M9 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, deployment, Docker, CI, web/admin, broad offline sync/cache, or secret changes.
+- [ ] M9-001 reconciles current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without changing runtime behavior.
+- [ ] M9 implementation hardening slices are complete.
+- [ ] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
+
+## M9 Selection Summary
+
+M9 is `Day 1 Mobile In-App Notification Inbox Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the backend has guarded current-user in-app notification list/summary/read/archive APIs and the mobile app has a starter authenticated in-app notification list/summary/read/archive surface backed by generated-client seams.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires basic in-app notifications for bills, approvals/corrections, settlements, recurring due-soon, sync failures, security/session events, and OCR completion/failure where server OCR is used.
+- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` says notification visibility is presentation only and linked bill, settlement, or recurring data must still be re-fetched through its own server-authorized route before future deep-link behavior.
+- `docs/features/expenses-bills/TECHNICAL_SPEC.md` requires bill revision notifications to carry safe stable metadata only, while email, push delivery, preferences, and deep-link behavior remain separate slices.
+- Current mobile code under `apps/mobile/lib/notifications/` and focused tests under `apps/mobile/test/notification_*` provide bounded seams for mobile-only inbox, read/archive, filter, generated mapping, and typed handoff hardening without requiring API, contract, generated-client, schema, auth, storage, money, delivery-provider, deployment, or unrelated-domain changes.
+
+## M9 Queue Summary
+
+- `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Queued. Reconcile current mobile notification implementation and automated coverage without runtime behavior changes.
+- `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Queued. Harden notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
+- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Queued. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
+- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `STOP-M9-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M8 Selection Summary
 

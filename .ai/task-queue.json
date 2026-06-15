@@ -1,16 +1,16 @@
 [
   {
-    "id": "M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306",
-    "title": "Reconcile mobile settlement workflow state",
+    "id": "M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055",
+    "title": "Reconcile mobile in-app notification inbox state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements and existing generated-client/API seams, then create focused QA expectations without changing runtime behavior.",
+    "goal": "Map current mobile notification summary, inbox list, filters, read/archive actions, generated-client mapping, app-shell notification entry, and typed handoff implementation against Day 1 in-app notification requirements and existing API/generated-client seams, then create focused QA expectations without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -22,26 +22,27 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, settlement proof storage policy, statement import/upload/download behavior, CSV import/export, backup/restore, or generic file API changes",
-      "Requires settlement/payment/bill calculation, residual policy authority, basket expansion authority, balance projection authority, reconciliation mutation authority, statement matching authority, or money authority changes",
-      "Requires Docker/env/deployment/CI changes",
-      "Requires payment provider integrations, direct bank sync, provider webhook behavior, settlement simplification, cross-currency/FX settlement, refund workflows, broad credit ledger behavior, notification delivery, broad offline cache/sync, web/admin, or unrelated major-domain scope"
+      "Requires storage/file privacy policy, file authorization, proof/receipt/QR byte behavior, or private-vault changes",
+      "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
+      "Requires notification delivery providers, push/email delivery, device-token registration, reminder scheduling, notification preferences, quiet hours, digest behavior, notification generation policy, queue, worker, Docker/env/deployment/CI changes",
+      "Requires linked-resource authorization changes or client-side permission decisions from notification metadata/action URLs",
+      "Requires web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306",
-    "title": "Mobile settlement request and payment action hardening",
+    "id": "M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055",
+    "title": "Mobile notification inbox read and archive action hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/settlements/**",
+      "apps/mobile/lib/notifications/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile settlement list/detail request and payment action flows for role-aware action availability, confirmation copy, duplicate-action prevention, safe retry/failure states, refresh-after-mutation behavior, and server-authority messaging while preserving current generated-client seams.",
+    "goal": "Harden existing mobile notification summary/list filters and read/archive/mark-all/mark-visible action flows for loaded-row count clarity, local-filter copy, duplicate-action prevention, safe retry/failure states, refresh-after-mutation behavior, and server-authority messaging while preserving current generated-client seams.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -54,25 +55,25 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy or settlement proof byte behavior changes",
-      "Requires settlement/payment/bill calculation, residual policy, basket expansion, balance projection, or money authority changes",
-      "Requires Docker/env/deployment/CI changes"
+      "Requires storage/file privacy policy or file byte behavior changes",
+      "Requires notification delivery providers, push/email delivery, notification preferences, reminder scheduling, queue/worker behavior, Docker/env/deployment/CI changes",
+      "Requires linked-resource authorization, money, bill, settlement, recurring generation, OCR apply, or business status-transition authority changes"
     ]
   },
   {
-    "id": "M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306",
-    "title": "Mobile settlement residual and basket readout hardening",
+    "id": "M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055",
+    "title": "Mobile notification typed handoff authority hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/settlements/**",
+      "apps/mobile/lib/notifications/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile settlement residual, allocation, selected-line, balance, and counterparty payment-detail readouts so exact totals, actual paid amounts, residual confirmation needs, loaded-row filtering, and payment-detail visibility stay clear, bounded, and server-authoritative without adding new settlement authority.",
+    "goal": "Harden existing notification typed handoffs into bill, bill revision, settlement, and recurring screens so notification metadata, action URLs, IDs, and generated-client method availability are treated only as navigation hints and linked resources are re-fetched through existing authorized repository seams before display or actions.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -85,22 +86,23 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, settlement proof byte behavior, generic file APIs, statement import/upload/download, CSV import/export, or backup/restore changes",
-      "Requires residual policy authority, basket expansion authority, balance projection authority, settlement/payment/bill calculation authority, reconciliation mutation authority, statement matching authority, or money authority changes",
-      "Requires payment provider integrations, direct bank sync, provider webhook behavior, cross-currency/FX settlement, refund workflows, broad credit ledger behavior, Docker/env/deployment/CI changes, notification delivery, web/admin, or unrelated major-domain scope"
+      "Requires storage/file privacy policy, proof/receipt/QR byte behavior, generic file APIs, or private-vault changes",
+      "Requires linked-resource authorization changes or any client-side permission decision from notification metadata/action URLs",
+      "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or status-transition authority changes",
+      "Requires push/email delivery, notification preferences, background delivery, web/admin runtime, broad offline cache/sync, Docker/env/deployment/CI changes, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306",
-    "title": "Finalize mobile settlement workflow QA state",
+    "id": "M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055",
+    "title": "Finalize mobile notification inbox QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -110,30 +112,31 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M8 implementation slices are incomplete",
+      "M9 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, money, settlement authority, residual/basket/balance policy, provider integration, statement import, export/backup, deployment, secret, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, money, settlement/bill/recurring/OCR authority, notification delivery/provider/preference/queue/worker, linked-resource authorization, deployment, secret, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M8-001",
-    "title": "Manual gate settlement authority API storage money deployment blocker",
+    "id": "STOP-M9-001",
+    "title": "Manual gate notification delivery authorization API storage money deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M8 immediately if mobile settlement workflow work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, money, settlement authority, residual/basket/balance policy, deployment, secret, provider integration, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
+    "goal": "Stop M9 immediately if mobile notification inbox work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, money, bill, settlement, recurring, OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M8 task requires backend/API behavior",
-      "Any M8 task requires OpenAPI/generated-client changes",
-      "Any M8 task requires auth/session/security changes",
-      "Any M8 task requires database schema/migrations",
-      "Any M8 task requires storage/file privacy policy, file authorization, generic public file APIs, settlement proof byte behavior, statement import/upload/download behavior, CSV import/export, backup/restore, or private-vault behavior changes",
-      "Any M8 task requires settlement/payment/bill calculation, residual policy authority, basket expansion authority, balance projection authority, reconciliation mutation authority, statement matching authority, or money authority changes",
-      "Any M8 task requires Docker/env/deployment/CI changes",
-      "Any M8 task requires payment provider integrations, direct bank sync, provider webhook behavior, cross-currency/FX settlement, refund workflows, broad credit ledger behavior, recurring background jobs/reminders, notification delivery providers, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
-      "Any M8 task expands across unrelated major domains"
+      "Any M9 task requires backend/API behavior",
+      "Any M9 task requires OpenAPI/generated-client changes",
+      "Any M9 task requires auth/session/security changes",
+      "Any M9 task requires database schema/migrations",
+      "Any M9 task requires storage/file privacy policy, file authorization, generic public file APIs, proof/receipt/QR byte behavior, or private-vault behavior changes",
+      "Any M9 task requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
+      "Any M9 task requires notification delivery providers, push notifications, email notifications, device-token registration, reminder scheduling, background delivery, notification preferences, quiet hours, digest behavior, server-side notification generation policy, queue, worker, Docker/env/deployment/CI changes",
+      "Any M9 task requires linked-resource authorization changes or client-side permission decisions from notification metadata, action URLs, raw IDs, cached rows, or generated-client availability",
+      "Any M9 task requires payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, CSV import/export, backup/restore, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
+      "Any M9 task expands across unrelated major domains"
     ]
   }
 ]
