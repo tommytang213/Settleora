@@ -3,11 +3,11 @@
 ## Status
 
 - Milestone: `M2` - Mobile Navigation + Home Dashboard Shell Polish.
-- Task: `M2-005` - Mobile nav/home UI testing checklist and milestone QA report.
-- Status: human UI testing checklist complete; required automated validation passed; human PC UI retest deferred by owner decision until Day 1 acceptance.
-- Base branch: `ai/integration`.
-- Task branch: `ai/task/m2-005-mobile-nav-home-ui-testing-checklist-and-milesto`.
-- Auto-merge: not allowed for this task.
+- Latest completed task: `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422` - In-app notification detail context and Home handoff polish.
+- Status: human UI testing checklist complete; notification detail/context polish automated coverage added; human PC UI retest deferred by owner decision until Day 1 acceptance.
+- Base branch: `main`.
+- Task branch: `feature/mobile-notification-detail-context-polish-20260615-1438`.
+- Auto-merge: allowed for this PR/merge-gate task if all gates pass.
 - Latest integration context: PR #95 group/settle handoff polish, PR #97 Home/dashboard redesign, and PR #98 mobile Figma parity guardrails are included.
 
 ## QA Artifacts
@@ -30,6 +30,7 @@
 - Groups and group-bill handoffs: covered by `apps/mobile/test/group_list_screen_test.dart` and `apps/mobile/test/group_bill_list_screen_test.dart` for list/detail/create, empty states, search/filter, member context, shared bill workspace, and group bill creation.
 - Bills handoffs: covered by `apps/mobile/test/bill_list_screen_test.dart` for personal bill list/detail/create, Bills tab context, sync queue, attachment metadata, and authenticated shell navigation.
 - Settlements/Settle handoffs: covered by `apps/mobile/test/settlement_list_screen_test.dart` for loaded balances/requests, local filters, compact empty states, visible-value search, detail actions, residual confirmation, and bounded failure states.
+- Notifications: covered by `apps/mobile/test/notification_screen_test.dart` for safe notification detail context, typed destination status, unsupported link redaction, archived detail behavior, read/archive/restore actions, filters, and existing Home notification handoffs.
 
 ## Human UI Testing Readiness
 
