@@ -1113,6 +1113,10 @@ class _BalanceTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _KeyValueText(
+                label: 'Selected lines',
+                value: _money(balance.selectedLineAmount, balance.currency),
+              ),
+              _KeyValueText(
                 label: 'Remaining',
                 value: _money(
                   balance.remainingUnclaimedAmount,
@@ -1127,6 +1131,21 @@ class _BalanceTile extends StatelessWidget {
                 label: 'Cleared',
                 value: _money(balance.confirmedClearedAmount, balance.currency),
               ),
+              _KeyValueText(
+                label: 'Confirmed residual',
+                value: _money(
+                  balance.confirmedRemainingResidualAmount,
+                  balance.currency,
+                ),
+              ),
+              _KeyValueText(
+                label: 'Waived residual',
+                value: _money(balance.waivedResidualAmount, balance.currency),
+              ),
+              _KeyValueText(
+                label: 'Credit residual',
+                value: _money(balance.creditResidualAmount, balance.currency),
+              ),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -1136,10 +1155,26 @@ class _BalanceTile extends StatelessWidget {
                     icon: Icons.receipt_long_outlined,
                   ),
                   _SoftChip(
+                    label: '${balance.lineCount} lines',
+                    icon: Icons.format_list_bulleted,
+                  ),
+                  _SoftChip(
                     label: '${balance.pendingPaymentCount} pending payments',
                     icon: Icons.pending_actions_outlined,
                   ),
+                  _SoftChip(
+                    label:
+                        '${balance.confirmedPaymentCount} confirmed payments',
+                    icon: Icons.verified_outlined,
+                  ),
                 ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Balance rows are server-returned projections. Mobile displays these amounts and counts without recalculating selected lines, residuals, or clearing.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -1292,6 +1327,10 @@ class _RequestHeader extends StatelessWidget {
           value: settleoraSettlementRequestStatusLabel(request.status),
         ),
         _KeyValueText(
+          label: 'Selected total',
+          value: _money(request.amount, request.currency),
+        ),
+        _KeyValueText(
           label: 'Requested',
           value: _formatTimestamp(request.requestedAtUtc),
         ),
@@ -1299,6 +1338,13 @@ class _RequestHeader extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Selected total is the server-returned request amount for the loaded request lines. Actual paid amounts are shown separately on payment claims.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1542,9 +1588,10 @@ class _DetailReviewSummarySection extends StatelessWidget {
           icon: Icons.fact_check_outlined,
           title: 'Loaded settlement facts',
           message:
-              '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel',
+              '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel. Mobile shows loaded API rows and does not expand baskets, decide eligibility, or calculate settlement totals.',
           chips: [
             '${request.lines.length} lines',
+            'Selected total ${_money(request.amount, request.currency)}',
             '${payments.length} payments',
             '$residualCount residuals',
             if (pendingResidualCount > 0)
@@ -1618,6 +1665,17 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
     return _Section(
       title: 'Counterparty Payment Details',
       children: [
+        _GuidancePanel(
+          icon: Icons.verified_user_outlined,
+          title: 'Settlement-scoped visibility',
+          message:
+              'These details are returned only through the settlement counterparty seam. The API authorizes the relationship and visibility; mobile does not run broad profile lookup or expose payment QR bytes.',
+          chips: [
+            'Relationship-backed',
+            _fallback(details.visibilityApplied, 'API-authorized'),
+          ],
+        ),
+        const SizedBox(height: 10),
         _KeyValueText(
           label: 'Method',
           value: _fallback(details.preferredMethodLabel, 'Payment method'),
@@ -1673,6 +1731,17 @@ class _RequestLinesSection extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall,
       ),
       children: [
+        _GuidancePanel(
+          icon: Icons.format_list_bulleted,
+          title: 'Loaded selected scope',
+          message:
+              'These are the selected request lines returned by the API. Mobile filters only loaded rows on this device and does not expand baskets or decide line eligibility.',
+          chips: [
+            '$totalLineCount loaded lines',
+            if (hasActiveDiscovery) '${lines.length} visible after filter',
+          ],
+        ),
+        const SizedBox(height: 10),
         _DetailSearchControls(
           controller: controller,
           searchKey: const Key('settlement-detail-lines-search'),
@@ -1686,7 +1755,8 @@ class _RequestLinesSection extends StatelessWidget {
           const _StatePanel(
             icon: Icons.search_off_outlined,
             title: 'No matching request lines',
-            message: 'No loaded request lines match this search.',
+            message:
+                'No loaded request lines match this local filter. Clear the filter to restore the rows already returned by the API.',
             compact: true,
           )
         else
@@ -1807,6 +1877,17 @@ class _PaymentsSection extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall,
       ),
       children: [
+        _GuidancePanel(
+          icon: Icons.filter_alt_outlined,
+          title: 'Loaded payment filters',
+          message:
+              'Payment and residual filters hide only already-loaded rows on this device. They do not authorize, mutate, calculate, allocate, or reconcile settlement data.',
+          chips: [
+            '$totalPaymentCount loaded payments',
+            if (hasActiveDiscovery) '${payments.length} visible after filter',
+          ],
+        ),
+        const SizedBox(height: 10),
         _DetailSearchControls(
           controller: controller,
           searchKey: const Key('settlement-detail-payments-search'),
@@ -1838,7 +1919,8 @@ class _PaymentsSection extends StatelessWidget {
           const _StatePanel(
             icon: Icons.search_off_outlined,
             title: 'No matching payments',
-            message: 'No loaded payments or residuals match this search.',
+            message:
+                'No loaded payments or residuals match this local filter. Clear filters to restore rows already returned by the API.',
             compact: true,
           )
         else
@@ -1916,6 +1998,10 @@ class _PaymentTile extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
+            _KeyValueText(
+              label: 'Actual paid',
+              value: _money(payment.amount, payment.currency),
+            ),
             _KeyValueText(label: 'Payment date', value: payment.paymentDate),
             _KeyValueText(
               label: 'Status',
@@ -1925,6 +2011,10 @@ class _PaymentTile extends StatelessWidget {
               label: 'Allocations',
               value: '${payment.allocations.length}',
             ),
+            if (payment.allocations.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _AllocationList(allocations: payment.allocations),
+            ],
             if (payment.residuals.isNotEmpty)
               _ResidualList(
                 paymentIndex: index,
@@ -1936,7 +2026,7 @@ class _PaymentTile extends StatelessWidget {
             if (confirmBlockedByResidual) ...[
               const SizedBox(height: 8),
               Text(
-                'Receipt confirmation is blocked until pending residuals are confirmed.',
+                'Receipt confirmation is blocked until pending receiver-confirmation residuals are resolved by the API.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -1946,7 +2036,7 @@ class _PaymentTile extends StatelessWidget {
                     SettleoraSettlementPaymentStatusValues.markedPaid) ...[
               const SizedBox(height: 8),
               Text(
-                'Waiting for the receiver to confirm this payment.',
+                'Waiting for the receiver to confirm this actual paid amount against the server-selected request lines.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -2004,6 +2094,38 @@ class _PaymentTile extends StatelessWidget {
   }
 }
 
+class _AllocationList extends StatelessWidget {
+  const _AllocationList({required this.allocations});
+
+  final List<SettleoraSettlementPaymentAllocation> allocations;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < allocations.length; index += 1)
+          _KeyValueText(
+            label: 'Allocation ${index + 1}',
+            value: _money(
+              allocations[index].clearedAmount,
+              allocations[index].currency,
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Text(
+            'Allocation rows are server-returned clearing facts for loaded selected lines.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ResidualList extends StatelessWidget {
   const _ResidualList({
     required this.paymentIndex,
@@ -2036,8 +2158,32 @@ class _ResidualList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(
-                      '${_money(residuals[index].amount, residuals[index].currency)} - ${settleoraSettlementResidualStatusLabel(residuals[index].status)}',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_money(residuals[index].amount, residuals[index].currency)} - ${settleoraSettlementResidualStatusLabel(residuals[index].status)}',
+                        ),
+                        Text(
+                          '${settleoraSettlementResidualDirectionLabel(residuals[index].direction)} / ${settleoraSettlementResidualPolicyLabel(residuals[index].policy)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        if (residuals[index].canConfirm)
+                          Text(
+                            'Pending receiver confirmation',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                      ],
                     ),
                   ),
                   if (canConfirmResiduals && residuals[index].canConfirm)
