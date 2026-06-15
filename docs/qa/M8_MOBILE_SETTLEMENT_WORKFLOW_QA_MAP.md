@@ -1,12 +1,12 @@
 # M8 Mobile Settlement Workflow QA Map
 
-Status: `M8-001 reconciled; M8-002 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8-002 completed; M8-003 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
 M8 hardens the mobile settlement workflow UX inside existing backend and generated-client seams. It does not authorize backend/API behavior, OpenAPI/generated-client changes, schema/migration changes, auth/session/security changes, storage/privacy or settlement proof byte behavior changes, residual policy changes, basket expansion authority changes, balance projection authority changes, money or settlement calculation changes, payment provider integrations, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, deployment, Docker, CI, secrets, web/admin runtime UI, notification delivery, or broad offline cache/sync work.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M8-001.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M8-002.
 
 ## Selection Basis
 
@@ -61,7 +61,7 @@ Manual UI retest and manual code review remain deferred until Day 1 acceptance a
 - Proof readouts: settlement proof metadata, proof count, proof file list, proof attach/remove, and proof content are not currently surfaced in the mobile settlement screen.
 - Action availability: debtor sees Mark paid for `requested`; requester sees Cancel for cancellable requested settlements; participants see Dispute for requested, partially paid, and marked paid; receiver sees Confirm only when a marked-paid payment has no pending residuals; payer sees Cancel on marked-paid payment claims; receiver sees Dispute on marked-paid payment claims; receiver sees residual Confirm on pending residual rows.
 - Refresh/retry/empty/filtered-empty states: list and detail have loading states, refresh buttons, pull-to-refresh on list, retry panels for failures, empty balances, empty requests, filtered-empty requests, no request lines, filtered-empty request lines, no payments, filtered-empty payments, and no/not-configured/unavailable payment details.
-- Server-authority copy: mark-paid, confirm receipt, residual confirmation, cancel, dispute, landing summary, lifecycle, and failure copy point users back to server verification or existing server authority. More explicit copy remains useful for M8-002 and M8-003.
+- Server-authority copy: mark-paid, confirm receipt, residual confirmation, cancel, dispute, landing summary, lifecycle, and failure copy point users back to server verification or existing server authority. M8-002 strengthened action copy; more explicit readout copy remains useful for M8-003.
 
 ## App-Shell And Notification Handoffs
 
@@ -118,15 +118,15 @@ No mobile runtime or test files were changed by M8-001, so focused Flutter tests
 
 | Day 1 settlement requirement | Current state | M8 implication |
 | --- | --- | --- |
-| Settlement request/create | Existing mobile lists/opens server-created requests and does not create requests. Backend request create exists outside this UI. | M8-002 can harden request action handling only; no new API or create authority. |
+| Settlement request/create | Existing mobile lists/opens server-created requests and does not create requests. Backend request create exists outside this UI. | M8-002 hardened request action handling only; no new API or create authority. |
 | Settlement baskets / pay-all outstanding | Backend basket preview/create exists; mobile shows request lines returned on existing requests but no basket preview/create workflow. | M8-003 should improve selected-line/basket readout over loaded lines only. |
 | Select all visible eligible outstanding lines | Not surfaced in current mobile settlement UI. | Non-goal unless an explicit later task scopes existing API-backed UI without client authority. |
 | Exact selected total vs actual paid amount display | Request amount and payment actual paid amount are displayed separately in different sections, but there is no explicit comparison/readout naming exact selected total versus actual paid amount. | M8-003 focus. |
 | Explicit residual handling | Residuals are modeled and displayed with receiver confirmation. Direction/policy clarity is incomplete in visible UI. | M8-003 focus. |
-| Mark as paid | Debtor mark-paid action exists with amount/currency/date fields and server-authority copy. | M8-002 should harden confirmation, failure, retry, duplicate prevention, and refresh behavior. |
+| Mark as paid | Debtor mark-paid action exists with amount/currency/date fields and server-authority copy. | M8-002 hardened confirmation, failure, retry, duplicate prevention, and refresh behavior. |
 | Partial payment / allocation readout | Payment amount and allocation count are visible; allocation amounts are searchable but not itemized. | M8-003 should clarify allocation/balance copy without creating allocation authority. |
-| Receiver confirmation | Receiver confirm action exists when marked-paid payment has no pending residuals. Pending residuals block confirmation. | M8-002 should harden action/failure states. |
-| Dispute/cancellation | Request cancel/dispute and payment cancel/dispute seams exist with role/status availability. | M8-002 should add missing coverage/failure hardening where needed. |
+| Receiver confirmation | Receiver confirm action exists when marked-paid payment has no pending residuals. Pending residuals block confirmation. | M8-002 hardened action/failure states. |
+| Dispute/cancellation | Request cancel/dispute and payment cancel/dispute seams exist with role/status availability. | M8-002 added focused payment cancel/dispute coverage and bounded failure hardening. |
 | Settlement proof attachment readout | Backend proof runtime exists; mobile settlement UI does not surface proof metadata/readout. | Non-goal for M8 unless existing seams expose metadata in a later explicitly scoped slice. |
 | Payment profile display to authorized counterparties | Settlement-scoped counterparty details are loaded and displayed as method/handle/note/QR availability. | M8-003 should clarify visibility copy and no broad profile lookup. |
 | Settlement audit and authorization | API/domain remains authoritative; mobile copy references server verification/audit. | Keep all authorization/audit claims server-authoritative. |
@@ -134,15 +134,24 @@ No mobile runtime or test files were changed by M8-001, so focused Flutter tests
 
 ## Gap Focus For M8-002
 
-M8-002 should stay inside existing mobile settlement seams and focus on:
+M8-002 stayed inside existing mobile settlement seams and completed:
 
-- Request/payment action availability clarity for debtor, creditor, requester, and terminal states.
+- Request/payment action availability clarity for debtor, creditor, requester, and terminal states by showing loaded status/role as UI guidance only.
 - Confirmation copy for mark-paid, request cancel, request dispute, payment confirm, payment cancel, payment dispute, and residual confirm.
-- Duplicate-action prevention across every mutation path, including payment cancellation/dispute and residual confirmation.
-- Safe retry/failure states after mutation failure.
-- Refresh-after-mutation behavior, including user-visible handling when mutation succeeds but refresh fails.
-- Server-authority messaging that the API/domain layer decides authorization, status transitions, residual blocking, audit, and money.
-- No new API, no new generated-client work, no settlement authority, and no proof byte/storage behavior.
+- Duplicate-action prevention across existing request/payment/residual mutation paths while one mutation is active.
+- Safe bounded retry/failure copy for session, denied, unavailable, conflict, validation, network, and server failures.
+- Refresh-after-mutation behavior that preserves a successful mutation result when the follow-up refresh fails, keeps the loaded state visible, and tells the user to refresh before repeating an action.
+- Server-authority messaging that the API/domain layer decides authorization, status transitions, residual blocking, audit, payment truth, and money.
+- No new API, no generated-client work, no settlement authority, and no proof byte/storage behavior.
+
+Focused M8-002 validation:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/settlement_list_screen_test.dart` passed with 25 tests.
+- Added focused tests for request action confirmation/success refresh, duplicate request action blocking, bounded unsafe request action failure copy, payment confirmation/success refresh, duplicate payment action blocking, payment cancellation, payment dispute, mutation-success plus refresh-failure copy, server-authority/no-local-money-authority copy, and unsafe raw string suppression in visible action failure text.
+
+Remaining M8-002 warning:
+
+- Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
 
 ## Gap Focus For M8-003
 
@@ -160,7 +169,7 @@ M8-003 should stay inside existing mobile settlement readout seams and focus on:
 ## Queue Expectations
 
 - `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Completed by this QA/control update. Reconciled current mobile settlement implementation and automated coverage without runtime behavior changes.
-- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Queued. Harden settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
+- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Completed. Hardened settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, refresh-after-mutation recovery, and server-authority copy inside existing mobile seams.
 - `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Queued. Harden residual, selected-line/basket, balance, and counterparty payment-detail readouts inside existing mobile seams.
 - `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation, mark UI-test ready, and leave manual UI/code review deferred.
 - `STOP-M8-001` - Preserved. Stop for forbidden API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment/provider/import/export/backup/notification/web/admin/broad-sync scope.
@@ -185,4 +194,4 @@ M8 implementation validation should add focused settlement Flutter tests and ful
 
 Stop and report `BLOCKED` if an M8 task requires backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, schema/migrations, storage/file privacy or authorization policy changes, settlement proof byte behavior, settlement/payment/bill calculation authority, residual policy authority, basket expansion authority, balance projection authority, money authority, provider integrations, direct bank sync, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, Docker/deployment/env/CI, secrets, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, architecture replacement, notification delivery, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain scope.
 
-Non-goals for M8-001: no mobile runtime edits, no tests, no backend/API behavior, no OpenAPI or generated-client changes, no settlement proof byte behavior, no payment provider integration, no statement matching, no CSV/import/export/backup work, no manual UI/code review pass, and no merge without the required PR/CI/merge gates.
+Non-goals preserved through M8-002: no backend/API behavior, no OpenAPI or generated-client changes, no schema/auth/storage/privacy/money/settlement authority changes, no settlement proof byte behavior, no payment provider integration, no statement matching, no CSV/import/export/backup work, no manual UI/code review pass, and no merge without the required PR/CI/merge gates.

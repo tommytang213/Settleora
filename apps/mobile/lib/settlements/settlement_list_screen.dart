@@ -552,7 +552,10 @@ class _SettleoraSettlementDetailScreenState
     });
   }
 
-  Future<void> _load({bool showLoading = true}) async {
+  Future<void> _load({
+    bool showLoading = true,
+    bool preserveCurrentOnFailure = false,
+  }) async {
     if (showLoading) {
       setState(() {
         _isLoading = true;
@@ -606,8 +609,16 @@ class _SettleoraSettlementDetailScreenState
         return;
       }
 
+      final failure = SettleoraSettlementFailure.from(error);
+      if (preserveCurrentOnFailure) {
+        setState(() {
+          _isLoading = false;
+        });
+        throw failure;
+      }
+
       setState(() {
-        _failure = SettleoraSettlementFailure.from(error);
+        _failure = failure;
         _isLoading = false;
       });
     }
@@ -628,18 +639,32 @@ class _SettleoraSettlementDetailScreenState
 
     try {
       await operation();
-      await _load(showLoading: false);
       if (!mounted) {
         return;
       }
 
-      _showSnackBar(successMessage);
+      try {
+        await _load(showLoading: false, preserveCurrentOnFailure: true);
+        if (!mounted) {
+          return;
+        }
+
+        _showSnackBar(successMessage);
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+
+        _showSnackBar(
+          '$successMessage Refresh failed. Use Refresh to reload server state before repeating any settlement action.',
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showSnackBar(SettleoraSettlementFailure.from(error).message);
+      _showSnackBar(_settlementActionFailureMessage(error));
     } finally {
       if (mounted) {
         setState(() {
@@ -782,7 +807,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'request-cancel',
                     title: 'Cancel settlement?',
                     message:
-                        'This cancels the requested settlement if no payment has been recorded. The server will verify whether this account can cancel it.',
+                        'This asks the API to cancel the requested settlement if no payment has been recorded. The loaded role and status only guide this button; the server decides authorization, status, audit, and money.',
                     confirmLabel: 'Cancel settlement',
                     successMessage: 'Settlement cancelled.',
                     operation: () async {
@@ -795,7 +820,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'request-dispute',
                     title: 'Dispute settlement?',
                     message:
-                        'This flags the settlement for correction. This mobile seam does not support sending a reason yet.',
+                        'This asks the API to dispute the settlement for correction. Mobile does not decide authorization, payment truth, audit state, or money, and this seam does not support sending a reason yet.',
                     confirmLabel: 'Dispute',
                     successMessage: 'Settlement disputed.',
                     operation: () async {
@@ -851,7 +876,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-confirm-${payment.id}',
                     title: 'Confirm receipt?',
                     message:
-                        'Confirm only if you received this payment. The server will update the settlement state and audit the action.',
+                        'Confirm only if you received this payment. Mobile asks the API to confirm receipt; the server decides authorization, settlement state, payment truth, residual blocking, audit, and money.',
                     confirmLabel: 'Confirm receipt',
                     successMessage: 'Payment confirmed.',
                     operation: () async {
@@ -864,7 +889,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-cancel-${payment.id}',
                     title: 'Cancel payment claim?',
                     message:
-                        'This cancels your marked-paid claim for this settlement payment.',
+                        'This asks the API to cancel your marked-paid claim. The loaded payer role only guides this button; the server decides whether the transition is allowed.',
                     confirmLabel: 'Cancel claim',
                     successMessage: 'Payment cancelled.',
                     operation: () async {
@@ -877,7 +902,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-dispute-${payment.id}',
                     title: 'Dispute payment?',
                     message:
-                        'This flags the marked-paid claim for correction. This mobile seam does not support sending a reason yet.',
+                        'This asks the API to dispute the marked-paid claim for correction. Mobile does not decide payment truth, authorization, audit state, or money, and this seam does not support sending a reason yet.',
                     confirmLabel: 'Dispute payment',
                     successMessage: 'Payment disputed.',
                     operation: () async {
@@ -890,7 +915,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'residual-confirm-${residual.id}',
                     title: 'Confirm residual?',
                     message:
-                        'Confirm this remaining amount handling only if it matches what you agreed. The server will decide the resulting settlement state.',
+                        'Confirm this remaining amount handling only if it matches what you agreed. Mobile asks the API to confirm the residual; the server decides authorization, resulting settlement state, audit, and money.',
                     confirmLabel: 'Confirm residual',
                     successMessage: 'Residual confirmed.',
                     operation: () async {
@@ -1271,6 +1296,13 @@ class _RequestHeader extends StatelessWidget {
           value: _formatTimestamp(request.requestedAtUtc),
         ),
         _KeyValueText(label: 'Lines', value: '${request.lines.length}'),
+        const SizedBox(height: 8),
+        Text(
+          'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         if (hasActions) ...[
           const SizedBox(height: 12),
           Wrap(
@@ -2110,7 +2142,7 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Mark paid only after sending payment. The server will verify the claim, update settlement state, and keep the audit trail.',
+              'Mark paid only after sending payment. Mobile asks the API to record the claim; the server verifies authorization, settlement state, residual handling, audit, and money.',
             ),
             const SizedBox(height: 14),
             TextField(
@@ -2432,6 +2464,28 @@ IconData _failureIcon(SettleoraSettlementFailureKind kind) {
     SettleoraSettlementFailureKind.validation => Icons.report_problem_outlined,
     SettleoraSettlementFailureKind.network => Icons.cloud_off_outlined,
     SettleoraSettlementFailureKind.server => Icons.error_outline,
+  };
+}
+
+String _settlementActionFailureMessage(Object error) {
+  final failure = SettleoraSettlementFailure.from(error);
+  return switch (failure.kind) {
+    SettleoraSettlementFailureKind.sessionRequired =>
+      'Sign in before asking the API to change this settlement.',
+    SettleoraSettlementFailureKind.sessionExpired =>
+      'Your session expired. Sign in again before changing this settlement.',
+    SettleoraSettlementFailureKind.denied =>
+      'The API did not allow this settlement action for the current account.',
+    SettleoraSettlementFailureKind.unavailable =>
+      'This settlement action is no longer available. Refresh before trying again.',
+    SettleoraSettlementFailureKind.conflict =>
+      'The settlement changed on the server. Refresh before trying again.',
+    SettleoraSettlementFailureKind.validation =>
+      'The API rejected this settlement action. Refresh and review the loaded state before trying again.',
+    SettleoraSettlementFailureKind.network =>
+      'The API could not be reached. The loaded settlement state was kept; retry when the connection is back.',
+    SettleoraSettlementFailureKind.server =>
+      'The API could not complete this settlement action right now. The loaded settlement state was kept.',
   };
 }
 

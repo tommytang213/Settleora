@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M8 in progress; M8-001 completed; M8-002 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M8 in progress; M8-002 completed; M8-003 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -52,6 +52,7 @@ Status: `M8 in progress; M8-001 completed; M8-002 queued; manual UI/code review 
 - [x] Scope guard allows only narrow M8 docs/control, mobile settlements, app-routing support, and mobile test paths.
 - [x] No M8 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, settlement authority, storage privacy, settlement proof byte behavior, provider integration, statement import/matching, export/backup, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
 - [x] M8-001 reconciled current mobile settlement repository/model boundaries, generated-client mapping, settlement list/detail UI, app-shell/notification handoffs, automated coverage, Day 1 requirement gaps, and M8-002/M8-003 focus without changing runtime behavior.
+- [x] M8-002 hardened mobile settlement request/payment action confirmations, duplicate-action guards, bounded action failure copy, refresh-after-mutation recovery, and server-authority messaging inside existing mobile seams.
 
 ## M8 Selection Summary
 
@@ -68,7 +69,7 @@ The selection is based on current repo state:
 ## M8 Queue Summary
 
 - `M8-001-MOBILE-SETTLEMENT-WORKFLOW-STATE-RECONCILE-20260615-2306` - Completed. Reconciled current mobile settlement balance, request, payment, residual, counterparty payment-detail, and basket/readout implementation against Day 1 settlement requirements without changing runtime behavior.
-- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Queued. Harden settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
+- `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306` - Completed. Hardened settlement request/payment action availability, confirmations, duplicate-action guards, retry/failure recovery, and server-authority copy inside existing mobile seams.
 - `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306` - Queued. Harden residual, allocation, selected-line/basket, balance, and counterparty payment-detail readouts over server-returned data only.
 - `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306` - Queued. Finalize M8 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M8-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/settlement authority/deployment, residual/basket/balance policy, provider integrations, statement import/matching, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
@@ -92,7 +93,26 @@ Current implementation findings:
 - Current mobile UI does not surface basket preview/create, select-all-visible, proof metadata/readout, QR content, fully itemized allocation details, visible residual direction/policy labels, explicit exact-selected-total versus actual-paid comparison, or all balance residual fields.
 - No mobile runtime or test files were changed by M8-001.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-002-MOBILE-SETTLEMENT-REQUEST-PAYMENT-ACTION-HARDENING-20260615-2306`.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. M8-002 is now complete; recommended next automated task is `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
+
+## M8-002 Request/Payment Action Hardening Summary
+
+Updated `apps/mobile/lib/settlements/settlement_list_screen.dart`, focused settlement screen tests, M8 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Request and payment confirmations now explicitly say mobile asks the API to perform status-affecting transitions and does not decide authorization, settlement/payment truth, residual blocking, audit state, or money.
+- The request detail header now shows that action availability is based on loaded server status and actor role only as UI guidance.
+- Successful mutations refresh server-authoritative detail state through the existing repository seam; if that refresh fails, the loaded state is preserved and the user is told to refresh before repeating any settlement action.
+- Mutation failures now use bounded action-specific copy for session, denied, unavailable, conflict, validation, network, and server failures instead of surfacing raw exception text.
+- Existing duplicate-action guards continue to block conflicting request/payment/residual actions while one mutation is active.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/settlement_list_screen_test.dart` passed with 25 tests.
+- Added coverage for refresh-after-success failure, bounded unsafe mutation failure copy, payment cancellation, payment dispute, strengthened confirmation copy, and server-authority action guidance.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M8-003-MOBILE-SETTLEMENT-RESIDUAL-BASKET-READOUT-HARDENING-20260615-2306`.
 
 ## M7 Selection Summary
 
