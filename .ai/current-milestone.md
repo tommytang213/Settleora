@@ -1,30 +1,32 @@
 # Current Milestone
 
-- ID: `M5`
-- Name: `Day 1 Mobile Recurring Bill Lifecycle UX Hardening`
+- ID: `M6`
+- Name: `Day 1 Mobile Receipt OCR Capture + Review Handoff Hardening`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M4`
+- Previous milestone ID: `M5`
 
 ## Goal
 
-Advance the next Day 1 blocker after the M4 mobile group bill lifecycle checkpoint by hardening the existing mobile recurring bill surface within already-available API and generated-client seams. M5 covers current-state reconciliation, recurring template create/edit/lifecycle UX, and forecast/draft-generation resilience without changing backend authority, OpenAPI contracts, generated clients, schema, auth/session runtime, storage policy, settlement, bill or recurring calculation authority, deployment, Docker, CI, or secrets.
+Advance the next Day 1 blocker after the M5 mobile recurring bill lifecycle checkpoint by hardening the existing mobile receipt OCR capture, saved-review, and draft-apply handoff surfaces within already-available bill attachment and receipt OCR review seams. M6 covers current-state reconciliation, capture/intake review handoff, saved OCR review apply handoff, and QA finalization without changing backend authority, OpenAPI contracts, generated clients, schema, auth/session runtime, storage/file privacy policy, bill/settlement/payment calculation authority, OCR worker/runtime, deployment, Docker, CI, or secrets.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the mobile app has a starter recurring-bill template/forecast/detail/draft-generation surface, while mobile recurring bill creation/editing/full lifecycle/offline queueing/reminders/background generation remain future Day 1 work.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires basic recurring bill creation, schedule, due-soon visibility, forecast from recurring bills, and user confirmation for generated recurring bill instances.
-- `docs/features/recurring-bills/TECHNICAL_SPEC.md` says backend endpoints and generated clients already support recurring template create/list/get/update/pause/resume/archive, forecast reads, and explicit draft generation, while mobile currently exposes read/forecast/detail/draft-generation only.
-- Current mobile code already has bounded recurring bill seams in `apps/mobile/lib/recurring_bills/` and focused tests in `apps/mobile/test/recurring_bill_screen_test.dart` and `apps/mobile/test/recurring_bill_generated_repository_test.dart`, making a mobile-only lifecycle hardening bundle coherent without requiring API, contract, generated-client, schema, money, storage, auth, worker, notification, or deployment changes.
+- `README.md` says the mobile app has a starter receipt OCR review queue/detail/edit foundation, while mobile OCR extraction/capture and automatic OCR-to-bill finalization remain future work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires mobile receipt capture/import, on-device OCR as a required mobile capability, OCR review/correction, and provisional server-mode acceptance through API validation.
+- `docs/architecture/OCR_ARCHITECTURE.md` says the current API has bill-scoped receipt OCR review intake, read/list, apply-preview, and draft-only apply for existing receipt attachments, while OCR engine/worker behavior and generic receipt/OCR APIs remain non-goals.
+- `docs/architecture/RECEIPT_OCR_REVIEW_UX_FLOW.md` records the mobile-first Day 1 flow and states that current mobile has saved review queue/detail/edit foundations but still lacks full capture/upload/OCR extraction UX hardening.
+- Current mobile code already has bounded receipt OCR capture/provider/parser seams in `apps/mobile/lib/receipt_ocr_capture/`, saved-review UI/repository seams in `apps/mobile/lib/receipt_ocr_review/`, and bill attachment/OCR handoff seams in `apps/mobile/lib/bills/`, making a mobile-only handoff milestone coherent without requiring API, contract, generated-client, schema, storage policy, auth, money, worker, or deployment changes.
 
-## Allowed Scope For Future M5 Tasks
+## Allowed Scope For Future M6 Tasks
 
-- Mobile recurring bill list/detail/create/edit/pause/resume/archive and forecast/draft-generation UX code in `apps/mobile/lib/recurring_bills/`.
-- Existing authenticated shell entry points only when needed to route into the current recurring bill surface in `apps/mobile/lib/app/`.
-- Existing mobile group/member context only when needed for current generated-client recurring template fields and display, without changing group runtime behavior.
-- Focused mobile tests for recurring bill list/detail/create/edit, pause/resume/archive, forecast filters, explicit draft generation, safe failures, and server-authority copy in `apps/mobile/test/`.
-- M5 QA maps and milestone QA docs under `docs/qa/`.
+- Mobile receipt image intake, OCR provider/parser/preview, unsupported-provider, and capture handoff code in `apps/mobile/lib/receipt_ocr_capture/`.
+- Mobile saved receipt OCR review queue/detail/edit/apply handoff code in `apps/mobile/lib/receipt_ocr_review/`.
+- Existing mobile bill create/detail attachment and receipt OCR handoff surfaces in `apps/mobile/lib/bills/` only when needed to connect current receipt attachment, provisional OCR review save, saved-review open, apply-preview, or draft-only apply UX.
+- Existing authenticated shell/bootstrap entry points in `apps/mobile/lib/app/` only when needed to preserve current receipt OCR wiring.
+- Focused mobile tests for receipt OCR capture/parser/provider, saved review queue/detail/edit/apply handoff, bill attachment OCR save/open handoff, safe failures, and server-authority copy in `apps/mobile/test/`.
+- M6 QA maps and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M5 path allowances.
+- `scripts/ai/v3-scope-guard.mjs` only for narrow M6 path allowances.
 
 ## Forbidden Without Human Approval
 
@@ -33,33 +35,30 @@ Repo-state basis for this milestone:
 - OpenAPI/generated clients.
 - Auth/session/security runtime or configuration.
 - Database schema/migrations.
-- Settlement/payment/bill calculation logic, recurring schedule/calculation authority, or money authority.
-- Storage/file privacy policy.
+- Settlement/payment/bill calculation logic, OCR-to-bill apply authority beyond existing draft-only API behavior, or money authority.
+- Storage/file privacy policy, file authorization policy, generic public file APIs, thumbnails, or raw receipt retention policy.
 - Docker/deployment/env/CI config.
 - Production secrets.
-- Web/admin runtime UI.
-- Push notification provider, notification delivery, notification preferences, reminder scheduling, recurring background auto-generation, advanced recurring exceptions, settlement runtime, broad reporting/import/export, local backup/restore, persistent offline cache, background sync, OCR engine/worker, or unrelated major-domain work.
-- New offline queue operations for recurring bill create/edit/lifecycle unless a later task explicitly scopes them with no API/auth/schema/storage/money/deployment changes and passes manual safety review if required.
+- OCR engine package selection requiring native dependency or platform configuration changes, OCR worker/runtime behavior, worker queues/jobs, server OCR processing, or OCR result ingestion runtime.
+- Automatic OCR-to-bill finalization, non-draft shared-bill revision apply, multi-participant OCR-to-split inference, broad offline queue/cache/sync, notification delivery, web/admin runtime UI, reporting/import/export, reconciliation mutation runtime, or unrelated major-domain work.
 
 ## Done Criteria
 
-- Current mobile recurring bill lifecycle behavior is reconciled against Day 1 architecture and captured in a QA map.
-- Recurring template create/edit and lifecycle actions preserve server authority, safe failure handling, and no duplicate mutation on retry.
-- Recurring detail/forecast/draft-generation surfaces expose server-provided status, occurrence state, and generated-draft state without calculating recurrence, money, or authorization locally.
-- M5 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
+- Current mobile receipt OCR capture, saved-review, and draft-apply handoff behavior is reconciled against Day 1 architecture and captured in a QA map.
+- Receipt capture/intake handoff preserves purpose-specific bill attachment authority, provisional OCR review state, unsupported-provider/manual-entry fallback, safe failure copy, and no automatic bill mutation.
+- Saved OCR review edit, preview, and draft-only apply handoff surfaces preserve API/domain authority, stale-preview safety, safe retry states, and no duplicate mutation on retry.
+- M6 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
-- M5 ends in a bounded controller stop state before recurring reminders, background generation, offline queue expansion, API/contracts, schema, auth, storage, money, deployment, or unrelated major-domain work.
+- M6 ends in a bounded controller stop state before OCR engine/worker expansion, generic receipt APIs, storage privacy changes, non-draft shared-bill revision apply, multi-participant split inference, API/contracts, schema, auth, money, deployment, or unrelated major-domain work.
 
 ## Current Task Pointer
 
-- Completed task: `M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825`.
-- Completed task: `M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825`.
-- Completed task: `M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825`.
-- Current state: M5 is UI-test ready with no remaining queued M5 implementation task. The controller should stop cleanly before recurring reminders, background generation, offline queue expansion, API/contracts, schema, auth, storage, money, deployment, or unrelated major-domain work unless a separate controller-approved Day 1 milestone is already queued.
-- Stop sentinel: `STOP-M5-001` for API/contracts/generated-client/auth/schema/storage/money/deployment, recurring background generation/reminders/advanced exceptions, broad offline queue/cache/sync, OCR-worker, settlement/reporting/notification delivery, or unrelated major-domain scope.
+- Current task: `M6-001-RECEIPT-OCR-CAPTURE-REVIEW-STATE-RECONCILE-20260615-1950`.
+- Current state: M6 queued from the finalized M5 UI-test-ready state. The controller should select M6-001 as the next safe automated task.
+- Stop sentinel: `STOP-M6-001` for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, OCR engine/worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, broad offline sync/cache, notification delivery, web/admin, or unrelated major-domain scope.
 
-## M4 Carry-Forward Boundary
+## M5 Carry-Forward Boundary
 
-M4 is finalized as `Day 1 Mobile Group Bill Lifecycle UX Hardening` and remains awaiting deferred Day 1 acceptance review. M5 must not expand M4 ad hoc into group bill create/edit/offline work beyond the completed M4 boundary.
+M5 is finalized as `Day 1 Mobile Recurring Bill Lifecycle UX Hardening` and remains awaiting deferred Day 1 acceptance review. M6 must not expand M5 ad hoc into recurring reminders, background generation, advanced exceptions, offline queueing, API/contracts, schema, money, storage, notification delivery, or unrelated recurring work.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
