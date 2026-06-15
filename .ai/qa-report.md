@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M7-001 complete; M7-002 queued; manual UI/code review deferred until Day 1 acceptance`
+Status: `M7-002 complete; M7-003 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -43,6 +43,7 @@ Status: `M7-001 complete; M7-002 queued; manual UI/code review deferred until Da
 - [x] No M7 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
 - [x] M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation-status readout implementation, and automated QA coverage without changing runtime behavior.
 - [x] M7-001 updated the M7 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M7-002/M7-003 focus, stop conditions, and explicit deferred manual UI/code review status.
+- [x] M7-002 hardened mobile monthly report discovery, safe aggregate copy, personal/group scope labels, unknown status display, safe failure copy, dashboard report entry clarity, and focused automated coverage inside existing mobile seams.
 
 ## M7 Selection Summary
 
@@ -58,7 +59,7 @@ The selection is based on current repo state:
 ## M7 Queue Summary
 
 - `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Completed. Reconciled current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
-- `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Queued. Harden monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
+- `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Completed. Hardened monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
 - `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Queued. Harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
 - `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Queued. Finalize M7 QA/control state and mark UI-test ready without runtime behavior changes.
 - `STOP-M7-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
@@ -82,6 +83,24 @@ Current implementation findings:
 - M7-001 did not change mobile runtime or tests.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
+
+## M7-002 Monthly Report Discovery Summary
+
+Updated `apps/mobile/lib/reports/`, `apps/mobile/lib/app/server_mode_shell.dart`, focused monthly/dashboard tests, M7 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Monthly report summary and filtered-discovery copy now explicitly state that report totals, bill counts, status counts, and settlement readouts remain server-returned monthly aggregates while local search/filter only hides loaded rows.
+- Personal and group report scope labels remain bounded and readable, including `Personal report`, explicit group labels, and `Group report` fallback without raw group ID leakage.
+- Unknown/future monthly report statuses now render as bounded `Other status: ...` labels rather than raw/generated-client-ish status fragments.
+- Unsafe monthly report failure messages are sanitized before display and before session-ended notices, preventing raw API paths, tokens, local paths, stack traces, generated-client internals, and similar details from reaching UI copy.
+- Dashboard report entry copy clarifies that the monthly report opens server-returned aggregates while preserving existing authenticated shell routing and repository seams.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated Day 1 action is M7-003 mobile bill report filters and reconciliation readout hardening.
 
 ## M6 Selection Summary
 

@@ -33,6 +33,28 @@ class SettleoraMonthlyReportFailure implements Exception {
   final String message;
   final int? statusCode;
 
+  String get userMessage {
+    if (_isUnsafeFailureMessage(message)) {
+      return switch (kind) {
+        SettleoraMonthlyReportFailureKind.sessionRequired =>
+          'Sign in before loading monthly reports.',
+        SettleoraMonthlyReportFailureKind.sessionExpired =>
+          'Your session has expired. Sign in again before loading monthly reports.',
+        SettleoraMonthlyReportFailureKind.denied =>
+          'Monthly reports are not available to this account.',
+        SettleoraMonthlyReportFailureKind.validation =>
+          'The monthly report request is no longer valid. Refresh and try again.',
+        SettleoraMonthlyReportFailureKind.network =>
+          'The server is unavailable. Try again when the connection is back.',
+        SettleoraMonthlyReportFailureKind.unavailable ||
+        SettleoraMonthlyReportFailureKind.server =>
+          'Monthly reports are unavailable right now. Try again later.',
+      };
+    }
+
+    return message;
+  }
+
   String get title {
     return switch (kind) {
       SettleoraMonthlyReportFailureKind.sessionRequired => 'Sign in required',
@@ -187,9 +209,32 @@ String _safeStatusLabel(String status, Map<String, String> knownLabels) {
     return 'Unknown';
   }
 
-  if (words.length <= 56) {
-    return words;
+  final label = 'Other status: $words';
+  if (label.length <= 56) {
+    return label;
   }
 
-  return '${words.substring(0, 53)}...';
+  return '${label.substring(0, 53)}...';
+}
+
+bool _isUnsafeFailureMessage(String message) {
+  final normalized = message.toLowerCase();
+  const unsafeMarkers = [
+    '/api/',
+    'http://',
+    'https://',
+    'bearer ',
+    'token',
+    'stacktrace',
+    'stack trace',
+    'exception',
+    'generated client',
+    '.dart',
+    '.cs',
+    '.js',
+    '/workspace/',
+    '\\',
+  ];
+
+  return unsafeMarkers.any(normalized.contains);
 }

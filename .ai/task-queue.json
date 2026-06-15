@@ -33,7 +33,7 @@
     "title": "Mobile monthly report discovery and safe aggregate hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

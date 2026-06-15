@@ -52,10 +52,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`.
-- Last completed task: `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`.
-- Current state: M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation readout implementation, and automated coverage without runtime product changes. M7-002, M7-003, and M7-004 remain queued.
-- Recommended next automated Day 1 action: run the AI V3 controller for M7-002 mobile monthly report discovery hardening.
+- Current task: `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123`.
+- Last completed task: `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`.
+- Current state: M7-002 hardened mobile monthly report discovery, safe aggregate display, personal/group scope copy, unknown status labels, safe failure copy, and dashboard report entry clarity inside existing mobile seams. M7-003 and M7-004 remain queued.
+- Recommended next automated Day 1 action: run the AI V3 controller for M7-003 mobile bill report filters and reconciliation readout hardening.
 - Stop sentinel: `STOP-M7-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M6 Carry-Forward Boundary
@@ -76,3 +76,22 @@ Current implementation findings:
 - Dashboard coverage has two surfaces: `DashboardPreviewScreen` is a local/read-only preview with fixture states, while the authenticated server shell dashboard loads existing repository summaries and opens the monthly report route through the report repository seam.
 - Personal and group bill lists search/filter loaded server rows locally and include server-provided reconciliation status in searchable/displayed fields. Bill detail search/filter hides only loaded rows locally and displays server-provided reconciliation status and note from the bill detail model.
 - Current M7 limitations remain: no statement import, raw statement visibility, reconciliation link/unlink, generated dashboard API, CSV import/export, backup/restore, broad report API redesign, or client-side financial/reconciliation authority.
+
+## M7-002 Monthly Report Discovery Summary
+
+M7-002 updated the existing mobile monthly report and dashboard report-entry surfaces inside current repository/generated-client seams.
+
+Runtime hardening:
+
+- Monthly report summary copy now clearly identifies the screen as a server monthly aggregate and states that local search/filters only hide loaded rows on the device.
+- Active discovery results are surfaced before the search/filter controls so local filter outcomes stay visible and retry/clear behavior remains safe.
+- Personal and group report scope labels are explicit as `Personal report`, named group labels, or bounded `Group report` fallback without exposing raw group IDs.
+- Unknown/future report status labels now use bounded `Other status: ...` copy instead of presenting raw/generated-client-ish status codes directly.
+- Failure display and session-ended notices use sanitized user-facing messages if an upstream failure contains raw API paths, tokens, stack traces, local paths, or generated-client/internal details.
+- Dashboard `More` report entry copy now clarifies that the monthly report opens server-returned aggregates for the selected month while preserving the existing route and report repository seam.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/monthly_report_screen_test.dart test/report_generated_repository_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 60 tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
