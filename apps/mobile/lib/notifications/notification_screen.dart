@@ -867,6 +867,9 @@ class _SettleoraNotificationScreenState
                           recurringOpenButtonKey: ValueKey(
                             'notification-open-recurring-$index',
                           ),
+                          detailsButtonKey: ValueKey(
+                            'notification-details-$index',
+                          ),
                           markReadButtonKey: ValueKey(
                             'notification-mark-read-$index',
                           ),
@@ -886,6 +889,10 @@ class _SettleoraNotificationScreenState
                               _openSettlement(visibleNotifications[index]),
                           onOpenRecurringBill: () =>
                               _openRecurringBill(visibleNotifications[index]),
+                          onShowDetails: () => _showNotificationDetails(
+                            visibleNotifications[index],
+                            selectedFilter: _selectedFilter,
+                          ),
                           onMarkRead: () => _markNotificationRead(
                             visibleNotifications[index],
                           ),
@@ -900,6 +907,26 @@ class _SettleoraNotificationScreenState
             );
           },
         ),
+      ),
+    );
+  }
+
+  Future<void> _showNotificationDetails(
+    SettleoraNotificationRow notification, {
+    required _NotificationFilter selectedFilter,
+  }) async {
+    final canOpenTypedTarget =
+        notification.status != SettleoraNotificationStatusValues.archived &&
+        _canOpenAnyTypedTarget(notification);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _NotificationDetailSheet(
+        notification: notification,
+        selectedFilterLabel: selectedFilter.label,
+        canOpenTypedTarget: canOpenTypedTarget,
+        hasOpenTargetMetadata: _hasAnyOpenTargetMetadata(notification),
       ),
     );
   }
@@ -1211,6 +1238,7 @@ class _NotificationTile extends StatelessWidget {
     required this.personalBillOpenButtonKey,
     required this.settlementOpenButtonKey,
     required this.recurringOpenButtonKey,
+    required this.detailsButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
     required this.restoreButtonKey,
@@ -1219,6 +1247,7 @@ class _NotificationTile extends StatelessWidget {
     required this.onOpenPersonalBill,
     required this.onOpenSettlement,
     required this.onOpenRecurringBill,
+    required this.onShowDetails,
     required this.onMarkRead,
     required this.onArchive,
     required this.onRestore,
@@ -1239,6 +1268,7 @@ class _NotificationTile extends StatelessWidget {
   final Key personalBillOpenButtonKey;
   final Key settlementOpenButtonKey;
   final Key recurringOpenButtonKey;
+  final Key detailsButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
   final Key restoreButtonKey;
@@ -1247,6 +1277,7 @@ class _NotificationTile extends StatelessWidget {
   final VoidCallback onOpenPersonalBill;
   final VoidCallback onOpenSettlement;
   final VoidCallback onOpenRecurringBill;
+  final VoidCallback onShowDetails;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
   final VoidCallback onRestore;
@@ -1299,6 +1330,16 @@ class _NotificationTile extends StatelessWidget {
                     ),
                     icon: Icons.link_outlined,
                   ),
+                  if (!isArchived && _canOpenFromTile)
+                    const _SoftChip(
+                      label: 'Openable',
+                      icon: Icons.open_in_new_outlined,
+                    )
+                  else if (hasOpenTarget)
+                    const _SoftChip(
+                      label: 'Not safely openable',
+                      icon: Icons.block_outlined,
+                    ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -1353,11 +1394,17 @@ class _NotificationTile extends StatelessWidget {
           ),
         ),
         trailing: SizedBox(
-          width: 96,
+          width: 152,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              IconButton(
+                key: detailsButtonKey,
+                tooltip: 'Notification details',
+                onPressed: isDisabled ? null : onShowDetails,
+                icon: const Icon(Icons.info_outline),
+              ),
               if (isArchived)
                 IconButton(
                   key: restoreButtonKey,
@@ -1394,6 +1441,133 @@ class _NotificationTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  bool get _canOpenFromTile {
+    return canOpenBillRevision ||
+        canOpenGroupBill ||
+        canOpenPersonalBill ||
+        canOpenSettlement ||
+        canOpenRecurringBill;
+  }
+}
+
+class _NotificationDetailSheet extends StatelessWidget {
+  const _NotificationDetailSheet({
+    required this.notification,
+    required this.selectedFilterLabel,
+    required this.canOpenTypedTarget,
+    required this.hasOpenTargetMetadata,
+  });
+
+  final SettleoraNotificationRow notification;
+  final String selectedFilterLabel;
+  final bool canOpenTypedTarget;
+  final bool hasOpenTargetMetadata;
+
+  @override
+  Widget build(BuildContext context) {
+    final updatedAt = _latestNotificationUpdate(notification);
+    final isArchived =
+        notification.status == SettleoraNotificationStatusValues.archived;
+    final destinationLabel = canOpenTypedTarget
+        ? 'Openable safe typed target'
+        : hasOpenTargetMetadata
+        ? 'Not safely openable'
+        : 'No safe typed target';
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            key: const Key('notification-detail-sheet'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    child: Icon(_priorityIcon(notification.priority)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      notification.displayTitle,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _DetailRow(
+                label: 'Event',
+                value: settleoraNotificationEventLabel(notification.eventType),
+              ),
+              _DetailRow(
+                label: 'Priority',
+                value: settleoraNotificationPriorityLabel(
+                  notification.priority,
+                ),
+              ),
+              _DetailRow(
+                label: 'Status',
+                value: settleoraNotificationStatusLabel(notification.status),
+              ),
+              _DetailRow(
+                label: 'Type',
+                value: settleoraNotificationSubjectTypeLabel(
+                  notification.subjectType,
+                ),
+              ),
+              _DetailRow(
+                label: 'Received',
+                value: _formatTimestamp(notification.createdAtUtc),
+              ),
+              if (updatedAt != null)
+                _DetailRow(
+                  label: 'Updated',
+                  value: _formatTimestamp(updatedAt),
+                ),
+              _DetailRow(label: 'Safe destination', value: destinationLabel),
+              _DetailRow(label: 'Current filter', value: selectedFilterLabel),
+              if (isArchived)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Archived notifications do not open automatically.',
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label, style: Theme.of(context).textTheme.labelLarge),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(value)),
+        ],
       ),
     );
   }
@@ -1803,4 +1977,17 @@ IconData _failureIcon(SettleoraNotificationFailureKind kind) {
 
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
+}
+
+DateTime? _latestNotificationUpdate(SettleoraNotificationRow notification) {
+  final readAt = notification.readAtUtc;
+  final archivedAt = notification.archivedAtUtc;
+  if (readAt == null) {
+    return archivedAt;
+  }
+  if (archivedAt == null) {
+    return readAt;
+  }
+
+  return readAt.isAfter(archivedAt) ? readAt : archivedAt;
 }

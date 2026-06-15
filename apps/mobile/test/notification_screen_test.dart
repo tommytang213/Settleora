@@ -1885,6 +1885,149 @@ void main() {
     expect(repository.markReadCalls, 0);
   });
 
+  testWidgets('notification details show safe context without opening target', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository();
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          safeSummary: 'Personal bill ready.',
+          expenseBillId: _billId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: billRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tapNotificationFilter(tester, 'bills');
+    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
+    expect(find.text('Event'), findsOneWidget);
+    expect(find.text('Bill submitted'), findsWidgets);
+    expect(find.text('Priority'), findsOneWidget);
+    expect(find.text('Attention'), findsWidgets);
+    expect(find.text('Status'), findsOneWidget);
+    expect(find.text('Unread'), findsWidgets);
+    expect(find.text('Type'), findsOneWidget);
+    expect(find.text('Bill'), findsWidgets);
+    expect(find.text('Received'), findsOneWidget);
+    expect(find.text('Safe destination'), findsOneWidget);
+    expect(find.text('Openable safe typed target'), findsOneWidget);
+    expect(find.text('Current filter'), findsOneWidget);
+    expect(find.text('Bills'), findsOneWidget);
+    expect(repository.markReadCalls, 0);
+    expect(billRepository.getPersonalCalls, 0);
+
+    Navigator.of(
+      tester.element(find.byKey(const Key('notification-detail-sheet'))),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    expectSelectedFilter(tester, 'bills');
+    expect(find.text('Bills (1)'), findsOneWidget);
+  });
+
+  testWidgets(
+    'notification details hide unsafe action URLs IDs paths and tokens',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            eventType: '/api/v1/bills/$_billId?token=secret',
+            subjectType: '/api/v1/groups/$_groupId',
+            priority: 'urgent?token=secret',
+            safeSummary: 'Open /api/v1/bills/$_billId?token=secret',
+            actionUrl: '/api/v1/bills/$_billId?token=secret bearer abc',
+            expenseBillId: null,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('notification-details-0')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('notification-detail-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Notification'), findsWidgets);
+      expect(find.text('Priority'), findsWidgets);
+      expect(find.text('Notification type'), findsWidgets);
+      expect(find.text('Not safely openable'), findsWidgets);
+      expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
+      expect(renderedNotificationUiText(tester), isNot(contains(_billId)));
+      expect(renderedNotificationUiText(tester), isNot(contains(_groupId)));
+      expect(
+        renderedNotificationUiText(tester),
+        isNot(contains('token=secret')),
+      );
+      expect(renderedNotificationUiText(tester), isNot(contains('bearer abc')));
+    },
+  );
+
+  testWidgets('archived notifications show details but do not open', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository();
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          status: SettleoraNotificationStatusValues.archived,
+          safeSummary: 'Archived bill.',
+          expenseBillId: _billId,
+          readAtUtc: _createdAtUtc,
+          archivedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: billRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tapNotificationFilter(tester, 'archived');
+    expect(
+      find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
+    expect(find.text('Archived'), findsWidgets);
+    expect(find.text('Updated'), findsOneWidget);
+    expect(find.text('Not safely openable'), findsWidgets);
+    expect(
+      find.text('Archived notifications do not open automatically.'),
+      findsOneWidget,
+    );
+    expect(repository.markReadCalls, 0);
+    expect(billRepository.getPersonalCalls, 0);
+  });
+
   testWidgets('unsafe notification display text falls back to bounded copy', (
     tester,
   ) async {
