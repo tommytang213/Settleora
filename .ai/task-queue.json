@@ -1,16 +1,16 @@
 [
   {
-    "id": "M4-001-GROUP-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1659",
-    "title": "Reconcile mobile group bill lifecycle state and QA map",
+    "id": "M5-001-RECURRING-BILL-LIFECYCLE-STATE-RECONCILE-20260615-1825",
+    "title": "Reconcile mobile recurring bill lifecycle state and QA map",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map the current mobile group bill list/detail/create/submit, participant action, attachment/OCR-review handoff, revision entry, and group member display behavior against Day 1 shared-bill requirements, then create focused QA expectations without changing runtime behavior.",
+    "goal": "Map the current mobile recurring bill list/detail/forecast/draft-generation implementation against Day 1 recurring requirements and existing backend/generated-client seams, then create focused QA expectations without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -23,26 +23,27 @@
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
       "Requires storage/file privacy policy changes",
-      "Requires settlement/payment/bill calculation or money authority changes",
+      "Requires settlement/payment/bill calculation, recurring schedule authority, or money authority changes",
       "Requires Docker/env/deployment/CI changes",
+      "Requires recurring background auto-generation, reminders, notification delivery, or advanced exception runtime",
       "Requires broad offline queue/cache/sync implementation",
-      "Requires unrelated recurring, settlement, reporting, OCR-worker, web/admin, or notification runtime scope"
+      "Requires unrelated group bill, settlement, OCR-worker, web/admin, reporting, or notification runtime scope"
     ]
   },
   {
-    "id": "M4-002-GROUP-BILL-CREATE-SUBMIT-HARDENING-20260615-1659",
-    "title": "Mobile group bill create and submit resilience",
+    "id": "M5-002-RECURRING-BILL-CREATE-EDIT-LIFECYCLE-20260615-1825",
+    "title": "Mobile recurring bill create/edit and lifecycle hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/lib/groups/**",
+      "apps/mobile/lib/recurring_bills/**",
+      "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden the existing mobile group bill create/submit UX for current-contract fields, member selection, payer/split convenience validation, safe retry after create/submit/refresh failures, and duplicate-mutation prevention while preserving server authoritative validation and generated-client boundaries.",
+    "goal": "Harden the existing mobile recurring bill surface for generated-client-backed template create/edit plus pause/resume/archive actions, safe retry states, duplicate-mutation prevention, and server-authority messaging while preserving API/domain authority over recurrence, money, authorization, and audit.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -55,25 +56,26 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires money, settlement, payment, or bill calculation authority changes",
-      "Requires offline queueing for group bill create/edit",
+      "Requires recurring schedule or money calculation authority changes",
+      "Requires offline queueing for recurring bill create/edit/lifecycle",
+      "Requires reminders, background generation, push notification delivery, or advanced exceptions",
       "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M4-003-GROUP-BILL-DETAIL-LIFECYCLE-HARDENING-20260615-1659",
-    "title": "Mobile group bill detail lifecycle hardening",
+    "id": "M5-003-RECURRING-BILL-FORECAST-DRAFT-HANDOFF-20260615-1825",
+    "title": "Mobile recurring forecast and draft-generation handoff hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/lib/groups/**",
+      "apps/mobile/lib/recurring_bills/**",
+      "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden the existing mobile group bill detail lifecycle surfaces for participant accept/reject, revision capability entry, attachment/OCR-review handoff state, member display fallbacks, stale capability refreshes, and safe terminal/unavailable states without expanding API contracts or mobile financial authority.",
+    "goal": "Harden recurring forecast/detail and explicit draft-generation handoff states for stale occurrence data, inactive templates, generated-draft refresh failures, safe retries, and navigation to generated bill context without calculating recurrence or financial truth locally.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -86,66 +88,32 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy changes",
-      "Requires money, settlement, payment, or bill calculation authority changes",
-      "Requires push notification/deep-link/background delivery behavior",
+      "Requires recurring schedule or money calculation authority changes",
+      "Requires background auto-generation, reminders, notification delivery, or advanced recurring exceptions",
+      "Requires settlement/payment/bill calculation authority changes",
       "Requires Docker/env/deployment/CI changes"
     ]
   },
   {
-    "id": "M4-004-GROUP-BILL-LIFECYCLE-QA-FINALIZE-20260615-1659",
-    "title": "Mobile group bill lifecycle QA finalization",
-    "risk": "low",
-    "autoMergeAllowed": false,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/test/**"
-    ],
-    "goal": "Finalize M4 automated QA/control state, record validation coverage and deferred manual Day 1 acceptance gates, and stop before API, contract, generated-client, auth, schema, storage, money, settlement, deployment, broad offline, or unrelated major-domain scope.",
-    "validation": [
-      "git diff --check origin/main...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
-      "npm run validate:docs",
-      "npm run validate:scaffold",
-      "npm run validate:openapi",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile",
-      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
-    ],
-    "stopConditions": [
-      "Manual UI/code review remains deferred until Day 1 acceptance by owner decision",
-      "Requires backend/API behavior",
-      "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires storage/file privacy policy changes",
-      "Requires settlement/payment/bill calculation or money authority changes",
-      "Requires Docker/env/deployment/CI changes",
-      "Requires production deploy, public/admin exposure, branch deletion, force/history operations, secrets/auth config, architecture replacement, or Day 1 scope reduction"
-    ]
-  },
-  {
-    "id": "STOP-M4-001",
-    "title": "Manual gate broad group bill/API/auth/schema/storage/money/deployment blocker",
+    "id": "STOP-M5-001",
+    "title": "Manual gate broad recurring/API/auth/schema/storage/money/deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M4 immediately if mobile group bill lifecycle work requires broader API, contract, generated-client, auth, schema, storage privacy, money, settlement, deployment, secret, offline cache/sync, OCR-worker, recurring, reporting, notification, web/admin, or unrelated major-domain scope.",
+    "goal": "Stop M5 immediately if mobile recurring bill lifecycle work requires broader API, contract, generated-client, auth, schema, storage privacy, recurring schedule authority, money, settlement, deployment, secret, offline cache/sync, reminder, background generation, OCR-worker, notification delivery, web/admin, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M4 task requires backend/API behavior",
-      "Any M4 task requires OpenAPI/generated-client changes",
-      "Any M4 task requires auth/session/security changes",
-      "Any M4 task requires database schema/migrations",
-      "Any M4 task requires storage/file privacy policy changes",
-      "Any M4 task requires settlement/payment/bill calculation or money authority changes",
-      "Any M4 task requires Docker/env/deployment/CI changes",
-      "Any M4 task requires persistent offline cache, background sync, or group bill create/edit offline queueing beyond an explicitly approved bounded slice",
-      "Any M4 task requires OCR-worker/runtime expansion, recurring bill runtime, reporting/import/export, notification delivery, web/admin runtime UI, secrets, tokens, credentials, or local auth/session config",
-      "Any M4 task expands across unrelated major domains"
+      "Any M5 task requires backend/API behavior",
+      "Any M5 task requires OpenAPI/generated-client changes",
+      "Any M5 task requires auth/session/security changes",
+      "Any M5 task requires database schema/migrations",
+      "Any M5 task requires storage/file privacy policy changes",
+      "Any M5 task requires settlement/payment/bill calculation, recurring schedule authority, or money authority changes",
+      "Any M5 task requires Docker/env/deployment/CI changes",
+      "Any M5 task requires persistent offline cache, background sync, or recurring lifecycle offline queueing beyond an explicitly approved bounded slice",
+      "Any M5 task requires recurring background generation, reminders, advanced recurring exceptions, push notification delivery, OCR-worker/runtime expansion, reporting/import/export, web/admin runtime UI, secrets, tokens, credentials, or local auth/session config",
+      "Any M5 task expands across unrelated major domains"
     ]
   }
 ]
