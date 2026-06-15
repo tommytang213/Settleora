@@ -549,6 +549,160 @@ void main() {
     );
   });
 
+  testWidgets(
+    'personal OCR preview clears when source receipt draft is removed',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: repository,
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1, 2, 3],
+              ),
+            ),
+            receiptOcrProvider: FakeReceiptOcrProvider(
+              const ReceiptOcrResult.extracted(
+                ReceiptOcrPreview(
+                  merchant: 'Removed Market',
+                  currency: 'HKD',
+                  items: [
+                    ReceiptOcrItemCandidate(
+                      description: 'Removed milk',
+                      lineTotal: '25.00',
+                      currency: 'HKD',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('personal-bill-ocr-preview-panel')),
+        findsOneWidget,
+      );
+
+      final removeReceipt = find.byKey(
+        const ValueKey('personal-bill-attachment-remove-0'),
+      );
+      await tester.ensureVisible(removeReceipt);
+      await tester.tap(removeReceipt);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('personal-bill-ocr-preview-panel')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('personal-bill-merchant-name')),
+        'Manual Market',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-name-0')),
+        'Manual item',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-amount-0')),
+        '12.00',
+      );
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(repository.lastCreateDraft?.merchantName, 'Manual Market');
+      expect(repository.lastCreateDraft?.items.single.name, 'Manual item');
+      expect(receiptRepository.saveCalls, 0);
+      expect(find.textContaining('Removed milk'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'personal OCR review save is bound to the receipt that produced preview',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: repository,
+            attachmentRepository: attachmentRepository,
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFiles: [
+                samplePickedAttachmentFile(
+                  filename: 'first-receipt.png',
+                  contentType: 'image/png',
+                  bytes: const [1],
+                ),
+                samplePickedAttachmentFile(
+                  filename: 'second-receipt.png',
+                  contentType: 'image/png',
+                  bytes: const [2],
+                ),
+              ],
+            ),
+            receiptOcrProvider: FakeReceiptOcrProvider(
+              const ReceiptOcrResult.extracted(
+                ReceiptOcrPreview(
+                  merchant: 'Latest Market',
+                  receiptDate: '2026-06-12',
+                  currency: 'HKD',
+                  total: '25.00',
+                  items: [
+                    ReceiptOcrItemCandidate(
+                      description: 'Latest milk',
+                      quantity: '1',
+                      lineTotal: '25.00',
+                      currency: 'HKD',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(attachmentRepository.attachCalls, 2);
+      expect(receiptRepository.saveCalls, 1);
+      expect(receiptRepository.lastSaveRoute?.fileId, '$_uploadedFileId-2');
+      expect(receiptRepository.lastSaveRequest?.merchantText, 'Latest Market');
+      expect(
+        receiptRepository.lastSaveRequest?.lines.single.text,
+        'Latest milk',
+      );
+    },
+  );
+
   testWidgets('personal OCR review save failure does not block bill create', (
     tester,
   ) async {
