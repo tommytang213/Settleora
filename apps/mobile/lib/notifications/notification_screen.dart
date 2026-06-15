@@ -1387,7 +1387,7 @@ class _NotificationTile extends StatelessWidget {
               ] else if (!isArchived && hasOpenTarget) ...[
                 const SizedBox(height: 8),
                 const Text(
-                  'This notification cannot be opened here. Refresh or use the related list.',
+                  'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
                 ),
               ],
             ],
@@ -1472,11 +1472,12 @@ class _NotificationDetailSheet extends StatelessWidget {
     final updatedAt = _latestNotificationUpdate(notification);
     final isArchived =
         notification.status == SettleoraNotificationStatusValues.archived;
-    final destinationLabel = canOpenTypedTarget
-        ? 'Openable safe typed target'
-        : hasOpenTargetMetadata
-        ? 'Not safely openable'
-        : 'No safe typed target';
+    final destinationLabel = _safeDestinationLabel(notification);
+    final destinationStatus = _safeDestinationStatus(
+      notification,
+      canOpenTypedTarget: canOpenTypedTarget,
+      hasOpenTargetMetadata: hasOpenTargetMetadata,
+    );
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1502,6 +1503,7 @@ class _NotificationDetailSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
+              _DetailRow(label: 'Summary', value: notification.displaySummary),
               _DetailRow(
                 label: 'Event',
                 value: settleoraNotificationEventLabel(notification.eventType),
@@ -1531,7 +1533,13 @@ class _NotificationDetailSheet extends StatelessWidget {
                   label: 'Updated',
                   value: _formatTimestamp(updatedAt),
                 ),
-              _DetailRow(label: 'Safe destination', value: destinationLabel),
+              _DetailRow(label: 'Destination', value: destinationLabel),
+              _DetailRow(label: 'Destination status', value: destinationStatus),
+              const _DetailRow(
+                label: 'Navigation safety',
+                value:
+                    'Raw links are ignored. Settleora opens only supported typed destinations.',
+              ),
               _DetailRow(label: 'Current filter', value: selectedFilterLabel),
               if (isArchived)
                 const Padding(
@@ -1733,6 +1741,50 @@ bool _matchesFilter(
 bool _hasAnyOpenTargetMetadata(SettleoraNotificationRow notification) {
   return notification.hasTypedOpenTarget ||
       settleoraNotificationMetadataId(notification.actionUrl) != null;
+}
+
+String _safeDestinationLabel(SettleoraNotificationRow notification) {
+  if (notification.hasBillRevisionReviewTarget) {
+    return 'Bill revision review';
+  }
+  if (notification.hasGroupBillTarget) {
+    return 'Group bill';
+  }
+  if (notification.hasPersonalBillTarget) {
+    return 'Personal bill';
+  }
+  if (notification.hasSettlementTarget) {
+    return 'Settlement';
+  }
+  if (notification.hasRecurringBillTarget) {
+    return 'Recurring bill';
+  }
+  if (settleoraNotificationMetadataId(notification.actionUrl) != null) {
+    return 'Unsupported link';
+  }
+
+  return 'None';
+}
+
+String _safeDestinationStatus(
+  SettleoraNotificationRow notification, {
+  required bool canOpenTypedTarget,
+  required bool hasOpenTargetMetadata,
+}) {
+  if (notification.status == SettleoraNotificationStatusValues.archived) {
+    return 'Archived; restore before opening from Notifications.';
+  }
+  if (canOpenTypedTarget) {
+    return 'Ready to open from this device.';
+  }
+  if (notification.hasTypedOpenTarget) {
+    return 'Supported destination, but the current app context cannot open it.';
+  }
+  if (hasOpenTargetMetadata) {
+    return 'Related destination metadata is present, but it is not safe to open here.';
+  }
+
+  return 'No supported destination metadata is available.';
 }
 
 String _emptyTitleForFilter(_NotificationFilter filter) {

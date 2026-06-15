@@ -935,7 +935,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened here. Refresh or use the related list.',
+        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );
@@ -1878,7 +1878,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened here. Refresh or use the related list.',
+        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );
@@ -1922,8 +1922,19 @@ void main() {
     expect(find.text('Type'), findsOneWidget);
     expect(find.text('Bill'), findsWidgets);
     expect(find.text('Received'), findsOneWidget);
-    expect(find.text('Safe destination'), findsOneWidget);
-    expect(find.text('Openable safe typed target'), findsOneWidget);
+    expect(find.text('Summary'), findsOneWidget);
+    expect(find.text('Personal bill ready.'), findsWidgets);
+    expect(find.text('Destination'), findsOneWidget);
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(find.text('Destination status'), findsOneWidget);
+    expect(find.text('Ready to open from this device.'), findsOneWidget);
+    expect(find.text('Navigation safety'), findsOneWidget);
+    expect(
+      find.text(
+        'Raw links are ignored. Settleora opens only supported typed destinations.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Current filter'), findsOneWidget);
     expect(find.text('Bills'), findsOneWidget);
     expect(repository.markReadCalls, 0);
@@ -1936,6 +1947,44 @@ void main() {
 
     expectSelectedFilter(tester, 'bills');
     expect(find.text('Bills (1)'), findsOneWidget);
+  });
+
+  testWidgets('notification details explain unavailable typed destinations', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          safeSummary: 'Settlement needs review.',
+          eventType: 'settlement.request_created',
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementRequest,
+          settlementRequestId: _settlementId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('notification-details-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
+    expect(find.text('Summary'), findsOneWidget);
+    expect(find.text('Settlement needs review.'), findsWidgets);
+    expect(find.text('Destination'), findsOneWidget);
+    expect(find.text('Settlement'), findsOneWidget);
+    expect(find.text('Destination status'), findsOneWidget);
+    expect(
+      find.text(
+        'Supported destination, but the current app context cannot open it.',
+      ),
+      findsOneWidget,
+    );
+    expect(renderedNotificationUiText(tester), isNot(contains(_settlementId)));
+    expect(repository.markReadCalls, 0);
   });
 
   testWidgets(
@@ -1969,7 +2018,13 @@ void main() {
       expect(find.text('Notification'), findsWidgets);
       expect(find.text('Priority'), findsWidgets);
       expect(find.text('Notification type'), findsWidgets);
-      expect(find.text('Not safely openable'), findsWidgets);
+      expect(find.text('Unsupported link'), findsOneWidget);
+      expect(
+        find.text(
+          'Related destination metadata is present, but it is not safe to open here.',
+        ),
+        findsOneWidget,
+      );
       expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
       expect(renderedNotificationUiText(tester), isNot(contains(_billId)));
       expect(renderedNotificationUiText(tester), isNot(contains(_groupId)));
@@ -2019,7 +2074,11 @@ void main() {
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Archived'), findsWidgets);
     expect(find.text('Updated'), findsOneWidget);
-    expect(find.text('Not safely openable'), findsWidgets);
+    expect(find.text('Personal bill'), findsOneWidget);
+    expect(
+      find.text('Archived; restore before opening from Notifications.'),
+      findsOneWidget,
+    );
     expect(
       find.text('Archived notifications do not open automatically.'),
       findsOneWidget,
@@ -2054,7 +2113,7 @@ void main() {
     expect(find.text('Priority'), findsOneWidget);
     expect(
       find.text(
-        'This notification cannot be opened here. Refresh or use the related list.',
+        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );
