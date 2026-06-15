@@ -659,10 +659,9 @@ class _SettleoraNotificationScreenState
                   if (_notifications.isEmpty)
                     const _EmptyNotifications()
                   else if (visibleNotifications.isEmpty)
-                    const _EmptyNotifications(
-                      title: 'No matching notifications',
-                      message:
-                          'Notifications matching this filter will appear here.',
+                    _EmptyNotifications(
+                      title: _emptyTitleForFilter(_selectedFilter),
+                      message: _emptyMessageForFilter(_selectedFilter),
                     )
                   else
                     for (
@@ -688,6 +687,9 @@ class _SettleoraNotificationScreenState
                             visibleNotifications[index],
                           ),
                           canOpenRecurringBill: _canOpenRecurringBill(
+                            visibleNotifications[index],
+                          ),
+                          hasOpenTarget: _hasAnyOpenTargetMetadata(
                             visibleNotifications[index],
                           ),
                           isActing:
@@ -822,6 +824,7 @@ class _SummaryPanel extends StatelessWidget {
 enum _NotificationFilter {
   all('All'),
   unread('Unread'),
+  read('Read'),
   attention('Attention'),
   urgent('Urgent'),
   bills('Bills'),
@@ -838,6 +841,7 @@ class _NotificationFilterCounts {
   const _NotificationFilterCounts({
     required this.all,
     required this.unread,
+    required this.read,
     required this.attention,
     required this.urgent,
     required this.bills,
@@ -851,6 +855,7 @@ class _NotificationFilterCounts {
     required bool Function(SettleoraNotificationRow notification) isActionable,
   }) {
     var unread = 0;
+    var read = 0;
     var attention = 0;
     var urgent = 0;
     var bills = 0;
@@ -861,6 +866,9 @@ class _NotificationFilterCounts {
     for (final row in rows) {
       if (row.status == SettleoraNotificationStatusValues.unread) {
         unread += 1;
+      }
+      if (row.status == SettleoraNotificationStatusValues.read) {
+        read += 1;
       }
       if (row.priority == SettleoraNotificationPriorityValues.attention) {
         attention += 1;
@@ -891,6 +899,7 @@ class _NotificationFilterCounts {
     return _NotificationFilterCounts(
       all: rows.length,
       unread: unread,
+      read: read,
       attention: attention,
       urgent: urgent,
       bills: bills,
@@ -902,6 +911,7 @@ class _NotificationFilterCounts {
 
   final int all;
   final int unread;
+  final int read;
   final int attention;
   final int urgent;
   final int bills;
@@ -913,6 +923,7 @@ class _NotificationFilterCounts {
     return switch (filter) {
       _NotificationFilter.all => all,
       _NotificationFilter.unread => unread,
+      _NotificationFilter.read => read,
       _NotificationFilter.attention => attention,
       _NotificationFilter.urgent => urgent,
       _NotificationFilter.bills => bills,
@@ -966,6 +977,7 @@ class _NotificationTile extends StatelessWidget {
     required this.canOpenPersonalBill,
     required this.canOpenSettlement,
     required this.canOpenRecurringBill,
+    required this.hasOpenTarget,
     required this.isActing,
     required this.revisionOpenButtonKey,
     required this.groupBillOpenButtonKey,
@@ -989,6 +1001,7 @@ class _NotificationTile extends StatelessWidget {
   final bool canOpenPersonalBill;
   final bool canOpenSettlement;
   final bool canOpenRecurringBill;
+  final bool hasOpenTarget;
   final bool isActing;
   final Key revisionOpenButtonKey;
   final Key groupBillOpenButtonKey;
@@ -1093,6 +1106,11 @@ class _NotificationTile extends StatelessWidget {
                   onPressed: isActing ? null : onOpenRecurringBill,
                   icon: const Icon(Icons.event_repeat_outlined),
                   label: const Text('Open recurring'),
+                ),
+              ] else if (hasOpenTarget) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'This notification cannot be opened here. Refresh or use the related list.',
                 ),
               ],
             ],
@@ -1226,6 +1244,8 @@ bool _matchesFilter(
     _NotificationFilter.all => true,
     _NotificationFilter.unread =>
       notification.status == SettleoraNotificationStatusValues.unread,
+    _NotificationFilter.read =>
+      notification.status == SettleoraNotificationStatusValues.read,
     _NotificationFilter.attention =>
       notification.priority == SettleoraNotificationPriorityValues.attention,
     _NotificationFilter.urgent =>
@@ -1244,6 +1264,29 @@ bool _matchesFilter(
     _NotificationFilter.actionable =>
       notification.status == SettleoraNotificationStatusValues.unread &&
           isActionable(notification),
+  };
+}
+
+bool _hasAnyOpenTargetMetadata(SettleoraNotificationRow notification) {
+  return notification.hasTypedOpenTarget ||
+      settleoraNotificationMetadataId(notification.actionUrl) != null;
+}
+
+String _emptyTitleForFilter(_NotificationFilter filter) {
+  return switch (filter) {
+    _NotificationFilter.unread => 'No unread notifications',
+    _NotificationFilter.read => 'No read notifications',
+    _ => 'No matching notifications',
+  };
+}
+
+String _emptyMessageForFilter(_NotificationFilter filter) {
+  return switch (filter) {
+    _NotificationFilter.unread => 'New unread notifications will appear here.',
+    _NotificationFilter.read => 'Notifications you have read will appear here.',
+    _NotificationFilter.actionable =>
+      'Unread notifications with supported actions will appear here.',
+    _ => 'Notifications matching this filter will appear here.',
   };
 }
 

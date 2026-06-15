@@ -117,6 +117,7 @@ void main() {
 
     expect(find.text('All (4)'), findsOneWidget);
     expect(find.text('Unread (3)'), findsOneWidget);
+    expect(find.text('Read (1)'), findsOneWidget);
     expect(find.text('Attention (1)'), findsOneWidget);
     expect(find.text('Urgent (1)'), findsOneWidget);
     expect(find.text('Bills (1)'), findsOneWidget);
@@ -143,6 +144,38 @@ void main() {
     await tapNotificationFilter(tester, 'bills');
 
     expect(find.text('Group bill ready.'), findsOneWidget);
+  });
+
+  testWidgets('read filter stays selected after read action refresh', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(safeSummary: 'Needs review.'),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tapNotificationFilter(tester, 'read');
+
+    expect(find.text('No read notifications'), findsOneWidget);
+    expect(find.text('Needs review.'), findsNothing);
+
+    await tapNotificationFilter(tester, 'unread');
+    await tester.tap(find.byKey(const ValueKey('notification-mark-read-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No unread notifications'), findsOneWidget);
+    expect(find.text('Unread (0)'), findsOneWidget);
+    expect(find.text('Read (1)'), findsOneWidget);
+
+    await tapNotificationFilter(tester, 'read');
+
+    expect(find.text('Needs review.'), findsOneWidget);
   });
 
   testWidgets('selected notification filter has distinct empty state', (
@@ -317,6 +350,15 @@ void main() {
       find.byKey(const ValueKey('notification-open-revision-0')),
       findsNothing,
     );
+    expect(
+      find.text(
+        'This notification cannot be opened here. Refresh or use the related list.',
+      ),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('/api/v1/bills')));
+    expect(visibleText(tester), isNot(contains(_billId)));
+    expect(visibleText(tester), isNot(contains(_revisionId)));
   });
 
   testWidgets('bill revision open action requires repository seam', (
@@ -1251,7 +1293,70 @@ void main() {
       find.byKey(const ValueKey('notification-open-personal-bill-0')),
       findsNothing,
     );
+    expect(
+      find.text(
+        'This notification cannot be opened here. Refresh or use the related list.',
+      ),
+      findsOneWidget,
+    );
     expect(repository.markReadCalls, 0);
+  });
+
+  testWidgets('unsafe notification display text falls back to bounded copy', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: '/api/v1/bills/$_billId?token=secret',
+          subjectType: '/api/v1/groups/$_groupId',
+          priority: 'urgent?token=secret',
+          safeSummary: 'Open /api/v1/bills/$_billId?token=secret',
+          actionUrl: '/api/v1/bills/$_billId?token=secret',
+          expenseBillId: null,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notification'), findsOneWidget);
+    expect(find.text('Notification type'), findsWidgets);
+    expect(find.text('Priority'), findsOneWidget);
+    expect(
+      find.text(
+        'This notification cannot be opened here. Refresh or use the related list.',
+      ),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('/api/v1')));
+    expect(visibleText(tester), isNot(contains(_billId)));
+    expect(visibleText(tester), isNot(contains(_groupId)));
+    expect(visibleText(tester), isNot(contains('token=secret')));
+  });
+
+  testWidgets('duplicate mark-read taps are single flight', (tester) async {
+    final repository = FakeNotificationRepository(
+      actionDelay: const Duration(milliseconds: 50),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const ValueKey('notification-mark-read-0'));
+    await tester.tap(button);
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(repository.markReadCalls, 1);
+    expect(find.text('Unread (0)'), findsOneWidget);
+    expect(find.text('Read (1)'), findsOneWidget);
   });
 
   testWidgets('single notification read failure stays bounded', (tester) async {
@@ -1410,6 +1515,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
     this.markReadFailure,
     this.markAllReadFailure,
     this.archiveFailure,
+    this.actionDelay = Duration.zero,
   }) : notifications = notifications ?? [sampleNotification()],
        _summaryCompleter = null,
        _notificationsCompleter = null;
@@ -1420,6 +1526,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
       markReadFailure = null,
       markAllReadFailure = null,
       archiveFailure = null,
+      actionDelay = Duration.zero,
       _summaryCompleter = Completer<SettleoraNotificationSummary>(),
       _notificationsCompleter = Completer<List<SettleoraNotificationRow>>();
 
@@ -1428,6 +1535,7 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   final SettleoraNotificationFailure? markReadFailure;
   final SettleoraNotificationFailure? markAllReadFailure;
   final SettleoraNotificationFailure? archiveFailure;
+  final Duration actionDelay;
   final Completer<SettleoraNotificationSummary>? _summaryCompleter;
   final Completer<List<SettleoraNotificationRow>>? _notificationsCompleter;
   int summaryCalls = 0;
@@ -1482,6 +1590,9 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   ) async {
     markReadCalls += 1;
     lastNotificationId = notificationId;
+    if (actionDelay > Duration.zero) {
+      await Future<void>.delayed(actionDelay);
+    }
     final failure = markReadFailure;
     if (failure != null) {
       throw failure;
@@ -1501,6 +1612,9 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   @override
   Future<SettleoraNotificationSummary> markAllNotificationsRead() async {
     markAllReadCalls += 1;
+    if (actionDelay > Duration.zero) {
+      await Future<void>.delayed(actionDelay);
+    }
     final failure = markAllReadFailure;
     if (failure != null) {
       throw failure;
@@ -1523,6 +1637,9 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   ) async {
     archiveCalls += 1;
     lastNotificationId = notificationId;
+    if (actionDelay > Duration.zero) {
+      await Future<void>.delayed(actionDelay);
+    }
     final failure = archiveFailure;
     if (failure != null) {
       throw failure;
