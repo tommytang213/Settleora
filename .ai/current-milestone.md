@@ -55,10 +55,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055`.
-- Last completed task: `M8-004-MOBILE-SETTLEMENT-WORKFLOW-QA-FINALIZE-20260615-2306`.
-- Current state: M9 is queued for mobile in-app notification inbox hardening. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055`.
+- Current task: `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055`.
+- Last completed task: `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055`.
+- Current state: M9-001 reconciled the current mobile in-app notification inbox state, generated-client mapping, app-shell entry points, typed handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without runtime behavior changes. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055`.
 - Stop sentinel: `STOP-M9-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, client-side permission decisions from notification metadata/action URLs, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M8 Carry-Forward Boundary
