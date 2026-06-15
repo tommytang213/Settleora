@@ -12113,10 +12113,9 @@ class _SavedReceiptOcrReviewSheetState
     final billId = widget.route.billId.trim();
     final fileId = widget.route.fileId.trim();
     final groupId = widget.route.groupId?.trim();
-    return billId.isNotEmpty &&
-        fileId.isNotEmpty &&
-        (widget.route.groupId == null ||
-            (groupId != null && groupId.isNotEmpty));
+    return _isSafeRouteUuid(billId) &&
+        _isSafeRouteUuid(fileId) &&
+        (widget.route.groupId == null || _isSafeRouteUuid(groupId));
   }
 
   _SavedReceiptOcrBusyState get _busyState {
@@ -12389,6 +12388,9 @@ class _SavedReceiptOcrReviewSheetState
         widget.route,
         expectedReviewUpdatedAtUtc: preview.updatedAtUtc,
       );
+      if (!mounted) {
+        return;
+      }
       await widget.onApplied();
       if (!mounted) {
         return;
@@ -12469,6 +12471,9 @@ class _SavedReceiptOcrReviewSheetState
       final navigator = Navigator.of(context);
       final messenger = ScaffoldMessenger.maybeOf(context);
       await widget.repository.deleteReview(widget.route);
+      if (!mounted) {
+        return;
+      }
       await widget.onRemoved();
       if (!mounted) {
         return;
@@ -12491,6 +12496,9 @@ class _SavedReceiptOcrReviewSheetState
       if (failure.kind == ReceiptOcrReviewFailureKind.unavailable) {
         final navigator = Navigator.of(context);
         final messenger = ScaffoldMessenger.maybeOf(context);
+        if (!mounted) {
+          return;
+        }
         await widget.onRemoved();
         if (!mounted) {
           return;

@@ -1186,6 +1186,161 @@ void main() {
     expect(find.textContaining('Provider object key'), findsNothing);
   });
 
+  testWidgets('saved OCR review keeps receipt context across recovery states', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await tester.binding.setSurfaceSize(const Size(900, 2400));
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [sampleAttachment(fileId: _uploadedFileId)],
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _billId,
+          initialBill: sampleBillDetail(id: _billId),
+          attachmentRepository: attachmentRepository,
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+    );
+    await tester.tap(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(find.text('Receipt, PNG receipt image, 321 bytes'), findsOneWidget);
+
+    receiptRepository.reviewDetail = sampleReceiptOcrReviewDetail(
+      ReceiptOcrReviewRoute(billId: _billId, fileId: _uploadedFileId),
+      merchantText: 'Refreshed Market',
+      lineText: 'Refreshed milk',
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(find.text('Refreshed Market'), findsWidgets);
+
+    receiptRepository.getFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Signed URL and session token should stay hidden.',
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(find.text('Receipt, PNG receipt image, 321 bytes'), findsOneWidget);
+    expect(
+      find.text(
+        'The current saved OCR review stays open. Check your connection and refresh again before previewing or applying changes.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Signed URL'), findsNothing);
+
+    receiptRepository.saveFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Provider object key should stay hidden.',
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+      'Retry Context Market',
+    );
+    await _scrollSavedOcrReviewEditActionsIntoView(tester);
+    await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+          )
+          .controller
+          ?.text,
+      'Retry Context Market',
+    );
+    expect(find.textContaining('Provider object key'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-edit-cancel')));
+    await tester.pumpAndSettle();
+    receiptRepository.previewApplyFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Raw OCR full text should stay hidden.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(
+      find.text(
+        'The saved OCR review is still available. Preview again, edit saved OCR, or close and keep editing the bill manually.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Raw OCR full text'), findsNothing);
+
+    receiptRepository.deleteFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Audit metadata should stay hidden.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(
+      find.text(
+        'The saved OCR review is still available. Check your connection and try removing it again, or keep manual bill editing.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Audit metadata'), findsNothing);
+
+    receiptRepository.previewApplyFailure = null;
+    receiptRepository.applyFailure = const ReceiptOcrReviewFailure(
+      kind: ReceiptOcrReviewFailureKind.server,
+      message: 'Payment details should stay hidden.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(
+      find.text(
+        'The saved OCR review is still available. Preview again, edit saved OCR, or close and keep editing the bill manually.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Payment details'), findsNothing);
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+  });
+
   testWidgets('saved OCR review refresh unavailable shows bounded empty state', (
     tester,
   ) async {
@@ -1233,6 +1388,147 @@ void main() {
     expect(find.byKey(const Key('saved-ocr-review-retry')), findsOneWidget);
     expect(find.textContaining('Raw OCR payload'), findsNothing);
     expect(find.textContaining('path'), findsNothing);
+  });
+
+  testWidgets('closing saved OCR review during apply ignores stale callback', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final applyCompleter = Completer<ReceiptOcrReviewApplyResult>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyReviewCompleter: applyCompleter,
+    );
+    final billRepository = FakeBillRepository(
+      detail: sampleBillDetail(id: _createdBillId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: billRepository,
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(find.text('Applying to draft bill'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-close')));
+    await tester.pumpAndSettle();
+
+    applyCompleter.complete(sampleReceiptOcrApplyResult(route));
+    await tester.pumpAndSettle();
+
+    expect(billRepository.getCalls, 0);
+    expect(find.text('Saved OCR review'), findsNothing);
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Draft bill updated from provisional OCR review data',
+      ),
+      findsNothing,
+    );
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('raw OCR full text')));
+  });
+
+  testWidgets('closing saved OCR review during remove ignores stale callback', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final deleteCompleter = Completer<void>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      deleteReviewCompleter: deleteCompleter,
+    );
+    final billRepository = FakeBillRepository(
+      detail: sampleBillDetail(id: _createdBillId),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: billRepository,
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.deleteCalls, 1);
+    expect(
+      find.text(
+        'Saved review actions are disabled while the provisional OCR review is being removed.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-close')));
+    await tester.pumpAndSettle();
+
+    deleteCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(billRepository.getCalls, 0);
+    expect(find.text('Saved OCR review'), findsNothing);
+    expect(
+      find.byKey(const Key('bill-detail-ocr-review-handoff')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Saved OCR review removed. The receipt attachment and bill remain available.',
+      ),
+      findsNothing,
+    );
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('storage object')));
   });
 
   testWidgets('group saved OCR review refresh preserves group route', (
@@ -1477,7 +1773,10 @@ void main() {
           initialBill: sampleBillDetail(id: _createdBillId),
           receiptOcrReviewRepository: receiptRepository,
           initialReceiptOcrReviewHandoff: const ReceiptOcrReviewHandoff.saved(
-            reviewRoute: ReceiptOcrReviewRoute(billId: '', fileId: ''),
+            reviewRoute: ReceiptOcrReviewRoute(
+              billId: _createdBillId,
+              fileId: 'storage/object/key/receipt.png',
+            ),
           ),
         ),
       ),
@@ -1494,7 +1793,22 @@ void main() {
     );
     expect(removeButton.onPressed, isNull);
     expect(refreshButton.onPressed, isNull);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('saved-ocr-review-edit')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const Key('saved-ocr-review-preview-apply')),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(receiptRepository.deleteCalls, 0);
+    expect(receiptRepository.previewApplyCalls, 0);
     expect(receiptRepository.getCalls, 1);
     expect(
       find.text(
@@ -1508,6 +1822,9 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(visibleText(tester), isNot(contains('storage/object/key')));
+    expect(visibleText(tester), isNot(contains('signed URL')));
+    expect(visibleText(tester), isNot(contains('raw OCR full text')));
   });
 
   testWidgets(
@@ -1598,6 +1915,202 @@ void main() {
       expect(find.text('Apply allowed'), findsOneWidget);
     },
   );
+
+  testWidgets('saved OCR review refresh ignores duplicate taps while busy', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final refreshCompleter = Completer<ReceiptOcrReviewDetail>();
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+
+    receiptRepository.getReviewCompleter = refreshCompleter;
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pump();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(
+      find.text(
+        'Saved review actions are disabled while the provisional OCR review is refreshing.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('saved-ocr-review-refresh')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-refresh')));
+    await tester.pump();
+    expect(receiptRepository.getCalls, 2);
+
+    refreshCompleter.complete(sampleReceiptOcrReviewDetail(route));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 2);
+    expect(
+      find.text('Saved OCR review refreshed. The bill was not changed.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('saved OCR review remove ignores duplicate taps while busy', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final removeCompleter = Completer<void>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      deleteReviewCompleter: removeCompleter,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-remove')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.deleteCalls, 1);
+    expect(
+      find.text(
+        'Saved review actions are disabled while the provisional OCR review is being removed.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('saved-ocr-review-remove')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-remove')));
+    await tester.pump();
+    expect(receiptRepository.deleteCalls, 1);
+
+    removeCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.deleteCalls, 1);
+    expect(
+      find.text(
+        'Saved OCR review removed. The receipt attachment and bill remain available.',
+      ),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('saved OCR review apply ignores duplicate taps while busy', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final route = ReceiptOcrReviewRoute(
+      billId: _createdBillId,
+      fileId: _uploadedFileId,
+    );
+    final applyCompleter = Completer<ReceiptOcrReviewApplyResult>();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      applyPreview: sampleReceiptOcrApplyPreview(route),
+      applyReviewCompleter: applyCompleter,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _createdBillId,
+          initialBill: sampleBillDetail(id: _createdBillId),
+          receiptOcrReviewRepository: receiptRepository,
+          initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+            reviewRoute: route,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('saved-ocr-review-preview-apply')),
+    );
+    await tester.tap(find.byKey(const Key('saved-ocr-review-preview-apply')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply-confirm')));
+    await tester.pump();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(
+      find.text(
+        'Saved review actions are disabled while the server applies OCR candidates to the draft bill.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('saved-ocr-review-apply')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const Key('saved-ocr-review-apply')));
+    await tester.pump();
+    expect(receiptRepository.applyReviewCalls, 1);
+
+    applyCompleter.complete(sampleReceiptOcrApplyResult(route));
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.applyReviewCalls, 1);
+    expect(
+      find.text('Draft bill updated from provisional OCR review data.'),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'personal blocked saved OCR review preview shows reasons and no apply',
@@ -8718,6 +9231,242 @@ void main() {
     },
   );
 
+  testWidgets(
+    'personal bill detail direct saved OCR discovery ignores duplicate opens',
+    (tester) async {
+      await useLargeSurface(tester);
+      final getReviewCompleter = Completer<ReceiptOcrReviewDetail>();
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [sampleAttachment(fileId: _uploadedFileId)],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        getReviewCompleter: getReviewCompleter,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final action = find.byKey(
+        const Key('bill-detail-saved-ocr-discovery-open'),
+      );
+      await tester.scrollUntilVisible(
+        action,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(action);
+      await tester.tap(action, warnIfMissed: false);
+      await tester.pump();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(find.text('Loading saved OCR review'), findsOneWidget);
+
+      getReviewCompleter.complete(
+        sampleReceiptOcrReviewDetail(
+          ReceiptOcrReviewRoute(billId: _billId, fileId: _uploadedFileId),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    },
+  );
+
+  testWidgets('mixed receipt attachments with one safe candidate open directly', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final attachmentRepository = FakeBillAttachmentRepository(
+      attachments: [
+        sampleAttachment(
+          fileId: 'storage/object/key/receipt.png',
+          contentType: 'C:\\Users\\secret\\receipt.png',
+          sizeBytes: 0,
+        ),
+        sampleAttachment(
+          fileId: _uploadedFileId,
+          contentType: 'image/webp',
+          sizeBytes: 1536,
+        ),
+        sampleAttachment(
+          fileId: 'https://signed.example/receipt?token=session-secret',
+          contentType: 'raw OCR full text with card number',
+          sizeBytes: 2048,
+        ),
+      ],
+    );
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillDetailScreen(
+          repository: FakeBillRepository(),
+          billId: _billId,
+          initialBill: sampleBillDetail(id: _billId),
+          attachmentRepository: attachmentRepository,
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.text(
+        'One receipt attachment can open its saved provisional OCR review directly.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Choose receipt to review'), findsNothing);
+    expect(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('storage/object/key')));
+    expect(visibleText(tester), isNot(contains('signed.example')));
+    expect(visibleText(tester), isNot(contains('session-secret')));
+    expect(visibleText(tester), isNot(contains('card number')));
+    expect(visibleText(tester), isNot(contains('raw OCR full text')));
+
+    await tester.tap(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(receiptRepository.getCalls, 1);
+    expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+    expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+    expect(find.text('Receipt, WEBP receipt image, 1.5 KB'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+    expect(visibleText(tester), isNot(contains('storage/object/key')));
+    expect(visibleText(tester), isNot(contains('signed.example')));
+    expect(visibleText(tester), isNot(contains('raw OCR full text')));
+  });
+
+  testWidgets(
+    'direct saved OCR discovery keeps route identifiers out of labels and semantics',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      await useLargeSurface(tester);
+      await tester.binding.setSurfaceSize(const Size(900, 2400));
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            fileId: 'storage/object/key/receipt.png',
+            contentType: 'signed URL with session token',
+            sizeBytes: 0,
+          ),
+          sampleAttachment(
+            fileId: _uploadedFileId,
+            contentType: 'image/png',
+            sizeBytes: 321,
+          ),
+        ],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final action = find.byKey(
+        const Key('bill-detail-saved-ocr-discovery-open'),
+      );
+      await tester.scrollUntilVisible(
+        action,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(action);
+
+      expect(find.text('Review saved OCR'), findsOneWidget);
+      expect(find.bySemanticsLabel('Review saved OCR'), findsOneWidget);
+      expect(find.text('Choose receipt to review'), findsNothing);
+      expect(
+        find.byKey(const Key('saved-ocr-review-receipt-cancel')),
+        findsNothing,
+      );
+
+      for (final unsafeText in [
+        _billId,
+        _uploadedFileId,
+        'storage/object/key',
+        'signed URL',
+        'session token',
+        'raw OCR full text',
+        'payment details',
+      ]) {
+        expect(visibleText(tester), isNot(contains(unsafeText)));
+        expect(find.byTooltip(unsafeText), findsNothing);
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(unsafeText))),
+          findsNothing,
+        );
+      }
+
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(receiptRepository.lastRoute?.billId, _billId);
+      expect(receiptRepository.lastRoute?.fileId, _uploadedFileId);
+      expect(receiptRepository.lastRoute?.groupId, isNull);
+      expect(find.text('Saved OCR review'), findsOneWidget);
+      expect(find.text('Reviewing saved OCR for Receipt 1.'), findsOneWidget);
+      expect(
+        find.text('Receipt, PNG receipt image, 321 bytes'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('saved-ocr-review-receipt-cancel')),
+        findsNothing,
+      );
+      for (final unsafeText in [
+        _billId,
+        _uploadedFileId,
+        'storage/object/key',
+        'signed URL',
+        'session token',
+        'raw OCR full text',
+        'payment details',
+      ]) {
+        expect(visibleText(tester), isNot(contains(unsafeText)));
+        expect(find.byTooltip(unsafeText), findsNothing);
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(unsafeText))),
+          findsNothing,
+        );
+      }
+      semantics.dispose();
+    },
+  );
+
   testWidgets('multiple reviewable attachments show chooser without guessing', (
     tester,
   ) async {
@@ -8819,6 +9568,96 @@ void main() {
     expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
   });
 
+  testWidgets(
+    'mixed receipt chooser lists only safe candidates with bounded labels',
+    (tester) async {
+      await useLargeSurface(tester);
+      await tester.binding.setSurfaceSize(const Size(900, 2400));
+      final attachmentRepository = FakeBillAttachmentRepository(
+        attachments: [
+          sampleAttachment(
+            fileId: _uploadedFileId,
+            contentType: 'image/png',
+            sizeBytes: 321,
+          ),
+          sampleAttachment(
+            fileId: '/var/storage/object-key/receipt.png',
+            contentType: 'image/jpeg',
+            sizeBytes: 2048,
+          ),
+          sampleAttachment(
+            fileId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+            contentType: 'image/jpeg',
+            sizeBytes: 2048,
+          ),
+          sampleAttachment(
+            fileId: 'https://signed.example/receipt?token=session-secret',
+            contentType: 'payment details raw OCR full text',
+            sizeBytes: 4096,
+          ),
+        ],
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(),
+            billId: _billId,
+            initialBill: sampleBillDetail(id: _billId),
+            attachmentRepository: attachmentRepository,
+            receiptOcrReviewRepository: receiptRepository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final action = find.byKey(
+        const Key('bill-detail-saved-ocr-discovery-open'),
+      );
+      await tester.scrollUntilVisible(
+        action,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Receipt 1'), findsOneWidget);
+      expect(find.text('Receipt 2'), findsOneWidget);
+      expect(find.text('Receipt 3'), findsNothing);
+      expect(
+        find.text('Receipt, PNG receipt image, 321 bytes'),
+        findsOneWidget,
+      );
+      expect(find.text('Receipt, JPEG receipt image, 2.0 KB'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains(_uploadedFileId)));
+      expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
+      expect(visibleText(tester), isNot(contains('/var/storage')));
+      expect(visibleText(tester), isNot(contains('object-key')));
+      expect(visibleText(tester), isNot(contains('signed.example')));
+      expect(visibleText(tester), isNot(contains('session-secret')));
+      expect(visibleText(tester), isNot(contains('payment details')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+
+      await tester.tap(find.text('Receipt 2'));
+      await tester.pumpAndSettle();
+
+      expect(receiptRepository.getCalls, 1);
+      expect(
+        receiptRepository.lastRoute?.fileId,
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      );
+      expect(find.text('Reviewing saved OCR for Receipt 2.'), findsOneWidget);
+      expect(find.text('Receipt, JPEG receipt image, 2.0 KB'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('bbbbbbbb-bbbb')));
+      expect(visibleText(tester), isNot(contains('/var/storage')));
+      expect(visibleText(tester), isNot(contains('signed.example')));
+      expect(visibleText(tester), isNot(contains('raw OCR full text')));
+    },
+  );
+
   testWidgets('multiple receipt chooser can be cancelled without opening', (
     tester,
   ) async {
@@ -8902,6 +9741,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(action);
+    await tester.tap(action, warnIfMissed: false);
     await tester.pumpAndSettle();
 
     expect(find.text('Receipt 1'), findsOneWidget);
