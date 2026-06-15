@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M2 mobile navigation and Home/dashboard shell automated QA complete; human PC UI retest deferred until Day 1 acceptance; automated development ready`
+Status: `M2 mobile navigation and Home/dashboard shell automated QA finalized; human PC UI retest deferred until Day 1 acceptance; no safe queued M2 implementation task remains`
 
 ## Acceptance Checklist
 
@@ -17,6 +17,7 @@ Status: `M2 mobile navigation and Home/dashboard shell automated QA complete; hu
 - [ ] Human PC UI retest confirms visible Home dashboard improvement; deferred by owner decision until Day 1 acceptance, not marked passed.
 - [x] No planned M2 task requires backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, money, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes.
 - [x] Retest-only stop state removed so automated development can resume under existing scope guard and safety/manual gates.
+- [x] M2 QA finalization checkpoint recorded after `M2-006`; controller state is UI-testing-ready while manual PC UI retest remains deferred and not passed.
 
 ## M2 Kickoff Summary
 
@@ -34,6 +35,7 @@ Status: `M2 mobile navigation and Home/dashboard shell automated QA complete; hu
 - `M2-004` - Groups and Settle landing handoff polish.
 - `M2-005` - Mobile nav/home UI testing checklist and milestone QA report.
 - `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422` - In-app notification detail context and Home handoff polish.
+- `M2-QA-FINALIZE` - Milestone QA finalization and UI testing readiness check.
 - `STOP-M2-001` - Manual gate backend/API/auth/schema/money/deployment blocker.
 
 ## QA Map
@@ -76,7 +78,8 @@ Status: `M2 mobile navigation and Home/dashboard shell automated QA complete; hu
 - `M2-HOME-BOTTOM-NAV-CREATE-BILL-PICKER-20260612-1358`: fixed pending deferred human retest. Human PC UI retest found that Home was missing the persistent M2 bottom navigation and that Create bill routed straight to personal bill creation. Home now uses the app scaffold `NavigationBar` with Home, Bills, Groups, Settle, and Settings labels, with Home selected on the dashboard. The Create bill quick action now opens a chooser with `Personal bill` and `Group bill`; Personal bill preserves the existing personal creation screen, and Group bill routes to Groups so the user can choose a group and use the existing group-bill flow. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
 - `M2-BOTTOM-NAV-DSL-PARITY-20260612-1426`: fixed pending deferred human retest. Human PC UI retest found another page showing bottom navigation drift with extra `Receipts` and `Profile` tabs. The mobile shell now uses one shared bottom navigation widget for the canonical Day 1 set and order: `Home`, `Bills`, `Groups`, `Settle`, and `Settings`. Bills, Groups, Settle, and Settings/Profile top-level routes now keep the same constrained, safe-area-aware, rounded active-chip nav treatment as Home. Receipt review, profile/session, report, notification, and recurring routes remain secondary routes/actions instead of bottom-nav tabs. Focused widget coverage asserts the canonical labels/order, rejects `Receipts` and `Profile` as tab labels, validates active tab state across all five tabs, preserves the Create bill personal/group chooser, and rejects old debug/widget dump text. No backend/API, generated-client, schema, auth, money, deployment, Docker, CI, env, or secret changes were made.
 - `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422`: completed notification detail/context polish. Notification details now show safe summary, event, priority, status, type, received/updated timestamps, current filter, typed destination label, destination status, and a clear navigation-safety note that raw links are ignored. Unsupported link metadata, raw IDs, tokens, API paths, storage paths, and `actionUrl` remain redacted from rendered UI. Focused widget coverage was added for openable, unavailable typed, archived, and unsafe-link detail contexts. No backend/API, OpenAPI/generated-client, auth/session/security, schema/migration, settlement/payment/bill calculation, Docker/env/deployment/CI, web/admin runtime, push notification, offline sync policy, local storage, or secret changes were made.
-- Next automated task should continue with the next Day 1 mobile polish item selected from the current queue/controller state; manual UI retest remains deferred until Day 1 acceptance and is not marked passed.
+- `M2-QA-FINALIZE`: completed docs/control checkpoint after controller dry-run selected the synthetic QA finalization task. No queued safe M2 implementation task remains after `M2-006`; the remaining queue sentinel is the manual-gate stop task for backend/API/auth/schema/money/deployment scope. Controller state now records UI testing readiness so the controller does not keep reselecting finalization, while manual UI retest remains deferred until Day 1 acceptance and is not marked passed.
+- Next automated action should be a controller-approved Day 1/M3 kickoff or the next explicitly queued safe task after the owner adds or approves one; manual UI retest remains deferred until Day 1 acceptance and is not marked passed.
 
 ## Home Dashboard Redesign Fix
 
