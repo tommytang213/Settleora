@@ -65,7 +65,7 @@
     "title": "Mobile notification typed handoff authority hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "current",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
