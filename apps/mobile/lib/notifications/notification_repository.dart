@@ -209,7 +209,7 @@ class SettleoraNotificationRow {
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 
   String get displaySummary {
-    final summary = _boundedText(safeSummary, maxLength: 240);
+    final summary = _boundedSafeText(safeSummary, maxLength: 240);
     if (summary != null) {
       return summary;
     }
@@ -235,6 +235,10 @@ abstract interface class SettleoraNotificationRepository {
 }
 
 String settleoraNotificationStatusLabel(SettleoraNotificationStatus status) {
+  if (_looksUnsafeForDisplay(status)) {
+    return 'Status';
+  }
+
   return switch (status) {
     SettleoraNotificationStatusValues.unread => 'Unread',
     SettleoraNotificationStatusValues.read => 'Read',
@@ -246,6 +250,10 @@ String settleoraNotificationStatusLabel(SettleoraNotificationStatus status) {
 String settleoraNotificationPriorityLabel(
   SettleoraNotificationPriority priority,
 ) {
+  if (_looksUnsafeForDisplay(priority)) {
+    return 'Priority';
+  }
+
   return switch (priority) {
     SettleoraNotificationPriorityValues.normal => 'Normal',
     SettleoraNotificationPriorityValues.attention => 'Attention',
@@ -257,6 +265,10 @@ String settleoraNotificationPriorityLabel(
 String settleoraNotificationSubjectTypeLabel(
   SettleoraNotificationSubjectType subjectType,
 ) {
+  if (_looksUnsafeForDisplay(subjectType)) {
+    return 'Notification type';
+  }
+
   return switch (subjectType) {
     SettleoraNotificationSubjectTypeValues.expenseBill => 'Bill',
     SettleoraNotificationSubjectTypeValues.settlementRequest =>
@@ -270,6 +282,10 @@ String settleoraNotificationSubjectTypeLabel(
 }
 
 String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
+  if (_looksUnsafeForDisplay(event)) {
+    return 'Notification';
+  }
+
   return switch (event) {
     'bill.submitted' => 'Bill submitted',
     'bill.participant_accepted' => 'Bill accepted',
@@ -307,6 +323,15 @@ String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
 
 String? settleoraNotificationMetadataId(String? value) => _nonEmptyId(value);
 
+String? _boundedSafeText(String? value, {required int maxLength}) {
+  final bounded = _boundedText(value, maxLength: maxLength);
+  if (bounded == null || _looksUnsafeForDisplay(bounded)) {
+    return null;
+  }
+
+  return bounded;
+}
+
 String? _boundedText(String? value, {required int maxLength}) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
@@ -328,6 +353,22 @@ String? _nonEmptyId(String? value) {
 
   return trimmed;
 }
+
+bool _looksUnsafeForDisplay(String value) {
+  final lower = value.toLowerCase();
+  return _uuidPattern.hasMatch(value) ||
+      lower.contains('token=') ||
+      lower.contains('secret') ||
+      lower.contains('bearer ') ||
+      lower.contains('http://') ||
+      lower.contains('https://') ||
+      value.contains('/api/') ||
+      value.contains('?');
+}
+
+final _uuidPattern = RegExp(
+  r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+);
 
 String _titleFromCode(String code) {
   return code
