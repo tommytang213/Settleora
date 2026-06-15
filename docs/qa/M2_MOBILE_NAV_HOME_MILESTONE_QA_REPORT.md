@@ -3,11 +3,11 @@
 ## Status
 
 - Milestone: `M2` - Mobile Navigation + Home Dashboard Shell Polish.
-- Latest completed task: `M2-006-NOTIFICATION-DETAIL-CONTEXT-POLISH-20260615-1422` - In-app notification detail context and Home handoff polish.
-- Status: human UI testing checklist complete; notification detail/context polish automated coverage added; human PC UI retest deferred by owner decision until Day 1 acceptance.
+- Latest completed task: `M2-QA-FINALIZE` - Milestone QA finalization and UI testing readiness check.
+- Status: automated QA/control finalization complete; notification detail/context polish automated coverage added; human PC UI retest deferred by owner decision until Day 1 acceptance.
 - Base branch: `main`.
-- Task branch: `feature/mobile-notification-detail-context-polish-20260615-1438`.
-- Auto-merge: allowed for this PR/merge-gate task if all gates pass.
+- Task branch: `chore/m2-qa-finalize-20260615-1455`.
+- Auto-merge: allowed for the controller auto-continue PR/merge-gate task if all gates pass.
 - Latest integration context: PR #95 group/settle handoff polish, PR #97 Home/dashboard redesign, and PR #98 mobile Figma parity guardrails are included.
 
 ## QA Artifacts
@@ -40,9 +40,17 @@
 - Bills and personal bill handoffs: ready for human UI testing.
 - Settlements/Settle handoffs: ready for human UI testing.
 - Stop condition status: no forbidden-scope blocker identified by the QA artifact pass; human PC UI retest remains pending/deferred before M2 is considered human-approved, but no longer blocks automated development.
+- Controller finalization: `M2-QA-FINALIZE` recorded that no safe queued M2 implementation task remains after `M2-006`; the remaining queue sentinel is the manual-gate stop task for backend/API/auth/schema/money/deployment scope. Controller state is marked UI-testing-ready to avoid repeatedly selecting the finalization checkpoint, while manual UI retest remains deferred and not passed.
 
 ## Validation Results
 
+- `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`: passed; selected `M2-QA-FINALIZE - Milestone QA finalization and UI testing readiness check` and wrote the generated prompt under `/workspace/logs/ai-v3-controller/tasks/`.
+- `git status --short`: passed before commit; changed files were limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, and `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`.
+- `git diff --check origin/main...HEAD`: passed before commit with no output because the finalization checkpoint changes were not committed yet; rerun required after commit.
+- `node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD`: passed before commit; scope guard reported zero committed changed files and no forbidden scope; rerun required after commit.
+- `npm run validate:docs`: passed; documentation validation passed.
+- `npm run validate:scaffold`: passed; scaffold validation passed for 19 paths.
+- `npm run validate:openapi`: passed; Redocly validated `packages/contracts/openapi/settleora.v1.yaml`.
 - `git status --short`: passed before commit; changed files were limited to `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`, and `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.
 - `git diff --check origin/ai/integration...HEAD`: passed before commit with no output; passed again after commit with no output.
 - `node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD`: passed after commit; scope guard reported 5 changed files, all allowed for M2: `.ai/qa-report.md`, `.ai/state.json`, `.ai/task-queue.json`, `docs/qa/M2_MOBILE_NAV_HOME_MILESTONE_QA_REPORT.md`, and `docs/qa/M2_MOBILE_NAV_HOME_UI_TESTING_CHECKLIST.md`.

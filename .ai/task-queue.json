@@ -199,6 +199,35 @@
     ]
   },
   {
+    "id": "M2-QA-FINALIZE",
+    "title": "Milestone QA finalization and UI testing readiness check",
+    "risk": "low",
+    "autoMergeAllowed": false,
+    "status": "completed_manual_ui_retest_deferred",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/**"
+    ],
+    "goal": "Finalize the M2 automated QA/control state after notification detail context polish, confirm no safe queued implementation task remains, and keep manual UI retest deferred until Day 1 acceptance.",
+    "validation": [
+      "git diff --check origin/main...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi"
+    ],
+    "stopConditions": [
+      "Manual UI retest remains deferred until Day 1 acceptance by owner decision",
+      "Requires backend/API behavior",
+      "Requires OpenAPI/generated-client changes",
+      "Requires auth/session/security changes",
+      "Requires database schema/migrations",
+      "Requires settlement/payment/bill calculation logic",
+      "Requires Docker/env/deployment/CI changes",
+      "Requires production deploy, public/admin exposure, branch deletion, force/history operations, secrets/auth config, architecture replacement, or Day 1 scope reduction"
+    ]
+  },
+  {
     "id": "STOP-M2-001",
     "title": "Manual gate backend/API/auth/schema/money/deployment blocker",
     "risk": "high",
