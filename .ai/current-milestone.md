@@ -52,10 +52,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`.
-- Last completed task: `M6-004-RECEIPT-OCR-CAPTURE-REVIEW-QA-FINALIZE-20260615-1950`.
-- Current state: M6-001 through M6-004 are complete and M6 is finalized with no remaining automated M6 work. M7 is queued as the next bounded Day 1 milestone.
-- Recommended next automated Day 1 action: run the AI V3 controller for M7-001 mobile monthly report/reconciliation readout state reconciliation.
+- Current task: `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123`.
+- Last completed task: `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123`.
+- Current state: M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation readout implementation, and automated coverage without runtime product changes. M7-002, M7-003, and M7-004 remain queued.
+- Recommended next automated Day 1 action: run the AI V3 controller for M7-002 mobile monthly report discovery hardening.
 - Stop sentinel: `STOP-M7-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M6 Carry-Forward Boundary
@@ -63,3 +63,16 @@ Repo-state basis for this milestone:
 M6 is finalized as `Day 1 Mobile Receipt OCR Capture + Review Handoff Hardening` and remains awaiting deferred Day 1 acceptance review. M7 must not expand M6 ad hoc into OCR engine/native dependencies, OCR worker/runtime, generic receipt APIs, automatic OCR finalization, non-draft revision apply, multi-participant OCR split inference, API/contracts, schema, money, storage privacy, notification delivery, or unrelated receipt work.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+
+## M7-001 Reconciliation Summary
+
+M7-001 updated the M7 QA map and `.ai` control state only. No mobile runtime, backend/API, OpenAPI, generated-client, schema/migration, auth/session/security, storage/privacy, money/settlement/payment, Docker/deployment/CI, import/export/backup, notification delivery, web/admin, secret, or unrelated-domain files were changed.
+
+Current implementation findings:
+
+- Monthly reports are loaded through `SettleoraMonthlyReportRepository` and `GeneratedSettleoraMonthlyReportRepository`, with the generated repository requiring a session token, normalizing `yyyy-MM` and optional group ID inputs, mapping generated-client `MonthlyReportResponse` fields directly, preserving server money strings, and translating generated/network failures into bounded messages.
+- `SettleoraMonthlyReportScreen` renders server-returned bill count, generated timestamp, group or personal scope label, total/actor-share/actor-paid currency buckets, reconciliation counts, settlement request counts, and settlement payment counts. It supports month previous/next navigation, refresh, pull-to-refresh, loading, zero activity, filtered-empty, retry/error, and expired-session handling.
+- Monthly report discovery is local-only over loaded aggregate rows. Search and section chips can hide visible rows, but the summary copy states that totals and bill count remain the server-returned monthly summary.
+- Dashboard coverage has two surfaces: `DashboardPreviewScreen` is a local/read-only preview with fixture states, while the authenticated server shell dashboard loads existing repository summaries and opens the monthly report route through the report repository seam.
+- Personal and group bill lists search/filter loaded server rows locally and include server-provided reconciliation status in searchable/displayed fields. Bill detail search/filter hides only loaded rows locally and displays server-provided reconciliation status and note from the bill detail model.
+- Current M7 limitations remain: no statement import, raw statement visibility, reconciliation link/unlink, generated dashboard API, CSV import/export, backup/restore, broad report API redesign, or client-side financial/reconciliation authority.

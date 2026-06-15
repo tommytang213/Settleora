@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the kickoff QA map for M7 `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`.
+Define the QA map for M7 `Day 1 Mobile Monthly Reports + Reconciliation Readout Hardening`.
 
 M7 covers existing mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation-status readout seams. It does not implement runtime behavior in this kickoff and must not add statement import, reconciliation mutations, CSV import/export, backup/restore, backend/API behavior, OpenAPI/generated-client changes, schema/migrations, auth/session/security runtime changes, storage/privacy policy changes, settlement/payment/bill calculation changes, money authority changes, Docker/deployment/CI changes, secrets, or unrelated domain work.
 
@@ -16,14 +16,63 @@ M7 covers existing mobile monthly report, dashboard/report entry, bill search/fi
 - `apps/mobile/lib/bills/bill_list_screen.dart` already renders personal/group bill list/detail search/filter behavior and server-provided reconciliation status/note fields.
 - `apps/mobile/test/monthly_report_screen_test.dart`, `apps/mobile/test/report_generated_repository_test.dart`, `apps/mobile/test/dashboard_preview_screen_test.dart`, `apps/mobile/test/server_mode_shell_dashboard_test.dart`, and focused bill list tests provide existing automated seams.
 
-## Current Known Implementation Seams
+## M7-001 Current Implementation Inventory
 
-- Monthly reports are loaded through `SettleoraMonthlyReportRepository` and `GeneratedSettleoraMonthlyReportRepository`.
-- Report responses preserve server-provided money strings and status counts for total, actor share, actor paid, reconciliation, settlement request, and settlement payment buckets.
-- The report screen supports month navigation, group scope label display, refresh, search/filter over loaded aggregate rows, filtered-empty copy, zero-state copy, safe unknown status labels, and bounded failure handling.
-- The dashboard preview is currently a read-only preview surface, not a generated-client-backed authoritative dashboard.
-- Bill list/detail code already includes local search/filter controls over loaded rows and displays reconciliation status/note fields from server-provided bill models.
-- Mobile report and bill discovery must not compute financial truth, mutate reconciliation state, import statements, export data, or infer authorization from hidden UI.
+### Monthly report repository and generated-client seam
+
+- `SettleoraMonthlyReportRepository` exposes a single read method, `getMonthlyReport({required month, groupId})`.
+- `GeneratedSettleoraMonthlyReportRepository` requires a non-blank access token before calling the generated client and fails with `sessionRequired` before any generated-client call if the token is missing.
+- The generated repository validates `yyyy-MM` month input through `normalizeSettleoraReportMonth`, trims/omits blank group IDs, and passes the normalized month/group ID plus access token into the generated client.
+- Generated `MonthlyReportResponse` fields are mapped directly into mobile model fields for `month`, `groupId`, `generatedAtUtc`, `billCount`, `totalByCurrency`, `actorShareByCurrency`, `actorPaidByCurrency`, `reconciliationCounts`, `settlementRequestCounts`, and `settlementPaymentCounts`.
+- Money amounts remain server-provided strings. The mobile layer displays them and does not parse/recalculate report totals, actor share, actor paid, settlement totals, reconciliation status counts, or bill count.
+- Generated/API failures are mapped into bounded `SettleoraMonthlyReportFailure` kinds for validation, expired session, denied, unavailable, network, and server cases without surfacing raw response bodies, stack traces, tokens, or internal generated-client details.
+
+### Monthly report screen
+
+- `SettleoraMonthlyReportScreen` loads the current/initial month on startup and supports previous/next month navigation, app-bar refresh, and pull-to-refresh.
+- The summary displays server-provided `report.month`, generated timestamp, bill count, and a safe scope label: explicit `groupLabel`, `Group <id-prefix>` fallback, or `Personal report`.
+- The report body displays server-provided currency buckets for total, actor share, and actor paid, plus reconciliation, settlement request, and settlement payment status-count sections.
+- Loading, zero activity, retryable failure, expired-session, and unavailable/null-report states are explicit. Expired-session failures can invoke the shell-provided session-ended handler.
+- Search and filter chips operate only over loaded report aggregate rows. The filtered summary states that report totals and bill count remain the server-returned monthly summary.
+- Filtered-empty state is separate from true zero activity. Clearing discovery restores the loaded rows.
+- Known reconciliation labels are bounded to `Unreconciled`, `Reconciled`, and `Ignored`; settlement request/payment statuses have bounded known labels. Unknown/future status codes are converted to title-style labels and truncated at 56 characters, with empty/unparseable values shown as `Unknown`.
+- Current limitations: the screen has no statement import/matching, raw statement display, reconciliation link/unlink, CSV import/export, backup/restore, new report API, generated-client contract change, or client-side financial/reconciliation authority.
+
+### Dashboard and report entry
+
+- `apps/mobile/lib/dashboard/dashboard_preview_screen.dart` is a local/read-only preview surface backed by fixture `DashboardPreviewState` variants. It is not generated-client-backed authoritative dashboard data.
+- `apps/mobile/test/dashboard_preview_screen_test.dart` covers preview app startup, canonical bottom navigation, default dashboard sections, new-user, offline, and review variants.
+- The authenticated server-mode shell dashboard is separate from the local preview. `server_mode_shell_dashboard_test.dart` verifies repository-backed dashboard summaries for bills, notifications, settlements, recurring forecast, group activity, and monthly activity sections.
+- `monthly_report_screen_test.dart` verifies that the authenticated server shell opens `SettleoraMonthlyReportScreen` through the report repository seam from the `server-shell-reports` entry.
+- Dashboard/report entry limitations: no generated dashboard API is introduced by M7-001, no backend dashboard API is changed, and the local preview must not be treated as authoritative report data.
+
+### Personal/group bill search, filters, and reconciliation readouts
+
+- Personal bill list search/filter controls operate over loaded `SettleoraBillSummary` rows only. Filters currently cover all, active, needs review, and archived.
+- Group bill list search/filter controls operate over loaded group `SettleoraBillSummary` rows only. Filters currently cover all, needs your response, you accepted, you rejected, and has rejections.
+- Bill list search includes safe visible fields such as display name, bill date, total amount/currency, formatted money, bill status, reconciliation status label/code, archive state, loaded participant status/share fields, rejection reason labels, participant display names where loaded, and group name for group bills.
+- Personal bill summary tiles and read-only group bill summary tiles display the server-provided reconciliation status through `settleoraBillReconciliationStatusLabel`.
+- Bill detail header displays the server-provided reconciliation status and, when present, the server-provided reconciliation note. Detail search/filter controls hide only loaded item, participant, payer, and adjustment rows locally and include copy that filtered rows are hidden locally only.
+- Filtered-empty states are distinct from true-empty states for personal list, group list, and detail rows.
+- Reconciliation status labels are bounded for known values and use `_titleFromCode` fallback for unknown codes. Current code displays server-provided reconciliation notes as plain text and does not expose raw statement rows.
+- Current limitations: there is no reconciliation status mutation, statement import/upload/download, raw statement visibility, statement matching, link/unlink, CSV import/export, backup/restore, generated-client edit, or client-side money/settlement/bill calculation authority in these mobile bill surfaces.
+
+## Existing Automated Coverage Inventory
+
+- `apps/mobile/test/monthly_report_screen_test.dart` covers loading and loaded content, group scope display without raw group ID leakage, zero report state, search over loaded aggregate rows, section filter chips, combined search/filter, clear discovery, filtered-empty vs zero activity, month navigation, retry/refresh, expired-session handling, and authenticated shell report route opening.
+- `apps/mobile/test/report_generated_repository_test.dart` covers missing-session failure before generated calls, generated response mapping with money strings preserved, group ID normalization, month validation before generated calls, generated HTTP failure mapping, and network failure mapping.
+- `apps/mobile/test/dashboard_preview_screen_test.dart` covers the local dashboard preview entrypoint, bottom navigation, default sections, new-user checklist, offline pending-sync state, and review/action-needed variant.
+- `apps/mobile/test/server_mode_shell_dashboard_test.dart` covers repository-backed authenticated dashboard summary rendering, canonical bottom navigation, route switching between dashboard/bills/groups/settlements/receipts/profile, responsive dashboard sections, and dashboard failure/empty states around existing repository summaries.
+- `apps/mobile/test/bill_list_screen_test.dart` covers personal bill list empty state, needs-review filter, local personal bill search/filter/clear behavior, bill detail search/filter counts, combined detail filters, clear behavior, filtered-empty vs true-empty, authenticated shell bill routing, and related bill-detail readouts.
+- `apps/mobile/test/group_bill_list_screen_test.dart` covers group bill list loading/empty/refresh, group bill filters and counts, group bill search combined with chips, current-user-specific filter behavior, filtered empty state when current user is missing, and opening the selected filtered group bill detail.
+- `apps/mobile/test/bill_generated_repository_test.dart` covers generated bill repository mapping for reconciliation status/note fields from personal and group bill generated responses.
+
+## Current Coverage Gaps And Next Slices
+
+- M7-002 should focus on monthly report/dashboard discovery hardening: dashboard/report entry clarity, monthly report safe aggregate display, group/month scope clarity, unknown status handling, session/network failure states, retry behavior, and server-authority copy inside existing report/dashboard seams.
+- M7-003 should focus on bill reporting/reconciliation readout hardening: loaded-row search/filter clarity, filtered-empty copy, reconciliation status/note bounded display, and no-import/no-mutation/server-authority copy inside existing personal/group bill list/detail seams.
+- M7-004 should finalize M7 QA/control state after implementation slices and keep manual UI/code review deferred until Day 1 acceptance.
+- Remaining Day 1 gaps outside this M7 mobile readout slice include CSV import/export, local backup/restore, full statement import/matching/linking, raw statement privacy controls, generated dashboard APIs, broad reporting backend redesign, and any authoritative reconciliation mutations.
 
 ## Day 1 Requirement Map
 

@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M7 queued; first mobile monthly report/reconciliation readout task ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M7-001 complete; M7-002 queued; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -41,6 +41,8 @@ Status: `M7 queued; first mobile monthly report/reconciliation readout task read
 - [x] M7 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
 - [x] Scope guard allows only narrow M7 docs/control, mobile reports, dashboard, bill-list readout, app wiring, and mobile test paths.
 - [x] No M7 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, deployment, Docker, CI, notification delivery, web/admin, or secret changes.
+- [x] M7-001 reconciled current mobile monthly report, dashboard/report entry, bill search/filter, reconciliation-status readout implementation, and automated QA coverage without changing runtime behavior.
+- [x] M7-001 updated the M7 QA map with current implementation inventory, Day 1 requirement map, covered tests, gaps, M7-002/M7-003 focus, stop conditions, and explicit deferred manual UI/code review status.
 
 ## M7 Selection Summary
 
@@ -55,11 +57,31 @@ The selection is based on current repo state:
 
 ## M7 Queue Summary
 
-- `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Queued/current. Reconcile current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
+- `M7-001-MOBILE-REPORT-RECONCILIATION-STATE-RECONCILE-20260615-2123` - Completed. Reconciled current mobile monthly report, dashboard/report entry, bill search/filter, and reconciliation readout implementation against Day 1 requirements without changing runtime behavior.
 - `M7-002-MOBILE-MONTHLY-REPORT-DISCOVERY-HARDENING-20260615-2123` - Queued. Harden monthly report discovery, safe aggregate display, month/group scope clarity, unknown statuses, failures, and dashboard/report entry inside existing mobile seams.
 - `M7-003-MOBILE-BILL-REPORT-RECONCILIATION-READOUT-HARDENING-20260615-2123` - Queued. Harden bill list/detail reporting filters and reconciliation-status readouts over loaded server data only.
 - `M7-004-MOBILE-REPORT-RECONCILIATION-QA-FINALIZE-20260615-2123` - Queued. Finalize M7 QA/control state and mark UI-test ready without runtime behavior changes.
 - `STOP-M7-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, statement import/matching, reconciliation mutations, CSV import/export, backup/restore, notification delivery, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
+
+## M7-001 Reconciliation Summary
+
+Updated `docs/qa/M7_MOBILE_REPORT_RECONCILIATION_QA_MAP.md` as the current control/QA map for M7. The map records:
+
+- Current mobile implementation inventory for monthly report repository/generated-client mapping, report screen aggregate display, month/group scope, loading/empty/retry/error states, local report discovery, bounded status labels, dashboard/report entry, personal/group bill list search/filter, and bill detail reconciliation status/note readouts.
+- Day 1 requirement mapping for monthly reports, advanced search/filter, reconciliation-related readouts where available, group dashboard basics, and explicit exclusion of CSV import/export plus local backup/restore from this mobile readout slice.
+- Existing automated coverage across monthly report screen tests, generated report repository tests, dashboard preview/shell tests, generated bill repository tests, and personal/group bill list/detail search/filter tests.
+- Gaps and next-slice expectations for M7-002 monthly report/dashboard discovery hardening and M7-003 bill reporting/reconciliation readout hardening.
+- Stop conditions and explicit deferred manual UI/code review status.
+
+Current implementation findings:
+
+- Monthly report data flows through `SettleoraMonthlyReportRepository` and `GeneratedSettleoraMonthlyReportRepository`; generated-client responses preserve server-provided amount strings, status codes, counts, generated timestamp, month, and group ID.
+- The monthly report screen renders server-returned totals and counts, supports previous/next month navigation, group scope display, refresh, loading, zero activity, filtered-empty, retry/error, and expired-session handling.
+- Dashboard preview is read-only/local fixture data. Authenticated shell dashboard uses existing repositories for summaries and opens the monthly report screen through the report repository seam.
+- Personal/group bill list and detail surfaces filter loaded server rows locally and display/search server-provided reconciliation status fields; bill detail also displays the server-provided reconciliation note.
+- M7-001 did not change mobile runtime or tests.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 
 ## M6 Selection Summary
 
