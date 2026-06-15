@@ -4,7 +4,7 @@
     "title": "Reconcile mobile monthly report and reconciliation readout state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
