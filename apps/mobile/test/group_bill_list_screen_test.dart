@@ -3580,6 +3580,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('Server unavailable'), findsOneWidget);
+      expect(find.text('Retry submit'), findsOneWidget);
+      expect(
+        find.text(
+          'Draft created. Retry submit on the existing bill without creating another draft.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Retry group bill submit'), findsOneWidget);
 
       await _tapSaveGroupBill(tester);
@@ -3642,6 +3649,13 @@ void main() {
         find.byKey(const Key('group-bill-create-failure')),
         findsOneWidget,
       );
+      expect(find.text('Retry detail refresh'), findsOneWidget);
+      expect(
+        find.text(
+          'Submit succeeded. Retry loading the submitted bill detail without submitting again.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Retry submitted bill detail'), findsOneWidget);
 
       await _tapSaveGroupBill(tester);
@@ -3693,6 +3707,17 @@ void main() {
 
       expect(billRepository.createGroupCalls, 1);
       expect(billRepository.submitGroupCalls, 1);
+      expect(find.text('Submitting'), findsOneWidget);
+      expect(
+        find.text(
+          'Draft created. Submitting the existing bill without creating another draft.',
+        ),
+        findsOneWidget,
+      );
+      final saveButton = tester.widget<FilledButton>(
+        find.byKey(const Key('group-bill-save')),
+      );
+      expect(saveButton.onPressed, isNull);
 
       submitCompleter.complete();
       await tester.pumpAndSettle();
@@ -4517,6 +4542,13 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(find.text('Retry upload'), findsOneWidget);
+      expect(
+        find.text(
+          'Draft created. Retry only the remaining selected attachments before submit.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('support.pdf'), findsOneWidget);
       expect(find.text('receipt.png'), findsNothing);
@@ -4796,6 +4828,50 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Create group bill'), findsWidgets);
+  });
+
+  testWidgets('group bill create failure hides raw unsafe details', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final billRepository = FakeBillRepository(
+      createGroupFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.server,
+        message:
+            'POST /api/v1/groups/group-id/bills failed with bearer token abc and C:\\Users\\secret\\receipt.png',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: billRepository,
+          groupRepository: FakeGroupRepository(
+            members: [sampleMember(displayName: 'Taylor')],
+          ),
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _fillMinimalGroupCreateForm(tester);
+    await _tapSaveGroupBill(tester);
+
+    expect(billRepository.createGroupCalls, 1);
+    expect(find.byKey(const Key('group-bill-create-failure')), findsOneWidget);
+    expect(
+      find.textContaining(
+        'The bill could not be saved. Check the fields and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('/api/v1'), findsNothing);
+    expect(find.textContaining('bearer token'), findsNothing);
+    expect(find.textContaining('C:\\Users\\secret'), findsNothing);
   });
 }
 
