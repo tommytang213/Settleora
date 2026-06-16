@@ -16,7 +16,8 @@ class ReceiptOcrParser {
       );
     }
 
-    final currency = _detectCurrency(lines);
+    final currencyDetection = _detectCurrency(lines);
+    final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines);
     final itemCandidates = _extractItems(lines, currency);
     if (itemCandidates.isEmpty) {
@@ -24,6 +25,11 @@ class ReceiptOcrParser {
     }
     if (amounts.total == null && itemCandidates.isEmpty) {
       warnings.add('No clear total amount was detected.');
+    }
+    if (currencyDetection.isSymbolOnly) {
+      warnings.add(
+        'Currency was inferred from a symbol. Confirm the currency before applying.',
+      );
     }
 
     return ReceiptOcrPreview(
@@ -83,20 +89,23 @@ class ReceiptOcrParser {
     return null;
   }
 
-  String? _detectCurrency(List<String> lines) {
+  _ReceiptCurrencyDetection _detectCurrency(List<String> lines) {
     final joined = lines.join(' ').toUpperCase();
     for (final code in _supportedCurrencyCodes) {
       if (RegExp('\\b$code\\b').hasMatch(joined)) {
-        return code;
+        return _ReceiptCurrencyDetection(currency: code);
       }
     }
     if (joined.contains('HK\$')) {
-      return 'HKD';
+      return const _ReceiptCurrencyDetection(currency: 'HKD');
     }
     if (joined.contains(r'$')) {
-      return 'USD';
+      return const _ReceiptCurrencyDetection(
+        currency: 'USD',
+        isSymbolOnly: true,
+      );
     }
-    return null;
+    return const _ReceiptCurrencyDetection();
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(List<String> lines) {
@@ -212,6 +221,13 @@ class _LabeledReceiptAmounts {
   final String? service;
   final String? discount;
   final String? total;
+}
+
+class _ReceiptCurrencyDetection {
+  const _ReceiptCurrencyDetection({this.currency, this.isSymbolOnly = false});
+
+  final String? currency;
+  final bool isSymbolOnly;
 }
 
 const _supportedCurrencyCodes = <String>{

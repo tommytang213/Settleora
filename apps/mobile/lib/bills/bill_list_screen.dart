@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
 import '../receipt_ocr_capture/receipt_image_intake.dart';
+import '../receipt_ocr_capture/receipt_intake_safety.dart';
 import '../receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -1045,6 +1046,7 @@ class _SettleoraPersonalBillCreateScreenState
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
   int? _receiptOcrPreviewDraftAttachmentId;
+  ReceiptIntakeSafetyReview? _receiptIntakeSafetyReview;
   ReceiptOcrResult? _receiptOcrResult;
   ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   String? _itemListError;
@@ -1326,6 +1328,15 @@ class _SettleoraPersonalBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final intakeSafetyReview = reviewReceiptIntakeSafety(
+        ReceiptIntakeSafetyMetadata.fromPickedFile(
+          sourceType: _receiptIntakeSourceTypeForImageSource(source),
+          file: validatedFile,
+          nativeCameraAvailable: widget.receiptImageIntake != null,
+          nativePhotoImportAvailable: widget.receiptImageIntake != null,
+          nativeFileImportAvailable: widget.attachmentFileInput != null,
+        ),
+      );
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -1340,6 +1351,7 @@ class _SettleoraPersonalBillCreateScreenState
       await _runReceiptOcrPreview(
         validatedFile,
         sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
       );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
@@ -1484,9 +1496,19 @@ class _SettleoraPersonalBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+      final intakeSafetyReview = reviewReceiptIntakeSafety(
+        ReceiptIntakeSafetyMetadata.fromPickedFile(
+          sourceType: ReceiptIntakeSourceType.fileImport,
+          file: validatedFile,
+          nativeCameraAvailable: widget.receiptImageIntake != null,
+          nativePhotoImportAvailable: widget.receiptImageIntake != null,
+          nativeFileImportAvailable: widget.attachmentFileInput != null,
+        ),
+      );
       await _runReceiptOcrPreview(
         validatedFile,
         sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
       );
     }
   }
@@ -1578,6 +1600,7 @@ class _SettleoraPersonalBillCreateScreenState
   Future<void> _runReceiptOcrPreview(
     SettleoraPickedBillAttachmentFile pickedFile, {
     required int sourceDraftAttachmentId,
+    required ReceiptIntakeSafetyReview intakeSafetyReview,
   }) async {
     final receiptOcrProvider = widget.receiptOcrProvider;
     if (!mounted || receiptOcrProvider == null) {
@@ -1588,6 +1611,7 @@ class _SettleoraPersonalBillCreateScreenState
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
       _receiptOcrPreviewDraftAttachmentId = sourceDraftAttachmentId;
+      _receiptIntakeSafetyReview = intakeSafetyReview;
       _receiptOcrResult = null;
       _receiptOcrCorrectedPreview = null;
     });
@@ -1650,6 +1674,7 @@ class _SettleoraPersonalBillCreateScreenState
     }
 
     _receiptOcrPreviewDraftAttachmentId = null;
+    _receiptIntakeSafetyReview = null;
     _isExtractingReceiptOcr = false;
     _receiptOcrApplied = false;
     _receiptOcrResult = null;
@@ -2086,6 +2111,7 @@ class _SettleoraPersonalBillCreateScreenState
                   _ReceiptOcrPreviewPanel(
                     keyPrefix: 'personal-bill',
                     result: _receiptOcrResult,
+                    intakeSafetyReview: _receiptIntakeSafetyReview,
                     correctedPreview: _receiptOcrCorrectedPreview,
                     isExtracting: _isExtractingReceiptOcr,
                     wasApplied: _receiptOcrApplied,
@@ -2375,6 +2401,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
   const _ReceiptOcrPreviewPanel({
     required this.keyPrefix,
     required this.result,
+    required this.intakeSafetyReview,
     required this.correctedPreview,
     required this.isExtracting,
     required this.wasApplied,
@@ -2391,6 +2418,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
 
   final String keyPrefix;
   final ReceiptOcrResult? result;
+  final ReceiptIntakeSafetyReview? intakeSafetyReview;
   final ReceiptOcrPreview? correctedPreview;
   final bool isExtracting;
   final bool wasApplied;
@@ -2475,6 +2503,10 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               context,
             ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
           ),
+          if (intakeSafetyReview != null) ...[
+            const SizedBox(height: 10),
+            _ReceiptIntakeSafetyPanel(review: intakeSafetyReview!),
+          ],
           if (preview != null) ...[
             const SizedBox(height: 10),
             Wrap(
@@ -3185,6 +3217,72 @@ class _ReceiptDuplicateWarningBanner extends StatelessWidget {
   }
 }
 
+class _ReceiptIntakeSafetyPanel extends StatelessWidget {
+  const _ReceiptIntakeSafetyPanel({required this.review});
+
+  final ReceiptIntakeSafetyReview review;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Container(
+      key: const Key('receipt-intake-safety-panel'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.warningSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.onWarningSoft.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.privacy_tip_outlined,
+            color: colors.onWarningSoft,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Receipt intake review',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  receiptIntakeSourceLabel(review.sourceType),
+                  key: const Key('receipt-intake-source-label'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                for (final warning in review.warnings)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      warning,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.onWarningSoft,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 enum _ReceiptDuplicateSaveAction { cancel, reviewExisting, saveAnyway }
 
 Future<_ReceiptDuplicateSaveAction?> _showReceiptDuplicateSaveConfirmation(
@@ -3827,6 +3925,15 @@ Future<ReceiptImageSource?> _selectReceiptImageSource(
       ),
     ),
   );
+}
+
+ReceiptIntakeSourceType _receiptIntakeSourceTypeForImageSource(
+  ReceiptImageSource source,
+) {
+  return switch (source) {
+    ReceiptImageSource.camera => ReceiptIntakeSourceType.cameraCapture,
+    ReceiptImageSource.gallery => ReceiptIntakeSourceType.photoImport,
+  };
 }
 
 class _BillCreateDraftAttachment {
@@ -5081,6 +5188,7 @@ class _SettleoraGroupBillCreateScreenState
   _ReceiptOcrApplySelection _receiptOcrApplySelection =
       const _ReceiptOcrApplySelection.none();
   int? _receiptOcrPreviewDraftAttachmentId;
+  ReceiptIntakeSafetyReview? _receiptIntakeSafetyReview;
   ReceiptOcrResult? _receiptOcrResult;
   ReceiptOcrPreview? _receiptOcrCorrectedPreview;
   List<SettleoraGroupMember> _members = const [];
@@ -5605,6 +5713,15 @@ class _SettleoraGroupBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final intakeSafetyReview = reviewReceiptIntakeSafety(
+        ReceiptIntakeSafetyMetadata.fromPickedFile(
+          sourceType: _receiptIntakeSourceTypeForImageSource(source),
+          file: validatedFile,
+          nativeCameraAvailable: widget.receiptImageIntake != null,
+          nativePhotoImportAvailable: widget.receiptImageIntake != null,
+          nativeFileImportAvailable: widget.attachmentFileInput != null,
+        ),
+      );
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -5619,6 +5736,7 @@ class _SettleoraGroupBillCreateScreenState
       await _runReceiptOcrPreview(
         validatedFile,
         sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
       );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
@@ -5763,9 +5881,19 @@ class _SettleoraGroupBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+      final intakeSafetyReview = reviewReceiptIntakeSafety(
+        ReceiptIntakeSafetyMetadata.fromPickedFile(
+          sourceType: ReceiptIntakeSourceType.fileImport,
+          file: validatedFile,
+          nativeCameraAvailable: widget.receiptImageIntake != null,
+          nativePhotoImportAvailable: widget.receiptImageIntake != null,
+          nativeFileImportAvailable: widget.attachmentFileInput != null,
+        ),
+      );
       await _runReceiptOcrPreview(
         validatedFile,
         sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
       );
     }
   }
@@ -5773,6 +5901,7 @@ class _SettleoraGroupBillCreateScreenState
   Future<void> _runReceiptOcrPreview(
     SettleoraPickedBillAttachmentFile pickedFile, {
     required int sourceDraftAttachmentId,
+    required ReceiptIntakeSafetyReview intakeSafetyReview,
   }) async {
     final receiptOcrProvider = widget.receiptOcrProvider;
     if (!mounted || receiptOcrProvider == null) {
@@ -5783,6 +5912,7 @@ class _SettleoraGroupBillCreateScreenState
       _isExtractingReceiptOcr = true;
       _receiptOcrApplied = false;
       _receiptOcrPreviewDraftAttachmentId = sourceDraftAttachmentId;
+      _receiptIntakeSafetyReview = intakeSafetyReview;
       _receiptOcrResult = null;
       _receiptOcrCorrectedPreview = null;
     });
@@ -5845,6 +5975,7 @@ class _SettleoraGroupBillCreateScreenState
     }
 
     _receiptOcrPreviewDraftAttachmentId = null;
+    _receiptIntakeSafetyReview = null;
     _isExtractingReceiptOcr = false;
     _receiptOcrApplied = false;
     _receiptOcrResult = null;
@@ -6972,6 +7103,8 @@ class _SettleoraGroupBillCreateScreenState
                                   _ReceiptOcrPreviewPanel(
                                     keyPrefix: 'group-bill',
                                     result: _receiptOcrResult,
+                                    intakeSafetyReview:
+                                        _receiptIntakeSafetyReview,
                                     correctedPreview:
                                         _receiptOcrCorrectedPreview,
                                     isExtracting: _isExtractingReceiptOcr,

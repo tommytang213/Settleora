@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_intake_safety.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
@@ -64,6 +65,25 @@ Card 25.50
     expect(preview.reviewHints, [
       'Detected tax/service/discount may explain why item totals differ from the grand total.',
     ]);
+  });
+
+  test('parser warns when currency is inferred from symbol only', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse(r'''
+Coffee Bar
+2026-06-13
+Latte $5.50
+Total $5.50
+''');
+
+    expect(preview.currency, 'USD');
+    expect(
+      preview.warnings,
+      contains(
+        'Currency was inferred from a symbol. Confirm the currency before applying.',
+      ),
+    );
   });
 
   test('preview hints when item line totals differ from detected subtotal', () {
@@ -246,6 +266,74 @@ Thank you
     expect(provider.lastRequest?.bytes, const [7, 8, 9]);
     expect(provider.lastRequest?.contentType, 'image/jpeg');
     expect(result.preview?.merchant, 'Coffee Bar');
+  });
+
+  test('receipt intake safety warns from metadata without contents', () {
+    final review = reviewReceiptIntakeSafety(
+      const ReceiptIntakeSafetyMetadata(
+        sourceType: ReceiptIntakeSourceType.fileImport,
+        filename: 'receipt.bmp',
+        contentType: 'image/bmp',
+        sizeBytes: ReceiptIntakePolicy.largeFileWarningBytes + 1,
+        nativeCameraAvailable: false,
+      ),
+    );
+
+    expect(receiptIntakeSourceLabel(review.sourceType), 'File import');
+    expect(
+      review.warnings,
+      contains(
+        'Server-mode OCR data stays provisional until the API validates and accepts it.',
+      ),
+    );
+    expect(
+      review.warnings,
+      contains('Receipt file type is not supported for receipt OCR review.'),
+    );
+    expect(
+      review.warnings,
+      contains(
+        'Receipt filename extension is not supported for receipt OCR review.',
+      ),
+    );
+    expect(
+      review.warnings,
+      contains(
+        'Receipt file is large. Upload or OCR may fail; review before saving.',
+      ),
+    );
+    expect(
+      review.warnings,
+      contains('Native camera capture is unavailable in this build.'),
+    );
+  });
+
+  test('receipt intake safety warns when source or size are unavailable', () {
+    final review = reviewReceiptIntakeSafety(
+      const ReceiptIntakeSafetyMetadata(
+        sourceType: ReceiptIntakeSourceType.unknown,
+        filename: 'receipt',
+        contentType: 'image/jpeg',
+      ),
+    );
+
+    expect(review.sourceType, ReceiptIntakeSourceType.unknown);
+    expect(
+      review.warnings,
+      contains(
+        'Receipt filename extension is missing. Review the import source.',
+      ),
+    );
+    expect(
+      review.warnings,
+      contains('Receipt file size metadata is missing. Review before upload.'),
+    );
+    expect(
+      review.warnings,
+      contains(
+        'Receipt source is unavailable. Treat the import as manual review only.',
+      ),
+    );
   });
 }
 
