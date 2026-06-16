@@ -742,6 +742,12 @@ class _SettleoraAuthenticatedServerShellState
                             ),
                             const SizedBox(height: 16),
                             const _DashboardDataPortabilityReadout(),
+                            const SizedBox(height: 16),
+                            const VisualPreferenceUnsupportedReadout(
+                              key: Key(
+                                'server-shell-visual-preference-readout',
+                              ),
+                            ),
                           ],
                         ),
                       ),

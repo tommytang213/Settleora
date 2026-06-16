@@ -1,6 +1,40 @@
 # AI QA Report
 
-Status: `M14-002 completed; M14 continues before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+Status: `M14-003 completed; M14 continues before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+
+## M14-003 Visual Preference Unsupported Readout Hardening Summary
+
+M14-003 completed bounded mobile presentation-only unsupported visual preference readout hardening.
+
+Runtime/component hardening:
+
+- `apps/mobile/lib/ui/settleora_components.dart` now provides a shared read-only visual preference unsupported readout.
+- `apps/mobile/lib/app/server_mode_shell.dart` shows the readout on the authenticated dashboard settings/readiness surface.
+- `apps/mobile/lib/profile/profile_screen.dart` shows the readout on the profile/settings-adjacent account surface.
+- The readout states current mobile uses built-in theme tokens only; visual preferences are presentation-only; system/light/dark appearance concepts, accent color, built-in versus custom palette choices, category/tag/group/dashboard/chart/status colors, and dashboard layout/palette personalization are future explicit work where persistence/API/schema/admin runtime is absent.
+- The readout explicitly preserves that no server-mode visual preference persistence, no visual preference API/schema path, no local-to-server visual preference migration, and no admin/deployment default palette policy exists in this slice.
+- The readout states theme/color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy.
+- No fake Save, Apply, Sync, Publish, Share, Admin default, Import, Export, Migrate, Restore, or Create custom palette controls were added.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart` passed with 54 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart test/widget_test.dart` passed with 90 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 718 Flutter tests.
+- Coverage asserts the shared readout and both changed app/profile paths expose presentation-only unsupported visual preference copy and do not contain fake runtime controls inside the readout.
+- Validation warnings were limited to Flutter dependency newer-version notices and the Redocly CLI update notice.
+
+M14 queue state after M14-003:
+
+- `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed.
+- `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed.
+- `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Completed.
+- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Current.
+- `STOP-M14-001` - Preserved.
+
+M14-003 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, persisted visual settings, Day 1 scope, or architecture direction.
+
+Remaining M14-004 work is final QA/control finalization. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M14 UI testing readiness remains false until M14-004 finalization. Recommended next automated task is `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
 
 ## M14-002 Theme Component Readability Hardening Summary
 

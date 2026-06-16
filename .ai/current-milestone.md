@@ -52,12 +52,12 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current/next task: `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
-- Last completed task: `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053`.
-- Current state: M14-002 completed bounded mobile theme/component/readability hardening; M14 continues with unsupported visual preference readout hardening.
+- Current/next task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
+- Last completed task: `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
+- Current state: M14-003 completed bounded mobile presentation-only unsupported visual preference readout hardening; M14 continues with final QA/control finalization.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
-- Recommended next automated task: `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
+- Recommended next automated task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
 - Stop sentinel: `STOP-M14-001` stops persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M14 Kickoff Summary
@@ -72,7 +72,7 @@ M14 queue:
 
 - `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed. Reconciled current mobile theme, color-token, component, accessibility, and unsupported visual preference readiness without runtime behavior changes.
 - `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed. Hardened built-in mobile theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
-- `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Queued. Clarify unsupported presentation-only visual preference/palette/customization states in existing mobile settings/readout seams without adding runtime settings.
+- `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Completed. Clarified unsupported presentation-only visual preference/palette/customization states in existing mobile settings/readout seams without adding runtime settings.
 - `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Queued. Finalize M14 QA/control state after bounded slices complete.
 - `STOP-M14-001` - Stop. Manual gate for persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 

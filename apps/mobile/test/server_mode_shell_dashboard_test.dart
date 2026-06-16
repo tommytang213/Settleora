@@ -166,6 +166,82 @@ void main() {
       ),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+      findsOneWidget,
+    );
+    expect(find.text('Visual preferences'), findsOneWidget);
+    expect(
+      find.textContaining('Current mobile uses built-in theme tokens only'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Visual preferences are presentation-only readouts in this slice',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Appearance mode'), findsOneWidget);
+    expect(
+      find.textContaining('System, light, and dark appearance concepts'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'no server-mode visual preference persistence exists in this slice',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'no visual preference API or schema path exists here',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Accent and palettes'), findsOneWidget);
+    expect(
+      find.textContaining('built-in palette vs custom palette choices'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Custom palette creation'), findsOneWidget);
+    expect(find.text('Subject colors'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Category, tag, group, dashboard, chart, and configurable status color concepts',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Personalization'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Dashboard layout and palette personalization readiness is read-only',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'no local-to-server visual preference migration exists in this slice',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'no admin/deployment default palette policy exists in this slice',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Authority'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Theme and color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('CSV export'), findsOneWidget);
     expect(find.text('CSV import'), findsOneWidget);
     expect(find.text('Local backup/restore'), findsOneWidget);
@@ -195,6 +271,39 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, 'Restore'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Migrate'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsNothing);
+    final visualReadout = find.byKey(
+      const Key('server-shell-visual-preference-readout'),
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(FilledButton)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(OutlinedButton)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(TextButton)),
+      findsNothing,
+    );
+    for (final label in const [
+      'Save',
+      'Apply',
+      'Sync',
+      'Publish',
+      'Share',
+      'Admin default',
+      'Import',
+      'Export',
+      'Migrate',
+      'Restore',
+      'Create custom palette',
+    ]) {
+      expect(
+        find.descendant(of: visualReadout, matching: find.text(label)),
+        findsNothing,
+      );
+    }
   });
 
   testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {

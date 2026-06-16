@@ -89,6 +89,9 @@ void main() {
                   ],
                 ),
                 const AppCard(child: Text('Card content')),
+                const VisualPreferenceUnsupportedReadout(
+                  key: Key('component-visual-preference-readout'),
+                ),
                 const MetricCard(
                   label: 'You owe',
                   amount: r'$42.00',
@@ -139,6 +142,57 @@ void main() {
     expect(find.text('Synced'), findsOneWidget);
     expect(find.text('Draft'), findsOneWidget);
     expect(find.text('Card content'), findsOneWidget);
+    expect(find.text('Visual preferences'), findsOneWidget);
+    expect(
+      find.textContaining('Current mobile uses built-in theme tokens only'),
+      findsOneWidget,
+    );
+    expect(find.text('Appearance mode'), findsOneWidget);
+    expect(
+      find.textContaining('System, light, and dark appearance concepts'),
+      findsOneWidget,
+    );
+    expect(find.text('Accent and palettes'), findsOneWidget);
+    expect(
+      find.textContaining('built-in palette vs custom palette choices'),
+      findsOneWidget,
+    );
+    expect(find.text('Subject colors'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Category, tag, group, dashboard, chart, and configurable status color concepts',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Personalization'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'no local-to-server visual preference migration exists in this slice',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Authority'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy',
+      ),
+      findsOneWidget,
+    );
+    final visualReadout = find.byKey(
+      const Key('component-visual-preference-readout'),
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(FilledButton)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(OutlinedButton)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: visualReadout, matching: find.byType(TextButton)),
+      findsNothing,
+    );
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text(r'$42.00'), findsOneWidget);
     expect(find.text('Across two bills'), findsOneWidget);
