@@ -1,6 +1,31 @@
 # AI QA Report
 
-Status: `M10 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11 queued; M10 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M11 Kickoff Summary
+
+M11 is queued as `Day 1 Mobile Account Session And Device Management Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the mobile app has first-launch local/server configuration, secure-storage-backed app/session state boundaries, a minimal authenticated server-mode shell with refresh, logout, session list, and per-session revocation.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires user registration/login foundations, secure sessions, revocation-ready sessions, device/session visibility, API-enforced role and permission checks, and security-impactful audit boundaries.
+- `docs/features/auth-session/FUNCTIONAL_SPEC.md` requires users to understand active sessions/devices, revoke sessions, sign out, and see only safe own-session metadata.
+- `docs/features/auth-session/TECHNICAL_SPEC.md` keeps auth/session/credential/audit writes API-owned and forbids raw tokens, password material, provider secrets, and MFA/passkey secrets from logs, audit, responses, and UI.
+- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` records the existing mobile auth/session lifecycle shell, secure storage boundary, access-token refresh provider, current-session logout, account-wide sign-out, session/device list, and per-session revocation.
+- Current mobile code under `apps/mobile/lib/app/` and focused tests under `apps/mobile/test/auth_session_repository_test.dart`, `apps/mobile/test/secure_storage_test.dart`, and `apps/mobile/test/widget_test.dart` provide bounded seams for mobile-only hardening.
+
+M11 queue:
+
+- `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315` - Queued. Reconcile current mobile account/session implementation and automated coverage without runtime behavior changes.
+- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Queued. Harden session/device list and per-session revoke UI inside existing mobile seams.
+- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Queued. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
+- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Queued. Finalize M11 QA/control state after bounded slices complete.
+- `STOP-M11-001` - Stop. Manual gate for API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
+
+M11 kickoff changed only `.ai` control files, the M11 QA map, and a narrow M11 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. Recommended next automated task is `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315`.
 
 ## M10 Kickoff Summary
 
