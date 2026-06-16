@@ -1,31 +1,30 @@
 # Current Milestone
 
-- ID: `M9`
-- Name: `Day 1 Mobile In-App Notification Inbox Hardening`
+- ID: `M10`
+- Name: `Day 1 Mobile Self Profile And Payment Details Hardening`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M8`
+- Previous milestone ID: `M9`
 
 ## Goal
 
-Advance the next Day 1 blocker after the M8 mobile settlement workflow checkpoint by hardening the existing mobile in-app notification inbox, summary, read/archive actions, filters, and typed handoff seams. M9 is intentionally mobile and in-app-notification focused: it improves inbox discoverability, safe failure/retry states, read/archive action clarity, linked-resource handoff copy, and QA coverage while preserving API/domain authority for notification visibility, linked bill/settlement/recurring authorization, auth/session state, audit, storage/privacy, money, and status transitions.
+Advance the next Day 1 blocker after the M9 mobile in-app notification inbox checkpoint by hardening the existing authenticated mobile self profile and text payment-details surface. M10 is intentionally mobile and self-profile/payment-details focused: it improves state reconciliation, text payment-detail edit/readout clarity, visibility messaging, safe failure/retry behavior, and QA coverage while preserving API/domain authority for current actor resolution, payment-detail authorization, audit, storage/file access, QR byte handling, privacy/vault policy, auth/session state, and settlement-scoped counterparty visibility.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the backend has guarded current-user in-app notification list/summary/read/archive endpoints and the mobile app has a starter authenticated in-app notification list/summary/read/archive surface backed by generated-client seams.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires basic in-app notifications for Day 1 events including bills, bill approvals/corrections, settlement states, recurring due-soon, sync conflict/failure, security/session events, and OCR completion/failure where server OCR is used.
-- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` says notification visibility is presentation only and linked bill, settlement, or recurring data must be re-fetched through its own server-authorized route before future deep-link behavior.
-- `docs/features/expenses-bills/TECHNICAL_SPEC.md` requires bill revision notifications to use stable IDs, template keys, and safe summaries, while excluding receipt/OCR content, private notes, payment details, proof bytes, storage internals, raw request bodies, tokens, unrelated user data, email, push delivery, preferences, and deep-link behavior.
-- Current mobile code under `apps/mobile/lib/notifications/` and focused tests under `apps/mobile/test/notification_*` already provide bounded seams for notification summary/list/read/archive, generated-client mapping, filters, visible-row actions, and typed handoffs into existing bill, settlement, recurring, and bill-revision routes.
+- `README.md` says the backend has guarded self-profile read/update endpoints, guarded self payment-details read/update and self QR endpoints, and the mobile app has a starter authenticated self profile/payment-details screen backed by generated-client repository seams.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires users to configure optional profile/payment details, including display name, preferred currency, preferred payment method note, optional payment handle or note, optional QR/payment image attachment, and a visibility setting whose recommended default is `settlement_counterparties_only`.
+- `docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md` says payment details are sensitive app-domain profile data, must not be globally visible, must be API-authorized, and must not expose storage paths, provider internals, QR bytes, vault internals, raw request bodies, tokens, secrets, or unrelated user data.
+- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` says the mobile self profile/payment-details foundation reads and updates the authenticated actor's own profile and text payment details through generated-client repository seams, loads fresh data when opened, maps failures into bounded mobile states, and displays safe QR availability metadata without QR upload/remove UX.
+- Current mobile code under `apps/mobile/lib/profile/` and focused tests under `apps/mobile/test/profile_*` provide bounded seams for mobile-only profile/payment-details hardening without requiring API, contract, generated-client, schema, auth/session, storage/privacy, QR byte, settlement, money, deployment, or unrelated-domain changes.
 
-## Allowed Scope For Future M9 Tasks
+## Allowed Scope For Future M10 Tasks
 
-- Mobile notification repository and generated-client mapping code in `apps/mobile/lib/notifications/`.
-- Existing mobile notification inbox, summary, filter, read/archive, restore-if-present, and typed handoff UI in `apps/mobile/lib/notifications/notification_screen.dart`.
-- Existing authenticated app-shell entry points in `apps/mobile/lib/app/` only when needed to preserve notification badge/summary routing or notification-screen repository injection.
-- Focused mobile tests for notification list/summary, generated notification repository mapping, safe failure/retry states, read/archive/mark-visible-read actions, filter counts, typed handoff behavior, unsafe text suppression, and server-authority copy in `apps/mobile/test/`.
-- M9 QA maps and milestone QA docs under `docs/qa/`.
+- Mobile self profile and payment-details repository, generated-client mapping, models, edit/readout state, visibility copy, QR metadata display, and safe failure handling in `apps/mobile/lib/profile/`.
+- Existing authenticated app-shell entry points in `apps/mobile/lib/app/` only when needed to preserve self profile/payment-details routing or repository injection.
+- Focused mobile tests for self profile/payment-details repository mapping, screen loading/editing, visibility labels, QR metadata readout, bounded failure/retry states, duplicate-submit prevention, refresh-after-save behavior, unsafe text suppression, and server-authority copy in `apps/mobile/test/`.
+- M10 QA maps and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M9 path allowances.
+- `scripts/ai/v3-scope-guard.mjs` only for narrow M10 path allowances.
 
 ## Forbidden Without Human Approval
 
@@ -34,10 +33,10 @@ Repo-state basis for this milestone:
 - OpenAPI/generated clients.
 - Auth/session/security runtime or configuration.
 - Database schema/migrations.
-- Storage/file privacy policy, file authorization policy, proof/receipt/QR byte behavior, generic public file APIs, or private-vault behavior.
+- Storage/file privacy policy, file authorization policy, QR/proof/receipt byte behavior, generic public file APIs, or private-vault behavior.
+- Self payment QR upload, replace, remove, content-read UX, platform file/image picker dependencies, image normalization policy, camera/gallery permissions, or QR byte rendering beyond safe metadata already returned by the existing profile seam.
 - Money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority.
-- Notification delivery providers, push notifications, email notifications, device-token registration, reminder scheduling, background delivery, notification preferences, quiet hours, digest behavior, server-side notification generation policy, or notification queue/worker behavior.
-- Linked-resource authorization changes, client-side authorization decisions, or action behavior based only on notification metadata/action URLs.
+- Counterparty payment-details authorization changes, settlement-scoped visibility policy changes, global user/profile lookup, group-directory payment-detail exposure, admin/support payment-detail viewing, or client-side authorization decisions from cached profile/payment rows.
 - Docker/deployment/env/CI config.
 - Production secrets.
 - Payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, CSV import/export, backup/restore, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain work.
@@ -45,24 +44,24 @@ Repo-state basis for this milestone:
 
 ## Done Criteria
 
-- Current mobile notification inbox, summary, filter, read/archive, restore-if-present, and handoff implementation is reconciled against Day 1 notification requirements and captured in a QA map.
-- Notification list/filter behavior preserves server-returned event, priority, status, subject, safe summary, typed IDs, and created/read/archive timestamps; local filters only hide loaded rows and never decide visibility or linked-resource authorization.
-- Read/archive/mark-all/mark-visible actions preserve duplicate-action prevention, safe failure/retry handling, refresh-after-mutation recovery, and server-authority messaging.
-- Typed handoffs to bill, bill revision, settlement, and recurring screens re-fetch through existing authorized repositories and do not treat notification metadata, action URLs, IDs, or generated-client availability as permission.
-- M9 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
+- Current mobile self profile and payment-details implementation is reconciled against Day 1 profile/payment requirements and captured in a QA map.
+- Profile and payment-details reads/edits preserve server-returned actor-owned facts, default/unconfigured states, visibility values, QR metadata availability, and timestamps without exposing unsafe raw IDs, storage/provider internals, QR bytes, vault internals, tokens, request bodies, or unrelated user data.
+- Save/update flows preserve duplicate-submit prevention, bounded session/denied/unavailable/conflict/validation/network/server failure states, retry behavior, refresh-after-save recovery, and server-authority messaging.
+- Visibility and QR metadata copy explains that the API decides who can see payment details, that payment details are not globally visible, and that QR upload/remove/content handling remains a separate file-handling slice.
+- M10 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
-- M9 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, auth/session/security, storage/privacy, money/settlement/bill/recurring/OCR authority, notification delivery/preferences/providers, deployment, web/admin, or unrelated major-domain work.
+- M10 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, auth/session/security, storage/privacy, QR byte behavior, money/settlement/bill/recurring/OCR authority, deployment, web/admin, broad offline sync/cache, or unrelated major-domain work.
 
 ## Current Task Pointer
 
-- Current task: `none`.
-- Last completed task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
-- Current state: M9 is finalized and UI-test ready as a bounded Day 1 mobile in-app notification inbox hardening checkpoint. M9-001 reconciled the existing inbox state and QA inventory, M9-002 completed inbox action hardening, M9-003 completed typed handoff authority hardening, and M9-004 completed QA/control finalization. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
-- Stop sentinel: `STOP-M9-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, client-side permission decisions from notification metadata/action URLs, web/admin, broad offline sync/cache, or unrelated major-domain scope.
+- Current task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
+- Last completed task: `none`.
+- Current state: M10 is active as a bounded Day 1 mobile self profile and payment-details hardening milestone. M9 is finalized and awaiting deferred Day 1 acceptance review. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
+- Stop sentinel: `STOP-M10-001` stops API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/money/deployment, payment-detail visibility policy, counterparty authorization, admin/global payment-detail exposure, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
-## M8 Carry-Forward Boundary
+## M9 Carry-Forward Boundary
 
-M8 is finalized as `Day 1 Mobile Settlement Workflow Hardening` and remains awaiting deferred Day 1 acceptance review. M9 must not expand M8 ad hoc into settlement proof metadata/readout, basket preview/create, pay-all, select-all-visible, basket expansion authority, provider integrations, direct bank sync, statement import/matching, reconciliation mutation, CSV import/export, backup/restore, notification delivery, web/admin runtime, storage/privacy/proof byte policy, money/settlement authority, residual policy, balance projection policy, or generated-client/API changes.
+M9 is finalized as `Day 1 Mobile In-App Notification Inbox Hardening` and remains awaiting deferred Day 1 acceptance review. M10 must not expand M9 ad hoc into notification delivery providers, push/email delivery, device-token registration, notification preferences, quiet hours, digests, reminder scheduling, server-side notification generation policy, notification queue/worker behavior, notification deep links/background delivery, linked-resource authorization changes, web/admin runtime, broad offline sync/cache, or generated-client/API changes.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
