@@ -61,7 +61,7 @@
     "title": "Mobile visual preference unsupported readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

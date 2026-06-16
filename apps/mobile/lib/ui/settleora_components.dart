@@ -155,6 +155,120 @@ class AppCard extends StatelessWidget {
   }
 }
 
+class VisualPreferenceUnsupportedReadout extends StatelessWidget {
+  const VisualPreferenceUnsupportedReadout({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final textTheme = Theme.of(context).textTheme;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.palette_outlined, color: colors.primary),
+              const SizedBox(width: SettleoraSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Visual preferences', style: textTheme.titleSmall),
+                    const SizedBox(height: SettleoraSpacing.xxs),
+                    Text(
+                      'Current mobile uses built-in theme tokens only. Visual preferences are presentation-only readouts in this slice.',
+                      style: TextStyle(color: colors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: SettleoraSpacing.sm),
+          const _VisualPreferenceLine(
+            label: 'Appearance mode',
+            value:
+                'System, light, and dark appearance concepts are future explicit work; no server-mode visual preference persistence exists in this slice, and no visual preference API or schema path exists here.',
+          ),
+          const _VisualPreferenceLine(
+            label: 'Accent and palettes',
+            value:
+                'Accent color and built-in palette vs custom palette choices are not configurable. Custom palette creation, sharing, import, export, restore, and migration controls are not present.',
+          ),
+          const _VisualPreferenceLine(
+            label: 'Subject colors',
+            value:
+                'Category, tag, group, dashboard, chart, and configurable status color concepts remain built-in presentation labels only.',
+          ),
+          const _VisualPreferenceLine(
+            label: 'Personalization',
+            value:
+                'Dashboard layout and palette personalization readiness is read-only; no local-to-server visual preference migration exists in this slice, and no admin/deployment default palette policy exists in this slice.',
+          ),
+          const _VisualPreferenceLine(
+            label: 'Authority',
+            value:
+                'Theme and color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VisualPreferenceLine extends StatelessWidget {
+  const _VisualPreferenceLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: SettleoraSpacing.xs),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 340;
+          final labelText = Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+          );
+          final valueText = Text(
+            value,
+            style: TextStyle(color: colors.textMuted),
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                labelText,
+                const SizedBox(height: SettleoraSpacing.xxs),
+                valueText,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 126, child: labelText),
+              Expanded(child: valueText),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class MetricCard extends StatelessWidget {
   const MetricCard({
     super.key,
