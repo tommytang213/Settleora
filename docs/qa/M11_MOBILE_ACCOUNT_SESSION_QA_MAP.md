@@ -1,12 +1,12 @@
 # M11 Mobile Account Session And Device Management QA Map
 
-Status: `M11-001 completed; M11-002 current; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11-001 and M11-002 completed; M11-003 current; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
 M11 hardens the mobile account session and device management UX inside existing backend and generated-client seams. It does not authorize backend/API behavior, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams, token issuance or refresh rotation changes, password/credential/OIDC/MFA/passkey/recovery/registration/admin changes, audit-policy changes, storage/privacy or file authorization changes, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority changes, import/export/backup runtime, deployment, Docker, CI, secrets, web/admin runtime UI, or broad offline cache/sync work.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is not ready for UI retest while M11-002, M11-003, and M11-004 remain queued.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is not ready for UI retest while M11-003 and M11-004 remain queued.
 
 ## Selection Basis
 
@@ -55,13 +55,14 @@ M11 may harden mobile presentation and tests around this boundary, but it must n
 - Existing stored server sessions are validated through `SecureSessionAccessTokenProvider` plus `currentUser`. Expired access sessions refresh before shell entry when usable refresh material exists. Invalid stored sessions clear local session material and return to sign-in with a safe notice.
 - The authenticated shell receives `SettleoraCurrentUser`, injected authenticated repositories, `SettleoraAuthRepository`, `SettleoraAccessTokenProvider`, and a shared `onSessionEnded` callback after current-user validation succeeds.
 - The dashboard/settings surface exposes a `Sessions` entry that opens `SettleoraSessionListScreen` with the auth repository, token provider, and session-ended callback.
-- The session list loads current-account sessions through the auth repository using a fresh access token. It displays safe labels, status, issued/expires/last-seen timestamps, and a current-session marker.
-- Current-session rows do not show per-session revoke. Non-current session rows expose a per-session revoke action with confirmation.
+- The session list loads current-account sessions through the auth repository using a fresh access token. It displays safe labels, status, issued/expires/last-seen timestamps, a current-session marker, and copy that rows are API-returned display metadata only.
+- Current-session rows do not show per-session revoke and explain that the main sign-out flow owns current-session sign-out. Non-current session rows expose a per-session revoke action with non-dismissible destructive confirmation.
+- Per-session revoke blocks duplicate confirmations and duplicate in-flight revoke calls. After successful revoke, the mobile UI reloads the server-authoritative session list. If revoke succeeds but reload fails, the screen preserves the previously loaded safe readout, disables another per-session revoke, and asks the user to refresh sessions before retrying rather than repeating the revoke blindly.
 - Current-session sign-out attempts server-authoritative `signOutCurrentSession` before clearing local session material. If the server cannot confirm sign-out, the UI preserves local session material until the user explicitly confirms local device clear.
 - Account-wide sign-out is exposed from the session list through explicit confirmation and clears local session material after the backend call succeeds.
 - Session-required/session-expired paths call the shared session-ended callback and return to sign-in state. Protected routes must not keep treating cached current-user/session rows as proof of authorization.
 
-Known M11-002 and M11-003 hardening areas: safe metadata copy, current-session protection clarity, duplicate revoke/sign-out prevention, mutation refresh behavior, server-unreachable local-clear copy, expired-session copy, access-token refresh failure handling, and unsafe token/session/credential suppression.
+Known M11-003 hardening areas: duplicate current-session sign-out/account-wide sign-out prevention, server-unreachable local-clear copy, expired-session copy, access-token refresh failure handling, and unsafe token/session/credential suppression.
 
 ## Automated Coverage Inventory
 
@@ -105,12 +106,14 @@ Focused account/session coverage currently exists in `apps/mobile/test/auth_sess
 
 `server_mode_shell_dashboard_test.dart` is not primarily an auth/session test file, but it exercises authenticated shell entry and session-required callback behavior for dashboard/sync paths. It supports the requirement that authenticated surfaces route session-required outcomes through the shared session-ended callback instead of treating cached UI state as authority.
 
-Known gaps for M11-002:
+M11-002 completed coverage:
 
-- More explicit session/device list copy that server-returned metadata is display-only and revocation remains server-authoritative.
-- Current-session protection readout and duplicate revoke prevention while a revoke is in flight.
-- Post-revoke refresh or safe state preservation when follow-up reload fails.
-- Bounded empty/loading/failure/retry states for session list operations without leaking raw IDs or generated details.
+- Session/device list copy states server-returned rows are display metadata only and the server decides validity and revocation.
+- Current-session rows remain protected from per-session revoke and direct users to the main sign-out flow for this session.
+- Non-current per-session revoke requires explicit destructive confirmation and suppresses duplicate confirmation/revoke attempts while work is pending.
+- Successful per-session revoke reloads the server-authoritative session list.
+- If post-revoke reload fails, the UI preserves a safe previously loaded readout, disables another per-session revoke, and asks the user to refresh sessions before retrying.
+- Focused widget coverage asserts raw session IDs, access tokens, refresh credentials, token hashes, auth account IDs, provider payloads, API paths, and stack traces are not visible in these session-list states.
 
 Known gaps for M11-003:
 
@@ -133,8 +136,8 @@ Known gaps for M11-003:
 
 ## Remaining M11 Focus
 
-- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Harden session/device list and per-session revoke UI inside existing mobile seams: safe metadata readout, current-session marker/protection, duplicate revoke prevention, bounded list/revoke failures, refresh-after-mutation behavior, and raw ID/token/credential suppression.
-- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session behavior, and access-token refresh behavior inside existing mobile seams.
+- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Completed. Hardened session/device list and per-session revoke UI inside existing mobile seams: safe metadata readout, current-session marker/protection, duplicate revoke prevention, bounded list/revoke failures, refresh-after-mutation behavior, and raw ID/token/credential suppression.
+- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Current. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session behavior, and access-token refresh behavior inside existing mobile seams.
 - `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Finalize QA/control state after bounded implementation slices complete, preserve deferred manual UI/code review, and mark M11 ready for deferred UI retest only when the controller-approved work is complete.
 - `STOP-M11-001` - Preserve the manual stop sentinel for forbidden API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
