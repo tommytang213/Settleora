@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
+import 'package:mobile/app/local_data_backup.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_repository.dart';
@@ -126,46 +128,108 @@ void main() {
     expect(recurringRepository.listForecastCalls, 1);
   });
 
-  testWidgets('dashboard shows read-only data portability readiness', (
+  testWidgets('dashboard exposes backup export and import preview guards', (
     tester,
   ) async {
-    await pumpShell(tester);
+    final dataBackupService = FakeLocalDataBackupService();
+    await pumpShell(tester, dataBackupService: dataBackupService);
 
     await tester.scrollUntilVisible(
-      find.byKey(const Key('server-shell-data-portability-readout')),
+      find.byKey(const Key('server-shell-data-safety-panel')),
       260,
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('Settings readiness'), findsOneWidget);
-    expect(find.text('Server mode'), findsOneWidget);
+    expect(find.text('Data safety'), findsOneWidget);
+    expect(find.text('Local backup'), findsOneWidget);
     expect(
       find.textContaining(
-        'The API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.',
+        'excludes session tokens, refresh credentials, passwords, server URLs',
       ),
       findsOneWidget,
     );
-    expect(find.text('Dashboard cards'), findsOneWidget);
+    expect(find.text('Scope'), findsOneWidget);
+    expect(
+      find.text('App mode summary and the current mobile bill sync queue.'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('The API remains authoritative for collaboration'),
+      findsOneWidget,
+    );
+    expect(find.text('Import'), findsOneWidget);
     expect(
       find.text(
-        'Presentation hints only; not authorization, financial truth, sync acceptance, or full offline cache hydration.',
+        'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Group workspace'), findsOneWidget);
+    expect(find.byKey(const Key('data-safety-build-export')), findsOneWidget);
     expect(
-      find.text(
-        'Use Groups and group bills as the current bounded entry point; a full group dashboard is not implemented.',
-      ),
+      find.byKey(const Key('data-safety-open-import-preview')),
       findsOneWidget,
     );
-    expect(find.text('Saved layouts'), findsOneWidget);
     expect(
-      find.text(
-        'Not available; no group dashboard personalization, saved profiles, per-group defaults, or saved cross-surface views.',
-      ),
+      find.byKey(const Key('data-safety-restore-disabled')),
       findsOneWidget,
     );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('data-safety-build-export')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('data-safety-build-export')));
+    await tester.pumpAndSettle();
+
+    expect(dataBackupService.buildCalls, 1);
+    expect(dataBackupService.previewCalls, 1);
+    expect(find.text('Backup preview'), findsOneWidget);
+    expect(find.text('Version 1'), findsOneWidget);
+    expect(
+      find.text('2 sync queue items; 1 app configuration record.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('preview_only'), findsOneWidget);
+    expect(find.byKey(const Key('data-safety-export-json')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('data-safety-open-import-preview')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('data-safety-open-import-preview')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('data-safety-import-json')),
+      dataBackupService.encodedJson,
+    );
+    await tester.tap(find.byKey(const Key('data-safety-preview-import')));
+    await tester.pumpAndSettle();
+
+    expect(dataBackupService.previewCalls, 2);
+    expect(find.text('Backup preview'), findsWidgets);
+    expect(
+      find.text('2 sync queue items; 1 app configuration record.'),
+      findsWidgets,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('data-safety-import-json')),
+      '{"backupSchemaVersion":1,"accessToken":"secret"}',
+    );
+    await tester.tap(find.byKey(const Key('data-safety-preview-import')));
+    await tester.pumpAndSettle();
+
+    expect(dataBackupService.previewCalls, 3);
+    expect(find.text('Backup invalid'), findsOneWidget);
+    expect(
+      find.text('The backup contains unsupported sensitive material.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(const Key('server-shell-visual-preference-readout')),
       260,
@@ -173,66 +237,6 @@ void main() {
     );
     expect(
       find.byKey(const Key('server-shell-visual-preference-readout')),
-      findsOneWidget,
-    );
-    expect(find.text('Visual preferences'), findsOneWidget);
-    expect(
-      find.textContaining('Current mobile uses built-in theme tokens only'),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'Visual preferences are presentation-only readouts in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Appearance mode'), findsOneWidget);
-    expect(
-      find.textContaining('System, light, and dark appearance concepts'),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no server-mode visual preference persistence exists in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no visual preference API or schema path exists here',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Accent and palettes'), findsOneWidget);
-    expect(
-      find.textContaining('built-in palette vs custom palette choices'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Custom palette creation'), findsOneWidget);
-    expect(find.text('Subject colors'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'Category, tag, group, dashboard, chart, and configurable status color concepts',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Personalization'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'Dashboard layout and palette personalization readiness is read-only',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no local-to-server visual preference migration exists in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no admin/deployment default palette policy exists in this slice',
-      ),
       findsOneWidget,
     );
     expect(find.text('Authority'), findsOneWidget);
@@ -244,31 +248,11 @@ void main() {
     );
     expect(find.text('CSV export'), findsOneWidget);
     expect(find.text('CSV import'), findsOneWidget);
-    expect(find.text('Local backup/restore'), findsOneWidget);
-    expect(find.text('Local-to-server migration/link'), findsOneWidget);
-    expect(find.text('Server-to-local export/disconnect'), findsOneWidget);
-    expect(find.text('Not available in this mobile build.'), findsOneWidget);
-    expect(
-      find.text('Not available; imports cannot mutate bills or money.'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Not available; server mode is not a local backup.'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Future explicit guided flow only; never automatic.'),
-      findsOneWidget,
-    );
+    expect(find.text('Migration/link'), findsOneWidget);
     expect(
       find.text('Future explicit guided flow only; not a bypass.'),
       findsOneWidget,
     );
-    expect(find.widgetWithText(ElevatedButton, 'Export'), findsNothing);
-    expect(find.widgetWithText(FilledButton, 'Export'), findsNothing);
-    expect(find.widgetWithText(OutlinedButton, 'Import'), findsNothing);
-    expect(find.widgetWithText(OutlinedButton, 'Back up'), findsNothing);
-    expect(find.widgetWithText(OutlinedButton, 'Restore'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Migrate'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsNothing);
     final visualReadout = find.byKey(
@@ -1656,6 +1640,7 @@ Future<void> pumpShell(
   FakeSettlementRepository? settlementRepository,
   FakeRecurringBillRepository? recurringRepository,
   SettleoraBillSyncController? billSyncController,
+  SettleoraLocalDataBackupService? dataBackupService,
   SettleoraSessionEndedCallback? onSessionEnded,
 }) async {
   await tester.pumpWidget(
@@ -1674,6 +1659,7 @@ Future<void> pumpShell(
         reportRepository: FakeMonthlyReportRepository(),
         profileRepository: FakeProfileRepository(),
         billSyncController: billSyncController ?? sampleBillSyncController(),
+        dataBackupService: dataBackupService,
         authRepository: FakeAuthRepository(),
         accessTokenProvider: FakeAccessTokenProvider(),
         onSessionEnded: onSessionEnded ?? (_) async {},
@@ -2520,6 +2506,74 @@ class FakeAuthRepository implements SettleoraAuthRepository {
 class FakeAccessTokenProvider implements SettleoraAccessTokenProvider {
   @override
   Future<String?> accessToken() async => 'test-access-token';
+}
+
+class FakeLocalDataBackupService implements SettleoraLocalDataBackupService {
+  int buildCalls = 0;
+  int previewCalls = 0;
+
+  String get encodedJson => const JsonEncoder.withIndent('  ').convert({
+    'backupSchemaVersion': 1,
+    'generatedAtUtc': '2026-06-16T12:00:00.000Z',
+    'source': {'app': 'settleora-mobile'},
+    'payload': {
+      'appConfiguration': {'mode': 'server', 'serverBaseUriExcluded': true},
+      'syncQueue': {
+        'items': [
+          {'id': 'sync-1', 'state': 'queued'},
+          {'id': 'sync-2', 'state': 'failed'},
+        ],
+      },
+    },
+  });
+
+  @override
+  Future<SettleoraLocalDataBackupExport> buildExport({
+    required SettleoraCurrentUser currentUser,
+  }) async {
+    buildCalls += 1;
+    final preview = previewImport(encodedJson);
+    return SettleoraLocalDataBackupExport(
+      backup: SettleoraLocalDataBackup(
+        schemaVersion: 1,
+        generatedAtUtc: DateTime.utc(2026, 6, 16, 12),
+        source: const {'app': 'settleora-mobile'},
+        scope: const {'coverage': 'mobile_local_state_only'},
+        summaries: const {},
+        payload: const {},
+      ),
+      encodedJson: encodedJson,
+      preview: preview,
+    );
+  }
+
+  @override
+  SettleoraLocalDataBackupPreview previewImport(String rawJson) {
+    previewCalls += 1;
+    if (rawJson.contains('accessToken')) {
+      return const SettleoraLocalDataBackupPreview(
+        isValid: false,
+        schemaVersion: null,
+        generatedAtUtc: null,
+        sectionCounts: {},
+        warnings: [],
+        failureMessage: 'The backup contains unsupported sensitive material.',
+        restoreMode: 'preview_only',
+      );
+    }
+
+    return SettleoraLocalDataBackupPreview(
+      isValid: true,
+      schemaVersion: 1,
+      generatedAtUtc: DateTime.utc(2026, 6, 16, 12),
+      sectionCounts: const {'syncQueue': 2, 'appConfiguration': 1},
+      warnings: const [
+        'Restore is preview-only in this build; no local data will be overwritten.',
+      ],
+      failureMessage: null,
+      restoreMode: 'preview_only',
+    );
+  }
 }
 
 class MemorySyncQueueStore extends SettleoraSyncQueueStore {
