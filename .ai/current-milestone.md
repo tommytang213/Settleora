@@ -54,13 +54,27 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
-- Last completed task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
-- Current state: M12 is in progress as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
+- Current task: `none`.
+- Last completed task: `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
+- Current state: M12 is finalized as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness` and UI-test ready for deferred Day 1 acceptance review.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M12.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M12.
-- Recommended next automated task: `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
+- Recommended next automated task: run the AI V3 controller for the next normal Day 1 auto-queue kickoff or controller-approved action after M12 finalization.
 - Stop sentinel: `STOP-M12-001` stops data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+## M12-004 QA Finalization Summary
+
+M12-004 finalized the M12 QA/control state after verifying that M12-001, M12-002, and M12-003 are complete in the live repo state.
+
+Completed finalization:
+
+- M12 is marked UI-test ready for deferred Day 1 acceptance review.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` is complete.
+- Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+- `STOP-M12-001` remains preserved as the hard stop sentinel.
+- Automated validation completion is recorded after final required validation passed.
+
+M12 remains readiness/copy/control only. It did not implement CSV import/export runtime, local backup/restore runtime, local-to-server migration/link runtime, server-to-local export/disconnect runtime, file byte movement, storage/privacy/private-vault behavior, retention policy changes, backend/API behavior, OpenAPI/generated-client changes, schema changes, auth/security runtime changes, money/business authority changes, deployment changes, web/admin runtime, broad offline sync/cache, secrets, Day 1 scope reduction, or architecture replacement.
 
 ## M12-001 Reconciliation Summary
 

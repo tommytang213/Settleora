@@ -90,7 +90,7 @@
     "title": "Finalize mobile settings, mode boundary, and data portability readiness QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"

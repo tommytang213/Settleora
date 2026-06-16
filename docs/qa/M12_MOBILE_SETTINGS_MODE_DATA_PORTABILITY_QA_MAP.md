@@ -1,6 +1,6 @@
 # M12 Mobile Settings, Mode Boundary, And Data Portability QA Map
 
-Status: `M12-001 reconciled; M12-002 completed; M12-003 completed; M12-004 selected; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 finalized/UI-test ready; M12-001 reconciled; M12-002 completed; M12-003 completed; M12-004 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -139,12 +139,44 @@ Explicit non-goals preserved:
 - No real CSV import/export, local backup/restore, server backup, cloud recovery, local-to-server migration/link, server-to-local export/disconnect, data migration, or file byte movement was added.
 - No backend/API behavior, OpenAPI/generated-client changes, database schema/migrations, auth/session/security runtime or policy changes, storage/privacy/private-vault changes, money/bill/settlement/recurring/OCR/reconciliation authority changes, deployment/CI/Docker changes, secrets, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, or architecture direction replacement was made.
 
+## M12-004 QA Finalization
+
+M12-004 finalized this QA/control map after verifying that M12-001, M12-002, and M12-003 are complete in the live repo state.
+
+Final QA/control state:
+
+- M12 is finalized and UI-test ready for deferred Day 1 acceptance review.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` is complete.
+- Manual UI retest remains `deferred_until_day1_acceptance`, not passed.
+- Manual code review remains `deferred_until_day1_acceptance`, not passed.
+- `STOP-M12-001` remains preserved as the hard stop sentinel for forbidden runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+Final validation and carried-forward coverage:
+
+- M12-001 docs/control reconciliation validation passed with `git diff --check`, scope guard, `npm run validate:docs`, `npm run validate:scaffold`, `npm run validate:openapi`, `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, and controller dry run.
+- M12-002 focused Flutter validation passed with 31 tests for first-launch/setup/local/server mode-boundary copy and no fake portability controls.
+- M12-003 focused shell/profile validation passed with 49 tests; required changed-surface focused validation passed with 109 tests; full mobile validation passed with 716 Flutter tests.
+- M12-003 PR #194 merge-gate validation passed with docs, scaffold, OpenAPI, mobile doctor, focused 109-test Flutter validation, full mobile validation with 716 tests, scope guard, controller dry run, and GitHub `Validate scaffold` CI on the exact PR head before merge.
+- M12-004 final validation passed with docs, scaffold, OpenAPI, mobile doctor, and full mobile validation at 716 Flutter tests. Scope guard and final controller dry run are recorded with the final task report.
+
+Final forbidden-runtime record:
+
+- No CSV import/export runtime was implemented.
+- No local backup/restore runtime was implemented.
+- No local-to-server migration/link runtime was implemented.
+- No server-to-local export/disconnect runtime was implemented.
+- No data migration runtime was implemented.
+- No file byte movement was implemented.
+- No storage/privacy/private-vault behavior was implemented or changed.
+- No retention policy was changed.
+- No backend/API behavior, OpenAPI/contracts/generated-client output, schema/migration, auth/session/security runtime or policy, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secret, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction change was made.
+
 ## Planned Queue
 
 - `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`: Reconcile current mobile settings, mode-boundary, data-portability readiness implementation and tests without runtime changes.
 - `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`: Completed. Hardened first-launch/setup/local/server mode boundary copy and tests inside `apps/mobile/lib/app/`.
 - `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`: Completed. Hardened authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
-- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`: Current. Finalize QA/control state and mark M12 UI-test ready after slices complete.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`: Completed. Finalized QA/control state and marked M12 UI-test ready after slices completed.
 - `STOP-M12-001`: Manual gate for data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## QA Focus
@@ -167,3 +199,5 @@ Explicit non-goals preserved:
 Stop and report `BLOCKED` if an M12 task requires backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token/credential/session policy, registration/bootstrap policy, OIDC/MFA/passkey/recovery/admin behavior, audit-policy changes, schema/migrations, real CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, data migration, file byte movement, storage/file privacy policy, file authorization policy, private-vault behavior, retention policy, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, architecture replacement, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain scope.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M12.
+
+Recommended next automated action: run the AI V3 controller for the next normal Day 1 auto-queue kickoff or controller-approved action after M12 finalization, unless the controller reports a stricter blocker.
