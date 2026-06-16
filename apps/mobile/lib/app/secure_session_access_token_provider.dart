@@ -80,7 +80,12 @@ class SecureSessionAccessTokenProvider implements SettleoraAccessTokenProvider {
       await _secureStorage.writeServerSession(rotated);
 
       final token = rotated.accessToken.trim();
-      return token.isEmpty ? null : token;
+      if (token.isEmpty) {
+        await _secureStorage.clearServerSession();
+        return null;
+      }
+
+      return token;
     } on SettleoraAuthFailure catch (failure) {
       if (_refreshRequiresFreshSignIn(failure)) {
         await _secureStorage.clearServerSession();

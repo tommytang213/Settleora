@@ -1,12 +1,12 @@
 # M11 Mobile Account Session And Device Management QA Map
 
-Status: `M11-001 and M11-002 completed; M11-003 current; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11-001, M11-002, and M11-003 completed; M11-004 current; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
 M11 hardens the mobile account session and device management UX inside existing backend and generated-client seams. It does not authorize backend/API behavior, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams, token issuance or refresh rotation changes, password/credential/OIDC/MFA/passkey/recovery/registration/admin changes, audit-policy changes, storage/privacy or file authorization changes, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority changes, import/export/backup runtime, deployment, Docker, CI, secrets, web/admin runtime UI, or broad offline cache/sync work.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is not ready for UI retest while M11-003 and M11-004 remain queued.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is not ready for UI retest while M11-004 remains queued/current.
 
 ## Selection Basis
 
@@ -62,7 +62,7 @@ M11 may harden mobile presentation and tests around this boundary, but it must n
 - Account-wide sign-out is exposed from the session list through explicit confirmation and clears local session material after the backend call succeeds.
 - Session-required/session-expired paths call the shared session-ended callback and return to sign-in state. Protected routes must not keep treating cached current-user/session rows as proof of authorization.
 
-Known M11-003 hardening areas: duplicate current-session sign-out/account-wide sign-out prevention, server-unreachable local-clear copy, expired-session copy, access-token refresh failure handling, and unsafe token/session/credential suppression.
+M11-003 completed hardening for duplicate current-session sign-out/account-wide sign-out prevention, server-unreachable local-clear copy, expired-session routing, access-token refresh fail-closed handling, and unsafe token/session/credential suppression.
 
 ## Automated Coverage Inventory
 
@@ -115,12 +115,17 @@ M11-002 completed coverage:
 - If post-revoke reload fails, the UI preserves a safe previously loaded readout, disables another per-session revoke, and asks the user to refresh sessions before retrying.
 - Focused widget coverage asserts raw session IDs, access tokens, refresh credentials, token hashes, auth account IDs, provider payloads, API paths, and stack traces are not visible in these session-list states.
 
-Known gaps for M11-003:
+M11-003 completed coverage:
 
-- Duplicate current-session sign-out/account-wide sign-out prevention and clearer destructive-action copy.
-- Server-unreachable local-clear copy distinguishing local device clear from server revocation.
-- Expired-session and access-token refresh failure paths across shell/session actions.
-- Refresh fallback/fail-closed readout coverage without exposing token or refresh credential material.
+- Current-session sign-out asks the server to end the current session before clearing local device session material.
+- Duplicate current-session sign-out confirmations and in-flight submissions are blocked.
+- Server-unreachable local-clear confirmation distinguishes local device clear from unconfirmed server revocation and warns that another device may be needed after connectivity returns.
+- Account-wide sign-out confirmation uses bounded destructive-action copy and blocks duplicate confirmations/in-flight submissions.
+- Session-expired account-wide sign-out failures route through the shared session-ended/sign-in path.
+- Blank rotated access material clears local session state so protected routes fail closed.
+- Focused implementation validation passed `widget_test.dart` with 28 tests and `secure_storage_test.dart` with 10 tests.
+- Required focused validation passed `widget_test.dart`, `auth_session_repository_test.dart`, `secure_storage_test.dart`, and `server_mode_shell_dashboard_test.dart` with 82 tests.
+- Full mobile validation passed with 712 Flutter tests.
 
 ## Day 1 Requirement Map
 
@@ -137,9 +142,15 @@ Known gaps for M11-003:
 ## Remaining M11 Focus
 
 - `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Completed. Hardened session/device list and per-session revoke UI inside existing mobile seams: safe metadata readout, current-session marker/protection, duplicate revoke prevention, bounded list/revoke failures, refresh-after-mutation behavior, and raw ID/token/credential suppression.
-- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Current. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session behavior, and access-token refresh behavior inside existing mobile seams.
-- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Finalize QA/control state after bounded implementation slices complete, preserve deferred manual UI/code review, and mark M11 ready for deferred UI retest only when the controller-approved work is complete.
+- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Completed. Hardened current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session behavior, and access-token refresh behavior inside existing mobile seams.
+- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Current. Finalize QA/control state after bounded implementation slices complete, preserve deferred manual UI/code review, and mark M11 ready for deferred UI retest only when the controller-approved work is complete.
 - `STOP-M11-001` - Preserve the manual stop sentinel for forbidden API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
+
+## M11-003 Forbidden-Scope Confirmation
+
+M11-003 stayed inside existing mobile presentation and secure-storage seams. It did not change backend/API behavior, OpenAPI contracts, generated clients, auth/session/security runtime or configuration outside mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password handling, OIDC/Keycloak, MFA, passkeys, recovery, registration policy, admin user management, credential storage policy, audit policy, schema/migrations, storage/file privacy or authorization policy, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR/reconciliation authority, import/export/backup, deployment/Docker/CI/env, web/admin runtime, broad offline cache/sync, secrets, Day 1 scope, or architecture direction.
+
+M11-004 is expected to finalize QA/control state only. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
 
 ## Validation Expectations
 

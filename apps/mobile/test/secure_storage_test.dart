@@ -204,7 +204,92 @@ void main() {
         );
       },
     );
+
+    test('blank rotated access material clears local session', () async {
+      final keyValueStore = InMemorySecureKeyValueStore();
+      final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
+      final authRepository = FakeAuthRepository(
+        refreshedSession: SettleoraServerSessionMaterial(
+          accessToken: '   ',
+          accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 15),
+          refreshCredential: 'rotated-refresh',
+          refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+          refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+        ),
+      );
+      final provider = SecureSessionAccessTokenProvider(
+        secureStorage: storage,
+        authRepository: authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+      );
+
+      await storage.writeServerSession(
+        SettleoraServerSessionMaterial(
+          accessToken: 'expired-access',
+          accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
+          refreshCredential: 'redacted-refresh-material',
+          refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+          refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+        ),
+      );
+
+      expect(await provider.accessToken(), isNull);
+      expect(await storage.readServerSession(), isNull);
+      expect(authRepository.refreshCalls, 1);
+    });
+
+    test(
+      'expired access session fails closed when refresh is unavailable',
+      () async {
+        final keyValueStore = InMemorySecureKeyValueStore();
+        final storage = SettleoraSecureStorage(keyValueStore: keyValueStore);
+        final authRepository = FakeAuthRepository(
+          refreshFailure: const SettleoraAuthFailure(
+            kind: SettleoraAuthFailureKind.network,
+            message:
+                'The server is unavailable. Check the connection and try again.',
+          ),
+        );
+        final provider = SecureSessionAccessTokenProvider(
+          secureStorage: storage,
+          authRepository: authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        );
+
+        await storage.writeServerSession(
+          SettleoraServerSessionMaterial(
+            accessToken: 'expired-access',
+            accessSessionExpiresAtUtc: DateTime.utc(2026, 5, 13),
+            refreshCredential: 'redacted-refresh-material',
+            refreshIdleExpiresAtUtc: DateTime.utc(2026, 5, 16),
+            refreshAbsoluteExpiresAtUtc: DateTime.utc(2026, 6, 14),
+          ),
+        );
+
+        final failure = await captureAuthFailure(provider.accessToken);
+
+        expect(failure.kind, SettleoraAuthFailureKind.network);
+        expect(await storage.readServerSession(), isNotNull);
+        expect(
+          failure.toString(),
+          isNot(contains('redacted-refresh-material')),
+        );
+        expect(failure.message, isNot(contains('expired-access')));
+      },
+    );
   });
+}
+
+Future<SettleoraAuthFailure> captureAuthFailure(
+  Future<Object?> Function() operation,
+) async {
+  try {
+    await operation();
+  } on SettleoraAuthFailure catch (failure) {
+    return failure;
+  }
+
+  fail('Expected SettleoraAuthFailure.');
 }
 
 class InMemorySecureKeyValueStore implements SecureKeyValueStore {
