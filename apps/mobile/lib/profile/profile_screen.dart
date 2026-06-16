@@ -413,7 +413,12 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                       _PaymentDetailsSummary(details: paymentDetails),
                       const SizedBox(height: 8),
                       Text(
-                        'Blank payment fields are saved as not set. The API decides the signed-in profile, mutation rights, visibility, QR metadata access, storage policy, and audit.',
+                        'Blank or cleared payment fields are saved as not set. Visibility is a server-returned profile fact, not a client-side authorization decision.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Payment details are not globally visible. The API decides who may see them, including settlement-scoped counterparty access.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 14),
@@ -490,6 +495,11 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                                   },
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Changing this value saves a requested profile fact; it does not grant counterparty permission by itself.',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
                       _QrStatus(details: paymentDetails),
@@ -594,8 +604,10 @@ class _PaymentDetailsSummary extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           hasTextDetails
-                              ? _visibilityPrivacyCopy(visibility)
-                              : 'Add a method or handle so settlement counterparties know how to pay you.',
+                              ? settleoraPaymentDetailsVisibilityDescription(
+                                  visibility,
+                                )
+                              : 'Blank or cleared payment fields mean the API currently has no payment text to show.',
                         ),
                       ],
                     ),
@@ -627,7 +639,9 @@ class _PaymentDetailsSummary extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Server authorization still controls who can read these details.',
+                details.isConfigured
+                    ? 'Server authorization still controls who can read these details.'
+                    : 'The visibility value is the server-returned default/readout for an unconfigured payment profile.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -732,8 +746,8 @@ class _QrStatus extends StatelessWidget {
         title: Text(qrFile == null ? 'QR not linked' : 'QR available'),
         subtitle: Text(
           qrFile == null
-              ? 'QR upload and removal stay in a later file-handling slice.'
-              : '${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}',
+              ? 'No QR metadata is linked. QR upload, removal, content reading, and image handling stay in a separate file-handling slice.'
+              : 'Metadata only: ${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}. QR bytes, file IDs, storage paths, and download URLs are not shown here; upload, removal, and content handling stay in a separate file-handling slice.',
         ),
       ),
     );
@@ -909,16 +923,4 @@ String? _trimToNull(String? value) {
   }
 
   return trimmed;
-}
-
-String _visibilityPrivacyCopy(SettleoraPaymentDetailsVisibility visibility) {
-  return switch (visibility) {
-    SettleoraPaymentDetailsVisibilityValues.private =>
-      'Only you can see these details unless the server allows otherwise.',
-    SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly =>
-      'Visible only to settlement counterparties by default.',
-    SettleoraPaymentDetailsVisibilityValues.groupMembersWhenShared =>
-      'Visible to group members only where shared context allows it.',
-    _ => 'Visible only where server authorization allows it.',
-  };
 }

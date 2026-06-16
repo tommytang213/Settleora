@@ -80,7 +80,9 @@ void main() {
     expect(find.text('pay.example/taylor'), findsWidgets);
     expect(find.text('Settlement counterparties'), findsWidgets);
     expect(
-      find.text('Visible only to settlement counterparties by default.'),
+      find.text(
+        'Settlement counterparties means the API may show details only inside a server-authorized settlement or payment relationship.',
+      ),
       findsOneWidget,
     );
     expect(
@@ -89,10 +91,69 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.text(
+        'Payment details are not globally visible. The API decides who may see them, including settlement-scoped counterparty access.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Changing this value saves a requested profile fact; it does not grant counterparty permission by itself.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('QR available'), findsOneWidget);
+    expect(find.textContaining('Metadata only: image/png'), findsOneWidget);
+    expect(find.textContaining('2.0 KB'), findsOneWidget);
+    expect(find.textContaining('updated'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_profileId)));
     expect(visibleText(tester), isNot(contains(_paymentProfileId)));
     expect(visibleText(tester), isNot(contains(_qrFileId)));
+  });
+
+  testWidgets('profile screen explains every payment visibility value', (
+    tester,
+  ) async {
+    final cases = <String, String>{
+      SettleoraPaymentDetailsVisibilityValues.private:
+          'Private means this self profile readout is for you only and does not grant counterparty access.',
+      SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly:
+          'Settlement counterparties means the API may show details only inside a server-authorized settlement or payment relationship.',
+      SettleoraPaymentDetailsVisibilityValues.groupMembersWhenShared:
+          'Group members when shared means the API may show details only in a concrete shared group, bill, settlement, or payment context.',
+    };
+
+    for (final entry in cases.entries) {
+      final repository = FakeProfileRepository(
+        paymentDetails: samplePaymentDetails(visibility: entry.key),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraProfileScreen(
+            repository: repository,
+            currentUser: sampleCurrentUser(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(settleoraPaymentDetailsVisibilityLabel(entry.key)),
+        findsWidgets,
+      );
+      expect(find.text(entry.value), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Visibility is a server-returned profile fact, not a client-side authorization decision.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('profile screen shows empty payment details state', (
@@ -118,10 +179,57 @@ void main() {
     expect(find.text('Settlement counterparties'), findsWidgets);
     expect(
       find.text(
-        'Add a method or handle so settlement counterparties know how to pay you.',
+        'Blank or cleared payment fields mean the API currently has no payment text to show.',
       ),
       findsOneWidget,
     );
+    expect(
+      find.text(
+        'The visibility value is the server-returned default/readout for an unconfigured payment profile.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('QR not linked'), findsOneWidget);
+    expect(
+      find.text(
+        'No QR metadata is linked. QR upload, removal, content reading, and image handling stay in a separate file-handling slice.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('profile readout suppresses unsafe raw payment and QR text', (
+    tester,
+  ) async {
+    final repository = FakeProfileRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final text = visibleText(tester);
+    expect(text, isNot(contains(_profileId)));
+    expect(text, isNot(contains(_paymentProfileId)));
+    expect(text, isNot(contains(_qrFileId)));
+    expect(text, isNot(contains('/api/v1/users/me/payment-details')));
+    expect(text, isNot(contains('/var/lib/settleora/storage/payment_qr.png')));
+    expect(text, isNot(contains('provider-object-key')));
+    expect(text, isNot(contains('vault-key-envelope')));
+    expect(text, isNot(contains('qr-bytes-base64')));
+    expect(text, isNot(contains('request body')));
+    expect(text, isNot(contains('redacted-token')));
+    expect(text, isNot(contains('StackTrace')));
+    expect(text, isNot(contains('unrelated-user@example.test')));
+    expect(find.text('Upload QR'), findsNothing);
+    expect(find.text('Remove QR'), findsNothing);
+    expect(find.text('Read QR content'), findsNothing);
+    expect(find.byType(Image), findsNothing);
   });
 
   testWidgets('profile screen updates profile and payment details', (
@@ -353,6 +461,10 @@ void main() {
       find.byKey(const Key('profile-payment-handle')),
       hiddenValue,
     );
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('profile-payment-save')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('profile-payment-save')));
     await tester.pumpAndSettle();
 
@@ -1093,15 +1205,17 @@ SettleoraSelfProfile sampleProfile() {
   );
 }
 
-SettleoraSelfPaymentDetails samplePaymentDetails() {
+SettleoraSelfPaymentDetails samplePaymentDetails({
+  String visibility =
+      SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly,
+}) {
   return SettleoraSelfPaymentDetails(
     isConfigured: true,
     id: _paymentProfileId,
     preferredMethodLabel: 'Bank transfer',
     paymentHandle: 'pay.example/taylor',
     paymentNote: null,
-    visibility:
-        SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly,
+    visibility: visibility,
     qrFile: SettleoraSelfPaymentQrFile(
       contentType: 'image/png',
       sizeBytes: 2048,
