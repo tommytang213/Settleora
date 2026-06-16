@@ -80,7 +80,10 @@ Focused automated coverage:
 
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart` passed with 5 Flutter tests.
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 73 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 78 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 718 Flutter tests.
 - Added guardrails for warm primary hue, built-in token contrast pairs, shared button minimum touch target height, and high text-scale `AmountStatusRow` stability.
+- Validation warnings were limited to Flutter dependency newer-version notices and the Redocly CLI update notice.
 
 Remaining M14-003/M14-004 gaps:
 

@@ -17,6 +17,9 @@ Focused automated coverage:
 
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart` passed with 5 Flutter tests.
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 73 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 78 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 718 Flutter tests.
+- Validation warnings were limited to Flutter dependency newer-version notices and the Redocly CLI update notice.
 
 M14 queue state after M14-002:
 
@@ -28,7 +31,7 @@ M14 queue state after M14-002:
 
 M14-002 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, persisted visual settings, Day 1 scope, or architecture direction.
 
-Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M14 UI testing readiness remains false until M14-004 finalization. Recommended next automated task is `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
+Remaining gaps for M14-003/M14-004 are unsupported visual preference readout hardening and final QA/control finalization. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M14 UI testing readiness remains false until M14-004 finalization. Recommended next automated task is `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
 
 ## M14-001 Visual Theme Accessibility State Reconciliation Summary
 
