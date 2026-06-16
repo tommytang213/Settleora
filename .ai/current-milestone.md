@@ -54,12 +54,12 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
-- Last completed task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
+- Current task: `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
+- Last completed task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
 - Current state: M12 is in progress as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M12.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M12.
-- Recommended next automated task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
+- Recommended next automated task: `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
 - Stop sentinel: `STOP-M12-001` stops data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M12-001 Reconciliation Summary
@@ -93,6 +93,26 @@ Focused validation during implementation:
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 31 tests.
 
 At M12-002 completion, M12-003 became current, M12-004 remains queued, `STOP-M12-001` remains preserved, M12 is not ready for UI acceptance testing until M12-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
+
+## M12-003 Settings Data-Portability Readout Hardening Summary
+
+M12-003 completed authenticated mobile settings/profile/account data-portability readout hardening inside existing `apps/mobile/lib/app/` and `apps/mobile/lib/profile/` seams.
+
+Completed behavior:
+
+- Server-mode dashboard now includes a read-only settings readiness card for CSV export, CSV import, local backup/restore, local-to-server migration/link, and server-to-local export/disconnect.
+- The readiness card states these portability flows are unsupported or future explicit guided flows only; it does not expose functioning import/export/backup/restore/migration/disconnect buttons or runtime handlers.
+- Server-mode dashboard copy now says the API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.
+- Sync status copy now says queued/synced/failed/conflict counts cover only the current mobile bill sync queue and do not imply full offline cache hydration, import/export, backup/restore, broad conflict resolution, or server acceptance of all local data.
+- Profile/account copy now says server-returned account/profile rows, cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access, storage access, privacy policy, financial policy, or audit behavior.
+- No runtime import/export/backup/restore/migration/link/disconnect behavior was added.
+
+Focused validation during implementation:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart` passed with 49 tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 716 Flutter tests.
+
+At M12-003 completion, M12-004 became current, `STOP-M12-001` remains preserved, M12 is not ready for UI acceptance testing until M12-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
 
 ## M11 Carry-Forward Boundary
 

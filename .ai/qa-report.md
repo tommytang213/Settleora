@@ -1,6 +1,36 @@
 # AI QA Report
 
-Status: `M12 in progress; M12-003 selected; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 in progress; M12-004 selected; M12-003 completed; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M12-003 Settings Data-Portability Readout Hardening Summary
+
+M12-003 completed authenticated mobile settings/profile/account data-portability readout hardening inside existing mobile presentation and test seams.
+
+Runtime/copy hardening:
+
+- `apps/mobile/lib/app/server_mode_shell.dart` now shows a read-only `Settings readiness` card in authenticated server mode.
+- The card states server mode is a signed-in account/session/profile/payment/sync readout and that the API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.
+- CSV export, CSV import, local backup/restore, local-to-server migration/link, and server-to-local export/disconnect are shown only as unsupported or future explicit guided-flow placeholders.
+- No fake runtime buttons or handlers were added for export, import, backup, restore, migration, link, or disconnect.
+- Sync status copy now says counts cover the current mobile bill sync queue only and do not imply full offline cache hydration, import/export, backup/restore, broad conflict resolution, or server acceptance of all local data.
+- `apps/mobile/lib/profile/profile_screen.dart` now states account/profile rows are server-returned readouts and cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access, storage access, privacy policy, financial policy, or audit behavior.
+- No import/export/backup/restore/migration/link/disconnect runtime or fake portability controls were added.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart` passed with 49 tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 716 Flutter tests.
+- Added/updated widget coverage for read-only unsupported data-portability placeholders, absence of fake import/export/backup/restore/migration/disconnect controls, sync queue-only boundary copy, profile account/privacy authority copy, and unsafe implication suppression.
+
+M12 queue state after M12-003:
+
+- `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517` - Completed.
+- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517` - Completed.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517` - Completed.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` - Current. Finalize M12 QA/control state after bounded slices complete.
+- `STOP-M12-001` - Preserved.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M12 remains not UI-test ready until M12-004 finalization. Recommended next automated task is `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`.
 
 ## M12-002 First-Launch Mode Boundary Hardening Summary
 

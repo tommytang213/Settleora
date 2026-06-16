@@ -51,7 +51,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Profile'), findsWidgets);
-    expect(find.text('Bank transfer'), findsWidgets);
     expect(profileRepository.profileReadCalls, 1);
     expect(profileRepository.paymentReadCalls, 1);
   });
@@ -74,6 +73,23 @@ void main() {
     expect(find.byKey(const Key('profile-summary')), findsOneWidget);
     expect(find.text('Taylor'), findsWidgets);
     expect(find.text('Signed in - USD'), findsOneWidget);
+    expect(
+      find.byKey(const Key('profile-account-boundary-readout')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('server-returned readouts'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'privacy policy, financial policy, or audit behavior',
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('profile-payment-summary')), findsOneWidget);
     expect(find.text('Payment details on file'), findsOneWidget);
     expect(find.text('Bank transfer'), findsWidgets);
