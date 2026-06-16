@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
@@ -192,6 +194,120 @@ void main() {
     expect(find.text('Thanks for settling.'), findsWidgets);
   });
 
+  testWidgets('profile and payment saves ignore duplicate submits', (
+    tester,
+  ) async {
+    final profileSave = Completer<void>();
+    final paymentSave = Completer<void>();
+    final repository = FakeProfileRepository(
+      profileUpdateCompleter: profileSave,
+      paymentUpdateCompleter: paymentSave,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('profile-display-name')),
+      'Morgan',
+    );
+    await tester.tap(find.byKey(const Key('profile-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('profile-save')));
+    await tester.pump();
+
+    expect(repository.profileUpdateCalls, 1);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('profile-save')))
+          .onPressed,
+      isNull,
+    );
+
+    profileSave.complete();
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('profile-payment-save')),
+      find.byType(ListView),
+      const Offset(0, -320),
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-payment-method')),
+      'FPS',
+    );
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('profile-payment-save')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('profile-payment-save')));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const Key('profile-payment-save')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+
+    expect(repository.paymentUpdateCalls, 1);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('profile-payment-save')))
+          .onPressed,
+      isNull,
+    );
+
+    paymentSave.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('save keeps returned state when follow-up refresh fails', (
+    tester,
+  ) async {
+    final repository = FakeProfileRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraProfileScreen(
+          repository: repository,
+          currentUser: sampleCurrentUser(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    repository.nextProfileReadFailure = const SettleoraProfileFailure(
+      kind: SettleoraProfileFailureKind.network,
+      message: 'The server is unavailable. Try again later.',
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('profile-display-name')),
+      'Morgan',
+    );
+    await tester.tap(find.byKey(const Key('profile-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Morgan'), findsWidgets);
+    expect(
+      find.text(
+        'Saved on the server, but the follow-up refresh failed. Refresh account details before saving again.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Profile saved. Refresh before saving again.'),
+      findsOneWidget,
+    );
+    expect(repository.profileUpdateCalls, 1);
+  });
+
   testWidgets('profile screen shows safe repository validation errors', (
     tester,
   ) async {
@@ -285,6 +401,7 @@ void main() {
       findsOneWidget,
     );
     expect(repository.paymentUpdateCalls, 0);
+    expect(visibleText(tester), isNot(contains('x' * 321)));
   });
 
   testWidgets('profile payment cancel restores existing values', (
@@ -380,6 +497,8 @@ class FakeProfileRepository implements SettleoraProfileRepository {
     this.loadFailure,
     this.profileUpdateFailure,
     this.paymentUpdateFailure,
+    this.profileUpdateCompleter,
+    this.paymentUpdateCompleter,
   }) : profile = profile ?? sampleProfile(),
        paymentDetails = paymentDetails ?? samplePaymentDetails();
 
@@ -388,6 +507,10 @@ class FakeProfileRepository implements SettleoraProfileRepository {
   final SettleoraProfileFailure? loadFailure;
   final SettleoraProfileFailure? profileUpdateFailure;
   final SettleoraProfileFailure? paymentUpdateFailure;
+  final Completer<void>? profileUpdateCompleter;
+  final Completer<void>? paymentUpdateCompleter;
+  SettleoraProfileFailure? nextProfileReadFailure;
+  SettleoraProfileFailure? nextPaymentReadFailure;
   int profileReadCalls = 0;
   int paymentReadCalls = 0;
   int profileUpdateCalls = 0;
@@ -398,6 +521,11 @@ class FakeProfileRepository implements SettleoraProfileRepository {
   @override
   Future<SettleoraSelfProfile> getSelfProfile() async {
     profileReadCalls += 1;
+    final failure = nextProfileReadFailure;
+    if (failure != null) {
+      nextProfileReadFailure = null;
+      throw failure;
+    }
     _throwLoadIfNeeded();
     return profile;
   }
@@ -408,6 +536,7 @@ class FakeProfileRepository implements SettleoraProfileRepository {
   ) async {
     profileUpdateCalls += 1;
     lastProfileUpdate = update;
+    await profileUpdateCompleter?.future;
     final failure = profileUpdateFailure;
     if (failure != null) {
       throw failure;
@@ -426,6 +555,11 @@ class FakeProfileRepository implements SettleoraProfileRepository {
   @override
   Future<SettleoraSelfPaymentDetails> getSelfPaymentDetails() async {
     paymentReadCalls += 1;
+    final failure = nextPaymentReadFailure;
+    if (failure != null) {
+      nextPaymentReadFailure = null;
+      throw failure;
+    }
     _throwLoadIfNeeded();
     return paymentDetails;
   }
@@ -436,6 +570,7 @@ class FakeProfileRepository implements SettleoraProfileRepository {
   ) async {
     paymentUpdateCalls += 1;
     lastPaymentUpdate = update;
+    await paymentUpdateCompleter?.future;
     final failure = paymentUpdateFailure;
     if (failure != null) {
       throw failure;

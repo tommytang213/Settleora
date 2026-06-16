@@ -42,6 +42,8 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
   SettleoraPaymentDetailsVisibility _paymentVisibility =
       SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly;
 
+  bool get _isSavingAny => _isSavingProfile || _isSavingPaymentDetails;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +61,10 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
   }
 
   Future<void> _load() async {
+    if (_isSavingAny) {
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _loadFailure = null;
@@ -91,7 +97,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (_isSavingProfile) {
+    if (_isSavingAny) {
       return;
     }
 
@@ -114,7 +120,19 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
       setState(() {
         _applyProfile(updated);
       });
-      _showSnackBar('Profile updated.');
+      final refreshFailure = await _refreshAfterSave();
+      if (!mounted) {
+        return;
+      }
+
+      if (refreshFailure == null) {
+        _showSnackBar('Profile updated.');
+      } else {
+        setState(() {
+          _profileSaveFailure = refreshFailure;
+        });
+        _showSnackBar('Profile saved. Refresh before saving again.');
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -133,7 +151,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
   }
 
   Future<void> _savePaymentDetails() async {
-    if (_isSavingPaymentDetails) {
+    if (_isSavingAny) {
       return;
     }
 
@@ -148,6 +166,10 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
     );
     if (validationFailure != null) {
       setState(() {
+        final paymentDetails = _paymentDetails;
+        if (paymentDetails != null) {
+          _applyPaymentDetails(paymentDetails);
+        }
         _paymentSaveFailure = validationFailure;
       });
       return;
@@ -174,13 +196,29 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
       setState(() {
         _applyPaymentDetails(updated);
       });
-      _showSnackBar('Payment details updated.');
+      final refreshFailure = await _refreshAfterSave();
+      if (!mounted) {
+        return;
+      }
+
+      if (refreshFailure == null) {
+        _showSnackBar('Payment details updated.');
+      } else {
+        setState(() {
+          _paymentSaveFailure = refreshFailure;
+        });
+        _showSnackBar('Payment details saved. Refresh before saving again.');
+      }
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       setState(() {
+        final paymentDetails = _paymentDetails;
+        if (paymentDetails != null) {
+          _applyPaymentDetails(paymentDetails);
+        }
         _paymentSaveFailure = SettleoraProfileFailure.from(error);
       });
     } finally {
@@ -202,6 +240,30 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
       _applyPaymentDetails(paymentDetails);
       _paymentSaveFailure = null;
     });
+  }
+
+  Future<SettleoraProfileFailure?> _refreshAfterSave() async {
+    try {
+      final profile = await widget.repository.getSelfProfile();
+      final paymentDetails = await widget.repository.getSelfPaymentDetails();
+      if (!mounted) {
+        return null;
+      }
+
+      setState(() {
+        _applyProfile(profile);
+        _applyPaymentDetails(paymentDetails);
+      });
+      return null;
+    } catch (error) {
+      final failure = SettleoraProfileFailure.from(error);
+      return SettleoraProfileFailure(
+        kind: failure.kind,
+        statusCode: failure.statusCode,
+        message:
+            'Saved on the server, but the follow-up refresh failed. Refresh account details before saving again.',
+      );
+    }
   }
 
   void _applyProfile(SettleoraSelfProfile profile) {
@@ -255,7 +317,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
           IconButton(
             key: const Key('profile-refresh'),
             tooltip: 'Refresh',
-            onPressed: _isLoading ? null : _load,
+            onPressed: _isLoading || _isSavingAny ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -319,6 +381,8 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Default currency',
                           hintText: 'USD',
+                          helperText:
+                              'Optional 3-letter code. Blank clears your preference.',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -329,7 +393,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         key: const Key('profile-save'),
-                        onPressed: _isSavingProfile ? null : _saveProfile,
+                        onPressed: _isSavingAny ? null : _saveProfile,
                         icon: _isSavingProfile
                             ? const SizedBox.square(
                                 dimension: 18,
@@ -347,6 +411,11 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                     title: 'Payment Details',
                     children: [
                       _PaymentDetailsSummary(details: paymentDetails),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Blank payment fields are saved as not set. The API decides the signed-in profile, mutation rights, visibility, QR metadata access, storage policy, and audit.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                       const SizedBox(height: 14),
                       TextField(
                         key: const Key('profile-payment-method'),
@@ -408,7 +477,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                                   ),
                                 ),
                             ],
-                            onChanged: _isSavingPaymentDetails
+                            onChanged: _isSavingAny
                                 ? null
                                 : (value) {
                                     if (value == null) {
@@ -434,7 +503,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         children: [
                           FilledButton.icon(
                             key: const Key('profile-payment-save'),
-                            onPressed: _isSavingPaymentDetails
+                            onPressed: _isSavingAny
                                 ? null
                                 : _savePaymentDetails,
                             icon: _isSavingPaymentDetails
@@ -450,7 +519,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
                             key: const Key('profile-payment-cancel'),
-                            onPressed: _isSavingPaymentDetails
+                            onPressed: _isSavingAny
                                 ? null
                                 : _cancelPaymentDetailsEdit,
                             icon: const Icon(Icons.close),

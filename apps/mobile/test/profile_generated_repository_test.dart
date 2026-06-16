@@ -135,6 +135,47 @@ void main() {
       expect(failure.toString(), isNot(contains('hidden payment handle')));
     });
 
+    test('maps status failures to bounded categories', () async {
+      final cases = <int, SettleoraProfileFailureKind>{
+        400: SettleoraProfileFailureKind.validation,
+        403: SettleoraProfileFailureKind.denied,
+        404: SettleoraProfileFailureKind.unavailable,
+        409: SettleoraProfileFailureKind.conflict,
+        422: SettleoraProfileFailureKind.validation,
+        500: SettleoraProfileFailureKind.server,
+      };
+
+      for (final entry in cases.entries) {
+        final repository = GeneratedSettleoraProfileRepository(
+          client: FakeProfileGeneratedClient(
+            failure: api.SettleoraApiException(entry.key, 'raw /api/v1/path', {
+              'detail': 'token request body storage/path qr-file-id',
+            }),
+          ),
+          accessTokenProvider: FakeAccessTokenProvider('redacted-token'),
+        );
+
+        final failure = await captureProfileFailure(() {
+          return repository.updateSelfPaymentDetails(
+            const SettleoraSelfPaymentDetailsUpdate(
+              preferredMethodLabel: 'FPS',
+              paymentHandle: 'fps-id',
+              paymentNote: null,
+              visibility: SettleoraPaymentDetailsVisibilityValues
+                  .settlementCounterpartiesOnly,
+            ),
+          );
+        });
+
+        expect(failure.kind, entry.value);
+        expect(failure.statusCode, entry.key);
+        expect(failure.message, isNot(contains('/api/v1/path')));
+        expect(failure.message, isNot(contains('token')));
+        expect(failure.message, isNot(contains('storage/path')));
+        expect(failure.message, isNot(contains('qr-file-id')));
+      }
+    });
+
     test('maps network errors to safe retry text', () async {
       final repository = GeneratedSettleoraProfileRepository(
         client: FakeProfileGeneratedClient(
