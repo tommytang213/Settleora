@@ -130,3 +130,39 @@ npm run validate:api-migrations
 Docker must be available for `validate:compose`, `validate:api-docker`, `validate:api-runtime`, and `validate:api-migrations`.
 `validate:api-docker` builds the API image only. `validate:api-runtime` starts PostgreSQL, RabbitMQ, and the API through Docker Compose, polls `http://localhost:8080/health/ready` for HTTP 200 with JSON status `ready`, and then stops the stack without deleting persistent Docker volumes.
 `validate:api-migrations` starts only PostgreSQL through Docker Compose with a unique project name and a disposable volume, applies the current EF Core migrations to that disposable database, and removes only that validation project's resources afterward. Set `SETTLEORA_MIGRATION_VALIDATION_POSTGRES_PORT` to force a specific temporary PostgreSQL host port.
+
+## License
+
+This project is licensed under the PolyForm Noncommercial License 1.0.0.
+
+Personal, private, hobby, family/friend, educational, and other noncommercial use is allowed.
+
+Commercial use requires written permission from the copyright holder. Commercial use includes selling the software, modified versions, paid hosting/SaaS, advertising-supported use, sponsorship-driven use, business/internal company use, resale, or use in revenue-generating products/services.
+
+This project is source-available/noncommercial, not open source under OSI-style open-source definitions.
+
+This public license does not restrict the copyright holder from operating official commercial services, offering paid hosting, collecting subscriptions, or granting separate commercial licenses.
+
+## Contributions
+
+External code contributions are not currently accepted.
+
+Bug reports, feature requests, security reports, and documentation suggestions are welcome.
+
+Ideas may be independently implemented by the maintainer in separate maintainer-authored changes.
+
+Security reports must use GitHub private vulnerability reporting. Do not report security issues through public issues or pull requests.
+
+## No Warranty / Use at Your Own Risk
+
+This project is provided as-is.
+
+The maintainer does not guarantee correctness, reliability, security, fitness for purpose, data safety, financial accuracy, settlement accuracy, or production readiness.
+
+Users are responsible for reviewing, testing, configuring, and using the software themselves.
+
+The maintainer is not responsible for damages, data loss, financial loss, incorrect settlements, security issues, service interruptions, or other problems caused by use or misuse of this software.
+
+No support, maintenance, updates, bug fixes, or security fixes are guaranteed.
+
+This section is a plain-English summary only. The actual license terms are in the LICENSE file.

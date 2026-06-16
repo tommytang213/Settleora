@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/tommytang213/Settleora/security/policy
+    about: Please do not report security issues publicly. Follow the repository security policy and GitHub private vulnerability reporting flow.
