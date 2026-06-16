@@ -56,3 +56,13 @@ Slow runtime suites are intentionally not part of the default M15 local validati
 ## Recommended Next Action
 
 Open the PR for maintainer review and CI. After review, the next automated action should be a targeted Day 1 gap implementation slice chosen from the evidence map, or a maintainer-run manual Day 1 acceptance gate if the maintainer decides the evidence package is ready for manual review.
+
+## Post-M15 Local/Offline Data Safety Addendum
+
+M16 local/offline data-safety work added starter implementation evidence after the original M15 docs-only package:
+
+- `apps/mobile/lib/app/local_data_backup.dart` implements a versioned mobile local-data backup JSON service for app-mode summary plus current mobile bill sync queue, excluding session material, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and complete-server-backup claims.
+- `apps/mobile/lib/app/server_mode_shell.dart` exposes the dashboard Data safety panel with backup JSON generation, import validation/preview, and disabled restore apply text.
+- `apps/mobile/test/local_data_backup_test.dart` and `apps/mobile/test/server_mode_shell_dashboard_test.dart` cover export metadata/counts, sensitive-data exclusions, invalid/corrupt/sensitive import rejection, visible preview state, and the disabled restore guard.
+
+This improves Day 1 local backup/import-preview evidence but does not complete Day 1. Full file save/share integration, guarded restore merge/replace apply, broader local-only data model coverage, local/server migration flows, full offline cache hydration, conflict-resolution apply UI, manual UI retest, privacy review, and code review remain pending.

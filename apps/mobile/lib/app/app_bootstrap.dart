@@ -33,6 +33,7 @@ import '../sync/sync_queue_processor.dart';
 import '../sync/sync_repository.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
+import 'local_data_backup.dart';
 import 'secure_session_access_token_provider.dart';
 import 'secure_storage.dart';
 import 'server_mode_shell.dart';
@@ -453,6 +454,11 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       apiConfiguration,
       tokenProvider,
     );
+    final dataBackupService = SecureStorageLocalDataBackupService(
+      secureStorage: widget.secureStorage,
+      billSyncController: billSyncController,
+      now: widget.now,
+    );
 
     return SettleoraAuthenticatedServerShell(
       currentUser: snapshot.currentUser!,
@@ -474,6 +480,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       reportRepository: reportRepository,
       profileRepository: profileRepository,
       billSyncController: billSyncController,
+      dataBackupService: dataBackupService,
       authRepository: authRepository,
       accessTokenProvider: tokenProvider,
       onSessionEnded: _clearSessionAndLoad,

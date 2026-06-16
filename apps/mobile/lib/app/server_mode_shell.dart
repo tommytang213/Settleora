@@ -30,6 +30,7 @@ import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
+import 'local_data_backup.dart';
 
 typedef SettleoraSessionEndedCallback =
     Future<void> Function(String? noticeMessage);
@@ -52,6 +53,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.reportRepository,
     required this.profileRepository,
     required this.billSyncController,
+    this.dataBackupService,
     required this.authRepository,
     required this.accessTokenProvider,
     required this.onSessionEnded,
@@ -72,6 +74,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraMonthlyReportRepository reportRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
+  final SettleoraLocalDataBackupService? dataBackupService;
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
   final SettleoraSessionEndedCallback onSessionEnded;
@@ -91,8 +94,10 @@ class _SettleoraAuthenticatedServerShellState
   _SettleoraDashboardOverview? _overview;
   _SettleoraDashboardFailure? _overviewFailure;
   SettleoraBillSyncSnapshot? _billSyncSnapshot;
+  SettleoraLocalDataBackupExport? _latestBackupExport;
   int _overviewLoadVersion = 0;
   SettleoraNavDestination _selectedDestination = SettleoraNavDestination.home;
+  bool _isBuildingBackup = false;
 
   @override
   void initState() {
@@ -488,6 +493,56 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _buildLocalBackupExport() async {
+    if (_isBuildingBackup) {
+      return;
+    }
+
+    setState(() {
+      _isBuildingBackup = true;
+    });
+
+    try {
+      final service = widget.dataBackupService;
+      if (service == null) {
+        _showSnackBar('Backup export is unavailable in this build.');
+        return;
+      }
+
+      final export = await service.buildExport(currentUser: widget.currentUser);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _latestBackupExport = export;
+      });
+      _showSnackBar(
+        'Backup JSON generated. Save it manually; file sharing is not wired in this build.',
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Backup export is unavailable right now.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuildingBackup = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openImportPreview() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) =>
+          _DataBackupImportPreviewDialog(service: widget.dataBackupService),
+    );
+  }
+
   Future<void> _signOutCurrentSession() async {
     if (_isSigningOut || _isConfirmingSignOut) {
       return;
@@ -741,7 +796,13 @@ class _SettleoraAuthenticatedServerShellState
                               onOpenMonthlyReport: _openMonthlyReport,
                             ),
                             const SizedBox(height: 16),
-                            const _DashboardDataPortabilityReadout(),
+                            _DashboardDataSafetySection(
+                              export: _latestBackupExport,
+                              isBuildingBackup: _isBuildingBackup,
+                              isAvailable: widget.dataBackupService != null,
+                              onBuildBackup: _buildLocalBackupExport,
+                              onPreviewImport: _openImportPreview,
+                            ),
                             const SizedBox(height: 16),
                             const VisualPreferenceUnsupportedReadout(
                               key: Key(
@@ -1532,71 +1593,293 @@ class _DashboardMoreSection extends StatelessWidget {
   }
 }
 
-class _DashboardDataPortabilityReadout extends StatelessWidget {
-  const _DashboardDataPortabilityReadout();
+class _DashboardDataSafetySection extends StatelessWidget {
+  const _DashboardDataSafetySection({
+    required this.export,
+    required this.isBuildingBackup,
+    required this.isAvailable,
+    required this.onBuildBackup,
+    required this.onPreviewImport,
+  });
+
+  final SettleoraLocalDataBackupExport? export;
+  final bool isBuildingBackup;
+  final bool isAvailable;
+  final VoidCallback onBuildBackup;
+  final VoidCallback onPreviewImport;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final export = this.export;
 
     return _DashboardSection(
-      title: 'Settings readiness',
+      title: 'Data safety',
       child: Card(
-        key: const Key('server-shell-data-portability-readout'),
+        key: const Key('server-shell-data-safety-panel'),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Server mode', style: textTheme.titleSmall),
+              Text('Local backup', style: textTheme.titleSmall),
               const SizedBox(height: 4),
               Text(
-                'This signed-in shell shows account, session, profile, payment, and sync readouts for the configured server. The API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.',
+                'Export covers mobile-owned local state only. It excludes session tokens, refresh credentials, passwords, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and it is not a complete server backup.',
                 style: TextStyle(color: muted),
               ),
               const SizedBox(height: 12),
               const _ReadinessLine(
-                label: 'Dashboard cards',
+                label: 'Scope',
                 value:
-                    'Presentation hints only; not authorization, financial truth, sync acceptance, or full offline cache hydration.',
+                    'App mode summary and the current mobile bill sync queue.',
               ),
               const _ReadinessLine(
-                label: 'Group workspace',
+                label: 'Server mode',
                 value:
-                    'Use Groups and group bills as the current bounded entry point; a full group dashboard is not implemented.',
+                    'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
               ),
               const _ReadinessLine(
-                label: 'Saved layouts',
+                label: 'Import',
                 value:
-                    'Not available; no group dashboard personalization, saved profiles, per-group defaults, or saved cross-surface views.',
+                    'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
               ),
               const _ReadinessLine(
                 label: 'CSV export',
-                value: 'Not available in this mobile build.',
+                value: 'Use server endpoints outside this local backup flow.',
               ),
               const _ReadinessLine(
                 label: 'CSV import',
-                value: 'Not available; imports cannot mutate bills or money.',
+                value:
+                    'Not handled here; imports cannot mutate bills or money.',
               ),
               const _ReadinessLine(
-                label: 'Local backup/restore',
-                value: 'Not available; server mode is not a local backup.',
-              ),
-              const _ReadinessLine(
-                label: 'Local-to-server migration/link',
-                value: 'Future explicit guided flow only; never automatic.',
-              ),
-              const _ReadinessLine(
-                label: 'Server-to-local export/disconnect',
+                label: 'Migration/link',
                 value: 'Future explicit guided flow only; not a bypass.',
               ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    key: const Key('data-safety-build-export'),
+                    onPressed: isAvailable && !isBuildingBackup
+                        ? onBuildBackup
+                        : null,
+                    icon: isBuildingBackup
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download_outlined),
+                    label: const Text('Generate backup JSON'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('data-safety-open-import-preview'),
+                    onPressed: isAvailable ? onPreviewImport : null,
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: const Text('Preview import'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('data-safety-restore-disabled'),
+                    onPressed: null,
+                    icon: const Icon(Icons.restore_outlined),
+                    label: const Text('Restore disabled'),
+                  ),
+                ],
+              ),
+              if (export != null) ...[
+                const SizedBox(height: 12),
+                _DataBackupPreviewCard(preview: export.preview),
+                const SizedBox(height: 8),
+                ExpansionTile(
+                  key: const Key('data-safety-export-json'),
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('Generated backup JSON'),
+                  children: [
+                    SelectableText(
+                      export.encodedJson,
+                      key: const Key('data-safety-export-json-text'),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+}
+
+class _DataBackupPreviewCard extends StatelessWidget {
+  const _DataBackupPreviewCard({required this.preview});
+
+  final SettleoraLocalDataBackupPreview preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = preview.failureMessage;
+    final generatedAt = preview.generatedAtUtc;
+    return DecoratedBox(
+      key: const Key('data-safety-preview-card'),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              preview.isValid ? 'Backup preview' : 'Backup invalid',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            if (failure != null)
+              Text(failure)
+            else ...[
+              _ReadinessLine(
+                label: 'Schema',
+                value: 'Version ${preview.schemaVersion}',
+              ),
+              _ReadinessLine(
+                label: 'Generated',
+                value: generatedAt == null
+                    ? 'Not provided'
+                    : _formatBackupUtcMinute(generatedAt),
+              ),
+              _ReadinessLine(
+                label: 'Sections',
+                value:
+                    '${preview.countFor('syncQueue')} sync queue item${_plural(preview.countFor('syncQueue'))}; ${preview.countFor('appConfiguration')} app configuration record${_plural(preview.countFor('appConfiguration'))}.',
+              ),
+              _ReadinessLine(
+                label: 'Restore mode',
+                value:
+                    '${preview.restoreMode}; restore apply is disabled in this build.',
+              ),
+              if (preview.warnings.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                for (final warning in preview.warnings)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(warning)),
+                      ],
+                    ),
+                  ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DataBackupImportPreviewDialog extends StatefulWidget {
+  const _DataBackupImportPreviewDialog({required this.service});
+
+  final SettleoraLocalDataBackupService? service;
+
+  @override
+  State<_DataBackupImportPreviewDialog> createState() =>
+      _DataBackupImportPreviewDialogState();
+}
+
+class _DataBackupImportPreviewDialogState
+    extends State<_DataBackupImportPreviewDialog> {
+  final TextEditingController _controller = TextEditingController();
+  SettleoraLocalDataBackupPreview? _preview;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _previewImport() {
+    setState(() {
+      _preview =
+          widget.service?.previewImport(_controller.text) ??
+          const SettleoraLocalDataBackupPreview(
+            isValid: false,
+            schemaVersion: null,
+            generatedAtUtc: null,
+            sectionCounts: {},
+            warnings: [],
+            failureMessage: 'Backup preview is unavailable in this build.',
+            restoreMode: 'preview_only',
+          );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+
+    return AlertDialog(
+      title: const Text('Preview backup import'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Paste Settleora backup JSON to validate it before any restore. This build previews only and will not overwrite local or server-mode data.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('data-safety-import-json'),
+                controller: _controller,
+                minLines: 5,
+                maxLines: 8,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Backup JSON',
+                ),
+              ),
+              if (preview != null) ...[
+                const SizedBox(height: 12),
+                _DataBackupPreviewCard(preview: preview),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton.icon(
+          key: const Key('data-safety-preview-import'),
+          onPressed: _previewImport,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('Preview'),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatBackupUtcMinute(DateTime value) {
+  final utc = value.toUtc();
+  return '${utc.year.toString().padLeft(4, '0')}-'
+      '${utc.month.toString().padLeft(2, '0')}-'
+      '${utc.day.toString().padLeft(2, '0')} '
+      '${utc.hour.toString().padLeft(2, '0')}:'
+      '${utc.minute.toString().padLeft(2, '0')} UTC';
 }
 
 class _ReadinessLine extends StatelessWidget {
