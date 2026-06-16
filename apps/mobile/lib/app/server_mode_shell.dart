@@ -740,6 +740,8 @@ class _SettleoraAuthenticatedServerShellState
                               onOpenSessions: _openSessions,
                               onOpenMonthlyReport: _openMonthlyReport,
                             ),
+                            const SizedBox(height: 16),
+                            const _DashboardDataPortabilityReadout(),
                           ],
                         ),
                       ),
@@ -1523,6 +1525,91 @@ class _DashboardMoreSection extends StatelessWidget {
   }
 }
 
+class _DashboardDataPortabilityReadout extends StatelessWidget {
+  const _DashboardDataPortabilityReadout();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return _DashboardSection(
+      title: 'Settings readiness',
+      child: Card(
+        key: const Key('server-shell-data-portability-readout'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Server mode', style: textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                'This signed-in shell shows account, session, profile, payment, and sync readouts for the configured server. The API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.',
+                style: TextStyle(color: muted),
+              ),
+              const SizedBox(height: 12),
+              const _ReadinessLine(
+                label: 'CSV export',
+                value: 'Not available in this mobile build.',
+              ),
+              const _ReadinessLine(
+                label: 'CSV import',
+                value: 'Not available; imports cannot mutate bills or money.',
+              ),
+              const _ReadinessLine(
+                label: 'Local backup/restore',
+                value: 'Not available; server mode is not a local backup.',
+              ),
+              const _ReadinessLine(
+                label: 'Local-to-server migration/link',
+                value: 'Future explicit guided flow only; never automatic.',
+              ),
+              const _ReadinessLine(
+                label: 'Server-to-local export/disconnect',
+                value: 'Future explicit guided flow only; not a bypass.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadinessLine extends StatelessWidget {
+  const _ReadinessLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(
+            child: Text(value, style: TextStyle(color: muted)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DashboardCompactAction extends StatelessWidget {
   const _DashboardCompactAction({
     super.key,
@@ -2017,6 +2104,13 @@ class _DashboardSyncStatusCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(countParts.join(' - ')),
                   ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'Counts cover the current mobile bill sync queue only. They do not mean full offline cache hydration, import/export, backup/restore, broad conflict resolution, or server acceptance of all local data.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ),

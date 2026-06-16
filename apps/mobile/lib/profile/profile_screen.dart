@@ -358,6 +358,8 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                     currentUser: widget.currentUser,
                     profile: profile,
                   ),
+                  const SizedBox(height: 12),
+                  const _AccountPrivacyBoundaryReadout(),
                   const SizedBox(height: 20),
                   _Section(
                     title: 'Profile',
@@ -716,6 +718,42 @@ class _SignedInSummary extends StatelessWidget {
           displayCurrency == null
               ? 'Signed in'
               : 'Signed in - $displayCurrency',
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountPrivacyBoundaryReadout extends StatelessWidget {
+  const _AccountPrivacyBoundaryReadout();
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return DecoratedBox(
+      key: const Key('profile-account-boundary-readout'),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.privacy_tip_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Account and profile rows are server-returned readouts. Cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access, storage access, privacy policy, financial policy, or audit behavior.',
+                style: TextStyle(color: muted),
+              ),
+            ),
+          ],
         ),
       ),
     );

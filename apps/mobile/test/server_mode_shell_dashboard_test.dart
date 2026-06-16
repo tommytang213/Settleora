@@ -126,6 +126,56 @@ void main() {
     expect(recurringRepository.listForecastCalls, 1);
   });
 
+  testWidgets('dashboard shows read-only data portability readiness', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-data-portability-readout')),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Settings readiness'), findsOneWidget);
+    expect(find.text('Server mode'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'The API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('CSV export'), findsOneWidget);
+    expect(find.text('CSV import'), findsOneWidget);
+    expect(find.text('Local backup/restore'), findsOneWidget);
+    expect(find.text('Local-to-server migration/link'), findsOneWidget);
+    expect(find.text('Server-to-local export/disconnect'), findsOneWidget);
+    expect(find.text('Not available in this mobile build.'), findsOneWidget);
+    expect(
+      find.text('Not available; imports cannot mutate bills or money.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Not available; server mode is not a local backup.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Future explicit guided flow only; never automatic.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Future explicit guided flow only; not a bypass.'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(ElevatedButton, 'Export'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Export'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Import'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Back up'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Restore'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Migrate'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsNothing);
+  });
+
   testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {
     await pumpShell(tester);
 
@@ -1013,6 +1063,15 @@ void main() {
     );
     expect(find.text('Sync pending'), findsOneWidget);
     expect(find.textContaining('2 pending'), findsOneWidget);
+    expect(
+      find.textContaining('current mobile bill sync queue only'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('full offline cache hydration'), findsOneWidget);
+    expect(
+      find.textContaining('server acceptance of all local data'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('server-shell-sync-now')), findsOneWidget);
     expect(find.text('Sync now'), findsOneWidget);
     expect(find.text('Review in Bills'), findsOneWidget);

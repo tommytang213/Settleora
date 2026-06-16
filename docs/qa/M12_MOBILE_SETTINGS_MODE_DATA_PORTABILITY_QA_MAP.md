@@ -1,6 +1,6 @@
 # M12 Mobile Settings, Mode Boundary, And Data Portability QA Map
 
-Status: `M12-001 reconciled; M12-002 completed; M12-003 selected; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12-001 reconciled; M12-002 completed; M12-003 completed; M12-004 selected; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -98,17 +98,53 @@ Explicit non-goals preserved:
 
 ## Known Gaps For M12-003 And M12-004
 
-- M12-003 should add or harden settings/profile/account readout copy and focused tests for unsupported CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, and destructive portability actions as readiness/placeholder states only.
-- M12-003 should make sync-status copy clearer that queued/synced/failed/conflict counts are for existing mobile sync queue operations and do not imply full offline cache hydration, server acceptance of all local data, import/export availability, or conflict-resolution authority.
-- M12-003 should preserve profile/payment/account copy that cached rows, hidden controls, route state, generated-client availability, and UI mode/preferences do not authorize data access or policy changes.
+- M12-003 completed settings/profile/account readout copy and focused tests for unsupported CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, and destructive portability actions as readiness/placeholder states only.
+- M12-003 completed sync-status copy hardening so queued/synced/failed/conflict counts are for existing mobile bill sync queue operations only and do not imply full offline cache hydration, server acceptance of all local data, import/export availability, backup/restore availability, or broad conflict-resolution authority.
+- M12-003 preserved and extended profile/payment/account copy so cached rows, hidden controls, route state, generated-client availability, and UI mode/preferences do not authorize data access, storage access, privacy policy, financial policy, audit behavior, or policy changes.
 - M12-004 should finalize M12 QA/control state only after M12-003 passes validation, keep manual UI/code review deferred until Day 1 acceptance, and mark M12 UI-test ready only at finalization.
+
+## M12-003 Settings Data-Portability Readout Hardening
+
+M12-003 hardened authenticated mobile settings/profile/account readouts inside existing app/profile seams without adding backend/API behavior, OpenAPI/generated-client changes, schema/migrations, auth/session/security runtime changes, storage/privacy behavior, real data-portability runtime, file byte movement, or money/business authority changes.
+
+Files changed:
+
+- `apps/mobile/lib/app/server_mode_shell.dart`
+- `apps/mobile/lib/profile/profile_screen.dart`
+- `apps/mobile/test/server_mode_shell_dashboard_test.dart`
+- `apps/mobile/test/profile_screen_test.dart`
+- `.ai/current-milestone.md`
+- `.ai/qa-report.md`
+- `.ai/state.json`
+- `.ai/task-queue.json`
+- `docs/qa/M12_MOBILE_SETTINGS_MODE_DATA_PORTABILITY_QA_MAP.md`
+
+User-visible behavior summary:
+
+- Authenticated server-mode dashboard now shows a read-only `Settings readiness` card.
+- The readiness card distinguishes server mode account/session/profile/payment/sync readouts from API authority for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.
+- CSV export, CSV import, local backup/restore, local-to-server migration/link, and server-to-local export/disconnect are shown as unsupported or future explicit guided flows only.
+- The readiness card does not add working data-portability buttons or handlers.
+- Sync status copy now states the counts cover only the current mobile bill sync queue and do not imply full offline cache hydration, import/export, backup/restore, broad conflict resolution, or server acceptance of all local data.
+- Profile account copy now states server-returned rows, cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access, storage access, privacy policy, financial policy, or audit behavior.
+
+Tests and validation recorded during implementation:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart` passed with 49 tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 716 Flutter tests.
+- Added/updated coverage for read-only unsupported data-portability placeholders, absence of fake import/export/backup/restore/migration/disconnect buttons, sync queue-only boundary copy, profile account/privacy authority copy, and no client-side authorization implications from cached/UI/generated-client state.
+
+Explicit non-goals preserved:
+
+- No real CSV import/export, local backup/restore, server backup, cloud recovery, local-to-server migration/link, server-to-local export/disconnect, data migration, or file byte movement was added.
+- No backend/API behavior, OpenAPI/generated-client changes, database schema/migrations, auth/session/security runtime or policy changes, storage/privacy/private-vault changes, money/bill/settlement/recurring/OCR/reconciliation authority changes, deployment/CI/Docker changes, secrets, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, or architecture direction replacement was made.
 
 ## Planned Queue
 
 - `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`: Reconcile current mobile settings, mode-boundary, data-portability readiness implementation and tests without runtime changes.
 - `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`: Completed. Hardened first-launch/setup/local/server mode boundary copy and tests inside `apps/mobile/lib/app/`.
-- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`: Current. Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
-- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`: Finalize QA/control state and mark M12 UI-test ready after slices complete.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`: Completed. Hardened authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`: Current. Finalize QA/control state and mark M12 UI-test ready after slices complete.
 - `STOP-M12-001`: Manual gate for data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## QA Focus
