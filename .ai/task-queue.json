@@ -103,7 +103,7 @@
     "title": "Finalize mobile search, filter, and group workspace readiness QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
