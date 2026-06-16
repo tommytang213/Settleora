@@ -54,10 +54,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
-- Last completed task: `none`.
-- Current state: M10 is active as a bounded Day 1 mobile self profile and payment-details hardening milestone. M9 is finalized and awaiting deferred Day 1 acceptance review. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
+- Current task: `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
+- Last completed task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
+- Current state: M10-001 reconciled the current mobile self profile/payment-details repository seams, generated-client mapping, app-shell entry, focused automated coverage, Day 1 requirement map, and M10-002/M10-003 gaps without runtime behavior changes. M10 remains active as a bounded Day 1 mobile self profile and payment-details hardening milestone. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
 - Stop sentinel: `STOP-M10-001` stops API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/money/deployment, payment-detail visibility policy, counterparty authorization, admin/global payment-detail exposure, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M9 Carry-Forward Boundary
