@@ -227,6 +227,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
           const SizedBox(height: 14),
           _SettlementSuggestion(state: state),
+          const SizedBox(height: 14),
+          const _DashboardReadinessNotice(),
           if (state.pendingSync.isNotEmpty) ...[
             const SizedBox(height: 14),
             _SectionCard(
@@ -697,18 +699,42 @@ class _WelcomeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Your shared-money workspace is ready',
+            'Your shared-money dashboard preview is ready',
             style: Theme.of(
               context,
             ).textTheme.titleLarge?.copyWith(color: colors.onPrimary),
           ),
           const SizedBox(height: 6),
           Text(
-            'Create a group or scan a receipt to start tracking balances.',
+            'Create a group or scan a receipt to start route-based review. Full group workspace dashboards and saved layouts are future work.',
             style: TextStyle(color: colors.onPrimary.withValues(alpha: 0.82)),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DashboardReadinessNotice extends StatelessWidget {
+  const _DashboardReadinessNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _SectionCard(
+      title: 'Dashboard Readiness',
+      children: [
+        Text(
+          'Cards are presentation hints only. Visibility here is not authorization, financial truth, sync acceptance, or full offline cache hydration.',
+        ),
+        SizedBox(height: 8),
+        Text(
+          'Subject routes such as group bills, settlements, recurring, reports, notifications, and receipt review must reload through their own repository/API seams before mutation.',
+        ),
+        SizedBox(height: 8),
+        Text(
+          'Unsupported: group dashboard personalization persistence, saved layouts, saved dashboard profiles, per-group defaults, and saved cross-surface search/filter views.',
+        ),
+      ],
     );
   }
 }

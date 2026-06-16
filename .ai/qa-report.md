@@ -1,6 +1,38 @@
 # AI QA Report
 
-Status: `M13-002 completed; M13-003 queued next; M13 not UI-test ready; M12 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M13-003 completed; M13-004 queued next; M13 not UI-test ready; M12 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M13-003 Group Workspace/Dashboard Readiness Hardening Summary
+
+M13-003 completed mobile group workspace and dashboard readiness hardening inside existing presentation seams.
+
+Runtime/copy hardening:
+
+- Group detail now says group detail plus group bills is the current bounded mobile group workspace and that a full multi-section group dashboard with balances, pending actions, reports, recurring, notifications, receipt review, settlements, and settings is not implemented yet.
+- Group detail directs users to existing shell routes for settlements, recurring bills, notifications, receipt reviews, reports, and sync status, while stating those subject screens reload through their own repository/API seams before mutation.
+- Dashboard shell and dashboard preview copy now say dashboard cards are presentation hints only, not authorization, financial truth, sync acceptance, or full offline cache hydration.
+- Unsupported saved group dashboard layouts, dashboard profiles, per-group defaults, dashboard personalization persistence, and saved cross-surface search/filter views are explicit.
+- Group bill list empty/no-match/readout copy distinguishes loaded visible group rows from authorization, server search, complete group workspace, and financial truth.
+
+Automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/group_list_screen_test.dart` passed with 20 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/group_list_screen_test.dart test/group_bill_list_screen_test.dart` passed with 138 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart` passed with 158 Flutter tests after a scroll-aware shell route assertion fix.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/group_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_list_screen_test.dart test/settlement_list_screen_test.dart test/recurring_bill_screen_test.dart test/notification_screen_test.dart test/monthly_report_screen_test.dart` passed with 418 Flutter tests.
+- Earlier focused attempts failed while copy changes pushed member controls below the default viewport, one assertion counted a duplicated phrase, and one shell route tap needed scroll-aware handling after readiness copy lengthened the dashboard; those failures were corrected and rerun successfully.
+
+M13 queue state after M13-003:
+
+- `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed.
+- `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed.
+- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued next.
+- `STOP-M13-001` - Preserved.
+
+M13-003 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M13 remains not UI-test ready until M13-004 finalization. Recommended next automated task is `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
 
 ## M13-002 Cross-Surface Search/Filter Readout Hardening Summary
 
@@ -27,7 +59,7 @@ M13 queue state after M13-002:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued.
 - `STOP-M13-001` - Preserved.
 
@@ -38,7 +70,7 @@ Remaining M13-003 group workspace/dashboard readiness gaps:
 
 M13-002 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
 
-Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M13 remains not UI-test ready until M13-004 finalization. Recommended next automated task is `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M13 remains not UI-test ready until M13-004 finalization. Recommended next automated task is `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
 
 ## M13-001 Search/Filter/Group Workspace Reconciliation Summary
 
@@ -61,13 +93,13 @@ M13 queue state after M13-001:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued.
 - `STOP-M13-001` - Preserved.
 
 M13-001 changed only `.ai` control files and `docs/qa/M13_MOBILE_SEARCH_FILTER_GROUP_WORKSPACE_QA_MAP.md`. It did not change mobile runtime behavior, tests, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
 
-Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. Recommended next automated task is `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. Recommended next automated task is `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
 
 ## M13 Kickoff Summary
 
@@ -84,13 +116,13 @@ M13 queue:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Reconciled current mobile search/filter and group workspace readiness state without runtime changes.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened mobile cross-surface search/filter/readout states across current starter surfaces without API, generated-client, or authorization changes.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next. Harden mobile group workspace/dashboard readiness and group-context handoffs inside existing mobile seams.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed. Hardened mobile group workspace/dashboard readiness and group-context handoffs inside existing mobile seams.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
 - `STOP-M13-001` - Stop. Manual gate for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 M13 kickoff changes only `.ai` control files, the M13 QA map, and a narrow M13 scope-guard allowlist. It does not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, file byte behavior, real CSV import/export, local backup/restore, migration/link/disconnect/export runtime, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
 
-Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed by M13. Recommended next automated task is `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed by M13. Recommended next automated task is `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
 
 Status: `M12 finalized/UI-test ready; M12-004 completed; M12-003 completed; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
