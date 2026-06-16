@@ -4,6 +4,37 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
 void main() {
+  test('built-in light palette keeps readable warm-fintech token pairs', () {
+    const colors = SettleoraColors.light;
+    final primaryHue = HSVColor.fromColor(colors.primary).hue;
+
+    expect(primaryHue, inInclusiveRange(15, 35));
+    expect(_contrastRatio(colors.primary, colors.onPrimary), greaterThan(4.5));
+    expect(
+      _contrastRatio(colors.primarySoft, colors.primary),
+      greaterThan(4.5),
+    );
+    expect(_contrastRatio(colors.accentSoft, colors.accent), greaterThan(4.5));
+    expect(
+      _contrastRatio(colors.successSoft, colors.onSuccessSoft),
+      greaterThan(4.5),
+    );
+    expect(
+      _contrastRatio(colors.warningSoft, colors.onWarningSoft),
+      greaterThan(4.5),
+    );
+    expect(
+      _contrastRatio(colors.dangerSoft, colors.onDangerSoft),
+      greaterThan(4.5),
+    );
+    expect(
+      _contrastRatio(colors.infoSoft, colors.onInfoSoft),
+      greaterThan(4.5),
+    );
+    expect(_contrastRatio(colors.surface, colors.textMuted), greaterThan(4.5));
+    expect(_contrastRatio(colors.surface, colors.textSubtle), greaterThan(4.5));
+  });
+
   testWidgets('shared Settleora UI primitives render stable labels', (
     tester,
   ) async {
@@ -127,6 +158,56 @@ void main() {
     expect(find.text('Bills unavailable'), findsOneWidget);
     expect(find.text('Try again later.'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.widgetWithText(FilledButton, 'Primary action'))
+          .height,
+      greaterThanOrEqualTo(48),
+    );
+  });
+
+  testWidgets('amount status row stays readable at high text scale', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 300,
+                child: AppCard(
+                  child: AmountStatusRow(
+                    title: 'Very long dinner club settlement',
+                    subtitle: 'Long server-returned subtitle remains bounded',
+                    amount: r'HKD 123456.78',
+                    status: 'Needs review',
+                    statusVariant: StatusChipVariant.warning,
+                    leading: Icons.receipt_long_outlined,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Very long dinner club settlement'), findsOneWidget);
+    expect(
+      find.text('Long server-returned subtitle remains bounded'),
+      findsOneWidget,
+    );
+    expect(find.text(r'HKD 123456.78'), findsOneWidget);
+    expect(find.text('Needs review'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('bottom nav renders destinations and reports selected taps', (
@@ -212,4 +293,12 @@ Future<void> _useLargeSurface(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+double _contrastRatio(Color a, Color b) {
+  final l1 = a.computeLuminance();
+  final l2 = b.computeLuminance();
+  final lighter = l1 > l2 ? l1 : l2;
+  final darker = l1 > l2 ? l2 : l1;
+  return (lighter + 0.05) / (darker + 0.05);
 }

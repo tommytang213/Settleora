@@ -1185,6 +1185,7 @@ class _DashboardSummaryCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
     final youOwe = _BalanceMetric.from(
       balances: overview.outgoingBalances,
       fallbackCurrency: defaultCurrency,
@@ -1199,16 +1200,16 @@ class _DashboardSummaryCards extends StatelessWidget {
         title: 'You owe',
         value: youOwe.value,
         caption: youOwe.caption,
-        backgroundColor: const Color(0xFFFFE8EC),
-        foregroundColor: const Color(0xFF8A1230),
+        backgroundColor: colors.dangerSoft,
+        foregroundColor: colors.onDangerSoft,
       ),
       _DashboardSummaryCard(
         icon: Icons.south_west_outlined,
         title: "You're owed",
         value: youAreOwed.value,
         caption: youAreOwed.caption,
-        backgroundColor: const Color(0xFFE3F6E8),
-        foregroundColor: const Color(0xFF0B6B35),
+        backgroundColor: colors.successSoft,
+        foregroundColor: colors.onSuccessSoft,
       ),
     ];
 

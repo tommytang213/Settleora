@@ -112,12 +112,16 @@ class StatusChip extends StatelessWidget {
               Icon(icon, size: isSmall ? 13 : 15, color: foreground),
               const SizedBox(width: 5),
             ],
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
               ),
             ),
           ],
@@ -226,49 +230,84 @@ class AmountStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          if (leading != null) ...[
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: colors.primarySoft,
-              foregroundColor: colors.primary,
-              child: Icon(leading, size: 20),
-            ),
-            const SizedBox(width: 12),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(color: colors.textSubtle)),
-              ],
-            ),
+    final titleColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: colors.textSubtle),
+        ),
+      ],
+    );
+    final amountColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          amount,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+        ),
+        const SizedBox(height: 4),
+        StatusChip(
+          label: status,
+          variant: statusVariant,
+          size: StatusChipSize.small,
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 340;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: isCompact
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
             children: [
-              Text(
-                amount,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              if (leading != null) ...[
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: colors.primarySoft,
+                  foregroundColor: colors.primary,
+                  child: Icon(leading, size: 20),
                 ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: isCompact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          titleColumn,
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: amountColumn,
+                          ),
+                        ],
+                      )
+                    : titleColumn,
               ),
-              const SizedBox(height: 4),
-              StatusChip(
-                label: status,
-                variant: statusVariant,
-                size: StatusChipSize.small,
-              ),
+              if (!isCompact) ...[
+                const SizedBox(width: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 132),
+                  child: amountColumn,
+                ),
+              ],
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

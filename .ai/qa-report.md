@@ -1,6 +1,34 @@
 # AI QA Report
 
-Status: `M14-001 completed; M14 continues before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+Status: `M14-002 completed; M14 continues before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+
+## M14-002 Theme Component Readability Hardening Summary
+
+M14-002 completed bounded mobile presentation/readability hardening.
+
+Runtime/component hardening:
+
+- `apps/mobile/lib/ui/settleora_theme.dart` now aligns the built-in light palette with the approved warm fintech groups direction using a warm orange primary and stronger muted/subtle text contrast.
+- `apps/mobile/lib/ui/settleora_components.dart` now keeps `StatusChip` labels bounded and improves `AmountStatusRow` readability for compact/high text-scale readouts.
+- `apps/mobile/lib/app/server_mode_shell.dart` now uses shared semantic danger/success status tokens for authenticated dashboard summary cards instead of local hardcoded colors.
+- `apps/mobile/test/ui/settleora_component_guardrail_test.dart` now asserts built-in token contrast, warm primary hue, shared button minimum touch target height, and high text-scale amount/status stability.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart` passed with 5 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 73 Flutter tests.
+
+M14 queue state after M14-002:
+
+- `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed.
+- `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed.
+- `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Current.
+- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Queued.
+- `STOP-M14-001` - Preserved.
+
+M14-002 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, persisted visual settings, Day 1 scope, or architecture direction.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M14 UI testing readiness remains false until M14-004 finalization. Recommended next automated task is `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
 
 ## M14-001 Visual Theme Accessibility State Reconciliation Summary
 
