@@ -1,0 +1,63 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the requested improvement.
+    validations:
+      required: true
+  - type: textarea
+    id: problem_user_need
+    attributes:
+      label: Problem / user need
+      description: What problem should this solve, and who needs it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or capability you want.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives_considered
+    attributes:
+      label: Alternatives considered
+      description: Note any alternatives or workarounds considered.
+    validations:
+      required: false
+  - type: textarea
+    id: ux_notes
+    attributes:
+      label: UX notes
+      description: Add relevant workflow, screen, accessibility, or copy notes.
+    validations:
+      required: false
+  - type: textarea
+    id: technical_notes
+    attributes:
+      label: Technical notes
+      description: Add implementation constraints or integration notes, if known.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that would make this complete.
+      placeholder: |
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add any other relevant context.
+    validations:
+      required: false

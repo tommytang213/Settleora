@@ -1,0 +1,21 @@
+# Security Policy
+
+## Reporting a Vulnerability
+
+Do not report vulnerabilities through public GitHub issues.
+
+Report security concerns privately through:
+
+tommytang213@gmail.com
+
+Do not include secrets, credentials, tokens, personal data, private URLs, or exploit payloads in public issues or pull requests.
+
+## Supported Versions
+
+Supported version: current main branch only.
+
+## Response Expectations
+
+The maintainer will review security reports when reasonably possible.
+
+No support, maintenance, bug fix, or security fix timeline is guaranteed.

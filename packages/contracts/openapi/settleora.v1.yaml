@@ -3,8 +3,8 @@ info:
   title: Settleora API
   version: 0.1.0
   license:
-    name: Apache-2.0
-    identifier: Apache-2.0
+    name: PolyForm Noncommercial License 1.0.0
+    url: https://polyformproject.org/licenses/noncommercial/1.0.0
   description: >
     OpenAPI contract for Settleora scaffold materialization. Generated mobile
     and web clients are produced from this file, and generated output

@@ -577,12 +577,13 @@ Database and API design must support future additions with minimal breaking chan
 ### 27.10 Backward Compatibility
 Future changes should preserve compatibility where practical and avoid unnecessary refactors.
 
-## 28. Open Source
-- full source in repository
+## 28. Source-Available Community Standards
+- full source available in repository
+- project license: PolyForm Noncommercial License 1.0.0
+- commercial use requires written permission from the copyright holder
 - issue templates
 - contribution guide
-- GitHub Sponsors placeholders/links
-- recommended permissive license: Apache-2.0
+- community standards and security reporting guidance
 
 ## 29. AI-Assisted CI/CD, Branching, and Release Automation
 The engineering workflow must behave like a real product team workflow, even when AI is generating code.
