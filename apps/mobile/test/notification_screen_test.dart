@@ -12,6 +12,7 @@ import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
+import 'package:mobile/notifications/notification_preferences.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/notifications/notification_screen.dart';
 import 'package:mobile/profile/profile_repository.dart';
@@ -24,6 +25,52 @@ import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
 
 void main() {
+  test('notification preferences use safe defaults and local suppression', () {
+    final settings = SettleoraNotificationPreferenceSettings.defaults();
+    final bill = sampleNotification(safeSummary: 'Bill row.');
+    final settlement = sampleNotification(
+      eventType: 'settlement.request_created',
+      subjectType: SettleoraNotificationSubjectTypeValues.settlementRequest,
+      settlementRequestId: _settlementId,
+      safeSummary: 'Settlement row.',
+    );
+    final security = sampleNotification(
+      eventType: 'security.session_revoked',
+      priority: SettleoraNotificationPriorityValues.urgent,
+      safeSummary: 'Security row.',
+    );
+
+    expect(settings.shouldShowNotification(bill), isTrue);
+    expect(settings.shouldShowNotification(settlement), isTrue);
+    expect(settings.shouldShowNotification(security), isTrue);
+
+    final billsDisabled = settings.setCategoryEnabled(
+      SettleoraNotificationPreferenceCategory.bills,
+      false,
+    );
+    expect(billsDisabled.shouldShowNotification(bill), isFalse);
+    expect(billsDisabled.shouldShowNotification(settlement), isTrue);
+    expect(billsDisabled.shouldShowNotification(security), isTrue);
+    expect(billsDisabled.suppressedCount([bill, settlement, security]), 1);
+
+    final quiet = settings.copyWith(
+      quietHours: const SettleoraNotificationQuietHours(
+        enabled: true,
+        startHour: 22,
+        endHour: 7,
+      ),
+    );
+    final localQuietTime = DateTime(2026, 6, 16, 23);
+    expect(
+      quiet.shouldShowNotification(bill, localNow: localQuietTime),
+      isFalse,
+    );
+    expect(
+      quiet.shouldShowNotification(security, localNow: localQuietTime),
+      isTrue,
+    );
+  });
+
   testWidgets('notification screen shows loading and loaded content', (
     tester,
   ) async {
@@ -72,6 +119,57 @@ void main() {
     expect(repository.summaryCalls, 1);
     expect(repository.listCalls, 1);
   });
+
+  testWidgets(
+    'notification screen respects local preferences without archive',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(id: 'bill-row', safeSummary: 'Bill row.'),
+          sampleNotification(
+            id: 'settlement-row',
+            eventType: 'settlement.request_created',
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            settlementRequestId: _settlementId,
+            safeSummary: 'Settlement row.',
+          ),
+          sampleNotification(
+            id: 'archived-row',
+            status: SettleoraNotificationStatusValues.archived,
+            safeSummary: 'Archived row.',
+            archivedAtUtc: _updatedAtUtc,
+          ),
+        ],
+      );
+      final preferences = SettleoraNotificationPreferenceSettings.defaults()
+          .setCategoryEnabled(
+            SettleoraNotificationPreferenceCategory.bills,
+            false,
+          );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraNotificationScreen(
+            repository: repository,
+            preferences: preferences,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Settlement row.'), findsOneWidget);
+      expect(find.text('Bill row.'), findsNothing);
+      expect(find.text('Archived row.'), findsNothing);
+      expect(find.textContaining('1 loaded non-critical row'), findsOneWidget);
+      expect(repository.archiveCalls, 0);
+
+      await tapNotificationFilter(tester, 'archived');
+
+      expect(find.text('Archived row.'), findsOneWidget);
+      expect(find.text('Bill row.'), findsNothing);
+    },
+  );
 
   testWidgets('notification filters show counts and filtered empty state', (
     tester,

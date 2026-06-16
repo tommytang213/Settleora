@@ -12,6 +12,7 @@ import '../recurring_bills/recurring_bill_repository.dart';
 import '../recurring_bills/recurring_bill_screen.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
+import 'notification_preferences.dart';
 import 'notification_repository.dart';
 
 class SettleoraNotificationScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.preferences,
     this.onSessionEnded,
   });
 
@@ -40,6 +42,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final SettleoraNotificationPreferenceSettings? preferences;
   final Future<void> Function(String? noticeMessage)? onSessionEnded;
 
   @override
@@ -816,11 +819,20 @@ class _SettleoraNotificationScreenState
     final summary = _summary;
     final canRestoreArchived =
         widget.repository is SettleoraNotificationRestoreRepository;
+    final preferences =
+        widget.preferences ??
+        SettleoraNotificationPreferenceSettings.defaults();
+    final preferenceVisibleNotifications = _notifications
+        .where(
+          (notification) => preferences.shouldShowNotification(notification),
+        )
+        .toList(growable: false);
+    final suppressedCount = preferences.suppressedCount(_notifications);
     final counts = _NotificationFilterCounts.fromRows(
-      _notifications,
+      preferenceVisibleNotifications,
       isActionable: _canOpenAnyTypedTarget,
     );
-    final visibleNotifications = _notifications
+    final visibleNotifications = preferenceVisibleNotifications
         .where(
           (notification) => _matchesFilter(
             notification,
@@ -895,7 +907,8 @@ class _SettleoraNotificationScreenState
                   ),
                   const SizedBox(height: 8),
                   _LoadedFilterScopeNote(
-                    loadedCount: _notifications.length,
+                    loadedCount: preferenceVisibleNotifications.length,
+                    suppressedCount: suppressedCount,
                     visibleCount: visibleNotifications.length,
                     selectedFilterLabel: _selectedFilter.label,
                     selectedFilter: _selectedFilter,
@@ -917,6 +930,12 @@ class _SettleoraNotificationScreenState
                   const SizedBox(height: 16),
                   if (_notifications.isEmpty)
                     const _EmptyNotifications()
+                  else if (preferenceVisibleNotifications.isEmpty)
+                    const _EmptyNotifications(
+                      title: 'No visible notifications',
+                      message:
+                          'Notification preferences are suppressing loaded non-critical rows. Hidden rows stay in the inbox and can reappear when preferences change.',
+                    )
                   else if (visibleNotifications.isEmpty)
                     _EmptyNotifications(
                       title: _emptyTitleForFilter(_selectedFilter),
@@ -1282,12 +1301,14 @@ class _NotificationFilterBar extends StatelessWidget {
 class _LoadedFilterScopeNote extends StatelessWidget {
   const _LoadedFilterScopeNote({
     required this.loadedCount,
+    required this.suppressedCount,
     required this.visibleCount,
     required this.selectedFilterLabel,
     required this.selectedFilter,
   });
 
   final int loadedCount;
+  final int suppressedCount;
   final int visibleCount;
   final String selectedFilterLabel;
   final _NotificationFilter selectedFilter;
@@ -1297,9 +1318,22 @@ class _LoadedFilterScopeNote extends StatelessWidget {
     final archivedCopy = selectedFilter == _NotificationFilter.archived
         ? 'The Archived filter is the only filter that shows archived loaded rows.'
         : 'Active filters exclude archived rows unless Archived is selected.';
-    return Text(
-      'Showing $visibleCount of $loadedCount loaded rows for $selectedFilterLabel. Local filters only hide loaded rows; clearing filters restores loaded rows, not new server truth. $archivedCopy',
-      style: Theme.of(context).textTheme.bodySmall,
+    return Column(
+      key: const Key('notification-preference-suppression-note'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Showing $visibleCount of $loadedCount preference-visible loaded rows for $selectedFilterLabel. Local filters only hide loaded rows; clearing filters restores loaded rows, not new server truth. $archivedCopy',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (suppressedCount > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            '$suppressedCount loaded non-critical row${_plural(suppressedCount)} hidden by notification preferences; hidden rows are not deleted or archived.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -2302,6 +2336,8 @@ IconData _failureIcon(SettleoraNotificationFailureKind kind) {
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
 }
+
+String _plural(int count) => count == 1 ? '' : 's';
 
 DateTime? _latestNotificationUpdate(SettleoraNotificationRow notification) {
   final readAt = notification.readAtUtc;
