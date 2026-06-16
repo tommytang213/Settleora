@@ -54,12 +54,12 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
-- Last completed task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
+- Current task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
+- Last completed task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
 - Current state: M12 is in progress as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M12.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M12.
-- Recommended next automated task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
+- Recommended next automated task: `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
 - Stop sentinel: `STOP-M12-001` stops data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M12-001 Reconciliation Summary
@@ -73,6 +73,26 @@ Current findings:
 - Existing profile/payment readouts already state that server-returned visibility is not a client-side authorization decision and suppress raw profile/payment/QR/storage/vault/token details.
 - Existing sync readout covers current mobile bill queue pending/synced/failed/conflict states only and does not imply full offline cache hydration, broad conflict resolution, import/export, backup/restore, or server acceptance beyond submitted operations.
 - CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, destructive portability actions, private-vault behavior, retention policy, file byte movement, and storage/privacy runtime are not implemented and remain readiness/copy-only for future M12 slices unless a human-approved task expands scope.
+
+## M12-002 First-Launch Mode Boundary Hardening Summary
+
+M12-002 completed mobile first-launch and mode-boundary hardening inside existing `apps/mobile/lib/app/` presentation and `apps/mobile/test/widget_test.dart` seams.
+
+Completed behavior:
+
+- First-launch setup now says local data stays on the device and server collaboration starts only after server sign-in.
+- Local mode setup/bootstrap copy now explicitly says Local Mode is device-bound and does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration. Moving to server mode is described as a future explicit guided flow.
+- Server setup/sign-in copy now says server mode requires server authentication and that the API decides account access, collaboration, shared records, sync acceptance, and authorization.
+- Server setup/sign-in/change-server copy now says saving or changing a server clears saved session material for that configured server only and does not upload local-only data, link accounts, create backups, or migrate records.
+- Sign-in and current-user verification failure display now uses bounded auth failure copy when incoming messages contain raw URLs, API paths, tokens, session IDs, stack traces, generated-client/provider payloads, storage paths, vault/private-file terms, or related unsafe internals.
+- Protected server-mode surfaces still require authenticated server shell entry after current-user validation; cached route, session, or profile data is explicitly not authorization.
+- No runtime import/export/backup/restore/migration/link/disconnect behavior was added.
+
+Focused validation during implementation:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 31 tests.
+
+At M12-002 completion, M12-003 became current, M12-004 remains queued, `STOP-M12-001` remains preserved, M12 is not ready for UI acceptance testing until M12-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
 
 ## M11 Carry-Forward Boundary
 

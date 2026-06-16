@@ -49,7 +49,23 @@ void main() {
     expect(storage.clearServerSessionCalls, 1);
     expect(repositoryCreated, isFalse);
     expect(find.text('Local Mode'), findsOneWidget);
-    expect(find.textContaining('Server collaboration'), findsOneWidget);
+    expect(find.textContaining('Local Mode is device-bound'), findsWidgets);
+    expect(
+      find.textContaining('does not create or link a server account'),
+      findsWidgets,
+    );
+    expect(find.textContaining('Shared groups'), findsWidgets);
+    expect(find.textContaining('server sync'), findsWidgets);
+    expect(find.textContaining('server backup'), findsWidgets);
+    expect(find.textContaining('import/export'), findsWidgets);
+    expect(find.textContaining('automatic migration'), findsWidgets);
+    expect(find.textContaining('future explicit guided flow'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Export'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Export'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Import'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Back up'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Migrate'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsNothing);
   });
 
   testWidgets('setup rejects invalid server base URLs before saving', (
@@ -86,8 +102,57 @@ void main() {
     expect(find.text('Sign in to Settleora'), findsOneWidget);
     expect(find.byKey(const Key('sign-in-identifier')), findsOneWidget);
     expect(find.byKey(const Key('sign-in-password')), findsOneWidget);
+    expect(
+      find.textContaining('Server authentication is required'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('collaboration, shared records, sync acceptance'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('does not migrate local data'), findsOneWidget);
+    expect(find.textContaining('upload records'), findsOneWidget);
+    expect(find.textContaining('link accounts'), findsOneWidget);
+    expect(find.textContaining('create a backup'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('https://settleora.example')));
     expect(find.text('Receipt Reviews'), findsNothing);
   });
+
+  testWidgets(
+    'setup server copy keeps API authority and no-migration boundary',
+    (tester) async {
+      final storage = FakeSecureStorage();
+
+      await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('server collaboration starts only'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Server mode requires server authentication'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('The API decides account access'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('shared records'), findsOneWidget);
+      expect(find.textContaining('sync acceptance'), findsOneWidget);
+      expect(
+        find.textContaining('Saving or changing a server clears saved session'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('It does not upload local-only data'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('link accounts'), findsOneWidget);
+      expect(find.textContaining('create backups'), findsOneWidget);
+      expect(find.textContaining('migrate records'), findsOneWidget);
+    },
+  );
 
   testWidgets('sign-in validation rejects blank input before auth calls', (
     tester,
@@ -352,6 +417,58 @@ void main() {
     expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
   });
 
+  testWidgets('sign-in failure suppresses raw transport and storage details', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final authRepository = FakeAuthRepository(
+      signInFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.server,
+        message:
+            'POST https://settleora.example/api/v1/auth/sign-in token=secret session_id=abc provider_payload stack trace /var/storage/private-file vault',
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('sign-in-identifier')),
+      'owner@example.test',
+    );
+    await tester.enterText(
+      find.byKey(const Key('sign-in-password')),
+      'redacted-password',
+    );
+    await tester.tap(find.byKey(const Key('sign-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Server unavailable'), findsOneWidget);
+    expect(
+      find.text('Sign-in is unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    final text = visibleText(tester).toLowerCase();
+    expect(text, isNot(contains('https://settleora.example')));
+    expect(text, isNot(contains('/api/v1/auth/sign-in')));
+    expect(text, isNot(contains('token=secret')));
+    expect(text, isNot(contains('session_id')));
+    expect(text, isNot(contains('provider_payload')));
+    expect(text, isNot(contains('stack trace')));
+    expect(text, isNot(contains('/var/storage')));
+    expect(text, isNot(contains('private-file')));
+    expect(text, isNot(contains('vault')));
+  });
+
   testWidgets('invalid stored session returns to sign-in and clears session', (
     tester,
   ) async {
@@ -392,6 +509,69 @@ void main() {
     );
     expect(find.text('Receipt Reviews'), findsNothing);
     expect(find.textContaining('expired-access-token'), findsNothing);
+  });
+
+  testWidgets('current-user failure stays bounded and requires validation', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+      session: sampleSessionMaterial(),
+    );
+    final authRepository = FakeAuthRepository(
+      currentUserFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.server,
+        message:
+            'GET https://settleora.example/api/v1/auth/current-user token=secret session_id=abc generated-client provider_payload stack trace C:\\Users\\secret\\file',
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(authRepository.currentUserCalls, 1);
+    expect(storage.session, isNotNull);
+    expect(find.text('Server unavailable'), findsOneWidget);
+    expect(
+      find.textContaining('Sign-in is unavailable right now. Try again later.'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Cached route, session, or profile data is not authorization',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'protected server-mode surfaces require current server validation',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('bootstrap-current-user-retry')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('bootstrap-change-server')), findsOneWidget);
+    expect(find.text('Receipt Reviews'), findsNothing);
+
+    final text = visibleText(tester).toLowerCase();
+    expect(text, isNot(contains('https://settleora.example')));
+    expect(text, isNot(contains('/api/v1/auth/current-user')));
+    expect(text, isNot(contains('token=secret')));
+    expect(text, isNot(contains('session_id')));
+    expect(text, isNot(contains('generated-client')));
+    expect(text, isNot(contains('provider_payload')));
+    expect(text, isNot(contains('stack trace')));
+    expect(text, isNot(contains('c:\\users')));
   });
 
   testWidgets('sign out revokes the current session and clears local storage', (

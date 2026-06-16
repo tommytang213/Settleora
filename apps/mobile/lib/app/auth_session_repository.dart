@@ -110,10 +110,72 @@ class SettleoraAuthFailure implements Exception {
     };
   }
 
+  String get safeDisplayMessage {
+    if (!_containsUnsafeFailureDetail(message)) {
+      return message;
+    }
+
+    return switch (kind) {
+      SettleoraAuthFailureKind.validation =>
+        'Check the entered sign-in details and try again.',
+      SettleoraAuthFailureKind.invalidCredentials =>
+        'Unable to sign in with the submitted information.',
+      SettleoraAuthFailureKind.tooManyAttempts =>
+        'Too many attempts. Wait and try again.',
+      SettleoraAuthFailureKind.sessionExpired =>
+        'Your session has expired. Sign in again.',
+      SettleoraAuthFailureKind.denied =>
+        'This account is not authorized for that server state.',
+      SettleoraAuthFailureKind.unavailable =>
+        'Current user verification is unavailable. Try again later.',
+      SettleoraAuthFailureKind.conflict =>
+        'Session state changed. Sign in again.',
+      SettleoraAuthFailureKind.network =>
+        'The server is unavailable. Check the connection and try again.',
+      SettleoraAuthFailureKind.server =>
+        'Sign-in is unavailable right now. Try again later.',
+      SettleoraAuthFailureKind.storage =>
+        'Sign-in could not be saved on this device. Try again later.',
+    };
+  }
+
   @override
   String toString() {
     return 'SettleoraAuthFailure($kind, statusCode: $statusCode)';
   }
+}
+
+bool _containsUnsafeFailureDetail(String value) {
+  final normalized = value.toLowerCase();
+  const unsafeFragments = [
+    'http://',
+    'https://',
+    '/api/',
+    'token',
+    'session id',
+    'session_id',
+    'sessionid',
+    'stacktrace',
+    'stack trace',
+    'provider_payload',
+    'provider payload',
+    'generated client',
+    'generated-client',
+    'authorization:',
+    'bearer ',
+    '.ssh',
+    '.env',
+    'secure storage',
+    'local storage',
+    '/var/',
+    '/tmp/',
+    'c:\\',
+    'vault',
+    'private-file',
+    'private file',
+  ];
+
+  return unsafeFragments.any(normalized.contains);
 }
 
 abstract interface class SettleoraAuthRepository {

@@ -1,6 +1,35 @@
 # AI QA Report
 
-Status: `M12 in progress; M12-002 selected; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 in progress; M12-003 selected; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M12-002 First-Launch Mode Boundary Hardening Summary
+
+M12-002 completed mobile first-launch and mode-boundary copy/state hardening inside existing mobile presentation and test seams.
+
+Runtime/copy hardening:
+
+- `apps/mobile/lib/app/setup_screen.dart` now says local data stays on the device and server collaboration starts only after server sign-in.
+- Setup and bootstrap Local Mode copy now says Local Mode is device-bound; does not create or link a server account; does not enable shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration; and moving to server mode is a future explicit guided flow.
+- Server setup/sign-in copy now says server authentication is required and the API decides account access, collaboration, shared records, sync acceptance, and authorization.
+- Server setup/sign-in change-server copy now says saving or changing server configuration clears saved session material for that configured server only and does not upload local-only data, link accounts, create backups, or migrate records.
+- Bootstrap current-user failure copy now says cached route, session, or profile data is not authorization and protected server-mode surfaces require current server validation.
+- Auth failure display now suppresses raw URLs, API paths, tokens, session IDs, stack traces, generated-client/provider payloads, storage paths, vault/private-file terms, and related unsafe internals before rendering sign-in/current-user failures.
+- No import/export/backup/restore/migration/link/disconnect runtime or fake portability controls were added.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 31 tests.
+- Added/updated widget coverage for local device-bound/no-account/no-migration copy, no fake portability controls, server auth/API authority copy, no local upload/account-link/backup/migration implication on server changes, bounded sign-in/current-user failure display, and current-user validation before protected server-mode surfaces.
+
+M12 queue state after M12-002:
+
+- `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517` - Completed.
+- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517` - Completed.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517` - Current. Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` - Queued.
+- `STOP-M12-001` - Preserved.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M12 remains not UI-test ready until M12-004 finalization. Recommended next automated task is `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`.
 
 ## M12-001 Settings Mode/Data-Portability Reconciliation Summary
 

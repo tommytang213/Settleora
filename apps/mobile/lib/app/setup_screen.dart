@@ -108,7 +108,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
             children: [
               Text(
-                'Choose how this device should start.',
+                'Choose how this device should start. Local data stays on this device; server collaboration starts only after server sign-in.',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
@@ -204,6 +204,18 @@ class _ServerModeFormFields extends StatelessWidget {
             prefixIcon: Icon(Icons.link_outlined),
           ),
         ),
+        const SizedBox(height: 10),
+        const _BoundaryNotice(
+          icon: Icons.verified_user_outlined,
+          message:
+              'Server mode requires server authentication. The API decides account access, collaboration, shared records, sync acceptance, and authorization.',
+        ),
+        const SizedBox(height: 10),
+        const _BoundaryNotice(
+          icon: Icons.swap_horiz_outlined,
+          message:
+              'Saving or changing a server clears saved session material for this configured server only. It does not upload local-only data, link accounts, create backups, or migrate records.',
+        ),
         if (warning != null) ...[
           const SizedBox(height: 10),
           Row(
@@ -243,12 +255,31 @@ class _LocalModeNotice extends StatelessWidget {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Local Mode keeps this device separate. Server collaboration, friends, groups, and server sync are unavailable until the local runtime exists.',
+                'Local Mode is device-bound. It does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration. Moving to server mode will be a future explicit guided flow.',
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BoundaryNotice extends StatelessWidget {
+  const _BoundaryNotice({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
+        const SizedBox(width: 8),
+        Expanded(child: Text(message)),
+      ],
     );
   }
 }

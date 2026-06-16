@@ -73,7 +73,7 @@ class _SettleoraSignInScreenState extends State<SettleoraSignInScreen> {
         _failure = const SettleoraAuthFailure(
           kind: SettleoraAuthFailureKind.storage,
           message:
-              'Sign-in could not be saved on this device. Try again after secure storage is ready.',
+              'Sign-in could not be saved on this device. Try again later.',
         );
       });
     } finally {
@@ -120,7 +120,12 @@ class _SettleoraSignInScreenState extends State<SettleoraSignInScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                widget.serverBaseUri.toString(),
+                'Server authentication is required before collaboration, shared records, sync acceptance, or account data are available.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Changing server configuration clears saved session material for that configured server only. It does not migrate local data, upload records, link accounts, or create a backup.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               if (notice != null) ...[
@@ -136,7 +141,7 @@ class _SettleoraSignInScreenState extends State<SettleoraSignInScreen> {
                 _StatusMessage(
                   icon: Icons.error_outline,
                   title: failure.title,
-                  message: failure.message,
+                  message: failure.safeDisplayMessage,
                 ),
               ],
               const SizedBox(height: 18),

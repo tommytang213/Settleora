@@ -1,6 +1,6 @@
 # M12 Mobile Settings, Mode Boundary, And Data Portability QA Map
 
-Status: `M12-001 reconciled; M12-002 selected; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12-001 reconciled; M12-002 completed; M12-003 selected; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -59,19 +59,55 @@ M12-001 verified the current mobile state against repo code and tests without ch
 
 No M12-001 mobile tests were changed. Existing coverage is enough for state reconciliation, while M12-002 and M12-003 should add focused tests only where they harden copy/states.
 
-## Known Gaps For M12-002 And M12-003
+## M12-002 First-Launch Mode Boundary Hardening
 
-- M12-002 should harden first-launch/local-mode/bootstrap copy and tests to explicitly state local mode is device-bound, does not create a server account, does not enable server collaboration/shared groups/server sync, and does not automatically migrate/link local data when the user connects to a server.
-- M12-002 should harden server setup/change-server/sign-in copy and tests to state server mode requires authentication and API authority, and that changing servers clears local server-session material without importing/linking local-only data or merging authority boundaries.
-- M12-003 should add settings/profile/account readout copy and focused tests for unsupported CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, and destructive portability actions as readiness/placeholder states only.
+M12-002 hardened current mobile first-launch/setup, local-mode bootstrap, server setup/sign-in, change-server, and bounded sign-in/current-user failure copy without adding new backend behavior, OpenAPI/generated-client changes, storage/privacy behavior, auth/session policy changes, data-portability runtime, or fake portability controls.
+
+Files changed:
+
+- `apps/mobile/lib/app/setup_screen.dart`
+- `apps/mobile/lib/app/app_bootstrap.dart`
+- `apps/mobile/lib/app/sign_in_screen.dart`
+- `apps/mobile/lib/app/auth_session_repository.dart`
+- `apps/mobile/test/widget_test.dart`
+- `.ai/current-milestone.md`
+- `.ai/qa-report.md`
+- `.ai/state.json`
+- `.ai/task-queue.json`
+- `docs/qa/M12_MOBILE_SETTINGS_MODE_DATA_PORTABILITY_QA_MAP.md`
+
+User-visible behavior summary:
+
+- First-launch setup now states local data stays on this device and server collaboration starts only after server sign-in.
+- Local Mode copy now says local use is device-bound and does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration.
+- Local Mode copy says moving to server mode is a future explicit guided flow, not a silent migration.
+- Server setup/sign-in copy now says server authentication is required and the API decides account access, collaboration, shared records, sync acceptance, and authorization.
+- Server setup/sign-in change-server copy now says saving or changing a server clears saved session material for that configured server only and does not upload local-only data, link accounts, create backups, or migrate records.
+- Bootstrap current-user failure copy now explains cached route, session, or profile data is not authorization and protected server-mode surfaces require current server validation.
+- Sign-in/current-user failure display falls back to bounded auth copy when incoming messages contain raw URLs, API paths, tokens, session IDs, stack traces, generated-client/provider payloads, storage paths, vault/private-file terms, or related unsafe internals.
+
+Tests and validation recorded during implementation:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 31 tests.
+- Added/updated coverage for device-bound local mode, no server account/link/migration implications, no fake export/import/backup/migration/disconnect controls, server authentication/API authority copy, change-server no-upload/no-link/no-backup/no-migration copy, bounded invalid/unavailable sign-in/current-user states, unsafe detail suppression, and protected server-mode validation before shell entry.
+
+Explicit non-goals preserved:
+
+- No real CSV import/export, local backup/restore, server backup, cloud recovery, local-to-server migration/link, server-to-local export/disconnect, data migration, or file byte movement was added.
+- No backend/API behavior, OpenAPI/generated-client changes, database schema/migrations, auth/session/security runtime or policy changes, storage/privacy/private-vault changes, money/bill/settlement/recurring/OCR/reconciliation authority changes, deployment/CI/Docker changes, secrets, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, or architecture direction replacement was made.
+
+## Known Gaps For M12-003 And M12-004
+
+- M12-003 should add or harden settings/profile/account readout copy and focused tests for unsupported CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, and destructive portability actions as readiness/placeholder states only.
 - M12-003 should make sync-status copy clearer that queued/synced/failed/conflict counts are for existing mobile sync queue operations and do not imply full offline cache hydration, server acceptance of all local data, import/export availability, or conflict-resolution authority.
 - M12-003 should preserve profile/payment/account copy that cached rows, hidden controls, route state, generated-client availability, and UI mode/preferences do not authorize data access or policy changes.
+- M12-004 should finalize M12 QA/control state only after M12-003 passes validation, keep manual UI/code review deferred until Day 1 acceptance, and mark M12 UI-test ready only at finalization.
 
 ## Planned Queue
 
 - `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`: Reconcile current mobile settings, mode-boundary, data-portability readiness implementation and tests without runtime changes.
-- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`: Harden first-launch/setup/local/server mode boundary copy and tests inside `apps/mobile/lib/app/`.
-- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`: Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
+- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`: Completed. Hardened first-launch/setup/local/server mode boundary copy and tests inside `apps/mobile/lib/app/`.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517`: Current. Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
 - `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517`: Finalize QA/control state and mark M12 UI-test ready after slices complete.
 - `STOP-M12-001`: Manual gate for data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
