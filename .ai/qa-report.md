@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/code review deferred until Day 1 acceptance`
+Status: `M9 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Acceptance Checklist
 
@@ -64,7 +64,7 @@ Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/cod
 - [x] M9-002 hardened mobile notification inbox count clarity, local loaded-row filter copy, archived boundaries, row/bulk action copy, duplicate-action guards, bounded failure copy, refresh-after-mutation recovery, mark-visible semantics, and server-authority messaging.
 - [x] M9-003 hardened mobile notification typed handoff authority copy and notification-origin bill destination failure suppression while preserving destination repository re-fetch authority.
 - [x] M9 implementation hardening slices are complete.
-- [ ] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
+- [x] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
 ## M9 Selection Summary
 
@@ -83,7 +83,7 @@ The selection is based on current repo state:
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
 - `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
 - `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Completed. Hardened typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
-- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Current/next. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Completed. Finalized M9 QA/control state, recorded validation coverage, preserved deferred manual UI/code review status, and marked UI-test ready without runtime behavior changes.
 - `STOP-M9-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M9-001 Reconciliation Summary
@@ -146,6 +146,30 @@ Focused automated coverage:
 - Added coverage for denied personal bill destination failure through the authorized repository seam, no read mutation after denied destination failure, safe fallback failure copy, and unsafe string suppression.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
+
+## M9-004 QA Finalization Summary
+
+M9 is finalized as a bounded Day 1 mobile in-app notification inbox hardening checkpoint.
+
+Completed M9 slices:
+
+- M9-001 reconciled the current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement map, and bounded M9 focus without runtime behavior changes.
+- M9-002 completed inbox action hardening for summary/list count clarity, local loaded-row filter copy, archived-row boundaries, filtered-empty states, read/archive/restore-if-present/mark-all/mark-visible action copy, duplicate-action prevention, bounded failure/retry copy, refresh-after-mutation recovery, and API/server-authority messaging.
+- M9-003 completed typed handoff authority hardening so notification metadata, action URLs, raw IDs, cached rows, and generated-client methods remain navigation hints only while linked bill, bill-revision, settlement, and recurring destinations re-fetch through existing authorized repositories.
+- M9-004 completed control/QA finalization and set M9 to UI-test ready with no remaining automated M9 work.
+
+Recorded M9 validation coverage:
+
+- M9-002 focused notification-screen validation: 98 tests.
+- M9-002 full mobile validation: 698 Flutter tests.
+- M9-003 focused notification-screen validation: 57 tests.
+- M9-003 focused notification command validation: 99 tests.
+- M9-003 full mobile validation: 699 Flutter tests.
+- M9-004 final validation includes docs, scaffold, OpenAPI, mobile doctor, full mobile validation, scope guard, and final controller dry run. The final full mobile validation for M9-004 is recorded as 699 Flutter tests.
+
+M9 remains explicitly out of scope for item claim-specific event constants if not already returned safely by the server, sync conflict/failure notifications, auth/security/session notification generation behavior, OCR completion/failure notifications tied to future server OCR worker/runtime, push/email delivery, device-token registration, notification preferences, quiet hours, digests, reminder scheduling, server-side notification generation policy, notification queue/worker behavior, linked-resource authorization changes, backend/API behavior, OpenAPI/generated clients, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, deployment/CI/env/secrets, web/admin runtime UI, and broad offline cache/sync.
+
+M9-004 validation and PR/merge/CI status are recorded in the external task report at `/workspace/logs/settleora-codex-report-20260616-1053-m9-notification-inbox-qa-finalize.md`. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M9. Recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved milestone or queue kickoff.
 
 ## M8 Selection Summary
 
