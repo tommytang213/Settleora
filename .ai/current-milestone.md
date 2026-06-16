@@ -54,10 +54,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
-- Last completed task: `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
-- Current state: M10-001 reconciled the current mobile self profile/payment-details repository seams, generated-client mapping, app-shell entry, focused automated coverage, Day 1 requirement map, and M10-002/M10-003 gaps without runtime behavior changes. M10 remains active as a bounded Day 1 mobile self profile and payment-details hardening milestone. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
+- Current task: `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110`.
+- Last completed task: `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
+- Current state: M10-002 hardened the existing mobile self profile and text payment-details edit flows for bounded normalization copy, duplicate-submit guards, safe failure handling, refresh-after-save recovery, unsafe edit-text suppression, and server-authority messaging without runtime API, generated-client, auth/session, schema, storage/privacy, QR-byte, payment-detail visibility-policy, counterparty-authorization, money, deployment, or unrelated-domain changes. M10 remains active as a bounded Day 1 mobile self profile and payment-details hardening milestone. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110`.
 - Stop sentinel: `STOP-M10-001` stops API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/money/deployment, payment-detail visibility policy, counterparty authorization, admin/global payment-detail exposure, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M9 Carry-Forward Boundary
