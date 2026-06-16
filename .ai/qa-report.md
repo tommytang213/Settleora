@@ -118,6 +118,7 @@ Focused automated coverage during implementation:
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 28 tests.
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/secure_storage_test.dart` passed with 10 tests.
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart test/auth_session_repository_test.dart test/secure_storage_test.dart test/server_mode_shell_dashboard_test.dart` passed with 82 tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 712 Flutter tests.
 
 M11 remains in progress. M11-004 is now current, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
 
