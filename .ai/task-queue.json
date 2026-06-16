@@ -89,7 +89,7 @@
     "title": "Finalize mobile visual theme and accessibility readiness QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
