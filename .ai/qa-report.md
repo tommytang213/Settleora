@@ -1,6 +1,29 @@
 # AI QA Report
 
-Status: `M12 in progress; M12-004 selected; M12-003 completed; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 finalized/UI-test ready; M12-004 completed; M12-003 completed; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M12-004 QA Finalization Summary
+
+M12 is finalized as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness` and marked UI-test ready for deferred Day 1 acceptance review.
+
+Completed M12 slices:
+
+- M12-001 reconciled current mobile first-launch setup, local/server mode boundaries, server configuration/change-server entry points, authenticated shell settings/profile/session routes, sync status readout, profile/payment settings-adjacent surfaces, data-portability readiness gaps, and existing automated coverage without runtime behavior changes.
+- M12-002 hardened first-launch setup, local-mode bootstrap, server setup/sign-in, change-server, and bounded sign-in/current-user failure copy so local mode remains device-bound and server mode remains authenticated/API-authoritative.
+- M12-003 hardened authenticated server-mode settings readiness, sync-status, and profile account/privacy readouts, including unsupported placeholders for CSV export, CSV import, local backup/restore, local-to-server migration/link, and server-to-local export/disconnect without adding runtime controls.
+- M12-004 completed control/QA finalization and set M12 to UI-test ready with no remaining automated M12 work.
+
+Recorded M12 validation coverage:
+
+- M12-001 docs/control reconciliation validation passed with docs, scaffold, OpenAPI, mobile doctor, scope guard, and controller dry run.
+- M12-002 focused validation passed with 31 Flutter tests.
+- M12-003 focused shell/profile validation passed with 49 Flutter tests, required focused changed-surface validation passed with 109 Flutter tests, and full mobile validation passed with 716 Flutter tests.
+- M12-003 PR #194 merge-gate validation passed with full mobile validation at 716 Flutter tests before merge.
+- M12-004 final validation passed with docs, scaffold, OpenAPI, mobile doctor, and full mobile validation at 716 Flutter tests. Scope guard and final controller dry run are recorded with the final task report.
+
+M12 did not implement real CSV import/export runtime, local backup/restore runtime, local-to-server migration/link runtime, server-to-local export/disconnect runtime, data migration, file byte movement, storage/file privacy policy changes, private-vault behavior, retention policy changes, backend/API behavior, OpenAPI/contracts/generated-client changes, auth/session/security runtime or policy changes, schema/migrations, money/bill/settlement/recurring/OCR/reconciliation authority changes, import-driven financial mutation, Docker/deployment/env/CI changes, secrets, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, or architecture replacement.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed by M12. Recommended next automated Day 1 action is to run the AI V3 controller for the next normal Day 1 auto-queue kickoff or controller-approved action after M12 finalization, unless the controller reports a stricter blocker.
 
 ## M12-003 Settings Data-Portability Readout Hardening Summary
 
