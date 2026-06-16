@@ -31,7 +31,7 @@
     "title": "Mobile first-launch and mode-boundary hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

@@ -218,7 +218,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
               await widget.secureStorage.clearServerSession();
               session = null;
               hasUsableServerSession = false;
-              _signInNotice = failure.message;
+              _signInNotice = failure.safeDisplayMessage;
             } else {
               _currentUserFailure = failure;
             }
@@ -283,8 +283,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     } catch (_) {
       throw const SettleoraAuthFailure(
         kind: SettleoraAuthFailureKind.storage,
-        message:
-            'Sign-in could not be saved on this device. Try again after secure storage is ready.',
+        message: 'Sign-in could not be saved on this device. Try again later.',
       );
     }
 
@@ -345,7 +344,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
         icon: Icons.phone_android_outlined,
         title: 'Local Mode',
         message:
-            'This device is separate for now. Server collaboration, friends, groups, and server sync are unavailable until the local runtime exists.',
+            'Local Mode is device-bound and does not create or link a server account. Shared groups, collaboration, server sync, server backup, import/export, cloud recovery, and automatic migration are not available here. Moving to server mode will be a future explicit guided flow.',
         action: FilledButton.icon(
           key: const Key('bootstrap-connect-server'),
           onPressed: _editConfiguration,
@@ -368,7 +367,8 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       return _BootstrapStateScreen(
         icon: Icons.cloud_off_outlined,
         title: currentUserFailure.title,
-        message: currentUserFailure.message,
+        message:
+            '${currentUserFailure.safeDisplayMessage} Retry this server or change configuration. Cached route, session, or profile data is not authorization; protected server-mode surfaces require current server validation.',
         action: Wrap(
           alignment: WrapAlignment.center,
           spacing: 8,
