@@ -532,6 +532,7 @@ void main() {
   testWidgets(
     'bulk mark visible read only affects unread rows in selected filter',
     (tester) async {
+      await useLargeSurface(tester);
       final repository = FakeNotificationRepository(
         notifications: [
           sampleNotification(
@@ -1002,7 +1003,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
+        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );
@@ -1176,6 +1177,64 @@ void main() {
       find.byKey(const ValueKey('notification-open-personal-bill-0')),
       findsNothing,
     );
+  });
+
+  testWidgets('personal bill destination failure stays bounded', (
+    tester,
+  ) async {
+    final billRepository = FakeBillRepository(
+      personalFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.denied,
+        message:
+            'generated client denied /api/v1/bills/$_billId?token=secret stack trace storage provider receipt OCR proof payment details /home/user/file unrelated-user',
+        statusCode: 403,
+      ),
+    );
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          actionUrl: '/api/v1/bills/$_billId?token=secret',
+          expenseBillId: _billId,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          billRepository: billRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-personal-bill-0'),
+    );
+
+    expect(billRepository.getPersonalCalls, 1);
+    expect(repository.markReadCalls, 0);
+    expect(find.text('Corner Market'), findsNothing);
+    expect(
+      find.text(
+        'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+      ),
+      findsOneWidget,
+    );
+    final text = renderedNotificationUiText(tester);
+    expect(text, isNot(contains('/api/v1')));
+    expect(text, isNot(contains(_billId)));
+    expect(text, isNot(contains('token=secret')));
+    expect(text, isNot(contains('generated client')));
+    expect(text, isNot(contains('stack trace')));
+    expect(text, isNot(contains('storage provider')));
+    expect(text, isNot(contains('receipt OCR')));
+    expect(text, isNot(contains('proof')));
+    expect(text, isNot(contains('payment details')));
+    expect(text, isNot(contains('/home/user/file')));
+    expect(text, isNot(contains('unrelated-user')));
   });
 
   testWidgets('actionable filter includes openable personal bill targets', (
@@ -1945,7 +2004,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
+        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );
@@ -2000,14 +2059,14 @@ void main() {
     expect(find.text('Navigation safety'), findsOneWidget);
     expect(
       find.text(
-        'Raw links are ignored. Settleora opens only supported typed destinations.',
+        'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
       ),
       findsOneWidget,
     );
     expect(find.text('Authority'), findsOneWidget);
     expect(
       find.text(
-        'The API decides notification visibility, read/archive state, and linked-resource access.',
+        'The destination API re-checks access and current state before linked details or actions are shown.',
       ),
       findsOneWidget,
     );
@@ -2195,7 +2254,7 @@ void main() {
     expect(find.text('Priority'), findsOneWidget);
     expect(
       find.text(
-        'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
+        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
       ),
       findsOneWidget,
     );

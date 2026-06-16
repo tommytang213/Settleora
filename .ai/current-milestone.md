@@ -55,10 +55,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
-- Last completed task: `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055`.
-- Current state: M9-002 hardened mobile notification summary/list count clarity, local loaded-row filter copy, archived-row boundaries, row/bulk read/archive/restore action copy, duplicate-action guards, bounded failure copy, refresh-after-mutation recovery, mark-visible semantics, and server-authority messaging inside existing mobile notification seams. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
+- Current task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
+- Last completed task: `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
+- Current state: M9-003 hardened mobile notification typed handoff copy, unsupported/missing destination guidance, and notification-origin personal/group bill destination failure suppression while preserving destination repository re-fetch authority. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
 - Stop sentinel: `STOP-M9-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, client-side permission decisions from notification metadata/action URLs, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M8 Carry-Forward Boundary

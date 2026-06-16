@@ -1,6 +1,6 @@
 # M9 Mobile In-App Notification Inbox QA Map
 
-Status: `M9-001 and M9-002 complete; M9-003 current/next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M9-001 through M9-003 complete; M9-004 current/next; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
@@ -149,19 +149,26 @@ M9-002 changed only `.ai` control files, this QA map, `apps/mobile/lib/notificat
 
 ## Gap Focus For M9-003
 
-M9-003 should stay inside existing notification handoff seams and may harden:
+M9-003 is complete. It stayed inside existing notification handoff seams and hardened:
 
-- Copy that notification metadata, action URLs, raw IDs, cached rows, and generated-client methods are navigation hints only.
-- Bill, bill-revision, settlement, and recurring handoffs re-fetch linked resources through existing authorized repositories before rendering destination detail/actions.
-- Missing repository, missing typed ID, denied/unavailable destination, and stale notification states show bounded terminal or fallback copy.
-- Unsafe raw action URLs, raw IDs, API paths, storage paths, tokens, payment details, proof bytes, receipt/OCR content, and unrelated-user data remain suppressed.
+- Copy that notification metadata, action URLs, raw notification IDs, linked-resource IDs, cached rows, and generated-client methods are navigation hints only.
+- Bill, bill-revision, settlement, and recurring handoff copy that the destination API re-checks access and current state before linked details or actions are shown.
+- Missing repository, missing typed ID, unsupported action URL, and archived/stale notification states with bounded fallback copy that keeps users in the inbox or existing destination route.
+- Notification-origin personal/group bill destination failure suppression so unsafe generated-client, API path, token, storage/provider, proof, receipt/OCR, payment-detail, filesystem, stack-trace, and unrelated-user strings are not rendered.
+
+Focused automated coverage:
+
+- `cd apps/mobile && /opt/flutter/bin/flutter test test/notification_screen_test.dart` passed with 57 notification screen tests.
+- Added coverage that a personal bill handoff still uses the authorized bill repository seam before detail display, denied destination failure copy stays bounded, no read mutation occurs on denied destination failure, and unsafe raw IDs, API paths, action URLs, tokens/secrets, generated-client internals, storage/provider internals, payment details, proof, receipt/OCR content, filesystem paths, stack traces, and unrelated-user strings remain suppressed.
+
+M9-003 changed only `.ai` control files, this QA map, `apps/mobile/lib/notifications/notification_screen.dart`, and focused notification screen tests. It did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization, deployment/CI, web/admin runtime, broad offline sync/cache, secrets, or unrelated major-domain behavior.
 
 ## Queue Expectations
 
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
 - `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
-- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Current/next. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
-- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation, and mark UI-test ready only after M9 implementation slices complete.
+- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Completed. Hardened typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
+- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Current/next. Finalize M9 QA/control state, record validation, and mark UI-test ready only after M9 implementation slices complete.
 - `STOP-M9-001` - Preserve. Stop for forbidden API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker, linked-resource authorization, web/admin, broad-sync, secrets, or unrelated major-domain scope.
 
 ## Validation Expectations

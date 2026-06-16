@@ -525,7 +525,7 @@ class _SettleoraNotificationScreenState
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraGroupBillDetailScreen(
-            repository: billRepository,
+            repository: _NotificationHandoffBillRepository(billRepository),
             attachmentRepository: widget.billAttachmentRepository,
             attachmentFileInput: widget.billAttachmentFileInput,
             receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
@@ -591,7 +591,7 @@ class _SettleoraNotificationScreenState
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraBillDetailScreen(
-            repository: billRepository,
+            repository: _NotificationHandoffBillRepository(billRepository),
             billId: billId,
             attachmentRepository: widget.billAttachmentRepository,
             attachmentFileInput: widget.billAttachmentFileInput,
@@ -1523,7 +1523,7 @@ class _NotificationTile extends StatelessWidget {
               ] else if (!isArchived && hasOpenTarget) ...[
                 const SizedBox(height: 8),
                 const Text(
-                  'This notification cannot be opened safely here. Use the related list or refresh after a supported destination is available.',
+                  'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
                 ),
               ],
             ],
@@ -1674,13 +1674,13 @@ class _NotificationDetailSheet extends StatelessWidget {
               const _DetailRow(
                 label: 'Navigation safety',
                 value:
-                    'Raw links are ignored. Settleora opens only supported typed destinations.',
+                    'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
               ),
               _DetailRow(label: 'Current filter', value: selectedFilterLabel),
               const _DetailRow(
                 label: 'Authority',
                 value:
-                    'The API decides notification visibility, read/archive state, and linked-resource access.',
+                    'The destination API re-checks access and current state before linked details or actions are shown.',
               ),
               if (isArchived)
                 const Padding(
@@ -1722,6 +1722,106 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
+class _NotificationHandoffBillRepository implements SettleoraBillRepository {
+  const _NotificationHandoffBillRepository(this._delegate);
+
+  final SettleoraBillRepository _delegate;
+
+  @override
+  Future<List<SettleoraBillSummary>> listPersonalBills({int limit = 50}) {
+    return _delegate.listPersonalBills(limit: limit);
+  }
+
+  @override
+  Future<SettleoraBillDetail> createPersonalBill(
+    SettleoraPersonalBillCreateDraft draft,
+  ) {
+    return _delegate.createPersonalBill(draft);
+  }
+
+  @override
+  Future<SettleoraBillDetail> getPersonalBill(String billId) async {
+    try {
+      return await _delegate.getPersonalBill(billId);
+    } catch (error) {
+      throw _safeBillDestinationFailure(error);
+    }
+  }
+
+  @override
+  Future<List<SettleoraBillSummary>> listGroupBills(
+    String groupId, {
+    int limit = 50,
+  }) {
+    return _delegate.listGroupBills(groupId, limit: limit);
+  }
+
+  @override
+  Future<SettleoraBillDetail> createGroupBill(
+    String groupId,
+    SettleoraGroupBillCreateDraft draft,
+  ) {
+    return _delegate.createGroupBill(groupId, draft);
+  }
+
+  @override
+  Future<void> submitGroupBill(String groupId, String billId) {
+    return _delegate.submitGroupBill(groupId, billId);
+  }
+
+  @override
+  Future<void> acceptGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+  ) {
+    return _delegate.acceptGroupBillParticipant(groupId, billId, userProfileId);
+  }
+
+  @override
+  Future<void> rejectGroupBillParticipant(
+    String groupId,
+    String billId,
+    String userProfileId,
+    SettleoraBillParticipantRejectionReasonCode reasonCode,
+  ) {
+    return _delegate.rejectGroupBillParticipant(
+      groupId,
+      billId,
+      userProfileId,
+      reasonCode,
+    );
+  }
+
+  @override
+  Future<SettleoraBillDetail> getGroupBill(
+    String groupId,
+    String billId,
+  ) async {
+    try {
+      return await _delegate.getGroupBill(groupId, billId);
+    } catch (error) {
+      throw _safeBillDestinationFailure(error);
+    }
+  }
+}
+
+Object _safeBillDestinationFailure(Object error) {
+  if (error is SettleoraBillFailure) {
+    return SettleoraBillFailure(
+      kind: error.kind,
+      message: _safeDestinationFailureMessage(
+        error.message,
+        fallbackMessage:
+            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+      ),
+      statusCode: error.statusCode,
+    );
+  }
+
+  return error;
+}
+
 SettleoraNotificationFailure _notificationFailureFromGroupOpen(Object error) {
   if (error is SettleoraGroupFailure) {
     return SettleoraNotificationFailure(
@@ -1743,7 +1843,11 @@ SettleoraNotificationFailure _notificationFailureFromGroupOpen(Object error) {
         SettleoraGroupFailureKind.server =>
           SettleoraNotificationFailureKind.server,
       },
-      message: error.message,
+      message: _safeDestinationFailureMessage(
+        error.message,
+        fallbackMessage:
+            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+      ),
       statusCode: error.statusCode,
     );
   }
@@ -1776,7 +1880,11 @@ SettleoraNotificationFailure _notificationFailureFromBillOpen(Object error) {
         SettleoraBillFailureKind.server =>
           SettleoraNotificationFailureKind.server,
       },
-      message: error.message,
+      message: _safeDestinationFailureMessage(
+        error.message,
+        fallbackMessage:
+            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+      ),
       statusCode: error.statusCode,
     );
   }
@@ -1811,12 +1919,31 @@ SettleoraNotificationFailure _safeNotificationActionFailure(
   );
 }
 
+String _safeDestinationFailureMessage(
+  String message, {
+  required String fallbackMessage,
+}) {
+  return _isUnsafeNotificationUiText(message) ? fallbackMessage : message;
+}
+
 bool _isUnsafeNotificationUiText(String value) {
   final lower = value.toLowerCase();
   return _notificationUuidPattern.hasMatch(value) ||
       lower.contains('token=') ||
       lower.contains('secret') ||
       lower.contains('bearer ') ||
+      lower.contains('stack trace') ||
+      lower.contains('generated') ||
+      lower.contains('storage') ||
+      lower.contains('provider') ||
+      lower.contains('receipt') ||
+      lower.contains('ocr') ||
+      lower.contains('proof') ||
+      lower.contains('payment details') ||
+      lower.contains('filesystem') ||
+      lower.contains('/tmp/') ||
+      lower.contains('/var/') ||
+      lower.contains('/home/') ||
       lower.contains('http://') ||
       lower.contains('https://') ||
       value.contains('/api/') ||
