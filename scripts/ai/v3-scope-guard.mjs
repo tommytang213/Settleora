@@ -266,6 +266,12 @@ const m14AllowedPatterns = [
   /^apps\/mobile\/test\//,
 ];
 
+const m15AllowedPatterns = [
+  /^\.ai(?:\/|$)/,
+  /^docs\/qa\//,
+  /^scripts\/ai\/v3-scope-guard\.mjs$/,
+];
+
 const forbiddenPatterns = [
   { pattern: /^services\/api(?:\/|$)/, reason: "API/backend runtime path" },
   { pattern: /^services\/worker-ocr(?:\/|$)/, reason: "OCR worker runtime path" },
@@ -332,6 +338,9 @@ function isAllowedForMilestone(file, milestone) {
   }
   if (milestone === "M14") {
     return m14AllowedPatterns.some((pattern) => pattern.test(file));
+  }
+  if (milestone === "M15") {
+    return m15AllowedPatterns.some((pattern) => pattern.test(file));
   }
   return false;
 }
