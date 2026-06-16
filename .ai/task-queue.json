@@ -1,16 +1,16 @@
 [
   {
-    "id": "M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315",
-    "title": "Reconcile mobile account session and device management state",
+    "id": "M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517",
+    "title": "Reconcile mobile settings, mode boundary, and data portability readiness state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map current mobile auth/session repository, secure session storage, access-token refresh seam, sign-out flows, session/device list UI, per-session revoke behavior, account-wide sign-out, and focused automated coverage against Day 1 account/session requirements without changing runtime behavior.",
+    "goal": "Map current mobile first-launch setup, local/server mode boundary copy, authenticated settings/profile/account entry points, sync status readout, and existing automated coverage against Day 1 settings and data-portability readiness requirements without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -22,25 +22,23 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security runtime or configuration changes outside existing mobile presentation seams",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, file authorization, QR/proof/receipt byte behavior, or private-vault changes",
-      "Requires password reset/recovery, passkey/MFA, OIDC/Keycloak runtime, registration policy, admin user management, or credential storage changes",
-      "Requires client-side authorization decisions from cached session/profile rows",
-      "Requires money, bill, settlement, recurring, OCR, reconciliation, import/export/backup, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
+      "Requires real CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, file byte movement, storage/privacy policy, private-vault behavior, or retention policy changes",
+      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315",
-    "title": "Mobile session list and revoke hardening",
+    "id": "M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517",
+    "title": "Mobile first-launch and mode-boundary hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden the existing mobile session/device list and per-session revoke UI for safe metadata, current-session protection, duplicate revoke prevention, bounded failure/retry states, refresh-after-mutation behavior, and server-authority copy while preserving current generated-client auth repository seams.",
+    "goal": "Harden existing mobile first-launch, server configuration, local-mode, sign-in-change-server, and bootstrap mode-boundary copy/states so local-only data is never implied to become a server account and server-mode collaboration remains API-authoritative.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -51,25 +49,26 @@
     "stopConditions": [
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security runtime or configuration changes outside existing mobile presentation seams",
-      "Requires token, password, credential, OIDC, MFA, passkey, recovery, registration, admin, schema, audit-policy, or server authorization changes",
-      "Requires exposing raw tokens, refresh credentials, session hashes, auth account IDs, provider payloads, secrets, API paths, stack traces, or unrelated user data",
-      "Requires money, settlement, bill, recurring, OCR, storage/privacy, deployment, CI, Docker, web/admin, broad offline cache/sync, or unrelated-domain changes"
+      "Requires auth/session/security runtime, token, credential, registration, bootstrap policy, OIDC/MFA/passkey/recovery, or audit-policy changes",
+      "Requires persistence beyond existing app configuration/session storage seams",
+      "Requires real import/link/export/disconnect/backup/restore behavior, storage/privacy/private-vault behavior, file byte movement, data migration, or retention changes",
+      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
     ]
   },
   {
-    "id": "M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315",
-    "title": "Mobile sign-out and refresh session hardening",
+    "id": "M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517",
+    "title": "Mobile settings and data portability readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/lib/app/**",
+      "apps/mobile/lib/profile/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile current-session sign-out, server-unreachable local-clear confirmation, account-wide sign-out, expired-session handling, and secure access-token refresh states so protected routes fail closed and token material remains hidden.",
+    "goal": "Harden existing authenticated settings/profile/account entry readouts for mode, sync, account/session, privacy/export/migration placeholder boundaries, and unsupported-export states without adding real data-portability runtime or policy authority.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -80,23 +79,23 @@
     "stopConditions": [
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams",
-      "Requires changing token issuance, refresh rotation policy, revocation semantics, password handling, OIDC/MFA/passkey behavior, or credential storage policy",
-      "Requires direct server trust from cached route/profile/session state",
-      "Requires schema/migrations, storage/privacy/file authorization, money, settlement, bill, recurring, OCR, import/export/backup, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated scope"
+      "Requires auth/session/security runtime, authorization policy, profile/payment visibility policy, token/credential/session policy, or audit-policy changes",
+      "Requires real CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, file byte movement, storage/privacy/private-vault behavior, retention policy, or data migration runtime",
+      "Requires client-side authorization decisions from cached profile/session/settings rows",
+      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
     ]
   },
   {
-    "id": "M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315",
-    "title": "Finalize mobile account session and device management QA state",
+    "id": "M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517",
+    "title": "Finalize mobile settings, mode boundary, and data portability readiness QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M11 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M12 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -106,31 +105,30 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M11 implementation slices are incomplete",
+      "M12 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, money, settlement/bill/recurring/OCR authority, import/export/backup, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, import/export/backup/migration, money, settlement/bill/recurring/OCR/reconciliation authority, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M11-001",
-    "title": "Manual gate auth session API security schema deployment blocker",
+    "id": "STOP-M12-001",
+    "title": "Manual gate data portability storage privacy API security schema deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M11 immediately if mobile account/session work requires broader API, contract, generated-client, auth/session/security runtime or configuration, token/credential, password, OIDC, MFA, passkey, recovery, registration, admin, schema, audit-policy, storage privacy, file authorization, money, bill, settlement, recurring, OCR, import/export/backup, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
+    "goal": "Stop M12 immediately if mobile settings or mode-boundary work requires real data portability runtime, API, contract, generated-client, auth/security, schema, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M11 task requires backend/API behavior",
-      "Any M11 task requires OpenAPI/generated-client changes",
-      "Any M11 task requires auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams",
-      "Any M11 task requires token issuance, refresh rotation policy, server revocation semantics, password handling, OIDC/Keycloak, MFA, passkey, recovery, registration policy, admin user management, credential storage, or audit-policy changes",
-      "Any M11 task requires database schema/migrations",
-      "Any M11 task requires storage/file privacy policy, file authorization, generic file APIs, QR/proof/receipt byte behavior, or private-vault behavior changes",
-      "Any M11 task requires client-side authorization decisions from cached route/profile/session rows or generated-client availability",
-      "Any M11 task requires money, bill, settlement, recurring, OCR, reconciliation, import/export/backup, or business status-transition authority changes",
-      "Any M11 task requires Docker/env/deployment/CI changes",
-      "Any M11 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
+      "Any M12 task requires backend/API behavior",
+      "Any M12 task requires OpenAPI/generated-client changes",
+      "Any M12 task requires auth/session/security runtime, token/credential/session issuance, revocation semantics, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes",
+      "Any M12 task requires database schema/migrations",
+      "Any M12 task requires real CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, data migration, file byte movement, storage/file privacy policy, file authorization policy, private-vault behavior, or retention policy changes",
+      "Any M12 task requires client-side authorization decisions from cached route/profile/session/settings rows or generated-client availability",
+      "Any M12 task requires money, bill, settlement, recurring, OCR, reconciliation mutation, import-driven financial mutation, or business status-transition authority changes",
+      "Any M12 task requires Docker/env/deployment/CI changes",
+      "Any M12 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
     ]
   }
 ]
