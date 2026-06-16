@@ -1,6 +1,34 @@
 # AI QA Report
 
-Status: `M12 queued; M12-001 selected; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 in progress; M12-002 selected; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M12-001 Settings Mode/Data-Portability Reconciliation Summary
+
+M12-001 completed docs/control-only reconciliation for `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
+
+Current implementation findings:
+
+- `apps/mobile/lib/app/setup_screen.dart` provides first-launch server/local mode choice, server base URL validation, local-development HTTP warning copy, and local-mode boundary copy.
+- `apps/mobile/lib/app/app_bootstrap.dart` persists app configuration, clears saved server session material when configuration changes, shows the local-mode placeholder, offers connect/change-server entry points, and routes server mode through access-token/current-user validation before the authenticated shell.
+- `apps/mobile/lib/app/server_mode_shell.dart` exposes server-mode account/profile/session/sign-out entry points, top-level bill/group/settlement/recurring/notification/report/receipt-review routes, and a sync status readout for existing mobile bill queue states.
+- `apps/mobile/lib/profile/profile_screen.dart` and `apps/mobile/lib/profile/generated_profile_repository.dart` expose profile/payment settings-adjacent readouts through session-gated generated-client seams, with server-returned visibility copy, metadata-only QR readout, bounded failure mapping, and suppression of raw IDs/tokens/storage/provider/vault details.
+- `apps/mobile/lib/app/secure_storage.dart` stores app configuration and server session material only; it is not backup/export/migration/retention/private-vault runtime.
+- No inspected mobile runtime implements real CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, destructive data-portability actions, file byte movement, retention policy, private-vault behavior, or storage/privacy policy changes.
+
+Automated coverage inventory:
+
+- `app_configuration_test.dart`, `widget_test.dart`, `server_mode_shell_dashboard_test.dart`, `sync_queue_test.dart`, `profile_screen_test.dart`, and `profile_generated_repository_test.dart` already cover current setup/config validation, local-mode routing, sign-in/current-user routing, change-server/session-clearing paths, sync queued/synced/failed/conflict states, profile/payment visibility readouts, generated repository boundaries, and unsafe raw-detail suppression.
+- M12-001 did not change mobile runtime or tests. Full mobile validation is deferred to M12-002/M12-003 when mobile copy/test files change; M12 remains not UI-test ready until M12-004 finalizes it.
+
+M12 queue state after M12-001:
+
+- `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517` - Completed.
+- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517` - Current. Harden first-launch/setup/local/server mode boundary copy and tests.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517` - Queued. Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` - Queued. Finalize M12 QA/control after bounded slices complete.
+- `STOP-M12-001` - Preserved. Stop for real data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. Recommended next automated task is `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
 
 ## M12 Kickoff Summary
 

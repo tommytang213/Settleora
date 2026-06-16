@@ -54,13 +54,25 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
-- Last completed task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
-- Current state: M12 is queued as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
+- Current task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
+- Last completed task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
+- Current state: M12 is in progress as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M12.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M12.
-- Recommended next automated task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
+- Recommended next automated task: `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517`.
 - Stop sentinel: `STOP-M12-001` stops data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+## M12-001 Reconciliation Summary
+
+M12-001 completed docs/control-only reconciliation of current mobile first-launch setup, local/server mode boundaries, server configuration/change-server entry points, authenticated shell settings/profile/session routes, sync status readout, profile/payment settings-adjacent surfaces, data-portability readiness gaps, and existing automated coverage.
+
+Current findings:
+
+- Local mode is currently a placeholder/configuration state that keeps the device separate, does not create server repositories, clears saved server session material when configuration changes, and does not implement local data storage, server collaboration, server sync, local-to-server migration/link, or data portability runtime.
+- Server mode is entered only after saved server configuration plus usable session/current-user validation and exposes authenticated profile, session/device, sign-out, sync, bill, group, settlement, recurring, notification, report, and receipt-review routes.
+- Existing profile/payment readouts already state that server-returned visibility is not a client-side authorization decision and suppress raw profile/payment/QR/storage/vault/token details.
+- Existing sync readout covers current mobile bill queue pending/synced/failed/conflict states only and does not imply full offline cache hydration, broad conflict resolution, import/export, backup/restore, or server acceptance beyond submitted operations.
+- CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, destructive portability actions, private-vault behavior, retention policy, file byte movement, and storage/privacy runtime are not implemented and remain readiness/copy-only for future M12 slices unless a human-approved task expands scope.
 
 ## M11 Carry-Forward Boundary
 
