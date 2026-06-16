@@ -1,6 +1,6 @@
 # M9 Mobile In-App Notification Inbox QA Map
 
-Status: `M9-001 through M9-003 complete; M9-004 current/next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M9 finalized and UI-test ready; no remaining automated M9 work; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
@@ -145,6 +145,11 @@ M9-002 is complete. It stayed inside existing mobile notification inbox seams an
 - Server-authority messaging that the API decides notification visibility, read/archive state, and linked-resource access.
 - Focused notification screen coverage for the above, including a refresh-after-success/list-failure recovery case.
 
+Recorded M9-002 validation:
+
+- Focused notification-screen validation passed with 98 tests.
+- Full mobile validation passed with 698 Flutter tests.
+
 M9-002 changed only `.ai` control files, this QA map, `apps/mobile/lib/notifications/notification_screen.dart`, and focused notification screen tests. It did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization, deployment/CI, web/admin runtime, broad offline sync/cache, secrets, or unrelated major-domain behavior.
 
 ## Gap Focus For M9-003
@@ -152,23 +157,39 @@ M9-002 changed only `.ai` control files, this QA map, `apps/mobile/lib/notificat
 M9-003 is complete. It stayed inside existing notification handoff seams and hardened:
 
 - Copy that notification metadata, action URLs, raw notification IDs, linked-resource IDs, cached rows, and generated-client methods are navigation hints only.
-- Bill, bill-revision, settlement, and recurring handoff copy that the destination API re-checks access and current state before linked details or actions are shown.
+- Bill, bill-revision, settlement, and recurring destination handoffs that re-fetch through existing authorized repositories, with copy that the destination API re-checks access and current state before linked details or actions are shown.
 - Missing repository, missing typed ID, unsupported action URL, and archived/stale notification states with bounded fallback copy that keeps users in the inbox or existing destination route.
 - Notification-origin personal/group bill destination failure suppression so unsafe generated-client, API path, token, storage/provider, proof, receipt/OCR, payment-detail, filesystem, stack-trace, and unrelated-user strings are not rendered.
 
 Focused automated coverage:
 
 - `cd apps/mobile && /opt/flutter/bin/flutter test test/notification_screen_test.dart` passed with 57 notification screen tests.
+- Focused notification command validation passed with 99 tests.
+- Full mobile validation passed with 699 Flutter tests.
 - Added coverage that a personal bill handoff still uses the authorized bill repository seam before detail display, denied destination failure copy stays bounded, no read mutation occurs on denied destination failure, and unsafe raw IDs, API paths, action URLs, tokens/secrets, generated-client internals, storage/provider internals, payment details, proof, receipt/OCR content, filesystem paths, stack traces, and unrelated-user strings remain suppressed.
 
 M9-003 changed only `.ai` control files, this QA map, `apps/mobile/lib/notifications/notification_screen.dart`, and focused notification screen tests. It did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization, deployment/CI, web/admin runtime, broad offline sync/cache, secrets, or unrelated major-domain behavior.
+
+## M9-004 Finalization Summary
+
+M9-004 is complete. It finalized the QA/control state for M9 without changing runtime behavior, tests, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file byte behavior, money/bill/settlement/recurring/OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization, deployment/CI, web/admin runtime, broad offline sync/cache, secrets, or unrelated major-domain behavior.
+
+Final M9 state:
+
+- M9-001, M9-002, M9-003, and M9-004 are complete.
+- `STOP-M9-001` remains preserved.
+- M9 is finalized and UI-test ready.
+- There is no remaining automated M9 work.
+- Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not marked passed.
+
+M9-004 final validation performed in this task includes docs validation, scaffold validation, OpenAPI validation, mobile doctor, full mobile validation, scope guard, and final controller dry run. The final full mobile validation count is 699 Flutter tests.
 
 ## Queue Expectations
 
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
 - `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
 - `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Completed. Hardened typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
-- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Current/next. Finalize M9 QA/control state, record validation, and mark UI-test ready only after M9 implementation slices complete.
+- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Completed. Finalized M9 QA/control state, recorded validation, preserved deferred manual UI/code review status, and marked UI-test ready with no remaining automated M9 work.
 - `STOP-M9-001` - Preserve. Stop for forbidden API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker, linked-resource authorization, web/admin, broad-sync, secrets, or unrelated major-domain scope.
 
 ## Validation Expectations
@@ -184,7 +205,26 @@ M9 kickoff validation:
 - `npm run validate:openapi`
 - `node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`
 
-The final kickoff controller dry run should select `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055`.
+The final M9-004 controller dry run should stop because M9 is marked UI-test ready, or select the next controller-approved Day 1 milestone/queue kickoff if the controller advances after finalized milestones.
+
+## Remaining Out Of Scope
+
+- Item claim-specific event constants if not already returned safely by the server.
+- Sync conflict/failure notifications.
+- Auth/security/session notification generation behavior.
+- OCR completion/failure notifications tied to future server OCR worker/runtime.
+- Push/email delivery.
+- Device-token registration.
+- Notification preferences, quiet hours, digests, and reminder scheduling.
+- Server-side notification generation policy.
+- Notification queue/worker behavior.
+- Linked-resource authorization changes.
+- Backend/API behavior, OpenAPI/generated clients, and schema/migrations.
+- Storage/privacy/file byte behavior.
+- Money/bill/settlement/recurring/OCR authority.
+- Deployment/CI/env/secrets.
+- Web/admin runtime UI.
+- Broad offline cache/sync.
 
 ## Stop Conditions And Non-Goals
 

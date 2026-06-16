@@ -97,7 +97,7 @@
     "title": "Finalize mobile notification inbox QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"

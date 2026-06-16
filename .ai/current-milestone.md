@@ -55,10 +55,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
-- Last completed task: `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
-- Current state: M9-003 hardened mobile notification typed handoff copy, unsupported/missing destination guidance, and notification-origin personal/group bill destination failure suppression while preserving destination repository re-fetch authority. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
+- Current task: `none`.
+- Last completed task: `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
+- Current state: M9 is finalized and UI-test ready as a bounded Day 1 mobile in-app notification inbox hardening checkpoint. M9-001 reconciled the existing inbox state and QA inventory, M9-002 completed inbox action hardening, M9-003 completed typed handoff authority hardening, and M9-004 completed QA/control finalization. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 - Stop sentinel: `STOP-M9-001` stops API/contracts/generated-client/auth/schema/storage/privacy/money/deployment, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, client-side permission decisions from notification metadata/action URLs, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M8 Carry-Forward Boundary
