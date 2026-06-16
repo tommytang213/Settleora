@@ -1,0 +1,70 @@
+# Day 1 Evidence Map
+
+This map separates implemented evidence, documentation-only intent, validation command evidence, missing evidence, and manual review evidence still required. Commands are listed only when present in `package.json` or the repo workflows.
+
+## Implemented Evidence
+
+| Requirement / capability | Evidence type | Repo path(s) | Validation command(s) | Current result | Manual evidence required? | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Auth bootstrap, local sign-in, refresh, current user, sessions, sign-out, revocation | code, tests, OpenAPI | `services/api/src/Settleora.Api/Auth/`, `services/api/tests/Settleora.Api.Tests/*Auth*Tests.cs`, `packages/contracts/openapi/settleora.v1.yaml` | `npm run validate:api-local`, `npm run validate:openapi` | Not run yet for this branch; commands exist. | Yes | OIDC/passkey/MFA/general registration are not proven. |
+| Mobile first-launch, sign-in, secure session storage, session management | code, tests | `apps/mobile/lib/app/`, `apps/mobile/test/auth_session_repository_test.dart`, `apps/mobile/test/secure_storage_test.dart`, `apps/mobile/test/server_mode_shell_dashboard_test.dart` | `npm run validate:mobile` | Not run for this docs-only branch. | Yes | Manual UI retest remains deferred. |
+| Self profile and payment details including QR storage path | code, tests, OpenAPI | `services/api/src/Settleora.Api/Users/`, `services/api/tests/Settleora.Api.Tests/Self*Tests.cs`, `apps/mobile/lib/profile/`, `apps/mobile/test/profile_screen_test.dart`, `packages/contracts/openapi/settleora.v1.yaml` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run yet for this branch except OpenAPI planned. | Yes | Visibility and storage/privacy require manual review. |
+| Personal and group bills, attachment metadata/content, archive/restore, CSV import/export | code, tests, OpenAPI | `services/api/src/Settleora.Api/Expenses/`, `services/api/tests/Settleora.Api.Tests/*Bill*Tests.cs`, `apps/mobile/lib/bills/`, `apps/mobile/test/*bill*_test.dart`, `packages/contracts/openapi/settleora.v1.yaml` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Full Day 1 edit, temporary participant, and manual UI coverage are incomplete. |
+| Bill revision proposal/review/apply/payer confirmation | code, tests, OpenAPI | `services/api/src/Settleora.Api/Expenses/BillRevisions/`, `services/api/tests/Settleora.Api.Tests/ExpenseBillRevision*Tests.cs`, `apps/mobile/lib/bills/bill_revision_*`, `apps/mobile/test/bill_revision_*_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Server review context exists, but manual UX review remains required. |
+| Money foundation and bill calculation | code, tests, docs | `services/api/src/Settleora.Api/Domain/Expenses/ExpenseBillCalculationService.cs`, `services/api/tests/Settleora.Api.Tests/ExpenseBillCalculationServiceTests.cs`, `docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md`, `docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md` | `npm run validate:api-local` | Not run for this docs-only branch. | Yes | Full Day 1 tax/fee/refund/FX matrix is not proven. |
+| Groups and member management | code, tests, OpenAPI | `services/api/src/Settleora.Api/Groups/`, `services/api/tests/Settleora.Api.Tests/Group*Tests.cs`, `apps/mobile/lib/groups/`, `apps/mobile/test/group_list_screen_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Group dashboard basics and temporary participants remain partial. |
+| Receipt OCR review and bill-scoped OCR apply preview/draft-only apply | code, tests, OpenAPI | `services/api/src/Settleora.Api/Expenses/ReceiptOcrReviews/`, `services/api/tests/Settleora.Api.Tests/ReceiptOcrReview*Tests.cs`, `apps/mobile/lib/receipt_ocr_review/`, `apps/mobile/test/receipt_ocr_review_screen_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | OCR engine/worker and full capture/reclassification flow are not complete. |
+| Mobile receipt OCR parser/provider foundation | code, tests | `apps/mobile/lib/receipt_ocr_capture/`, `apps/mobile/test/receipt_ocr_capture/receipt_ocr_parser_test.dart` | `npm run validate:mobile` | Not run for this docs-only branch. | Yes | Capture/import UI and normalization policy enforcement remain unproven. |
+| Settlement requests, baskets, residuals, payments, proof attachments, balances | code, tests, OpenAPI | `services/api/src/Settleora.Api/Settlements/`, `services/api/tests/Settleora.Api.Tests/Settlement*Tests.cs`, `apps/mobile/lib/settlements/`, `apps/mobile/test/settlement_list_screen_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Refunds/reopen/simplification and full manual settlement review remain gaps. |
+| In-app notifications list/summary/read/archive | code, tests, OpenAPI | `services/api/src/Settleora.Api/Notifications/`, `services/api/tests/Settleora.Api.Tests/InAppNotification*Tests.cs`, `apps/mobile/lib/notifications/`, `apps/mobile/test/notification_screen_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Push/email/preferences/deep links and full event coverage are missing. |
+| Recurring bill templates, forecast, explicit draft generation | code, tests, OpenAPI | `services/api/src/Settleora.Api/RecurringBills/`, `services/api/tests/Settleora.Api.Tests/RecurringBill*Tests.cs`, `apps/mobile/lib/recurring_bills/`, `apps/mobile/test/recurring_bill_screen_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Background generation/reminders/advanced exceptions are missing. |
+| Monthly reports and reconciliation status | code, tests, OpenAPI | `services/api/tests/Settleora.Api.Tests/ExpenseBillReconciliationReportingEndpointTests.cs`, `apps/mobile/lib/reports/`, `apps/mobile/test/monthly_report_screen_test.dart`, `packages/contracts/openapi/settleora.v1.yaml` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Broad reconciliation and statement import are not implemented. |
+| Sync operation submission/change feed and mobile queue | code, tests, OpenAPI | `services/api/src/Settleora.Api/Sync/`, `services/api/tests/Settleora.Api.Tests/SyncOfflineServerFoundationEndpointTests.cs`, `apps/mobile/lib/sync/`, `apps/mobile/test/sync_queue_test.dart` | `npm run validate:api-local`, `npm run validate:mobile`, `npm run validate:openapi` | Not run for this docs-only branch except OpenAPI planned. | Yes | Full offline cache hydration and conflict UI are not proven. |
+| Storage abstraction and purpose-specific file flows | code, tests, docs | `services/api/src/Settleora.Api/Files/`, `services/api/tests/Settleora.Api.Tests/FileObject*Tests.cs`, `services/api/tests/Settleora.Api.Tests/LocalFileObjectStorageProviderTests.cs`, `docs/architecture/STORAGE_FILE_METADATA_ARCHITECTURE.md`, `docs/architecture/STORAGE_FILE_POLICY_ARCHITECTURE.md` | `npm run validate:api-local` | Not run for this docs-only branch. | Yes | Privacy vault, retention, and admin file policy runtime remain partial. |
+| Community/security repository standards | docs, workflow/CI | `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md`, `.github/workflows/` | `git diff --check`, `npm run validate:docs`, `npm run validate:scaffold` | Planned for this branch. | Yes | GitHub settings such as private vulnerability reporting and branch protection require maintainer review. |
+
+## Documentation-Only Intent
+
+| Requirement / capability | Evidence type | Repo path(s) | Validation command(s) | Current result | Manual evidence required? | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Day 1 product scope | docs | `docs/prd/MVP_DAY1_SCOPE.md`, `docs/prd/PRODUCT_REQUIREMENTS_DRAFT_V5.md` | `npm run validate:docs` | Planned for this branch. | Yes | Scope docs define requirements; they do not prove implementation. |
+| Architecture authority boundaries | docs | `PROGRAM_ARCHITECTURE.md`, `docs/architecture/*.md` | `npm run validate:docs` | Planned for this branch. | Yes | Architecture is required context, not acceptance proof by itself. |
+| M1-M14 milestone QA readiness | docs, tests referenced | `docs/qa/M1_*` through `docs/qa/M14_*`, `.ai/qa-report.md` | Commands recorded in each QA map; not rerun here unless scoped validation requires it. | Prior maps report passed focused/full validations for their slices. | Yes | Manual UI/code review remains deferred until Day 1 acceptance. |
+
+## Validation Command Evidence
+
+| Command | Exists? | Purpose | Current result for this M15 branch |
+| --- | --- | --- | --- |
+| `git status --short` | Yes | Worktree cleanliness before/after work. | To be recorded in `M15_READINESS_QA.md` and final report. |
+| `git diff --name-only` | Yes | Scope guard by changed paths. | To be recorded. |
+| `git diff --check` | Yes | Whitespace/error check. | To be recorded. |
+| `npm run validate:docs` | Yes | Documentation validation. | To be run. |
+| `npm run validate:scaffold` | Yes | Required scaffold paths and guardrails. | To be run. |
+| `npm run validate:openapi` | Yes | OpenAPI lint. | To be run because this evidence package references API readiness, even though OpenAPI is unchanged. |
+| `npm run validate:api-local` | Yes | API tests after doctor preflight. | Intentionally not planned for docs-only changes unless needed by validation failure or reviewer request. |
+| `npm run validate:mobile` | Yes | Flutter dependency/analyze/test suite. | Intentionally not planned for docs-only changes; manual UI retest remains required. |
+
+## Missing Evidence
+
+| Requirement / capability | Evidence type | Repo path(s) | Validation command(s) | Current result | Manual evidence required? | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Web user portal | missing evidence | `apps/web-user/README.md` | None beyond docs/scaffold. | Placeholder only. | Yes | Day 1 product requirements include full-featured user web portal; implementation evidence is missing. |
+| Admin web portal | missing evidence | `apps/web-admin/README.md` | None beyond docs/scaffold. | Placeholder only. | Yes | API admin local-user foundation exists, but web admin runtime is missing. |
+| Full local backup/restore and migration | missing evidence | README notes future work; architecture/prd describe direction. | None. | Not implemented as runtime. | Yes | Required before Day 1 completion claim. |
+| OCR worker runtime | missing evidence | `services/worker-ocr/README.md` | None. | Placeholder only. | Yes | Server OCR worker is complementary architecture but not runtime evidence. |
+| Push/email notification delivery and preferences | missing evidence | README notes future work. | None. | Not implemented. | Yes | In-app notification baseline is partial only. |
+| Full offline cache hydration and conflict resolution UI | missing evidence | `apps/mobile/lib/sync/`, README notes future work. | `npm run validate:mobile` for existing queue only. | Partial queue evidence only. | Yes | Day 1 sync/offline remains partial. |
+| Privacy vault runtime and admin file-policy runtime | missing evidence | `docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md`, storage docs. | None for runtime. | Architecture only. | Yes | Storage/privacy review must remain manual. |
+| Complete Day 1 split/tax/refund/FX validation matrix | missing evidence | Architecture docs and calculation service. | `npm run validate:api-local` covers existing tests only. | Partial. | Yes | Additional tests and implementation evidence required. |
+
+## Manual Review Evidence Still Required
+
+| Manual evidence area | Evidence to attach or record | Current state |
+| --- | --- | --- |
+| Mobile UI retest | Screenshots/video and checklist results for current mobile starter flows. | `deferred_until_day1_acceptance`; not passed. |
+| Maintainer code review | PR review decision and unresolved comment status. | Pending. |
+| Security/auth/session review | Review notes for auth/session/token/device/session behavior and admin exposure. | Pending. |
+| Storage/file privacy review | Review notes for file authorization, purpose policies, QR/receipt/proof access, retention, and privacy modes. | Pending. |
+| Money/split/settlement review | Review notes for calculation correctness, residuals, rounding, revision effects, and proof/payment flows. | Pending. |
+| Deployment/TrueNAS review | Compose/runbook evidence, persistent volume review, env review, and TrueNAS SCALE considerations. | Pending. |
+| GitHub repository settings review | Private vulnerability reporting, branch protection/CI, issue templates, PR template, and security policy visibility. | Pending. |
