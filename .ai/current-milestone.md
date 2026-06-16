@@ -54,10 +54,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
-- Last completed task: `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110`.
-- Current state: M10-003 hardened the existing mobile self profile/payment-details readout for bounded visibility labels and descriptions, non-global/API-authority copy, unconfigured/default/cleared text states, QR metadata-only messaging, and unsafe raw text suppression without runtime API, generated-client, auth/session, schema, storage/privacy, QR-byte, payment-detail visibility-policy, counterparty-authorization, money, deployment, or unrelated-domain changes. M10 remains active as a bounded Day 1 mobile self profile and payment-details hardening milestone. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
-- Recommended next automated task: `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
+- Current task: none. M10 is UI-test ready.
+- Last completed task: `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
+- Current state: M10 is finalized as `Day 1 Mobile Self Profile And Payment Details Hardening` and is UI-test ready. M10-001 reconciled current mobile self profile/payment-details repository seams, generated-client mapping, app-shell entry, automated coverage, Day 1 requirements, and M10 focus without runtime behavior changes. M10-002 hardened profile/payment edit states, normalization copy, duplicate-submit guards, bounded failures, refresh-after-save recovery, unsafe edit-text suppression, and server-authority copy. M10-003 hardened visibility labels, sensitive-data/non-global copy, QR metadata-only readout, default/cleared/unconfigured states, unsafe text suppression, and no cached-row authorization decisions. M10-004 finalized QA/control state and recorded validation coverage without runtime API, generated-client, auth/session, schema, storage/privacy, QR-byte, payment-detail visibility-policy, counterparty-authorization, money, deployment, or unrelated-domain changes. Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+- Recommended next automated task: run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 - Stop sentinel: `STOP-M10-001` stops API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/money/deployment, payment-detail visibility policy, counterparty authorization, admin/global payment-detail exposure, web/admin, broad offline sync/cache, or unrelated major-domain scope.
 
 ## M9 Carry-Forward Boundary
