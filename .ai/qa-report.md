@@ -1,6 +1,30 @@
 # AI QA Report
 
-Status: `M9 finalized and UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M10 active; first queued task selected; manual UI/code review deferred until Day 1 acceptance`
+
+## M10 Kickoff Summary
+
+M10 is queued as `Day 1 Mobile Self Profile And Payment Details Hardening`.
+
+The selection is based on current repo state:
+
+- `README.md` says the backend has guarded self-profile read/update endpoints, guarded self payment-details read/update and self QR endpoints, and the mobile app has a starter authenticated self profile/payment-details screen backed by generated-client seams.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires optional user profile/payment details, including display name, preferred currency, preferred payment method note, optional payment handle or note, optional QR/payment image attachment, and a visibility setting whose recommended default is `settlement_counterparties_only`.
+- `docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md` requires payment details to remain sensitive app-domain profile data, not globally visible, API-authorized, and free of storage paths, provider internals, QR bytes, vault internals, request bodies, tokens, secrets, and unrelated user data in ordinary responses/copy.
+- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` records an existing mobile self profile/payment-details foundation that reads and updates the authenticated actor's own profile and text payment details through generated-client repository seams, loads fresh data when opened, maps failures into bounded mobile states, and displays safe QR availability metadata without QR upload/remove UX.
+- Current mobile code under `apps/mobile/lib/profile/` and focused tests under `apps/mobile/test/profile_*` provide bounded seams for mobile-only hardening.
+
+M10 queue:
+
+- `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110` - Queued. Reconcile current mobile self profile/payment-details implementation and automated coverage without runtime behavior changes.
+- `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110` - Queued. Harden existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, and server-authority copy inside current mobile seams.
+- `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110` - Queued. Harden visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
+- `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110` - Queued. Finalize M10 QA/control state after bounded slices complete.
+- `STOP-M10-001` - Stop. Manual gate for API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/payment-visibility/counterparty-authorization/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+M10 kickoff changed only `.ai` control files, the M10 QA map, and a narrow M10 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, payment-detail visibility policy, counterparty authorization, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. Recommended next automated task is `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110`.
 
 ## Acceptance Checklist
 

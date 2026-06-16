@@ -1,16 +1,16 @@
 [
   {
-    "id": "M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055",
-    "title": "Reconcile mobile in-app notification inbox state",
+    "id": "M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110",
+    "title": "Reconcile mobile self profile and payment details state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map current mobile notification summary, inbox list, filters, read/archive actions, generated-client mapping, app-shell notification entry, and typed handoff implementation against Day 1 in-app notification requirements and existing API/generated-client seams, then create focused QA expectations without changing runtime behavior.",
+    "goal": "Map current mobile self profile, text payment-details, visibility, QR metadata, generated-client mapping, app-shell entry, and focused automated coverage against Day 1 profile/payment-detail requirements and existing API/generated-client seams, then create focused QA expectations without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -22,27 +22,27 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, file authorization, proof/receipt/QR byte behavior, or private-vault changes",
+      "Requires storage/file privacy policy, file authorization, QR/proof/receipt byte behavior, generic file APIs, or private-vault changes",
+      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
+      "Requires payment-detail visibility policy, counterparty authorization, global lookup, admin/support viewing, or client-side authorization decisions from cached profile/payment rows",
       "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
-      "Requires notification delivery providers, push/email delivery, device-token registration, reminder scheduling, notification preferences, quiet hours, digest behavior, notification generation policy, queue, worker, Docker/env/deployment/CI changes",
-      "Requires linked-resource authorization changes or client-side permission decisions from notification metadata/action URLs",
-      "Requires web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
+      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055",
-    "title": "Mobile notification inbox read and archive action hardening",
+    "id": "M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110",
+    "title": "Mobile self profile and payment details edit hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/notifications/**",
+      "apps/mobile/lib/profile/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile notification summary/list filters and read/archive/mark-all/mark-visible action flows for loaded-row count clarity, local-filter copy, duplicate-action prevention, safe retry/failure states, refresh-after-mutation behavior, and server-authority messaging while preserving current generated-client seams.",
+    "goal": "Harden existing mobile self profile and text payment-details edit flows for unconfigured/default states, field normalization copy, duplicate-submit prevention, bounded validation/session/denied/conflict/network/server failures, refresh-after-save recovery, and server-authority messaging while preserving current generated-client seams.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -55,25 +55,26 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy or file byte behavior changes",
-      "Requires notification delivery providers, push/email delivery, notification preferences, reminder scheduling, queue/worker behavior, Docker/env/deployment/CI changes",
-      "Requires linked-resource authorization, money, bill, settlement, recurring generation, OCR apply, or business status-transition authority changes"
+      "Requires storage/file privacy policy or QR/file byte behavior changes",
+      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
+      "Requires payment-detail visibility policy, counterparty authorization, money, bill, settlement, recurring generation, OCR apply, or business status-transition authority changes",
+      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055",
-    "title": "Mobile notification typed handoff authority hardening",
+    "id": "M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110",
+    "title": "Mobile payment visibility and QR metadata readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/notifications/**",
+      "apps/mobile/lib/profile/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing notification typed handoffs into bill, bill revision, settlement, and recurring screens so notification metadata, action URLs, IDs, and generated-client method availability are treated only as navigation hints and linked resources are re-fetched through existing authorized repository seams before display or actions.",
+    "goal": "Harden existing mobile payment-detail visibility labels, sensitive-data copy, QR availability metadata readout, unconfigured/private/counterparty/group-shared states, and unsafe text suppression so mobile treats payment details as sensitive server-authorized profile data and does not imply global visibility, counterparty permission, QR byte access, storage internals, or vault behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -86,23 +87,24 @@
       "Requires OpenAPI/generated-client changes",
       "Requires auth/session/security changes",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, proof/receipt/QR byte behavior, generic file APIs, or private-vault changes",
-      "Requires linked-resource authorization changes or any client-side permission decision from notification metadata/action URLs",
+      "Requires storage/file privacy policy, file authorization, generic public file APIs, QR/proof/receipt byte behavior, or private-vault changes",
+      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
+      "Requires counterparty payment-details authorization changes, settlement-scoped visibility policy changes, global lookup, group-directory payment exposure, admin/support viewing, or client-side authorization decisions from cached profile/payment rows",
       "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or status-transition authority changes",
-      "Requires push/email delivery, notification preferences, background delivery, web/admin runtime, broad offline cache/sync, Docker/env/deployment/CI changes, or unrelated major-domain scope"
+      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055",
-    "title": "Finalize mobile notification inbox QA state",
+    "id": "M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110",
+    "title": "Finalize mobile self profile and payment details QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M10 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -112,31 +114,32 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M9 implementation slices are incomplete",
+      "M10 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, money, settlement/bill/recurring/OCR authority, notification delivery/provider/preference/queue/worker, linked-resource authorization, deployment, secret, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, QR byte, payment-detail visibility policy, counterparty authorization, money, settlement/bill/recurring/OCR authority, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M9-001",
-    "title": "Manual gate notification delivery authorization API storage money deployment blocker",
+    "id": "STOP-M10-001",
+    "title": "Manual gate profile payment API storage QR authorization deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M9 immediately if mobile notification inbox work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, money, bill, settlement, recurring, OCR authority, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
+    "goal": "Stop M10 immediately if mobile self profile/payment-details work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, QR byte behavior, payment-detail visibility policy, counterparty authorization, money, bill, settlement, recurring, OCR authority, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M9 task requires backend/API behavior",
-      "Any M9 task requires OpenAPI/generated-client changes",
-      "Any M9 task requires auth/session/security changes",
-      "Any M9 task requires database schema/migrations",
-      "Any M9 task requires storage/file privacy policy, file authorization, generic public file APIs, proof/receipt/QR byte behavior, or private-vault behavior changes",
-      "Any M9 task requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
-      "Any M9 task requires notification delivery providers, push notifications, email notifications, device-token registration, reminder scheduling, background delivery, notification preferences, quiet hours, digest behavior, server-side notification generation policy, queue, worker, Docker/env/deployment/CI changes",
-      "Any M9 task requires linked-resource authorization changes or client-side permission decisions from notification metadata, action URLs, raw IDs, cached rows, or generated-client availability",
-      "Any M9 task requires payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, CSV import/export, backup/restore, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
-      "Any M9 task expands across unrelated major domains"
+      "Any M10 task requires backend/API behavior",
+      "Any M10 task requires OpenAPI/generated-client changes",
+      "Any M10 task requires auth/session/security changes",
+      "Any M10 task requires database schema/migrations",
+      "Any M10 task requires storage/file privacy policy, file authorization, generic public file APIs, QR/proof/receipt byte behavior, or private-vault behavior changes",
+      "Any M10 task requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
+      "Any M10 task requires payment-detail visibility policy changes, counterparty authorization changes, global payment-detail lookup, group-directory payment exposure, admin/support payment-detail viewing, or client-side authorization decisions from cached profile/payment rows",
+      "Any M10 task requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
+      "Any M10 task requires Docker/env/deployment/CI changes",
+      "Any M10 task requires payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, CSV import/export, backup/restore, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
+      "Any M10 task expands across unrelated major domains"
     ]
   }
 ]
