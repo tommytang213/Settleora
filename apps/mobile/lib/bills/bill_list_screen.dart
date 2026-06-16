@@ -4642,7 +4642,7 @@ class _SettleoraGroupBillListScreenState
                     loadedCount: _bills.length,
                     visibleCount: visibleBills.length,
                     readoutScope:
-                        'Group bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+                        'Group bill filters use already-loaded visible server rows for this group route only. This is the current bounded group bill workspace, not authorization, a complete group dashboard, or financial truth.',
                     selectedFilter: _selectedFilter,
                     filters: _GroupBillListFilter.values,
                     labelForFilter: (filter) =>
@@ -4662,7 +4662,7 @@ class _SettleoraGroupBillListScreenState
                       icon: Icons.receipt_long_outlined,
                       title: 'No group bills',
                       message:
-                          'Bills visible in ${_safeGroupName(widget.groupName)} will appear here. Create a group bill to use the existing shared bill review flow.',
+                          'No loaded visible group bills are available for ${_safeGroupName(widget.groupName)}. Create a group bill to use the existing shared bill review flow; other group workspace sections remain separate routes.',
                       action: FilledButton.icon(
                         key: const Key('group-bill-list-empty-create'),
                         onPressed: _openCreateGroupBill,
@@ -4680,7 +4680,7 @@ class _SettleoraGroupBillListScreenState
                           ? 'No matching group bills'
                           : _selectedFilter.emptyTitle,
                       message: searchQuery.trim().isNotEmpty
-                          ? 'No already-loaded group bills match this local search and filter. Clear filters to review every loaded server row.'
+                          ? 'No already-loaded visible group bills match this local search and filter. Clear filters to review loaded server rows; no-match is not authorization, server search, or complete group workspace truth.'
                           : _selectedFilter.emptyMessage,
                     ),
                   ] else ...[

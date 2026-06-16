@@ -61,6 +61,24 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('Receipts to Review'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Dashboard Readiness'),
+      220,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('Dashboard Readiness'), findsOneWidget);
+    expect(
+      find.textContaining('Cards are presentation hints only'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Subject routes such as group bills'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Unsupported: group dashboard personalization'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('new user variant shows welcome actions and checklist', (
@@ -71,6 +89,10 @@ void main() {
     expect(find.text('Welcome, Alex'), findsOneWidget);
     expect(find.text('New Group'), findsOneWidget);
     expect(find.text('Scan Receipt'), findsOneWidget);
+    expect(
+      find.textContaining('Full group workspace dashboards and saved layouts'),
+      findsOneWidget,
+    );
     await tester.scrollUntilVisible(
       find.text('Get Started'),
       220,

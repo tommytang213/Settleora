@@ -1550,6 +1550,21 @@ class _DashboardDataPortabilityReadout extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const _ReadinessLine(
+                label: 'Dashboard cards',
+                value:
+                    'Presentation hints only; not authorization, financial truth, sync acceptance, or full offline cache hydration.',
+              ),
+              const _ReadinessLine(
+                label: 'Group workspace',
+                value:
+                    'Use Groups and group bills as the current bounded entry point; a full group dashboard is not implemented.',
+              ),
+              const _ReadinessLine(
+                label: 'Saved layouts',
+                value:
+                    'Not available; no group dashboard personalization, saved profiles, per-group defaults, or saved cross-surface views.',
+              ),
+              const _ReadinessLine(
                 label: 'CSV export',
                 value: 'Not available in this mobile build.',
               ),
@@ -1867,7 +1882,8 @@ class _DashboardOverviewContent extends StatelessWidget {
           _DashboardEmptySectionCard(
             icon: Icons.groups_outlined,
             title: 'No recent group activity',
-            message: 'Create a group or shared bill to see activity here',
+            message:
+                'No loaded notification rows are visible here. Open Groups for the current group detail and group-bill workspace; this dashboard card is not group authorization or a complete group workspace.',
             actionKey: const Key('server-shell-groups'),
             actionLabel: 'Open groups',
             onTap: onOpenGroups,

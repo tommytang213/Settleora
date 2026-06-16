@@ -101,7 +101,7 @@ void main() {
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(find.text('Open groups'), findsOneWidget);
     expect(
-      find.textContaining('Create a group or shared bill to see activity here'),
+      find.textContaining('No loaded notification rows are visible here'),
       findsNothing,
     );
     expect(
@@ -142,6 +142,27 @@ void main() {
     expect(
       find.textContaining(
         'The API remains authoritative for collaboration, shared records, account access, sync acceptance, authorization, storage, audit, money, and policy.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Dashboard cards'), findsOneWidget);
+    expect(
+      find.text(
+        'Presentation hints only; not authorization, financial truth, sync acceptance, or full offline cache hydration.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Group workspace'), findsOneWidget);
+    expect(
+      find.text(
+        'Use Groups and group bills as the current bounded entry point; a full group dashboard is not implemented.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Saved layouts'), findsOneWidget);
+    expect(
+      find.text(
+        'Not available; no group dashboard personalization, saved profiles, per-group defaults, or saved cross-surface views.',
       ),
       findsOneWidget,
     );
@@ -719,7 +740,9 @@ void main() {
     );
     expect(find.text('No recent group activity'), findsOneWidget);
     expect(
-      find.text('Create a group or shared bill to see activity here'),
+      find.text(
+        'No loaded notification rows are visible here. Open Groups for the current group detail and group-bill workspace; this dashboard card is not group authorization or a complete group workspace.',
+      ),
       findsOneWidget,
     );
     expect(find.text('Personal bills'), findsNothing);
@@ -1067,9 +1090,10 @@ void main() {
       find.textContaining('current mobile bill sync queue only'),
       findsOneWidget,
     );
-    expect(find.textContaining('full offline cache hydration'), findsOneWidget);
     expect(
-      find.textContaining('server acceptance of all local data'),
+      find.text(
+        'Counts cover the current mobile bill sync queue only. They do not mean full offline cache hydration, import/export, backup/restore, broad conflict resolution, or server acceptance of all local data.',
+      ),
       findsOneWidget,
     );
     expect(find.byKey(const Key('server-shell-sync-now')), findsOneWidget);

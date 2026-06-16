@@ -343,12 +343,36 @@ void main() {
     expect(find.byKey(const Key('group-detail-bills-handoff')), findsOneWidget);
     expect(find.text('Shared bill workspace'), findsOneWidget);
     expect(
-      find.textContaining('1 loaded member - Open group bills for Trip Crew'),
+      find.textContaining('1 loaded member - Open group bills for Trip Crew.'),
       findsOneWidget,
     );
     expect(find.text('Members'), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_profileId)));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('group-detail-workspace-readiness')),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.byKey(const Key('group-detail-workspace-readiness')),
+      findsOneWidget,
+    );
+    expect(find.text('Group workspace readiness'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'This group detail plus group bills is the current mobile group workspace.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Each subject screen reloads through its own'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Unsupported for now: saved group dashboard layouts'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('group detail opens read-only group bills', (tester) async {
@@ -752,7 +776,6 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -96));
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
@@ -767,7 +790,6 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -96));
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('group-member-actions-$_otherProfileId')),

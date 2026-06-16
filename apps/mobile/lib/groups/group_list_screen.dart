@@ -978,6 +978,8 @@ class _SettleoraGroupDetailScreenState
                       ],
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  const _GroupWorkspaceReadinessCard(),
                 ],
               ),
             );
@@ -1010,13 +1012,51 @@ class _GroupBillsHandoffCard extends StatelessWidget {
         leading: const Icon(Icons.receipt_long_outlined),
         title: const Text('Shared bill workspace'),
         subtitle: Text(
-          '$memberCount loaded member${_plural(memberCount)} - Open group bills for $safeName to create, review, or respond.',
+          '$memberCount loaded member${_plural(memberCount)} - Open group bills for $safeName.',
         ),
         trailing: FilledButton.icon(
           key: const Key('group-detail-bills'),
           onPressed: onOpenGroupBills,
           icon: const Icon(Icons.arrow_forward),
           label: const Text('Open'),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupWorkspaceReadinessCard extends StatelessWidget {
+  const _GroupWorkspaceReadinessCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Card(
+      key: const Key('group-detail-workspace-readiness'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Group workspace readiness', style: textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'This group detail plus group bills is the current mobile group workspace. A full multi-section group dashboard with balances, pending actions, reports, recurring, notifications, receipt review, settlements, and settings is not implemented yet.',
+              style: TextStyle(color: muted),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Use the shell routes for settlements, recurring bills, notifications, receipt reviews, reports, and sync status. Each subject screen reloads through its own repository/API seam before mutation; group labels, member rows, dashboard cards, notification metadata, cached route state, and local filters are not access signals.',
+              style: TextStyle(color: muted),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Unsupported for now: saved group dashboard layouts, per-group dashboard defaults, saved dashboard profiles, dashboard personalization persistence, and saved cross-surface search/filter views.',
+              style: TextStyle(color: muted),
+            ),
+          ],
         ),
       ),
     );

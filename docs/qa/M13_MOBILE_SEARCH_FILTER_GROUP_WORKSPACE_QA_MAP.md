@@ -1,14 +1,73 @@
 # M13 Mobile Search, Filters, And Group Workspace QA Map
 
-Status: `M13-002 completed; M13-003 queued next; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M13-003 completed; M13-004 queued next; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
-Record the completed M13-001 current-state reconciliation and M13-002 cross-surface mobile search/filter/readout hardening for loaded-list readouts, group workspace/dashboard readiness, route handoffs, sync state, unsupported states, and automated coverage.
+Record the completed M13-001 current-state reconciliation, M13-002 cross-surface mobile search/filter/readout hardening, and M13-003 group workspace/dashboard readiness hardening for loaded-list readouts, group workspace/dashboard readiness, route handoffs, sync state, unsupported states, and automated coverage.
 
 M13 remains bounded to mobile presentation/readiness seams. This map does not authorize backend/API behavior, new server search endpoints, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or authorization-policy changes, storage/privacy/private-vault/file-byte behavior, import/export/backup/migration/runtime portability, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, Docker, CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or dashboard personalization persistence.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13-002. M13 is not UI-test ready until M13-004 finalization.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13-003. M13 is not UI-test ready until M13-004 finalization.
+
+## M13-003 Dirty Rescue Summary
+
+The rescue continuation started on `feature/mobile-group-workspace-dashboard-readiness-hardening-20260616-1927` with the dirty file list expected by the failed M13-003 run:
+
+- `.ai/current-milestone.md`
+- `.ai/qa-report.md`
+- `.ai/state.json`
+- `.ai/task-queue.json`
+- `apps/mobile/lib/app/server_mode_shell.dart`
+- `apps/mobile/lib/bills/bill_list_screen.dart`
+- `apps/mobile/lib/dashboard/dashboard_preview_screen.dart`
+- `apps/mobile/lib/groups/group_list_screen.dart`
+- `apps/mobile/test/bill_list_screen_test.dart`
+- `apps/mobile/test/dashboard_preview_screen_test.dart`
+- `apps/mobile/test/group_bill_list_screen_test.dart`
+- `apps/mobile/test/group_list_screen_test.dart`
+- `apps/mobile/test/server_mode_shell_dashboard_test.dart`
+- `docs/qa/M13_MOBILE_SEARCH_FILTER_GROUP_WORKSPACE_QA_MAP.md`
+
+Dirty diff safety decision: `SAFE_TO_CONTINUE`. The dirty changes were limited to M13-003 mobile presentation/readiness seams, focused widget tests, `.ai` control files, and this QA map. No unexpected dirty files were present, and the rescue did not discard, reset, clean, or overwrite the failed run's partial work.
+
+Rescue validation recorded after salvaging the dirty run:
+
+- `cd /workspace/repos/Settleora && git diff --name-only` listed only the files above.
+- `cd /workspace/repos/Settleora && git diff --check` passed with no whitespace errors.
+- `cd /workspace/repos/Settleora && npm run validate:docs` passed.
+- `cd /workspace/repos/Settleora && npm run validate:scaffold` passed.
+- `cd /workspace/repos/Settleora && npm run validate:openapi` passed.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run doctor:mobile` passed.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/dart format --set-exit-if-changed lib/app lib/groups lib/dashboard lib/bills lib/settlements lib/recurring_bills lib/notifications lib/reports test` passed with `Formatted 71 files (0 changed)`.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter pub get` passed.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter analyze` passed with `No issues found!`.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/group_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_list_screen_test.dart test/server_mode_shell_dashboard_test.dart` passed with 296 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 716 Flutter tests.
+- `cd /workspace/repos/Settleora && node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1` passed and selected `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
+
+Remaining M13-004 finalization work: finalize the M13 QA/control state, preserve `STOP-M13-001`, keep manual UI retest and manual code review deferred until Day 1 acceptance, and keep M13 not UI-test ready until finalization completes.
+
+Explicit non-goals preserved by this rescue: no backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, dashboard personalization persistence, Day 1 scope reduction, or architecture direction changes.
+
+## M13-003 Hardening Results
+
+M13-003 hardened group workspace/dashboard readiness and group-context handoffs inside existing presentation seams:
+
+- Group detail now says group detail plus group bills is the current bounded mobile group workspace and that a full multi-section group dashboard with balances, pending actions, reports, recurring, notifications, receipt review, settlements, and settings is not implemented yet.
+- Group detail directs users to existing shell routes for settlements, recurring bills, notifications, receipt reviews, reports, and sync status, while stating those subject screens reload through their own repository/API seams before mutation.
+- Dashboard shell and dashboard preview copy now say dashboard cards are presentation hints only, not authorization, financial truth, sync acceptance, or full offline cache hydration.
+- Unsupported saved group dashboard layouts, saved dashboard profiles, per-group defaults, dashboard personalization persistence, and saved cross-surface search/filter views are explicit.
+- Group bill list empty/no-match/readout copy distinguishes loaded visible group rows from authorization, server search, complete group workspace, and financial truth.
+
+Focused validation recorded during M13-003:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/dart format --set-exit-if-changed test/group_list_screen_test.dart` exited `1` after formatting `test/group_list_screen_test.dart`; rerun formatting passed with `Formatted 1 file (0 changed)`.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/group_list_screen_test.dart` passed with 20 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/group_list_screen_test.dart test/group_bill_list_screen_test.dart` passed with 138 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart` passed with 158 Flutter tests after a scroll-aware shell route assertion fix.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/group_list_screen_test.dart test/group_bill_list_screen_test.dart test/bill_list_screen_test.dart test/settlement_list_screen_test.dart test/recurring_bill_screen_test.dart test/notification_screen_test.dart test/monthly_report_screen_test.dart` passed with 418 Flutter tests.
+- Earlier focused attempts failed while copy changes pushed member controls below the default viewport, one assertion counted a duplicated phrase, and one shell route tap needed scroll-aware handling after readiness copy lengthened the dashboard; those failures were corrected and rerun successfully.
 
 ## M13-002 Hardening Results
 
@@ -104,7 +163,7 @@ Not implemented and must remain future work:
 - Group-scoped monthly report/dashboard aggregation beyond current route/readout seams.
 - Broad sync conflict center, offline cache hydration, local-mode group collaboration, import/export/backup/migration runtime, and reconciliation mutation.
 
-M13-003 should harden the group workspace/dashboard readiness copy and route handoffs inside these existing seams without adding policy, persistence, server APIs, or new authority.
+M13-003 hardened the group workspace/dashboard readiness copy and route handoffs inside these existing seams without adding policy, persistence, server APIs, or new authority.
 
 ## Authority And Safety Boundaries
 
@@ -141,17 +200,16 @@ Closed M13-002 coverage gaps:
 - Loaded-count/visible-count or loaded-row boundary readouts were tightened for groups, members, recurring, reports, settlements, group bills, and sync queue copy.
 - No changed surface adds global search, saved views, server search endpoints, generated-client authority, broad offline cache hydration, export/import, or financial/reconciliation mutation.
 
-Coverage gaps for M13-003:
+Closed M13-003 coverage gaps:
 
-- Group workspace readiness copy tying group detail, group bill list/detail, dashboard preview, reports, recurring, notifications, receipt review, settlement, and sync routes together without implying a complete group dashboard.
-- Assertions that group dashboard/readiness handoffs revalidate through subject routes and do not infer access from group labels, member rows, dashboard cards, or notification metadata.
-- Unsupported group dashboard personalization persistence and saved-layout copy.
-- Empty/denied/unavailable/offline/conflict distinctions for group-context handoffs where current coverage is shallow.
+- Group workspace readiness copy now ties group detail, group bill list/detail, dashboard preview, reports, recurring, notifications, receipt review, settlement, and sync routes together without implying a complete group dashboard.
+- Assertions now cover group dashboard/readiness handoffs revalidating through subject routes and not inferring access from group labels, member rows, dashboard cards, notification metadata, cached route state, or local filters.
+- Unsupported group dashboard personalization persistence, saved layouts, saved profiles, per-group defaults, and saved cross-surface views are covered.
+- Empty/no-match/offline/sync/readiness distinctions for group-context handoffs were improved in dashboard, group detail, and group bill list coverage.
 
 Expected later focused tests:
 
 - M13-002: focused widget tests for all changed search/filter/readout copy and then full `validate:mobile`.
-- M13-003: focused widget tests for group workspace/dashboard readiness and handoff copy plus full `validate:mobile`.
 - M13-004: docs/control finalization after M13-002 and M13-003 pass, preserving deferred manual UI/code review status.
 
 ## Stop Conditions
@@ -169,10 +227,10 @@ Stop and report `BLOCKED` if M13 work requires:
 - Docker/deployment/env/CI changes.
 - Secrets, tokens, credentials, `.env`, `.ssh`, `.codex`, local auth/session config, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, architecture replacement, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain scope.
 
-## Queue State After M13-002
+## Queue State After M13-003
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Current-state reconciliation only; no runtime behavior or test changes.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened cross-surface mobile search/filter/readout states inside existing seams.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next. Harden group workspace/dashboard readiness and handoffs inside existing seams.
-- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed. Hardened group workspace/dashboard readiness and handoffs inside existing seams.
+- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued next. Finalize M13 QA/control state after bounded slices complete.
 - `STOP-M13-001` - Preserved stop sentinel for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.

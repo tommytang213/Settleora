@@ -38,6 +38,12 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('No group bills'), findsOneWidget);
+    expect(
+      find.text(
+        'No loaded visible group bills are available for Trip Crew. Create a group bill to use the existing shared bill review flow; other group workspace sections remain separate routes.',
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
     expect(
       find.byKey(const Key('group-bill-list-empty-create')),
@@ -498,7 +504,7 @@ void main() {
     expect(find.text('6 of 6 loaded server rows visible.'), findsOneWidget);
     expect(
       find.text(
-        'Group bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+        'Group bill filters use already-loaded visible server rows for this group route only. This is the current bounded group bill workspace, not authorization, a complete group dashboard, or financial truth.',
       ),
       findsOneWidget,
     );
@@ -526,7 +532,7 @@ void main() {
     expect(find.text('0 of 6 loaded server rows visible.'), findsOneWidget);
     expect(
       find.text(
-        'No already-loaded group bills match this local search and filter. Clear filters to review every loaded server row.',
+        'No already-loaded visible group bills match this local search and filter. Clear filters to review loaded server rows; no-match is not authorization, server search, or complete group workspace truth.',
       ),
       findsOneWidget,
     );
