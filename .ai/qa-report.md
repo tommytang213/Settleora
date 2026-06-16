@@ -1,6 +1,31 @@
 # AI QA Report
 
-Status: `M11 finalized/UI-test ready; M11-001, M11-002, M11-003, and M11-004 completed; manual UI/code review deferred until Day 1 acceptance`
+Status: `M12 queued; M12-001 selected; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M12 Kickoff Summary
+
+M12 is queued as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
+
+The selection is based on current repo state:
+
+- `README.md` says mobile first-launch local/server configuration, secure-storage-backed app/session state, authenticated server shell, profile/payment details, session/device management, and sync readouts exist, while full offline cache hydration and broader product UI remain future work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires CSV export, CSV import, local backup/restore, explicit local/server authority boundaries, and no silent merge between local-only and server/cloud data.
+- `docs/ux/UI_UX_FOUNDATION.md` requires local mode and server mode to be visually and behaviorally distinct, local-to-server import/link and server-to-local export/disconnect to be explicit guided flows, and local profile data to never silently become a server account.
+- `docs/ux/SCREEN_INVENTORY.md` identifies mobile Settings as the surface for user preferences, privacy, local/server mode, exports, account/session access, and destructive warnings.
+- `docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md` keeps UI modes and toggles as visibility/workflow-depth controls only, without changing backend authority.
+- Current mobile code under `apps/mobile/lib/app/` and `apps/mobile/lib/profile/`, plus focused tests under `apps/mobile/test/`, provide bounded seams for mobile-only state/copy hardening without requiring API, OpenAPI, generated-client, schema, auth/security runtime, storage/privacy, real data-portability runtime, money, deployment, web/admin, or unrelated changes.
+
+M12 queue:
+
+- `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517` - Queued. Reconcile current mobile first-launch, local/server mode, authenticated settings/profile/account, sync-status, and data-portability readiness state without runtime behavior changes.
+- `M12-002-MOBILE-FIRST-LAUNCH-MODE-BOUNDARY-HARDENING-20260616-1517` - Queued. Harden first-launch/setup/local/server mode boundary copy and tests inside existing mobile app seams.
+- `M12-003-MOBILE-SETTINGS-DATA-PORTABILITY-READOUT-HARDENING-20260616-1517` - Queued. Harden authenticated settings/profile/account data-portability placeholder/readout states without adding real data-portability runtime.
+- `M12-004-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-QA-FINALIZE-20260616-1517` - Queued. Finalize M12 QA/control state after bounded slices complete.
+- `STOP-M12-001` - Stop. Manual gate for real data-portability runtime, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+M12 kickoff changes only `.ai` control files, the M12 QA map, and a narrow M12 scope-guard allowlist. It does not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, private-vault behavior, real CSV import/export, local backup/restore, migration/link/disconnect/export runtime, file byte behavior, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. Recommended next automated task is `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
 
 ## M11 Kickoff Summary
 

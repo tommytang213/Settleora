@@ -1,69 +1,69 @@
 # Current Milestone
 
-- ID: `M11`
-- Name: `Day 1 Mobile Account Session And Device Management Hardening`
+- ID: `M12`
+- Name: `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M10`
+- Previous milestone ID: `M11`
 
 ## Goal
 
-Advance the next Day 1 blocker after the finalized M10 mobile self profile/payment-details checkpoint by hardening the existing mobile account session and device management surface. M11 is intentionally mobile and account/session UX focused: it improves state reconciliation, session/device safe metadata readout, per-session revoke behavior, current-session sign-out and account-wide sign-out handling, expired-session and refresh failure states, and QA coverage while preserving backend authority for authentication, authorization, session issuance, refresh rotation, revocation, credential policy, audit, and current actor/profile resolution.
+Advance the next bounded Day 1 mobile product surface after M11 and the post-M11 FX/currency/UX architecture documentation update by hardening mobile settings, local/server mode boundaries, and data-portability readiness copy/states. M12 is intentionally a mobile UX/readiness milestone: it reconciles and hardens existing first-launch setup, local-mode, server-mode, profile/account/settings, sync-status, and unsupported export/migration readouts while preserving API/domain authority and stopping before real import/export/backup/migration runtime.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the mobile app has first-launch local/server configuration, secure-storage-backed app/session state boundaries, a minimal authenticated server-mode shell with refresh, logout, session list, and per-session revocation.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires user registration/login, secure sessions and revocation-ready session model, device/session visibility, API-enforced role and permission checks, and audit boundaries for security-impactful events.
-- `docs/features/auth-session/FUNCTIONAL_SPEC.md` requires users to understand active sessions/devices, revoke sessions, sign out, use local-only mode without server auth, and see only safe own-session metadata.
-- `docs/features/auth-session/TECHNICAL_SPEC.md` keeps auth/session/credential/audit writes API-owned and forbids raw tokens, password material, provider secrets, and MFA/passkey secrets from logs, audit, or responses.
-- `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` records the existing mobile auth/session lifecycle shell, secure app/session storage boundary, refresh-aware access-token lookup, current-session logout, account-wide sign-out, session/device list, and per-session revocation.
-- Current mobile code under `apps/mobile/lib/app/` and focused tests under `apps/mobile/test/auth_session_repository_test.dart`, `apps/mobile/test/secure_storage_test.dart`, and `apps/mobile/test/widget_test.dart` provide bounded seams for mobile-only account/session UX hardening without requiring API, contract, generated-client, schema, credential, token-policy, audit-policy, storage/privacy, money, deployment, or unrelated-domain changes.
+- `README.md` says mobile first-launch server/local configuration and secure session boundaries exist, while full offline cache hydration and broader product UI remain future work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires CSV export, CSV import, local backup/restore, explicit local/server authority boundaries, and no silent merge between local-only and server/cloud data.
+- `docs/ux/UI_UX_FOUNDATION.md` requires local mode and server mode to be visually and behaviorally distinct, local-to-server import/link and server-to-local export/disconnect to be explicit guided flows, and local profile data to never silently become a server account.
+- `docs/ux/SCREEN_INVENTORY.md` identifies mobile Settings as the surface for user preferences, privacy, local/server mode, exports, account/session access, and destructive warnings, while noting this inventory does not authorize runtime implementation by itself.
+- `docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md` says experience modes and advanced toggles affect visibility/workflow depth only and do not change backend authority.
+- Current mobile code under `apps/mobile/lib/app/`, `apps/mobile/lib/profile/`, and focused tests under `apps/mobile/test/` provide bounded seams for mobile-only state/copy hardening without requiring API, OpenAPI, generated-client, schema, auth/security runtime, storage/privacy, data-portability runtime, money, deployment, web/admin, or unrelated changes.
 
-## Allowed Scope For Future M11 Tasks
+## Allowed Scope For Future M12 Tasks
 
-- Mobile auth/session repository mapping, secure session material handling, access-token refresh seam, first-launch/sign-in state, authenticated server shell sign-out/session-list routing, session/device list UI, per-session revoke UI, and bounded session failure copy in `apps/mobile/lib/app/`.
-- Focused mobile tests for auth repository mapping, secure storage/access-token provider behavior, app bootstrap/sign-in/session-expired states, session list, per-session revoke, sign-out-all, server-unreachable local-clear confirmation, duplicate-action prevention, safe failure/retry states, and unsafe token/session/credential suppression in `apps/mobile/test/`.
-- M11 QA map and milestone QA docs under `docs/qa/`.
+- Mobile first-launch setup, server configuration, local-mode and server-mode boundary copy/states, bootstrap/sign-in change-server entry points, authenticated shell settings/profile/account entry points, sync status readout, unsupported export/migration/backup placeholders, and bounded failure/destructive-warning copy in `apps/mobile/lib/app/`.
+- Existing mobile profile/account readout copy and safe settings-adjacent profile/payment boundaries in `apps/mobile/lib/profile/` when needed for settings/data-portability readout hardening.
+- Focused mobile tests for first-launch mode choice, local/server boundary copy, invalid/unavailable server states, authenticated settings/profile/session entry, sync status, unsupported data-portability readouts, destructive warning copy, and unsafe implication suppression in `apps/mobile/test/`.
+- M12 QA map and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M11 path allowances.
+- `scripts/ai/v3-scope-guard.mjs` only for narrow M12 path allowances.
 
 ## Forbidden Without Human Approval
 
 - Main merge, except explicit development-stage PR/merge-gate tasks that pass the repository main merge policy.
 - Backend/API behavior.
 - OpenAPI/generated clients.
-- Auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams.
-- Token issuance, refresh rotation policy, revocation semantics, password handling, OIDC/Keycloak, MFA, passkey, recovery, registration policy, admin user management, credential storage, or audit-policy changes.
+- Auth/session/security runtime, token/credential/session issuance or revocation semantics, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes.
 - Database schema/migrations.
-- Storage/file privacy policy, file authorization policy, QR/proof/receipt byte behavior, generic public file APIs, or private-vault behavior.
-- Client-side authorization decisions from cached profile/session rows, hidden UI controls, route state, generated-client availability, or local device labels.
-- Money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority.
-- CSV import/export, backup/restore, direct bank sync, provider integrations, statement import/matching, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain work.
+- Real CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, data migration, file byte movement, storage/file privacy policy, file authorization policy, private-vault behavior, or retention policy changes.
+- Client-side authorization decisions from cached route/profile/session/settings rows, hidden UI controls, route state, generated-client availability, or local device labels.
+- Money, bill, settlement, recurring, OCR, reconciliation mutation, import-driven financial mutation, or business status-transition authority.
 - Docker/deployment/env/CI config.
 - Production secrets, credentials, tokens, `.env`, `.ssh`, `.codex`, or local auth/session config.
-- Day 1 scope reduction or architecture direction replacement.
+- Web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture direction replacement, or unrelated major-domain work.
 
 ## Done Criteria
 
-- Current mobile account/session implementation is reconciled against Day 1 account/session requirements and captured in a QA map.
-- Session/device list readout preserves only safe server-returned metadata, current-session markers, status/timestamp labels, and bounded empty/failure states without exposing raw session IDs, tokens, refresh credentials, token hashes, auth account IDs, provider payloads, API paths, stack traces, secrets, or unrelated user data.
-- Per-session revoke protects the current session, prevents duplicate revoke requests, confirms destructive account/session actions, refreshes or preserves safe state after mutation, and treats revocation as server-authoritative.
-- Current-session sign-out, account-wide sign-out, server-unreachable local-clear confirmation, expired-session handling, and access-token refresh failures fail closed and keep token material hidden.
-- M11 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
+- Current mobile first-launch, local/server mode, authenticated settings/profile/account, sync-status, and data-portability readiness surfaces are reconciled against Day 1 requirements and captured in a QA map.
+- Local mode is clearly device-bound and does not imply server account creation, server collaboration, shared groups, server sync, or automatic migration.
+- Server mode clearly remains API-authoritative for collaboration, auth/session, authorization, sync acceptance, money, storage, audit, and policy decisions.
+- Any export/import/backup/migration/disconnect affordance is represented only as unsupported/readiness copy unless a later human-approved task explicitly authorizes real runtime behavior.
+- Settings/profile/account readouts avoid implying that cached rows, hidden controls, generated-client availability, or local UI choices authorize data access or policy changes.
+- M12 QA records automated validation and keeps deferred manual UI/code review as deferred until Day 1 acceptance, not passed.
 - No human-gated blocker is bypassed.
-- M11 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, credential/token policy, auth/session/security runtime, storage/privacy, money/settlement/bill/recurring/OCR authority, deployment, web/admin, broad offline sync/cache, import/export/backup, or unrelated major-domain work.
+- M12 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, auth/security runtime, data-portability runtime, storage/privacy, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, web/admin, broad offline sync/cache, import/export/backup/migration, or unrelated major-domain work.
 
 ## Current Task Pointer
 
-- Current task: `none`.
+- Current task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
 - Last completed task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
-- Current state: M11 is finalized as `Day 1 Mobile Account Session And Device Management Hardening` and is UI-test ready for deferred Day 1 acceptance review. M11-001 reconciled current account/session state, M11-002 hardened session/device list and per-session revoke behavior, M11-003 hardened current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session routing, and refresh fail-closed behavior, and M11-004 finalized QA/control state without runtime changes.
-- Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M11.
-- Manual code review status: `deferred_until_day1_acceptance`; not passed by M11.
-- Recommended next automated task: run the user-requested post-M11 docs-only FX/currency/UX architecture task before the next normal implementation milestone, unless the controller reports a stricter blocker. This follow-up is not an M11 runtime task and does not authorize currency/FX docs edits inside M11.
-- Stop sentinel: `STOP-M11-001` stops API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
+- Current state: M12 is queued as `Day 1 Mobile Settings, Mode Boundary, And Data Portability Readiness`.
+- Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M12.
+- Manual code review status: `deferred_until_day1_acceptance`; not passed by M12.
+- Recommended next automated task: `M12-001-MOBILE-SETTINGS-MODE-DATA-PORTABILITY-STATE-RECONCILE-20260616-1517`.
+- Stop sentinel: `STOP-M12-001` stops data-portability runtime/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
-## M10 Carry-Forward Boundary
+## M11 Carry-Forward Boundary
 
-M10 is finalized as `Day 1 Mobile Self Profile And Payment Details Hardening` and remains awaiting deferred Day 1 acceptance review. M11 must not expand M10 ad hoc into payment-detail visibility policy changes, counterparty authorization changes, self QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, private-vault behavior, QR byte rendering, payment provider integrations, settlement-scoped payment-detail policy changes, web/admin runtime, broad offline sync/cache, or generated-client/API changes.
+M11 is finalized as `Day 1 Mobile Account Session And Device Management Hardening` and remains awaiting deferred Day 1 acceptance review. M12 must not expand M11 ad hoc into auth/session/security runtime behavior, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit-policy changes, or backend/API changes.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
