@@ -1,16 +1,16 @@
 [
   {
-    "id": "M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110",
-    "title": "Reconcile mobile self profile and payment details state",
+    "id": "M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315",
+    "title": "Reconcile mobile account session and device management state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map current mobile self profile, text payment-details, visibility, QR metadata, generated-client mapping, app-shell entry, and focused automated coverage against Day 1 profile/payment-detail requirements and existing API/generated-client seams, then create focused QA expectations without changing runtime behavior.",
+    "goal": "Map current mobile auth/session repository, secure session storage, access-token refresh seam, sign-out flows, session/device list UI, per-session revoke behavior, account-wide sign-out, and focused automated coverage against Day 1 account/session requirements without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -20,29 +20,27 @@
     "stopConditions": [
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
+      "Requires auth/session/security runtime or configuration changes outside existing mobile presentation seams",
       "Requires database schema/migrations",
-      "Requires storage/file privacy policy, file authorization, QR/proof/receipt byte behavior, generic file APIs, or private-vault changes",
-      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
-      "Requires payment-detail visibility policy, counterparty authorization, global lookup, admin/support viewing, or client-side authorization decisions from cached profile/payment rows",
-      "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
-      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
+      "Requires storage/file privacy policy, file authorization, QR/proof/receipt byte behavior, or private-vault changes",
+      "Requires password reset/recovery, passkey/MFA, OIDC/Keycloak runtime, registration policy, admin user management, or credential storage changes",
+      "Requires client-side authorization decisions from cached session/profile rows",
+      "Requires money, bill, settlement, recurring, OCR, reconciliation, import/export/backup, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110",
-    "title": "Mobile self profile and payment details edit hardening",
+    "id": "M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315",
+    "title": "Mobile session list and revoke hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/profile/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile self profile and text payment-details edit flows for unconfigured/default states, field normalization copy, duplicate-submit prevention, bounded validation/session/denied/conflict/network/server failures, refresh-after-save recovery, and server-authority messaging while preserving current generated-client seams.",
+    "goal": "Harden the existing mobile session/device list and per-session revoke UI for safe metadata, current-session protection, duplicate revoke prevention, bounded failure/retry states, refresh-after-mutation behavior, and server-authority copy while preserving current generated-client auth repository seams.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -53,28 +51,25 @@
     "stopConditions": [
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires storage/file privacy policy or QR/file byte behavior changes",
-      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
-      "Requires payment-detail visibility policy, counterparty authorization, money, bill, settlement, recurring generation, OCR apply, or business status-transition authority changes",
-      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
+      "Requires auth/session/security runtime or configuration changes outside existing mobile presentation seams",
+      "Requires token, password, credential, OIDC, MFA, passkey, recovery, registration, admin, schema, audit-policy, or server authorization changes",
+      "Requires exposing raw tokens, refresh credentials, session hashes, auth account IDs, provider payloads, secrets, API paths, stack traces, or unrelated user data",
+      "Requires money, settlement, bill, recurring, OCR, storage/privacy, deployment, CI, Docker, web/admin, broad offline cache/sync, or unrelated-domain changes"
     ]
   },
   {
-    "id": "M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110",
-    "title": "Mobile payment visibility and QR metadata readout hardening",
+    "id": "M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315",
+    "title": "Mobile sign-out and refresh session hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
-      "apps/mobile/lib/profile/**",
       "apps/mobile/lib/app/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile payment-detail visibility labels, sensitive-data copy, QR availability metadata readout, unconfigured/private/counterparty/group-shared states, and unsafe text suppression so mobile treats payment details as sensitive server-authorized profile data and does not imply global visibility, counterparty permission, QR byte access, storage internals, or vault behavior.",
+    "goal": "Harden existing mobile current-session sign-out, server-unreachable local-clear confirmation, account-wide sign-out, expired-session handling, and secure access-token refresh states so protected routes fail closed and token material remains hidden.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -85,26 +80,23 @@
     "stopConditions": [
       "Requires backend/API behavior",
       "Requires OpenAPI/generated-client changes",
-      "Requires auth/session/security changes",
-      "Requires database schema/migrations",
-      "Requires storage/file privacy policy, file authorization, generic public file APIs, QR/proof/receipt byte behavior, or private-vault changes",
-      "Requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
-      "Requires counterparty payment-details authorization changes, settlement-scoped visibility policy changes, global lookup, group-directory payment exposure, admin/support viewing, or client-side authorization decisions from cached profile/payment rows",
-      "Requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or status-transition authority changes",
-      "Requires Docker/env/deployment/CI changes, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain scope"
+      "Requires auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams",
+      "Requires changing token issuance, refresh rotation policy, revocation semantics, password handling, OIDC/MFA/passkey behavior, or credential storage policy",
+      "Requires direct server trust from cached route/profile/session state",
+      "Requires schema/migrations, storage/privacy/file authorization, money, settlement, bill, recurring, OCR, import/export/backup, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated scope"
     ]
   },
   {
-    "id": "M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110",
-    "title": "Finalize mobile self profile and payment details QA state",
+    "id": "M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315",
+    "title": "Finalize mobile account session and device management QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M10 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M11 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -114,32 +106,31 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M10 implementation slices are incomplete",
+      "M11 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth, storage/privacy, QR byte, payment-detail visibility policy, counterparty authorization, money, settlement/bill/recurring/OCR authority, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, money, settlement/bill/recurring/OCR authority, import/export/backup, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M10-001",
-    "title": "Manual gate profile payment API storage QR authorization deployment blocker",
+    "id": "STOP-M11-001",
+    "title": "Manual gate auth session API security schema deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M10 immediately if mobile self profile/payment-details work requires broader API, contract, generated-client, auth, schema, storage privacy, file authorization, QR byte behavior, payment-detail visibility policy, counterparty authorization, money, bill, settlement, recurring, OCR authority, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
+    "goal": "Stop M11 immediately if mobile account/session work requires broader API, contract, generated-client, auth/session/security runtime or configuration, token/credential, password, OIDC, MFA, passkey, recovery, registration, admin, schema, audit-policy, storage privacy, file authorization, money, bill, settlement, recurring, OCR, import/export/backup, deployment, secret, web/admin, broad offline sync/cache, or unrelated major-domain scope.",
     "validation": [],
     "stopConditions": [
-      "Any M10 task requires backend/API behavior",
-      "Any M10 task requires OpenAPI/generated-client changes",
-      "Any M10 task requires auth/session/security changes",
-      "Any M10 task requires database schema/migrations",
-      "Any M10 task requires storage/file privacy policy, file authorization, generic public file APIs, QR/proof/receipt byte behavior, or private-vault behavior changes",
-      "Any M10 task requires self payment QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, or QR byte rendering",
-      "Any M10 task requires payment-detail visibility policy changes, counterparty authorization changes, global payment-detail lookup, group-directory payment exposure, admin/support payment-detail viewing, or client-side authorization decisions from cached profile/payment rows",
-      "Any M10 task requires money, bill, settlement, residual, balance, reconciliation, recurring generation, OCR apply, or business status-transition authority changes",
-      "Any M10 task requires Docker/env/deployment/CI changes",
-      "Any M10 task requires payment provider integrations, direct bank sync, provider webhook behavior, statement import/matching, CSV import/export, backup/restore, web/admin runtime UI, broad offline cache/sync, secrets, tokens, credentials, or local auth/session config",
-      "Any M10 task expands across unrelated major domains"
+      "Any M11 task requires backend/API behavior",
+      "Any M11 task requires OpenAPI/generated-client changes",
+      "Any M11 task requires auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams",
+      "Any M11 task requires token issuance, refresh rotation policy, server revocation semantics, password handling, OIDC/Keycloak, MFA, passkey, recovery, registration policy, admin user management, credential storage, or audit-policy changes",
+      "Any M11 task requires database schema/migrations",
+      "Any M11 task requires storage/file privacy policy, file authorization, generic file APIs, QR/proof/receipt byte behavior, or private-vault behavior changes",
+      "Any M11 task requires client-side authorization decisions from cached route/profile/session rows or generated-client availability",
+      "Any M11 task requires money, bill, settlement, recurring, OCR, reconciliation, import/export/backup, or business status-transition authority changes",
+      "Any M11 task requires Docker/env/deployment/CI changes",
+      "Any M11 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
     ]
   }
 ]
