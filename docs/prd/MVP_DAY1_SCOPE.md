@@ -10,6 +10,8 @@ Day 1 must support the core expense, shared bill, settlement, receipt, offline, 
 
 MVP does not mean demo-grade. It means the smallest complete version that can be trusted with real user records.
 
+Day 1 can use simple/guided UI defaults where they reduce clutter, but experience mode does not change backend authority. Money, authorization, storage access, status transitions, and audit remain API/domain-owned regardless of which controls are visible.
+
 ## Core Day 1 features
 
 ### Accounts, identity, sessions, and security
@@ -79,6 +81,8 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Receipt total mismatch must become a reviewable validation state or explicit adjustment, not a silent mutation of item totals, tax groups, discounts, refunds, or participant shares.
 - Manual exchange-rate snapshot support for Day 1 travel bills where original currency differs from settlement/display currency; provider-based exchange rates remain Day 2+.
 - Manual exchange-rate edits are money-impacting when they change participant shares or settlement amounts.
+- Bill-level FX snapshots are financial truth for converted bills. Provider/global/resolved FX rates are future reference/cache inputs and must not silently recalculate existing bills.
+- Future currency registry work should preserve three-letter currency-code snapshots on financial records even if currencies also have UUID internal primary keys.
 
 ### Shared groups
 

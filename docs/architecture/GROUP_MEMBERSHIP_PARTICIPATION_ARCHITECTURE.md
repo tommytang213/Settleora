@@ -83,6 +83,35 @@ default_excluded members: not selected by default
 left members: hidden or disabled unless special permission/reopen flow applies
 ```
 
+## Group Expense Contexts
+
+Use group expense contexts for trip/event bill grouping before implementing full nested groups. A context belongs to a group, but can define a narrower participation and defaulting surface for a trip, event, dinner, apartment period, or similar scoped activity.
+
+Example contexts:
+
+```text
+Japan Trip 2026
+Taiwan Trip
+Birthday Dinner
+Shared Apartment Q1
+```
+
+A context can have:
+
+- participants selected from group members or permitted temporary participants;
+- default bill currency;
+- default settlement/reporting currency;
+- its own FX profile;
+- bill selection defaults;
+- reporting/dashboard grouping metadata.
+
+Participation rules:
+
+- Context participants do not replace historical bill participants.
+- Adding or removing a context participant affects future defaults and visibility only where API authorization allows.
+- Group-level membership remains the outer authorization and audit boundary until a later nested-group design is explicitly reviewed.
+- Context-level FX profile and rule approval should use the affected context participant set when the proposal is created, as described in [Currency Exchange Architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md).
+
 ## Authorization rule
 
 Default-excluded or left members must not automatically see future bills.

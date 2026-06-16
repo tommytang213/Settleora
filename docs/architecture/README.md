@@ -24,7 +24,8 @@ This directory keeps supporting architecture and release-process notes.
 - [OCR architecture](OCR_ARCHITECTURE.md): canonical OCR architecture for required on-device OCR, complementary server-side OCR worker responsibilities, authority boundaries, offline flow, and validation rules.
 - [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md): current-state policy for the landed draft-only receipt OCR review apply operation, plus boundaries for future wider apply, finalization, revision, worker, and UI behavior.
 - [Receipt OCR review UX flow](RECEIPT_OCR_REVIEW_UX_FLOW.md): mobile-first UX gate for receipt capture, OCR review, apply-preview, explicit draft apply, permissions, blocked states, and privacy before UI implementation.
-- [Currency exchange architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md): Day 2 FX provider, exchange-rate storage, bill-level snapshot, recalculation, and audit rules.
+- [Currency exchange architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md): Day 2+ currency registry, FX provider/cache storage, common-currency materialization, bill-level snapshots, group/context FX profiles, approval, bill-create UX, recalculation, and audit rules.
+- [User experience modes architecture](USER_EXPERIENCE_MODES_ARCHITECTURE.md): simple/guided/advanced presets, per-feature advanced toggles, visibility resolution, and the rule that UI mode does not change backend authority.
 - [Statement reconciliation architecture](STATEMENT_RECONCILIATION_ARCHITECTURE.md): Day 2 statement import, matching, tolerance, payment-method, FX, privacy, and audit rules.
 - [Lock, refund, and group governance architecture](LOCK_REFUND_GOVERNANCE_ARCHITECTURE.md): Day 2 period/final lock, group approval, refund, reimbursement, and audit rules.
 - [Group membership and participation architecture](GROUP_MEMBERSHIP_PARTICIPATION_ARCHITECTURE.md): Day 2 member type, participation status, default selection, authorization, notification, and audit rules.

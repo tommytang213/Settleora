@@ -258,6 +258,9 @@ Rules:
 - Do not silently convert currencies without a reviewed rate source and audit trail.
 - Do not combine mismatched currencies inside one authoritative bill, split, balance, or settlement operation unless the workflow explicitly stores exchange-rate snapshots and converted values.
 - Cross-currency settlement is future or explicit scope unless a later reviewed implementation branch defines it.
+- Three-letter currency codes should be snapshotted onto financial records even when a future currency registry uses UUID internal primary keys.
+- Bill-level FX snapshots are financial truth for converted bills; provider/global/resolved exchange rates remain reference/cache inputs and must not silently recalculate historical bills.
+- Back-dated bills that require FX should use bill/receipt date for historical rate lookup and store both requested and source rate dates when a provider fallback uses a nearby or previous available date.
 - If a user enters a bill in one currency and settles in another, future schema must store original amount/currency, settlement amount/currency, exchange rate, rate direction, rate date, provider/source, precision, and whether the rate was overridden.
 - Existing bills must not be retroactively recalculated when newer exchange rates are fetched.
 - Statement settled amounts should remain separate from bill exchange snapshots.

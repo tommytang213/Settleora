@@ -14,13 +14,20 @@ Add daily and historical exchange-rate support using Frankfurter as the first pr
 
 Capabilities:
 
+- Currency registry with UUID internal IDs, three-letter public/business codes, lifecycle states, usability flags, and no physical deletion after use.
 - Provider abstraction.
 - Frankfurter provider implementation.
+- Raw provider rate set and quote storage.
 - Daily rate fetch.
+- Daily materialized ordered-pair rates for a configured common currency universe.
+- On-demand historical lookup for rare currencies when bill creation/import needs it.
 - Historical lookup by receipt/bill date.
-- Exchange-rate table.
+- Resolved pair-rate cache when rates are actually used.
 - Bill-level FX snapshot.
 - Manual exchange-rate override.
+- Group and trip/context FX profiles with directional rules.
+- Group/context FX profile proposal and affected-participant approval flow.
+- Bill-create FX source priority across manual override, context rule, group rule, recurring template rule, provider direct/inverse/cross-rate, and manual input.
 - Original amount, exchange rate, and converted amount shown in UI.
 - Override audit events.
 - Currency-aware forecasting/report support.
@@ -33,6 +40,8 @@ Bill exchange-rate snapshots are the financial truth for that bill.
 ```
 
 Existing bills must not be silently recalculated when new daily rates arrive.
+
+Default common currency universe should start with USD, EUR, JPY, GBP, CNY, AUD, CAD, CHF, HKD, and SGD, with an optional common-20 preset and regional packs such as Asia travel, Europe, and Middle East. Full ordered-pair materialization for 20 currencies is roughly 138,700 rows/year and is acceptable; larger universes should support PostgreSQL partitioning by requested rate date and automated retention.
 
 ### 2. Guest / accountless group members
 
@@ -277,6 +286,24 @@ Example presets:
 - Colleagues.
 
 Presets configure default behaviors, not hardcoded special cases.
+
+Trip/event behavior should start with group expense contexts before full nested groups. A context can carry participants, default bill currency, default settlement/reporting currency, and its own FX profile.
+
+### 19. Experience modes and advanced feature toggles
+
+Add user-facing experience presets while preserving one backend authority model.
+
+Recommended presets:
+
+```text
+simple
+guided
+advanced
+```
+
+Individual advanced toggles can include `advanced_fx`, `advanced_splits`, `group_contexts`, `approval_policy_controls`, `reconciliation`, `advanced_recurring`, `receipt_ocr_review_details`, `settlement_proof_details`, `audit_history`, `sync_status_details`, `import_export_advanced`, and `dashboard_customization`.
+
+Toggles control visibility and workflow depth only. They do not change backend financial truth, security, authorization, or audit requirements. Feature visibility should resolve through system policy, role/permissions, group policy, user preference, and screen context, in that order.
 
 ### 19. Localization foundation and Traditional Chinese UI
 
