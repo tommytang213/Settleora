@@ -4791,8 +4791,9 @@ extension _GroupBillListFilterText on _GroupBillListFilter {
   String get emptyMessage {
     return switch (this) {
       _GroupBillListFilter.needsYourResponse =>
-        'No group bills need your response.',
-      _ => 'No group bills match this filter.',
+        'No loaded visible group bills need your response. This filter is local UI guidance; the API still decides response eligibility and authorization.',
+      _ =>
+        'No loaded visible group bills match this local filter. Clear filters to review loaded server rows; no-match is not permission or server-search truth.',
     };
   }
 
@@ -15795,7 +15796,9 @@ class _SyncQueueDetailsSection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         if (filteredItems.isEmpty)
-          Text('No ${selectedFilter.label.toLowerCase()} queue items.')
+          Text(
+            'No loaded ${selectedFilter.label.toLowerCase()} queue items. This queue view covers current mobile bill operations only, not full offline cache hydration or server acceptance.',
+          )
         else
           for (var index = 0; index < filteredItems.length; index += 1) ...[
             if (index > 0) const SizedBox(height: 8),

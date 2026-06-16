@@ -356,7 +356,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                         icon: Icons.filter_alt_off_outlined,
                         title: 'No matching groups',
                         message:
-                            'No loaded groups match the current search or filters.',
+                            'No loaded visible groups match these local filters. Clear filters to review loaded server-returned groups; no-match is not an authorization result or server search.',
                         compact: true,
                       )
                     else
@@ -948,7 +948,7 @@ class _SettleoraGroupDetailScreenState
                             icon: Icons.person_search_outlined,
                             title: 'No matching members',
                             message:
-                                'No loaded members match the current search or filters.',
+                                'No loaded visible members match these local filters. Clear filters to review loaded server-returned members; no-match is not membership or authorization truth.',
                             compact: true,
                           )
                         else
@@ -1083,7 +1083,7 @@ class _MemberDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${members.length} members',
+                'Showing $visibleCount of ${members.length} loaded members',
                 key: const Key('group-member-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1100,6 +1100,13 @@ class _MemberDiscoveryControls extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
+        Text(
+          'Member search and filters narrow loaded visible rows only. Member labels and hidden controls are not permission signals.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 6,
@@ -1189,7 +1196,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${groups.length} groups',
+                'Showing $visibleCount of ${groups.length} loaded groups',
                 key: const Key('group-list-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1206,6 +1213,13 @@ class _GroupDiscoveryControls extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
+        Text(
+          'Group search and filters narrow loaded visible rows only. Group labels, route state, and dashboard visibility are not authorization.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 6,

@@ -1205,7 +1205,8 @@ class _RequestSection extends StatelessWidget {
             _StatePanel(
               icon: Icons.search_off_outlined,
               title: 'No matching settlements',
-              message: 'No settlements match this search and filter.',
+              message:
+                  'No loaded settlement requests match this local search and filter. Clear filters to review loaded rows; no-match is not a server search, authorization result, or settlement truth.',
               compact: true,
             ),
           ],

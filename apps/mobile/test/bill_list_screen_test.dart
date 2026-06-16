@@ -8078,7 +8078,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bill-sync-filter-pending')));
     await tester.pumpAndSettle();
 
-    expect(find.text('No pending queue items.'), findsOneWidget);
+    expect(
+      find.text(
+        'No loaded pending queue items. This queue view covers current mobile bill operations only, not full offline cache hydration or server acceptance.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Bill action'), findsNothing);
   });
 

@@ -180,7 +180,12 @@ void main() {
     expect(find.text('50.00 EUR'), findsOneWidget);
     expect(find.text('123.4500 USD'), findsNothing);
     expect(find.text('9000 JPY'), findsNothing);
-    expect(find.textContaining('Totals and bill count remain'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Totals, bill count, reconciliation readouts, and settlement counts remain',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('monthly report section chips filter loaded report buckets', (
@@ -334,7 +339,9 @@ void main() {
 
     expect(find.text('No matching report rows'), findsOneWidget);
     expect(
-      find.textContaining('Clear local search or filters'),
+      find.text(
+        'No loaded report rows match these local filters. Clear filters to show loaded server rows; no-match does not recompute report, reconciliation, or settlement truth.',
+      ),
       findsOneWidget,
     );
     expect(find.text('No monthly report activity'), findsNothing);

@@ -407,7 +407,9 @@ void main() {
 
     expect(find.text('No matching settlements'), findsOneWidget);
     expect(
-      find.text('No settlements match this search and filter.'),
+      find.text(
+        'No loaded settlement requests match this local search and filter. Clear filters to review loaded rows; no-match is not a server search, authorization result, or settlement truth.',
+      ),
       findsOneWidget,
     );
     expect(find.text('No settlement requests'), findsNothing);

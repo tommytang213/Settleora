@@ -369,7 +369,7 @@ class _SettleoraRecurringBillScreenState
                           icon: Icons.search_off_outlined,
                           title: 'No matching templates',
                           message:
-                              'Adjust the search or template filters to show recurring bills again.',
+                              'No loaded recurring templates match these local filters. Clear filters to review loaded server rows; no-match is not a server search or recurring authority result.',
                           compact: true,
                         )
                       else
@@ -406,7 +406,7 @@ class _SettleoraRecurringBillScreenState
                           icon: Icons.search_off_outlined,
                           title: 'No matching forecast',
                           message:
-                              'Adjust the search or forecast filters to show upcoming occurrences again.',
+                              'No loaded forecast occurrences match these local filters. Forecast rows are server-returned readouts; no-match does not prove no authorized recurring records exist elsewhere.',
                           compact: true,
                         )
                       else
@@ -1831,6 +1831,13 @@ class _RecurringBillDiscoveryControls extends StatelessWidget {
         ),
         if (hasActiveDiscovery) ...[
           const SizedBox(height: 10),
+          Text(
+            'Search and filters narrow loaded template and forecast rows only. Draft generation, group access, recurrence, participants, money, and audit remain API-authoritative.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(

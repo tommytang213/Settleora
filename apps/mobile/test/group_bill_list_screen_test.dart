@@ -682,7 +682,12 @@ void main() {
       );
 
       expect(find.text('No response needed'), findsOneWidget);
-      expect(find.text('No group bills need your response.'), findsOneWidget);
+      expect(
+        find.text(
+          'No loaded visible group bills need your response. This filter is local UI guidance; the API still decides response eligibility and authorization.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Needs Current'), findsNothing);
       expect(find.text('Pending Other'), findsNothing);
     },
@@ -823,7 +828,12 @@ void main() {
       );
 
       expect(find.text('No matching group bills'), findsOneWidget);
-      expect(find.text('No group bills match this filter.'), findsOneWidget);
+      expect(
+        find.text(
+          'No loaded visible group bills match this local filter. Clear filters to review loaded server rows; no-match is not permission or server-search truth.',
+        ),
+        findsOneWidget,
+      );
     },
   );
 

@@ -1,14 +1,33 @@
 # M13 Mobile Search, Filters, And Group Workspace QA Map
 
-Status: `M13-001 completed; M13-002 current; manual UI/code review deferred until Day 1 acceptance`
+Status: `M13-002 completed; M13-003 queued next; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
-Record the completed M13-001 current-state reconciliation for mobile search/filter, loaded-list readouts, group workspace/dashboard readiness, route handoffs, sync state, unsupported states, and automated coverage.
+Record the completed M13-001 current-state reconciliation and M13-002 cross-surface mobile search/filter/readout hardening for loaded-list readouts, group workspace/dashboard readiness, route handoffs, sync state, unsupported states, and automated coverage.
 
 M13 remains bounded to mobile presentation/readiness seams. This map does not authorize backend/API behavior, new server search endpoints, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or authorization-policy changes, storage/privacy/private-vault/file-byte behavior, import/export/backup/migration/runtime portability, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, Docker, CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or dashboard personalization persistence.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13-001. M13 is not UI-test ready until M13-004 finalization.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13-002. M13 is not UI-test ready until M13-004 finalization.
+
+## M13-002 Hardening Results
+
+M13-002 hardened current mobile search/filter/readout states inside existing presentation seams:
+
+- Group and member search/filter readouts now say local controls narrow loaded visible rows only, and that group labels, member labels, route state, hidden controls, dashboard visibility, and no-match results are not authorization or membership truth.
+- Group bill filtered-empty copy now says current-user response filters are local UI guidance and the API decides response eligibility, authorization, and bill state.
+- Settlement filtered-empty copy now says no-match means no loaded settlement requests match local filters, not a server search result, authorization result, settlement calculation, or settlement truth.
+- Recurring template and forecast filtered-empty copy now says local filters narrow loaded templates/forecast occurrences only and that draft generation, recurrence, group access, participants, money, and audit remain API-authoritative.
+- Monthly report filtered and empty readouts now preserve server-returned totals, bill count, reconciliation readouts, and settlement counts without recomputing report truth.
+- Personal bill sync queue filtered-empty copy now says the queue covers current mobile bill operations only, not full offline cache hydration or server acceptance.
+
+Focused validation recorded during M13-002:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/dart format --set-exit-if-changed lib/app lib/bills lib/groups lib/settlements lib/recurring_bills lib/notifications lib/reports lib/dashboard test` initially exited `1` after formatting `lib/groups/group_list_screen.dart` and `test/group_list_screen_test.dart`; rerun passed with `Formatted 71 files (0 changed)`.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/recurring_bill_screen_test.dart` passed with 24 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/bill_list_screen_test.dart test/group_bill_list_screen_test.dart test/group_list_screen_test.dart test/settlement_list_screen_test.dart test/recurring_bill_screen_test.dart test/monthly_report_screen_test.dart` passed with 319 Flutter tests.
+- Earlier focused attempts failed while tests still expected pre-hardening copy or needed scroll-aware assertions; those failures were corrected and rerun successfully.
+- M13-002 rescue validation reran the focused changed-surface command with 319 Flutter tests passing and full `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` with 716 Flutter tests passing.
 
 ## Source Documents
 
@@ -115,12 +134,12 @@ Relevant existing tests and current coverage:
 - `apps/mobile/test/sync_queue_test.dart`, `apps/mobile/test/bill_sync_controller_test.dart`, and `apps/mobile/test/*generated_repository_test.dart`: queue state model, sync processor/controller boundaries, and generated repository failure mapping for current seams.
 - `apps/mobile/test/receipt_ocr_review_screen_test.dart` and `apps/mobile/test/receipt_ocr_review_generated_repository_test.dart`: receipt review queue/detail/edit/apply-preview/apply boundary behavior outside the main search/filter inventory.
 
-Coverage gaps for M13-002:
+Closed M13-002 coverage gaps:
 
-- Cross-surface consistency that every local search/filter no-match state says loaded/visible rows only.
-- Focused assertions that search/filter does not match raw IDs, file IDs, session tokens, provider payloads, storage paths, or generated-client internals on every relevant surface.
-- Consistent clear-filter behavior and loaded-count/visible-count readouts across bills, groups, settlements, recurring, notifications, reports, and sync queue.
-- Explicit unsupported/global-search/saved-view/server-search copy where the UI might otherwise imply advanced Day 1 search is complete.
+- Cross-surface no-match/readout copy now consistently says local search/filter states narrow loaded visible rows only for the changed surfaces.
+- Focused assertions cover the changed strings in bills, group bills, groups/members, settlements, recurring templates/forecast, monthly reports, and sync queue readouts.
+- Loaded-count/visible-count or loaded-row boundary readouts were tightened for groups, members, recurring, reports, settlements, group bills, and sync queue copy.
+- No changed surface adds global search, saved views, server search endpoints, generated-client authority, broad offline cache hydration, export/import, or financial/reconciliation mutation.
 
 Coverage gaps for M13-003:
 
@@ -150,10 +169,10 @@ Stop and report `BLOCKED` if M13 work requires:
 - Docker/deployment/env/CI changes.
 - Secrets, tokens, credentials, `.env`, `.ssh`, `.codex`, local auth/session config, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, architecture replacement, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain scope.
 
-## Queue State After M13-001
+## Queue State After M13-002
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Current-state reconciliation only; no runtime behavior or test changes.
-- `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Current/next. Harden cross-surface mobile search/filter/readout states inside existing seams.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued. Harden group workspace/dashboard readiness and handoffs inside existing seams.
+- `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened cross-surface mobile search/filter/readout states inside existing seams.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next. Harden group workspace/dashboard readiness and handoffs inside existing seams.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
 - `STOP-M13-001` - Preserved stop sentinel for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
