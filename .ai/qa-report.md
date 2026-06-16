@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M10 active; M10-001, M10-002, and M10-003 complete; M10-004 queued next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M10 finalized; UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## M10 Kickoff Summary
 
@@ -19,7 +19,7 @@ M10 queue:
 - `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110` - Completed. Reconciled current mobile self profile/payment-details implementation and automated coverage without runtime behavior changes.
 - `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110` - Completed. Hardened existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, and server-authority copy inside current mobile seams.
 - `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110` - Completed. Hardened visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
-- `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110` - Queued next. Finalize M10 QA/control state after bounded slices complete.
+- `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110` - Completed. Finalized M10 QA/control state after bounded slices completed.
 - `STOP-M10-001` - Stop. Manual gate for API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/payment-visibility/counterparty-authorization/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 M10 kickoff changed only `.ai` control files, the M10 QA map, and a narrow M10 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, payment-detail visibility policy, counterparty authorization, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
@@ -44,7 +44,7 @@ Current implementation findings:
 - App-shell profile access is routed through injected repository composition after current-user validation; generated-client availability and local route state remain non-authoritative.
 - No mobile runtime or test files were changed by M10-001.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M10-002 and M10-003 are now complete; recommended next automated task is `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M10 is now finalized and UI-test ready; recommended next automated action is to run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 
 ## M10-003 Payment Visibility Readout Summary
 
@@ -63,7 +63,37 @@ Focused automated coverage:
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/profile_screen_test.dart` passed with 12 tests.
 - Added coverage for private/counterparty/group-shared visibility labels/copy, non-global/API-authority copy, unconfigured/default/cleared payment-details readout, QR metadata-only readout with content type/size/timestamp, absence of QR upload/remove/content-read UX or image rendering, unsafe raw text suppression, and no client-side authorization decisions from cached profile/payment rows.
 
-Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. M10-004 finalized the milestone as UI-test ready.
+
+## M10-002 Edit Hardening Summary
+
+M10-002 completed profile/payment edit-state hardening inside existing mobile seams:
+
+- Profile/payment edit states, normalization copy, duplicate-submit guards, bounded failures, refresh-after-save recovery, unsafe edit-text suppression, and server-authority copy were completed.
+- Validation: focused profile command passed with 52 tests; full mobile validation passed with 702 Flutter tests.
+
+## M10-004 QA Finalization Summary
+
+M10 is finalized as `Day 1 Mobile Self Profile And Payment Details Hardening` and marked UI-test ready.
+
+Completed M10 slices:
+
+- M10-001 reconciled current mobile self profile/payment-details repository seams, generated-client mapping, app-shell entry, focused automated coverage, Day 1 requirement map, and bounded M10 focus without runtime behavior changes.
+- M10-002 completed profile/payment edit states, normalization copy, duplicate-submit guards, bounded failures, refresh-after-save recovery, unsafe edit-text suppression, and server-authority copy.
+- M10-003 completed visibility labels, sensitive-data/non-global copy, QR metadata-only readout, default/cleared/unconfigured states, unsafe text suppression, and no cached-row authorization decisions.
+- M10-004 completed control/QA finalization and set M10 to UI-test ready with no remaining automated M10 work.
+
+Recorded M10 validation coverage:
+
+- M10-002 focused profile command validation: 52 tests.
+- M10-002 full mobile validation: 702 Flutter tests.
+- M10-003 focused profile command validation: 54 tests.
+- M10-003 full mobile validation: 704 Flutter tests.
+- M10-004 final validation includes docs, scaffold, OpenAPI, mobile doctor, full mobile validation, scope guard, and final controller dry run. The final full mobile validation count is recorded in the external task report.
+
+M10 remains explicitly out of scope for backend/API behavior, OpenAPI/contracts/generated clients, auth/session/security runtime or config, schema/migrations, storage/privacy/file authorization policy, QR/proof/receipt byte behavior, self QR upload/remove/content UX, platform file/image picker dependencies, image normalization, camera/gallery permissions, private-vault behavior, payment-detail visibility policy changes, counterparty authorization changes, global lookup, group-directory payment exposure, admin/support viewing, client-side authorization decisions from cached profile/payment rows, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets/tokens/credentials, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, and architecture replacement.
+
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M10. Recommended next automated Day 1 action is to run the AI V3 controller for the next controller-approved milestone or queue kickoff.
 
 ## Acceptance Checklist
 
@@ -133,6 +163,8 @@ Manual UI/code review remains deferred until Day 1 acceptance and is not passed.
 - [x] M10-001 reconciled current mobile self profile/payment-details repository/model boundaries, generated-client mapping, profile screen state, app-shell injection, automated coverage, Day 1 requirement gaps, and M10-002/M10-003 focus without changing runtime behavior.
 - [x] M10-002 hardened existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, unsafe edit-text suppression, and server-authority copy inside current mobile seams.
 - [x] M10-003 hardened visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
+- [x] M10-004 finalized M10 QA/control state, recorded validation coverage, preserved deferred manual UI/code review, and marked M10 UI-test ready with no remaining automated M10 work.
+- [x] Current M10 state preserves `STOP-M10-001`, keeps manual UI/code review deferred until Day 1 acceptance, and recommends running the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
 - [x] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
 ## M9 Selection Summary

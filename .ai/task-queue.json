@@ -99,7 +99,7 @@
     "title": "Finalize mobile self profile and payment details QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
