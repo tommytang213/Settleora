@@ -62,7 +62,8 @@ Status: `M9 queued for mobile in-app notification inbox hardening; manual UI/cod
 - [x] No M9 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, money, storage privacy, notification delivery/providers/preferences/queue/worker behavior, linked-resource authorization changes, deployment, Docker, CI, web/admin, broad offline sync/cache, or secret changes.
 - [x] M9-001 reconciled current mobile notification repository/model boundaries, generated-client mapping, notification inbox UI, app-shell handoffs, automated coverage, Day 1 requirement gaps, and M9-002/M9-003 focus without changing runtime behavior.
 - [x] M9-002 hardened mobile notification inbox count clarity, local loaded-row filter copy, archived boundaries, row/bulk action copy, duplicate-action guards, bounded failure copy, refresh-after-mutation recovery, mark-visible semantics, and server-authority messaging.
-- [ ] M9 implementation hardening slices are complete.
+- [x] M9-003 hardened mobile notification typed handoff authority copy and notification-origin bill destination failure suppression while preserving destination repository re-fetch authority.
+- [x] M9 implementation hardening slices are complete.
 - [ ] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
 ## M9 Selection Summary
@@ -81,8 +82,8 @@ The selection is based on current repo state:
 
 - `M9-001-MOBILE-NOTIFICATION-INBOX-STATE-RECONCILE-20260616-0055` - Completed. Reconciled current mobile notification implementation and automated coverage without runtime behavior changes.
 - `M9-002-MOBILE-NOTIFICATION-INBOX-ACTION-HARDENING-20260616-0055` - Completed. Hardened notification inbox filters, read/archive/bulk action clarity, duplicate-action guards, failure/retry states, refresh behavior, and server-authority copy inside existing mobile seams.
-- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Current/next. Harden typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
-- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Queued. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
+- `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055` - Completed. Hardened typed handoff authority boundaries for bill, bill revision, settlement, and recurring notification targets.
+- `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055` - Current/next. Finalize M9 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark UI-test ready without runtime behavior changes.
 - `STOP-M9-001` - Stop for API/contracts/generated-client/auth/schema/storage/privacy/money/bill/settlement/recurring/OCR/deployment, notification delivery/provider/preference/queue/worker behavior, linked-resource authorization changes, web/admin, broad offline sync/cache, secrets, or unrelated major-domain scope.
 
 ## M9-001 Reconciliation Summary
@@ -126,6 +127,25 @@ Focused automated coverage:
 - Added/updated coverage for count clarity, loaded-row local filter copy, archived-row boundaries, filtered-empty versus true-empty copy, action duplicate guards, bounded unsafe failure copy, refresh-after-mutation recovery, mark-visible loaded-row semantics, and server-authority copy.
 
 Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-003-MOBILE-NOTIFICATION-HANDOFF-AUTHORITY-HARDENING-20260616-0055`.
+
+## M9-003 Handoff Authority Hardening Summary
+
+Updated `apps/mobile/lib/notifications/notification_screen.dart`, focused notification screen tests, M9 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Notification detail copy now states that raw links, notification IDs, linked-resource IDs, cached rows, and generated-client availability are routing hints only.
+- Destination copy now says the destination API re-checks access and current state before linked details or actions are shown.
+- Unsupported or incomplete destination metadata now shows bounded copy that the notification only points to a destination and cannot open safely without supported typed metadata and an authorized repository.
+- Notification-origin personal/group bill destination loads pass through a small delegating wrapper that preserves the existing bill repository seam while suppressing unsafe failure text from bill detail failure panels.
+- Unsafe generated-client, API path, token/secret, storage/provider, proof, receipt/OCR, payment-detail, filesystem, stack-trace, and unrelated-user strings remain suppressed from notification handoff and destination-failure copy.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/notification_screen_test.dart` passed with 57 tests.
+- Added coverage for denied personal bill destination failure through the authorized repository seam, no read mutation after denied destination failure, safe fallback failure copy, and unsafe string suppression.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M9-004-MOBILE-NOTIFICATION-INBOX-QA-FINALIZE-20260616-0055`.
 
 ## M8 Selection Summary
 
