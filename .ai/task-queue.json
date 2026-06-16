@@ -1,16 +1,16 @@
 [
   {
-    "id": "M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742",
-    "title": "Reconcile mobile search, filters, and group workspace readiness state",
+    "id": "M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053",
+    "title": "Reconcile mobile visual theme, color, and accessibility readiness state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Map current mobile search/filter affordances, list filtering, dashboard/group workspace entry points, group context readouts, and existing automated coverage against Day 1 search/filter and group dashboard/workspace requirements without changing runtime behavior.",
+    "goal": "Map current mobile theme tokens, reusable components, hardcoded color usage, readability/accessibility coverage, touch target/readout states, and unsupported visual preference gaps against Day 1 UX and visual-settings architecture requirements without changing runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -21,34 +21,27 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "Requires backend/API behavior",
+      "Requires backend/API behavior or visual preference endpoints",
       "Requires OpenAPI/generated-client changes",
-      "Requires database schema/migrations",
-      "Requires auth/session/security runtime or authorization policy changes",
-      "Requires storage/privacy/file-byte behavior, import/export/backup/restore/migration runtime, or retention policy changes",
-      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, calculation authority, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
+      "Requires database schema/migrations or persisted visual preference storage",
+      "Requires auth/session/security runtime, authorization policy, audit-policy, storage/privacy/file-byte behavior, money, settlement, bill, recurring, OCR, reconciliation authority, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
     ]
   },
   {
-    "id": "M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742",
-    "title": "Mobile cross-surface search and filter readout hardening",
+    "id": "M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053",
+    "title": "Mobile theme, component, and readability hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
+      "apps/mobile/lib/ui/**",
       "apps/mobile/lib/app/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/lib/groups/**",
-      "apps/mobile/lib/settlements/**",
-      "apps/mobile/lib/recurring_bills/**",
-      "apps/mobile/lib/notifications/**",
-      "apps/mobile/lib/reports/**",
       "apps/mobile/lib/dashboard/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden existing mobile list/search/filter/readout states so users can find and narrow visible server-returned records across current starter surfaces without implying unauthorized discovery, generated-client authority, broad offline cache hydration, export/import, or financial/reconciliation mutation.",
+    "goal": "Harden built-in mobile theme tokens, shared components, and bounded app/dashboard presentation seams so current starter surfaces are more readable, consistent, accessible, and warm-fintech aligned without adding preference persistence, policy behavior, server authority, or business-domain logic.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -57,33 +50,27 @@
       "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Requires backend/API behavior or new server search endpoints",
+      "Requires backend/API behavior or persisted visual preference endpoints",
       "Requires OpenAPI/generated-client changes",
-      "Requires authorization decisions from cached rows, hidden controls, route state, generated-client availability, or local search results",
-      "Requires CSV import/export, local backup/restore, statement import, data migration, storage/file-byte behavior, privacy-vault behavior, or retention policy changes",
-      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, calculation authority, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
+      "Requires database schema/migrations, user/admin palette storage, palette sharing, deployment default policy, or user preference sync",
+      "Requires client-side authorization, money, settlement, bill, payment, recurring, OCR, reconciliation, storage, privacy, auth/session/security, audit-policy, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
     ]
   },
   {
-    "id": "M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742",
-    "title": "Mobile group workspace and dashboard readiness hardening",
+    "id": "M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053",
+    "title": "Mobile visual preference unsupported readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
       "apps/mobile/lib/app/**",
-      "apps/mobile/lib/groups/**",
-      "apps/mobile/lib/dashboard/**",
-      "apps/mobile/lib/bills/**",
-      "apps/mobile/lib/settlements/**",
-      "apps/mobile/lib/recurring_bills/**",
-      "apps/mobile/lib/notifications/**",
-      "apps/mobile/lib/reports/**",
+      "apps/mobile/lib/profile/**",
+      "apps/mobile/lib/ui/**",
       "apps/mobile/test/**"
     ],
-    "goal": "Harden current mobile group context and dashboard/readiness surfaces so group workspace entry, group-scoped bills, balances, members, recurring/forecast/report/notification links, empty states, and unsupported group-dashboard personalization are clear presentation readouts that revalidate through server-authorized routes before mutation.",
+    "goal": "Clarify existing mobile settings/profile/app readouts for appearance mode, palette, accent, category/tag/group/dashboard/chart/status-color, and customization readiness as presentation-only and unsupported where runtime persistence/API/schema is absent, without adding fake settings controls.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -92,23 +79,22 @@
       "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
     ],
     "stopConditions": [
-      "Requires backend/API behavior",
-      "Requires OpenAPI/generated-client changes",
-      "Requires group authorization, membership policy, invite, guest, role, audit-policy, or admin behavior changes",
-      "Requires money, bill, settlement, recurring, OCR, reconciliation mutation, dashboard personalization persistence, broad offline cache/sync, storage/privacy/file-byte behavior, import/export/backup/migration runtime, deployment, CI, Docker, secrets, web/admin, or unrelated-domain changes"
+      "Requires persisted visual settings, custom palette creation, palette sharing, admin/deployment defaults, local-to-server preference migration, or API/schema/contracts/generated-client work",
+      "Requires fake runtime controls for settings that are not implemented",
+      "Requires auth/session/security, authorization policy, storage/privacy, audit-policy, money, bill, settlement, recurring, OCR, reconciliation, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
     ]
   },
   {
-    "id": "M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742",
-    "title": "Finalize mobile search, filter, and group workspace readiness QA state",
+    "id": "M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053",
+    "title": "Finalize mobile visual theme and accessibility readiness QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M13 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Finalize M14 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -118,30 +104,31 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M13 implementation slices are incomplete",
+      "M14 implementation slices are incomplete",
       "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, import/export/backup/migration, money, settlement/bill/recurring/OCR/reconciliation authority, deployment, secret, web/admin, broad offline cache/sync, or unrelated-domain change is required"
+      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, import/export/backup/migration, money, settlement/bill/recurring/OCR/reconciliation authority, deployment, secret, web/admin, broad offline cache/sync, persisted visual settings, or unrelated-domain change is required"
     ]
   },
   {
-    "id": "STOP-M13-001",
-    "title": "Manual gate search group workspace API security money storage deployment blocker",
+    "id": "STOP-M14-001",
+    "title": "Manual gate visual settings persistence API security money storage deployment blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M13 immediately if mobile search/filter or group workspace readiness work requires major-domain, API, contract, generated-client, auth/security, schema, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated scope.",
+    "goal": "Stop M14 immediately if mobile visual theme, color, component, accessibility, or unsupported preference readiness work requires persistence, API, contract, generated-client, auth/security, schema, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated scope.",
     "validation": [],
     "stopConditions": [
-      "Any M13 task requires backend/API behavior",
-      "Any M13 task requires OpenAPI/generated-client changes",
-      "Any M13 task requires auth/session/security runtime, authorization policy, token/credential/session behavior, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes",
-      "Any M13 task requires database schema/migrations",
-      "Any M13 task requires storage/file privacy policy, file authorization policy, private-vault behavior, file byte movement, CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, statement import, or retention policy changes",
-      "Any M13 task requires client-side authorization decisions from cached rows, hidden controls, route state, generated-client availability, local search/filter results, or dashboard visibility",
-      "Any M13 task requires money, bill, settlement, recurring, OCR, reconciliation mutation, calculation authority, import-driven financial mutation, or business status-transition authority changes",
-      "Any M13 task requires Docker/env/deployment/CI changes",
-      "Any M13 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
+      "Any M14 task requires backend/API behavior or visual preference endpoints",
+      "Any M14 task requires OpenAPI/generated-client changes",
+      "Any M14 task requires auth/session/security runtime, authorization policy, token/credential/session behavior, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes",
+      "Any M14 task requires database schema/migrations or persisted visual preference storage",
+      "Any M14 task requires storage/file privacy policy, file authorization policy, private-vault behavior, file byte movement, CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, statement import, or retention policy changes",
+      "Any M14 task requires client-side authorization decisions from theme, color, status color, hidden controls, route state, generated-client availability, local search/filter results, or dashboard visibility",
+      "Any M14 task requires money, bill, settlement, recurring, OCR, reconciliation mutation, calculation authority, import-driven financial mutation, or business status-transition authority changes",
+      "Any M14 task requires runtime visual preference persistence, custom palette creation, palette sharing, deployment/admin default palette policy, user preference sync, or local-to-server visual preference migration",
+      "Any M14 task requires Docker/env/deployment/CI changes",
+      "Any M14 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
     ]
   }
 ]
