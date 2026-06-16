@@ -1,6 +1,6 @@
 # M13 Mobile Search, Filters, And Group Workspace QA Map
 
-Status: `M13-002 completed; M13-003 current; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M13-002 completed; M13-003 queued next; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -173,6 +173,6 @@ Stop and report `BLOCKED` if M13 work requires:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Current-state reconciliation only; no runtime behavior or test changes.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened cross-surface mobile search/filter/readout states inside existing seams.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Current. Harden group workspace/dashboard readiness and handoffs inside existing seams.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next. Harden group workspace/dashboard readiness and handoffs inside existing seams.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
 - `STOP-M13-001` - Preserved stop sentinel for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.

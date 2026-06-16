@@ -69,7 +69,7 @@
     "title": "Mobile group workspace and dashboard readiness hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "current",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

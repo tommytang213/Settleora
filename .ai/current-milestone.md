@@ -55,7 +55,7 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
+- Current/next task: `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
 - Last completed task: `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742`.
 - Current state: M13-002 completed mobile cross-surface search/filter/readout hardening; M13 continues as `Day 1 Mobile Search, Filters, And Group Workspace Readiness`.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M13.
@@ -73,7 +73,7 @@ M13 queue:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Reconciled current mobile search/filter and group workspace readiness state without runtime behavior changes.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened mobile search/filter/readout states across current starter surfaces without API or authorization changes.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Current. Harden group workspace/dashboard readiness and group-context handoffs inside existing mobile seams.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next. Harden group workspace/dashboard readiness and group-context handoffs inside existing mobile seams.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
 - `STOP-M13-001` - Stop. Manual gate for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
@@ -102,7 +102,7 @@ M13 queue state after M13-001:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Current.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued.
 - `STOP-M13-001` - Preserved.
 
@@ -130,7 +130,7 @@ M13 queue state after M13-002:
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed.
-- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Current.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued next.
 - `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued.
 - `STOP-M13-001` - Preserved.
 
@@ -139,4 +139,4 @@ Remaining M13-003 group workspace/dashboard readiness gaps:
 - Full multi-section group workspace/dashboard remains future work; current M13-003 should harden only existing route/readout handoffs.
 - Group dashboard personalization persistence, saved layouts, per-group defaults, cross-surface saved views, notification deep links/background delivery, group-scoped report aggregation, broad sync conflict center, full offline cache hydration, and reconciliation mutation remain out of scope.
 
-Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M13 remains not UI-test ready until M13-004 finalization. Recommended next automated task is `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M13 UI testing readiness remains false until M13-004 finalization. Recommended next automated task is `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742`.
