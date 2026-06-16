@@ -1,5 +1,30 @@
 # AI QA Report
 
+Status: `M13 queued; M13-001 current; M12 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+
+## M13 Kickoff Summary
+
+M13 is queued as `Day 1 Mobile Search, Filters, And Group Workspace Readiness`.
+
+The kickoff follows the controller dry-run stop reason `Milestone is marked UI-test ready` after M12 finalization. The selection is grounded in current repo evidence:
+
+- `README.md` records current starter mobile surfaces for authenticated bills, groups, settlements, recurring bills, notifications, monthly reports, receipt review, profile/payment, session/device management, first-launch local/server configuration, and settings/data-portability readouts, while broader product UI, full offline cache hydration, web/admin portals, notification preferences/deep links/background delivery, reconciliation mutations, and data-portability runtime remain future work.
+- `docs/prd/MVP_DAY1_SCOPE.md` requires advanced search/filter, monthly reports, group dashboard basics, reconciliation-related search/filter where available, explicit local/server boundaries, and API/domain authority for money, authorization, storage, status transitions, and audit.
+- `docs/ux/UI_UX_FOUNDATION.md` and `docs/ux/SCREEN_INVENTORY.md` call for action-before-navigation, contextual routes for search/group detail/bill detail/receipt review/settlement/reports, and a group workspace with balances, recent bills, pending actions, receipt reviews, settlements, members, recurring/forecasting, reports, and settings, while warning that implementation branches must verify current backend/API support.
+- `docs/features/expenses-bills/FUNCTIONAL_SPEC.md` lists search/filter/report surfaces as expenses/bills user goals, and `docs/architecture/MOBILE_AUTH_SESSION_CLIENT_FLOW.md` records current generated-client-backed mobile seams for the relevant starter surfaces without broad offline cache hydration or broader dashboard UI.
+
+M13 queue:
+
+- `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Current. Reconcile current mobile search/filter and group workspace readiness state without runtime changes.
+- `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Queued. Harden mobile cross-surface search/filter/readout states across current starter surfaces without API, generated-client, or authorization changes.
+- `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Queued. Harden mobile group workspace/dashboard readiness and group-context handoffs inside existing mobile seams.
+- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued. Finalize M13 QA/control state after bounded slices complete.
+- `STOP-M13-001` - Stop. Manual gate for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+
+M13 kickoff changes only `.ai` control files, the M13 QA map, and a narrow M13 scope-guard allowlist. It does not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, file byte behavior, real CSV import/export, local backup/restore, migration/link/disconnect/export runtime, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed by M13. Recommended next automated task is `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742`.
+
 Status: `M12 finalized/UI-test ready; M12-004 completed; M12-003 completed; M12-002 completed; M12-001 completed; M11 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
 
 ## M12-004 QA Finalization Summary
