@@ -1,6 +1,6 @@
 # M13 Mobile Search, Filters, And Group Workspace QA Map
 
-Status: `M13-003 completed; M13-004 queued next; M13 not UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M13 finalized/UI-test ready; M13-004 completed; M13-003 completed; M13-002 completed; M13-001 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -8,7 +8,40 @@ Record the completed M13-001 current-state reconciliation, M13-002 cross-surface
 
 M13 remains bounded to mobile presentation/readiness seams. This map does not authorize backend/API behavior, new server search endpoints, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or authorization-policy changes, storage/privacy/private-vault/file-byte behavior, import/export/backup/migration/runtime portability, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, Docker, CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or dashboard personalization persistence.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13-003. M13 is not UI-test ready until M13-004 finalization.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M13. M13 is ready for deferred UI acceptance review after this finalization validates and merges.
+
+## M13-004 Finalization Summary
+
+M13-004 finalized M13 QA/control state after all bounded M13 slices completed:
+
+- M13-001 reconciliation completed.
+- M13-002 cross-surface search/filter/readout hardening completed.
+- M13-003 group workspace/dashboard readiness hardening completed.
+- `STOP-M13-001` remains preserved as a stop sentinel for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+- Manual UI retest remains `deferred_until_day1_acceptance` and not passed.
+- Manual code review remains `deferred_until_day1_acceptance` and not passed.
+
+Carried-forward validation counts:
+
+- M13-002 rescue focused validation: 319 Flutter tests.
+- M13-002 rescue full mobile validation: 716 Flutter tests.
+- M13-003 rescue focused validation: 296 Flutter tests.
+- M13-003 rescue full mobile validation: 716 Flutter tests.
+
+M13 final validation performed in M13-004:
+
+- `cd /workspace/repos/Settleora && git status --short`
+- `cd /workspace/repos/Settleora && git diff --name-only origin/main...HEAD`
+- `cd /workspace/repos/Settleora && git diff --check origin/main...HEAD`
+- `cd /workspace/repos/Settleora && node scripts/ai/v3-scope-guard.mjs --base origin/main --head HEAD`
+- `cd /workspace/repos/Settleora && npm run validate:docs`
+- `cd /workspace/repos/Settleora && npm run validate:scaffold`
+- `cd /workspace/repos/Settleora && npm run validate:openapi`
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+- `cd /workspace/repos/Settleora && node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1`
+
+M13 is ready for deferred UI acceptance review only after M13-004 validation passes and the task merges.
 
 ## M13-003 Dirty Rescue Summary
 
@@ -46,7 +79,7 @@ Rescue validation recorded after salvaging the dirty run:
 - `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 716 Flutter tests.
 - `cd /workspace/repos/Settleora && node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1` passed and selected `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742`.
 
-Remaining M13-004 finalization work: finalize the M13 QA/control state, preserve `STOP-M13-001`, keep manual UI retest and manual code review deferred until Day 1 acceptance, and keep M13 not UI-test ready until finalization completes.
+M13-004 finalization work: finalize the M13 QA/control state, preserve `STOP-M13-001`, keep manual UI retest and manual code review deferred until Day 1 acceptance, and mark M13 UI-test ready after required validation and merge gates pass.
 
 Explicit non-goals preserved by this rescue: no backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, authorization policy, schema/migrations, storage/privacy/file-byte behavior, import/export/backup/migration runtime, money/bill/settlement/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, dashboard personalization persistence, Day 1 scope reduction, or architecture direction changes.
 
@@ -227,10 +260,10 @@ Stop and report `BLOCKED` if M13 work requires:
 - Docker/deployment/env/CI changes.
 - Secrets, tokens, credentials, `.env`, `.ssh`, `.codex`, local auth/session config, production deploy, public/admin exposure, branch deletion, force/history operations, Day 1 scope reduction, architecture replacement, web/admin runtime UI, broad offline cache/sync, or unrelated major-domain scope.
 
-## Queue State After M13-003
+## Queue State After M13-004
 
 - `M13-001-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-STATE-RECONCILE-20260616-1742` - Completed. Current-state reconciliation only; no runtime behavior or test changes.
 - `M13-002-MOBILE-CROSS-SURFACE-SEARCH-FILTER-READOUT-HARDENING-20260616-1742` - Completed. Hardened cross-surface mobile search/filter/readout states inside existing seams.
 - `M13-003-MOBILE-GROUP-WORKSPACE-DASHBOARD-READINESS-HARDENING-20260616-1742` - Completed. Hardened group workspace/dashboard readiness and handoffs inside existing seams.
-- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Queued next. Finalize M13 QA/control state after bounded slices complete.
+- `M13-004-MOBILE-SEARCH-FILTER-GROUP-WORKSPACE-QA-FINALIZE-20260616-1742` - Completed. Finalized M13 QA/control state after bounded slices completed.
 - `STOP-M13-001` - Preserved stop sentinel for major-domain, API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
