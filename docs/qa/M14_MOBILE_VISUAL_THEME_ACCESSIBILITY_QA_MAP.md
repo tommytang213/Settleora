@@ -1,6 +1,6 @@
 # M14 Mobile Visual Theme, Color, And Accessibility QA Map
 
-Status: `M14-001 completed; M14 remains before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+Status: `M14-002 completed; M14 remains before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -8,12 +8,12 @@ Record the M14 mobile visual theme, color-token, reusable component, readability
 
 M14 remains bounded to mobile presentation/readiness seams. This map does not authorize backend/API behavior, visual preference endpoints, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or authorization-policy changes, storage/privacy/private-vault/file-byte behavior, import/export/backup/migration/runtime portability, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, Docker, CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or persisted visual settings.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M14-001. UI testing readiness remains false until M14-004 finalization.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M14-002. UI testing readiness remains false until M14-004 finalization.
 
 ## M14 Queue State
 
 - `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed. Reconciled current mobile visual theme, color-token, reusable component, accessibility/readability, and unsupported visual preference state without runtime behavior changes.
-- `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Current. Harden mobile built-in theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
+- `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed. Hardened mobile built-in theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
 - `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Queued. Clarify unsupported presentation-only visual preference/palette/customization states in existing mobile readout seams without fake settings controls.
 - `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Queued. Finalize M14 QA/control state after bounded slices complete.
 - `STOP-M14-001` - Preserved. Manual gate for persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
@@ -64,6 +64,32 @@ Manual UI retest and manual code review remain deferred until Day 1 acceptance a
 - Motion-sensitive behavior: no custom animation or reduced-motion preference was found in the inspected theme/component/app surfaces. Standard Flutter progress indicators and route/sheet behavior remain.
 - Known M14-002 gaps: token alignment with approved warm fintech direction, contrast review, duplicated product-local state panels/chips, hardcoded dashboard summary colors, raw Material color-scheme usage where Settleora tokens should carry product meaning, compact amount/status overflow, and focused touch target/readability assertions.
 - Known M14-003 gaps: existing profile/settings-adjacent surfaces do not yet explicitly state appearance mode, accent color, palette, category/tag/group/dashboard/chart/status colors, and customization controls are unsupported presentation-only settings where persistence/API/schema is absent.
+
+## M14-002 Theme Component Readability Hardening Summary
+
+M14-002 completed bounded mobile presentation/readability hardening.
+
+Runtime/component hardening:
+
+- `SettleoraColors.light` now uses a warm orange primary built-in palette aligned with the approved warm fintech groups direction, while preserving semantic soft status tokens and stronger muted/subtle text contrast.
+- Shared `StatusChip` labels now remain single-line and ellipsized inside constrained chip rows instead of forcing horizontal overflow.
+- Shared `AmountStatusRow` now bounds subtitles, amount text, and status chips, and switches to a stacked compact layout on narrow rows so amount/status readouts remain readable under high text scale.
+- Authenticated dashboard summary cards now consume `SettleoraColors` semantic danger/success soft tokens instead of local hardcoded pink/green colors.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart` passed with 5 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 73 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/widget_test.dart` passed with 78 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 718 Flutter tests.
+- Added guardrails for warm primary hue, built-in token contrast pairs, shared button minimum touch target height, and high text-scale `AmountStatusRow` stability.
+- Validation warnings were limited to Flutter dependency newer-version notices and the Redocly CLI update notice.
+
+Remaining M14-003/M14-004 gaps:
+
+- Visual preference unsupported readouts for appearance mode, accent color, palettes, category/tag/group/dashboard/chart/status colors, and customization settings still need M14-003 hardening without fake controls.
+- Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+- M14 UI testing readiness remains false until M14-004 finalization records the completed bounded slices and final validation state.
 
 ## M14-001 Unsupported Visual Preference Readiness
 
