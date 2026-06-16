@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M11 queued; M10 finalized/UI-test ready; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11 in progress; M11-001 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## M11 Kickoff Summary
 
@@ -17,15 +17,28 @@ The selection is based on current repo state:
 
 M11 queue:
 
-- `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315` - Queued. Reconcile current mobile account/session implementation and automated coverage without runtime behavior changes.
-- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Queued. Harden session/device list and per-session revoke UI inside existing mobile seams.
+- `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315` - Completed. Reconciled current mobile account/session implementation and automated coverage without runtime behavior changes.
+- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Queued/current. Harden session/device list and per-session revoke UI inside existing mobile seams.
 - `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Queued. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
 - `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Queued. Finalize M11 QA/control state after bounded slices complete.
 - `STOP-M11-001` - Stop. Manual gate for API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
 M11 kickoff changed only `.ai` control files, the M11 QA map, and a narrow M11 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. Recommended next automated task is `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315`.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M11 is not ready for UI retest. Recommended next automated task is `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315`.
+
+## M11-001 Reconciliation Summary
+
+Updated `docs/qa/M11_MOBILE_ACCOUNT_SESSION_QA_MAP.md` as the current control/QA map for M11. The map records:
+
+- Current mobile auth/session repository model inventory for sign-in submission boundaries, server session material, current-user state, session summaries and safe labels, bounded auth failure kinds, generated/transport failure mapping, and the explicit rule that mobile formatting is not authority.
+- Secure storage and access-token refresh inventory for app/server configuration storage, session material storage, fail-closed missing/blank/expired/rejected material, refresh with usable refresh material, unauthorized refresh local clearing, in-flight refresh sharing, fallback behavior, and token/refresh credential suppression.
+- Mobile screen/session UI inventory for first-launch local/server mode, sign-in validation and storage, authenticated shell entry after current-user validation, session list entry and current-user context, safe session/device metadata display, current-session marker/protection, per-session revoke, current-session sign-out, server-unreachable local-clear confirmation, account-wide sign-out, and session-required/session-expired callback behavior.
+- Automated coverage inventory across `auth_session_repository_test.dart`, `secure_storage_test.dart`, `widget_test.dart`, and relevant app-shell/dashboard tests, plus known gaps for M11-002 and M11-003.
+- Day 1 requirement mapping for server-mode login, secure sessions, revocation-ready sessions, device/session visibility, API-enforced role/permission checks, audit boundaries, and local-only mode boundaries.
+- Remaining M11 focus for M11-002 session/device list and per-session revoke hardening, M11-003 sign-out/refresh/session hardening, and M11-004 QA finalization.
+
+M11-001 changed only `.ai` control files and the M11 QA map. It did not change mobile runtime behavior, tests, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
 
 ## M10 Kickoff Summary
 

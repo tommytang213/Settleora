@@ -4,7 +4,7 @@
     "title": "Reconcile mobile account session and device management state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
