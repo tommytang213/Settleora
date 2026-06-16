@@ -66,7 +66,7 @@
     "title": "Mobile payment visibility and QR metadata readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

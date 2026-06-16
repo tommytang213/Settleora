@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M10 active; M10-001 complete; M10-002 queued next; manual UI/code review deferred until Day 1 acceptance`
+Status: `M10 active; M10-001, M10-002, and M10-003 complete; M10-004 queued next; manual UI/code review deferred until Day 1 acceptance`
 
 ## M10 Kickoff Summary
 
@@ -17,9 +17,9 @@ The selection is based on current repo state:
 M10 queue:
 
 - `M10-001-MOBILE-PROFILE-PAYMENT-STATE-RECONCILE-20260616-1110` - Completed. Reconciled current mobile self profile/payment-details implementation and automated coverage without runtime behavior changes.
-- `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110` - Queued next. Harden existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, and server-authority copy inside current mobile seams.
-- `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110` - Queued. Harden visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
-- `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110` - Queued. Finalize M10 QA/control state after bounded slices complete.
+- `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110` - Completed. Hardened existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, and server-authority copy inside current mobile seams.
+- `M10-003-MOBILE-PAYMENT-VISIBILITY-READOUT-HARDENING-20260616-1110` - Completed. Hardened visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
+- `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110` - Queued next. Finalize M10 QA/control state after bounded slices complete.
 - `STOP-M10-001` - Stop. Manual gate for API/contracts/generated-client/auth/schema/storage/privacy/QR-byte/payment-visibility/counterparty-authorization/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 M10 kickoff changed only `.ai` control files, the M10 QA map, and a narrow M10 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, payment-detail visibility policy, counterparty authorization, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
@@ -44,7 +44,26 @@ Current implementation findings:
 - App-shell profile access is routed through injected repository composition after current-user validation; generated-client availability and local route state remain non-authoritative.
 - No mobile runtime or test files were changed by M10-001.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. Recommended next automated task is `M10-002-MOBILE-PROFILE-PAYMENT-EDIT-HARDENING-20260616-1110`.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M10-002 and M10-003 are now complete; recommended next automated task is `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
+
+## M10-003 Payment Visibility Readout Summary
+
+Updated `apps/mobile/lib/profile/profile_repository.dart`, `apps/mobile/lib/profile/profile_screen.dart`, focused profile screen tests, M10 QA docs, and `.ai` control state only.
+
+Runtime hardening:
+
+- Visibility readout now includes bounded descriptions for `private`, `settlement_counterparties_only`, and `group_members_when_shared` without changing the constrained visibility values or policy.
+- Payment details copy now states visibility is a server-returned profile fact, not a client-side authorization decision; payment details are not globally visible; and the API decides who may see them, including settlement-scoped counterparty access.
+- Empty/unconfigured readout now says blank or cleared payment fields mean the API currently has no payment text to show, with default/readout visibility treated as server-returned state only.
+- QR readout remains metadata-only and shows only content type, byte size, and updated timestamp from the current mobile profile seam.
+- QR upload, removal, content reading, file/image picker dependencies, camera/gallery permissions, image rendering, byte reads, backend/API changes, generated-client changes, storage/privacy changes, visibility-policy changes, and counterparty authorization changes remain out of scope.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/profile_screen_test.dart` passed with 12 tests.
+- Added coverage for private/counterparty/group-shared visibility labels/copy, non-global/API-authority copy, unconfigured/default/cleared payment-details readout, QR metadata-only readout with content type/size/timestamp, absence of QR upload/remove/content-read UX or image rendering, unsafe raw text suppression, and no client-side authorization decisions from cached profile/payment rows.
+
+Manual UI/code review remains deferred until Day 1 acceptance and is not passed. Recommended next automated task is `M10-004-MOBILE-PROFILE-PAYMENT-QA-FINALIZE-20260616-1110`.
 
 ## Acceptance Checklist
 
@@ -112,6 +131,8 @@ Manual UI retest and manual code review remain deferred until Day 1 acceptance a
 - [x] M10 queue has 2-4 related sub-slices plus QA finalization and a hard stop sentinel.
 - [x] No M10 kickoff change requires runtime API, OpenAPI/generated-client, auth/session/security, schema/migration, storage/privacy, QR byte behavior, payment-detail visibility policy, counterparty authorization, money, deployment, Docker, CI, web/admin, broad offline sync/cache, or secret changes.
 - [x] M10-001 reconciled current mobile self profile/payment-details repository/model boundaries, generated-client mapping, profile screen state, app-shell injection, automated coverage, Day 1 requirement gaps, and M10-002/M10-003 focus without changing runtime behavior.
+- [x] M10-002 hardened existing profile/payment edit states, duplicate-submit prevention, bounded failures, refresh-after-save recovery, unsafe edit-text suppression, and server-authority copy inside current mobile seams.
+- [x] M10-003 hardened visibility labels, sensitive-data copy, QR metadata readout, and unsafe text suppression without adding QR byte handling or visibility-policy changes.
 - [x] M9 QA finalization marks the milestone UI-test ready with no remaining automated M9 work.
 
 ## M9 Selection Summary
