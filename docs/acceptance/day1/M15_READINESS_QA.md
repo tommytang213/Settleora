@@ -66,3 +66,20 @@ M16 local/offline data-safety work added starter implementation evidence after t
 - `apps/mobile/test/local_data_backup_test.dart` and `apps/mobile/test/server_mode_shell_dashboard_test.dart` cover export metadata/counts, sensitive-data exclusions, invalid/corrupt/sensitive import rejection, visible preview state, and the disabled restore guard.
 
 This improves Day 1 local backup/import-preview evidence but does not complete Day 1. Full file save/share integration, guarded restore merge/replace apply, broader local-only data model coverage, local/server migration flows, full offline cache hydration, conflict-resolution apply UI, manual UI retest, privacy review, and code review remain pending.
+
+## Post-M15 Notification Preference Addendum
+
+M17 mobile notification preference work added starter implementation evidence after the original M15 docs-only package:
+
+- `apps/mobile/lib/notifications/notification_preferences.dart` implements a mobile-local notification preference model and UI panel for in-app enablement, bill/settlement/recurring category toggles, protected sync/security readout, quiet-hours suppression/readout, immediate/digest readout, and explicit push/email unavailable labels.
+- `apps/mobile/lib/app/server_mode_shell.dart` exposes the dashboard notification preference panel and passes the current mobile-local preference state into the notification center.
+- `apps/mobile/lib/notifications/notification_screen.dart` applies non-destructive local suppression to loaded notification rows, keeps archived rows available through the Archived filter, and shows a suppression note when preferences hide non-critical rows.
+- `apps/mobile/test/notification_screen_test.dart` and `apps/mobile/test/server_mode_shell_dashboard_test.dart` cover safe defaults, category and quiet-hours suppression, critical sync/security visibility, unsupported push/email readout, and dashboard-to-notification-center preference handoff.
+
+Focused validation passed on this branch:
+
+```bash
+cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/notification_screen_test.dart test/server_mode_shell_dashboard_test.dart
+```
+
+This improves Day 1 in-app notification preference/readout evidence but does not complete Day 1. Push delivery, email delivery, persisted/server notification preferences, cross-device preference sync, reminder scheduling, deep links/background delivery, complete notification event producer coverage, manual notification UI retest, and code review remain pending.

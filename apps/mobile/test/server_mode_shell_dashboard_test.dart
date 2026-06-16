@@ -290,6 +290,66 @@ void main() {
     }
   });
 
+  testWidgets('dashboard exposes notification preferences and readout', (
+    tester,
+  ) async {
+    final notificationRepository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(),
+        SettleoraNotificationRow(
+          id: 'settlement-row',
+          eventType: 'settlement.request_created',
+          status: SettleoraNotificationStatusValues.unread,
+          priority: SettleoraNotificationPriorityValues.attention,
+          subjectType: SettleoraNotificationSubjectTypeValues.settlementRequest,
+          safeSummary: 'Settlement row.',
+          actionUrl: null,
+          groupId: null,
+          expenseBillId: null,
+          expenseBillRevisionId: null,
+          settlementRequestId: _settlementId,
+          settlementPaymentId: null,
+          recurringBillTemplateId: null,
+          recurringBillOccurrenceId: null,
+          createdAtUtc: DateTime.utc(2026, 6, 8),
+          readAtUtc: null,
+          archivedAtUtc: null,
+        ),
+      ],
+    );
+
+    await pumpShell(tester, notificationRepository: notificationRepository);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('notification-preference-panel')),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Notification preferences'), findsOneWidget);
+    expect(find.text('Push unavailable'), findsOneWidget);
+    expect(find.text('Email unavailable'), findsOneWidget);
+    expect(find.text('Immediate'), findsOneWidget);
+    expect(find.text('Digest'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('notification-preferences-bills')));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-notifications-header')),
+      -260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.byKey(const Key('server-shell-notifications-header')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settlement row.'), findsOneWidget);
+    expect(find.text('Dinner bill is ready.'), findsNothing);
+    expect(find.textContaining('1 loaded non-critical row'), findsOneWidget);
+  });
+
   testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {
     await pumpShell(tester);
 

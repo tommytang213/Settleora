@@ -11,6 +11,7 @@ import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
 import '../groups/group_list_screen.dart';
 import '../groups/group_repository.dart';
+import '../notifications/notification_preferences.dart';
 import '../notifications/notification_repository.dart';
 import '../notifications/notification_screen.dart';
 import '../profile/profile_repository.dart';
@@ -98,6 +99,8 @@ class _SettleoraAuthenticatedServerShellState
   int _overviewLoadVersion = 0;
   SettleoraNavDestination _selectedDestination = SettleoraNavDestination.home;
   bool _isBuildingBackup = false;
+  SettleoraNotificationPreferenceSettings _notificationPreferences =
+      SettleoraNotificationPreferenceSettings.defaults();
 
   @override
   void initState() {
@@ -231,6 +234,14 @@ class _SettleoraAuthenticatedServerShellState
   void _openNestedTopLevelDestination(SettleoraNavDestination destination) {
     Navigator.of(context).popUntil((route) => route.isFirst);
     _selectTopLevelDestination(destination);
+  }
+
+  void _setNotificationPreferences(
+    SettleoraNotificationPreferenceSettings preferences,
+  ) {
+    setState(() {
+      _notificationPreferences = preferences;
+    });
   }
 
   Widget _buildBillsScreen(BuildContext context) {
@@ -390,6 +401,7 @@ class _SettleoraAuthenticatedServerShellState
         billAttachmentFileInput: widget.billAttachmentFileInput,
         receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
         billRevisionRepository: widget.billRevisionRepository,
+        preferences: _notificationPreferences,
         onSessionEnded: widget.onSessionEnded,
       ),
     );
@@ -802,6 +814,11 @@ class _SettleoraAuthenticatedServerShellState
                               isAvailable: widget.dataBackupService != null,
                               onBuildBackup: _buildLocalBackupExport,
                               onPreviewImport: _openImportPreview,
+                            ),
+                            const SizedBox(height: 16),
+                            SettleoraNotificationPreferencePanel(
+                              settings: _notificationPreferences,
+                              onChanged: _setNotificationPreferences,
                             ),
                             const SizedBox(height: 16),
                             const VisualPreferenceUnsupportedReadout(
