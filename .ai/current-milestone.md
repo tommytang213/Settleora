@@ -52,12 +52,12 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current/next task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
-- Last completed task: `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053`.
-- Current state: M14-003 completed bounded mobile presentation-only unsupported visual preference readout hardening; M14 continues with final QA/control finalization.
+- Current/next task: none; M14 is finalized and UI-test ready for deferred Day 1 acceptance review.
+- Last completed task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
+- Current state: M14-004 completed QA/control finalization after the bounded M14 reconciliation, theme/component/readability hardening, and unsupported visual preference readout hardening slices.
 - Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
 - Manual code review status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
-- Recommended next automated task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
+- Recommended next automated task: none for M14; the controller is expected to stop because M14 is marked UI-test ready.
 - Stop sentinel: `STOP-M14-001` stops persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M14 Kickoff Summary
@@ -73,9 +73,9 @@ M14 queue:
 - `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed. Reconciled current mobile theme, color-token, component, accessibility, and unsupported visual preference readiness without runtime behavior changes.
 - `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed. Hardened built-in mobile theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
 - `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Completed. Clarified unsupported presentation-only visual preference/palette/customization states in existing mobile settings/readout seams without adding runtime settings.
-- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Queued. Finalize M14 QA/control state after bounded slices complete.
+- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Completed. Finalized M14 QA/control state, recorded carried-forward validation coverage, preserved deferred manual UI/code review, and marked M14 UI-test ready for deferred Day 1 acceptance review.
 - `STOP-M14-001` - Stop. Manual gate for persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 M14 kickoff changes only `.ai` control files, the M14 QA map, and a narrow M14 scope-guard allowlist. It does not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, file byte behavior, real CSV import/export, local backup/restore, migration/link/disconnect/export runtime, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, persisted visual settings, Day 1 scope, or architecture direction.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M14 is finalized and UI-test ready; this is not a Day 1 acceptance pass.

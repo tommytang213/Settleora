@@ -1,6 +1,6 @@
 # M14 Mobile Visual Theme, Color, And Accessibility QA Map
 
-Status: `M14-003 completed; M14 remains before final UI testing readiness; manual UI/code review deferred until Day 1 acceptance`
+Status: `M14 finalized/UI-test ready; M14-004 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## Purpose
 
@@ -8,14 +8,14 @@ Record the M14 mobile visual theme, color-token, reusable component, readability
 
 M14 remains bounded to mobile presentation/readiness seams. This map does not authorize backend/API behavior, visual preference endpoints, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or authorization-policy changes, storage/privacy/private-vault/file-byte behavior, import/export/backup/migration/runtime portability, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, Docker, CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or persisted visual settings.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M14-002. UI testing readiness remains false until M14-004 finalization.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M14. UI testing readiness is true after M14-004 finalization; this is readiness for deferred Day 1 acceptance review, not a manual acceptance pass.
 
 ## M14 Queue State
 
 - `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed. Reconciled current mobile visual theme, color-token, reusable component, accessibility/readability, and unsupported visual preference state without runtime behavior changes.
 - `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed. Hardened mobile built-in theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
 - `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Completed. Clarified unsupported presentation-only visual preference/palette/customization states in existing mobile readout seams without fake settings controls.
-- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Queued. Finalize M14 QA/control state after bounded slices complete.
+- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Completed. Finalized M14 QA/control state, recorded carried-forward validation coverage, preserved deferred manual UI/code review, and marked M14 UI-test ready for deferred Day 1 acceptance review.
 - `STOP-M14-001` - Preserved. Manual gate for persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
 
 ## Source Documents
@@ -143,7 +143,42 @@ Explicit non-goals preserved:
 
 Remaining M14-004 finalization:
 
-- M14-004 must finalize the M14 QA/control state after the bounded slices, preserve deferred manual UI/code review, and update UI testing readiness only during that finalization task.
+- M14-004 finalized the M14 QA/control state after the bounded slices, preserved deferred manual UI/code review, and updated UI testing readiness.
+
+## M14-004 QA Finalization Summary
+
+M14-004 completed docs/control-only QA finalization.
+
+Final M14 state:
+
+- M14-001, M14-002, M14-003, and M14-004 are completed.
+- M14 is finalized and UI-test ready for deferred Day 1 acceptance review.
+- `.ai/state.json` status is `m14_finalized_ui_test_ready`.
+- `.ai/state.json` `currentTaskId` is `null`.
+- `.ai/state.json` `uiTestingReady` is `true`.
+- `.ai/state.json` `automatedValidationComplete` is `true` after required final validation passes.
+- Manual UI retest remains `deferred_until_day1_acceptance` and is not passed.
+- Manual code review remains `deferred_until_day1_acceptance` and is not passed.
+- `STOP-M14-001` remains preserved as the stop sentinel.
+
+Carried-forward validation counts:
+
+- M14-002 focused component validation passed with 5 Flutter tests.
+- M14-002 focused dashboard/app validation passed with 73 Flutter tests.
+- M14-002 combined focused validation passed with 78 Flutter tests.
+- M14-002 full mobile validation passed with 718 Flutter tests.
+- M14-003 focused touched-surface validation passed with 54 Flutter tests.
+- M14-003 required focused validation passed with 90 Flutter tests.
+- M14-003 full mobile validation passed with 718 Flutter tests.
+
+M14-004 final validation:
+
+- Final validation is recorded in the task report for `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
+- The final controller dry run is expected to stop because M14 is marked UI-test ready. That stop is the desired final controller state, not a failure.
+
+Explicit non-goals preserved:
+
+- No backend/API behavior, visual preference endpoints, OpenAPI/contracts, generated-client changes, database schema/migrations, persisted visual settings, custom palette creation, palette sharing, admin/deployment default palette runtime, local-to-server visual preference migration, auth/session/security runtime, authorization policy, storage/privacy/file-byte behavior, audit-policy authority, money/bill/settlement/payment/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope reduction, or architecture direction changes.
 
 ## M14-001 Unsupported Visual Preference Readiness
 
