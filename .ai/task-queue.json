@@ -1,100 +1,15 @@
 [
   {
-    "id": "M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053",
-    "title": "Reconcile mobile visual theme, color, and accessibility readiness state",
+    "id": "M15-001-DAY1-ACCEPTANCE-STATE-RECONCILE-20260616-2241",
+    "title": "Reconcile Day 1 acceptance evidence and remaining gate state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/test/**"
-    ],
-    "goal": "Map current mobile theme tokens, reusable components, hardcoded color usage, readability/accessibility coverage, touch target/readout states, and unsupported visual preference gaps against Day 1 UX and visual-settings architecture requirements without changing runtime behavior.",
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "npm run validate:scaffold",
-      "npm run validate:openapi",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
-    ],
-    "stopConditions": [
-      "Requires backend/API behavior or visual preference endpoints",
-      "Requires OpenAPI/generated-client changes",
-      "Requires database schema/migrations or persisted visual preference storage",
-      "Requires auth/session/security runtime, authorization policy, audit-policy, storage/privacy/file-byte behavior, money, settlement, bill, recurring, OCR, reconciliation authority, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated major-domain scope"
-    ]
-  },
-  {
-    "id": "M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053",
-    "title": "Mobile theme, component, and readability hardening",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/lib/ui/**",
-      "apps/mobile/lib/app/**",
-      "apps/mobile/lib/dashboard/**",
-      "apps/mobile/test/**"
-    ],
-    "goal": "Harden built-in mobile theme tokens, shared components, and bounded app/dashboard presentation seams so current starter surfaces are more readable, consistent, accessible, and warm-fintech aligned without adding preference persistence, policy behavior, server authority, or business-domain logic.",
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires backend/API behavior or persisted visual preference endpoints",
-      "Requires OpenAPI/generated-client changes",
-      "Requires database schema/migrations, user/admin palette storage, palette sharing, deployment default policy, or user preference sync",
-      "Requires client-side authorization, money, settlement, bill, payment, recurring, OCR, reconciliation, storage, privacy, auth/session/security, audit-policy, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
-    ]
-  },
-  {
-    "id": "M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053",
-    "title": "Mobile visual preference unsupported readout hardening",
-    "risk": "medium",
-    "autoMergeAllowed": true,
-    "status": "completed",
-    "allowedAreas": [
-      ".ai/**",
-      "docs/qa/**",
-      "apps/mobile/lib/app/**",
-      "apps/mobile/lib/profile/**",
-      "apps/mobile/lib/ui/**",
-      "apps/mobile/test/**"
-    ],
-    "goal": "Clarify existing mobile settings/profile/app readouts for appearance mode, palette, accent, category/tag/group/dashboard/chart/status-color, and customization readiness as presentation-only and unsupported where runtime persistence/API/schema is absent, without adding fake settings controls.",
-    "validation": [
-      "git diff --check origin/ai/integration...HEAD",
-      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
-      "npm run validate:docs",
-      "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-      "PATH=/opt/flutter/bin:$PATH npm run validate:mobile"
-    ],
-    "stopConditions": [
-      "Requires persisted visual settings, custom palette creation, palette sharing, admin/deployment defaults, local-to-server preference migration, or API/schema/contracts/generated-client work",
-      "Requires fake runtime controls for settings that are not implemented",
-      "Requires auth/session/security, authorization policy, storage/privacy, audit-policy, money, bill, settlement, recurring, OCR, reconciliation, deployment, CI, Docker, secrets, web/admin, broad offline cache/sync, or unrelated-domain changes"
-    ]
-  },
-  {
-    "id": "M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053",
-    "title": "Finalize mobile visual theme and accessibility readiness QA state",
-    "risk": "low",
-    "autoMergeAllowed": true,
-    "status": "completed",
+    "status": "queued",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
     ],
-    "goal": "Finalize M14 QA/control state, record validation coverage, preserve deferred manual UI/code review status, and mark the milestone UI-test ready without adding runtime behavior.",
+    "goal": "Map M1 through M14 finalized QA maps, current README/PRD/architecture evidence, deferred manual review state, and remaining Day 1 gaps into a Day 1 acceptance evidence inventory without changing runtime behavior or marking acceptance passed.",
     "validation": [
       "git diff --check origin/ai/integration...HEAD",
       "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
@@ -104,31 +19,99 @@
       "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
     ],
     "stopConditions": [
-      "M14 implementation slices are incomplete",
-      "Manual UI/code review is being marked passed before Day 1 acceptance",
-      "Any forbidden runtime, API, contract, generated-client, schema, auth/security policy, token/credential, storage/privacy, import/export/backup/migration, money, settlement/bill/recurring/OCR/reconciliation authority, deployment, secret, web/admin, broad offline cache/sync, persisted visual settings, or unrelated-domain change is required"
+      "Requires manual UI retest or manual code review to be marked passed",
+      "Requires runtime implementation, backend/API behavior, OpenAPI/contracts/generated-client changes, schema/migrations, auth/session/security, storage/privacy/file-byte behavior, money, settlement, bill, recurring, OCR, reconciliation authority, deployment, CI, Docker, secrets, web/admin runtime, broad offline cache/sync, or unrelated major-domain scope",
+      "Evidence shows the only safe next action is the human Day 1 acceptance gate"
     ]
   },
   {
-    "id": "STOP-M14-001",
-    "title": "Manual gate visual settings persistence API security money storage deployment blocker",
+    "id": "M15-002-DAY1-ACCEPTANCE-EVIDENCE-MAP-HARDENING-20260616-2241",
+    "title": "Harden Day 1 acceptance evidence map and gap classification",
+    "risk": "low",
+    "autoMergeAllowed": true,
+    "status": "queued",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**"
+    ],
+    "goal": "Turn the reconciled evidence into a clear acceptance-readiness map that separates automated milestone readiness, deferred manual review, hard-gated runtime gaps, and explicit Day 2/Day 3 exclusions without changing product behavior.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi",
+      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
+    ],
+    "stopConditions": [
+      "Requires reducing Day 1 scope or moving Day 2/Day 3 work into Day 1 without source-document authority",
+      "Requires marking manual UI/code review, acceptance testing, production readiness, release readiness, or Day 1 completion as passed",
+      "Requires forbidden runtime, API, contract, generated-client, schema, auth/security, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated-domain changes"
+    ]
+  },
+  {
+    "id": "M15-003-DAY1-MANUAL-GATE-PACKAGE-HARDENING-20260616-2241",
+    "title": "Prepare Day 1 manual acceptance gate package",
+    "risk": "low",
+    "autoMergeAllowed": true,
+    "status": "queued",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**"
+    ],
+    "goal": "Prepare the docs/control package for a future human-opened Day 1 acceptance gate, including manual UI retest and manual code review prerequisites, stop conditions, and evidence links, while preserving deferred manual status.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi",
+      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
+    ],
+    "stopConditions": [
+      "Requires starting or passing the human Day 1 acceptance gate",
+      "Requires product runtime implementation or manual UI/code review decisions",
+      "Requires forbidden runtime, API, contract, generated-client, schema, auth/security, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated-domain changes"
+    ]
+  },
+  {
+    "id": "M15-004-DAY1-ACCEPTANCE-READINESS-QA-FINALIZE-20260616-2241",
+    "title": "Finalize Day 1 acceptance readiness QA state",
+    "risk": "low",
+    "autoMergeAllowed": true,
+    "status": "queued",
+    "allowedAreas": [
+      ".ai/**",
+      "docs/qa/**"
+    ],
+    "goal": "Finalize M15 QA/control state after the acceptance evidence and gate package slices complete, preserving deferred manual review and stopping before human acceptance or any forbidden runtime scope.",
+    "validation": [
+      "git diff --check origin/ai/integration...HEAD",
+      "node scripts/ai/v3-scope-guard.mjs --base origin/ai/integration --head HEAD",
+      "npm run validate:docs",
+      "npm run validate:scaffold",
+      "npm run validate:openapi",
+      "node scripts/ai/v3-controller.mjs --dry-run --max-iterations 1"
+    ],
+    "stopConditions": [
+      "M15 reconciliation or gate package tasks are incomplete",
+      "Manual UI/code review is being marked passed before Day 1 acceptance",
+      "Any forbidden runtime, API, contract, generated-client, schema, auth/security, storage/privacy, money, deployment, secret, web/admin, broad sync, Day 1 scope reduction, architecture replacement, or unrelated-domain change is required"
+    ]
+  },
+  {
+    "id": "STOP-M15-001",
+    "title": "Manual gate Day 1 acceptance or forbidden runtime expansion blocker",
     "risk": "high",
     "autoMergeAllowed": false,
     "status": "stop",
     "allowedAreas": [],
-    "goal": "Stop M14 immediately if mobile visual theme, color, component, accessibility, or unsupported preference readiness work requires persistence, API, contract, generated-client, auth/security, schema, storage/privacy, money, deployment, secret, web/admin, broad sync, or unrelated scope.",
+    "goal": "Stop M15 immediately if acceptance readiness work requires human acceptance decisions, manual UI/code review pass/fail decisions, runtime implementation, or any forbidden product/security/schema/money/storage/deployment scope.",
     "validation": [],
     "stopConditions": [
-      "Any M14 task requires backend/API behavior or visual preference endpoints",
-      "Any M14 task requires OpenAPI/generated-client changes",
-      "Any M14 task requires auth/session/security runtime, authorization policy, token/credential/session behavior, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes",
-      "Any M14 task requires database schema/migrations or persisted visual preference storage",
-      "Any M14 task requires storage/file privacy policy, file authorization policy, private-vault behavior, file byte movement, CSV import/export, local backup/restore, local-to-server migration, server-to-local export/disconnect, statement import, or retention policy changes",
-      "Any M14 task requires client-side authorization decisions from theme, color, status color, hidden controls, route state, generated-client availability, local search/filter results, or dashboard visibility",
-      "Any M14 task requires money, bill, settlement, recurring, OCR, reconciliation mutation, calculation authority, import-driven financial mutation, or business status-transition authority changes",
-      "Any M14 task requires runtime visual preference persistence, custom palette creation, palette sharing, deployment/admin default palette policy, user preference sync, or local-to-server visual preference migration",
-      "Any M14 task requires Docker/env/deployment/CI changes",
-      "Any M14 task requires secrets, tokens, credentials, .env files, local auth/session config, web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope"
+      "Any task requires marking manual UI retest, manual code review, release readiness, production readiness, or Day 1 acceptance as passed",
+      "Any task requires backend/API behavior, OpenAPI/contracts/generated-client changes, auth/session/security runtime or policy, schema/migrations, storage/file privacy/authz/file-byte behavior, money/bill/settlement/payment/recurring/OCR/reconciliation mutation or calculation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, public/admin exposure, production release, mobile store release, branch cleanup/deletion, force-like history changes, Day 1 scope reduction, architecture replacement, or unrelated major-domain scope",
+      "Repo evidence shows the next safe action is only the human Day 1 acceptance gate"
     ]
   }
 ]

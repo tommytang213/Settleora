@@ -1317,3 +1317,21 @@ M4 implementation tasks should add mobile validation:
 
 - `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`
 - `PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
+
+## M15 Kickoff Summary
+
+M15 is queued as `Day 1 Acceptance Evidence And Gate Readiness`.
+
+This is a post-M14 controller-continuation kickoff after M14 was finalized and marked UI-test ready. The M14 controller stop is treated as a finalized-milestone stop, not as proof that Day 1 is complete.
+
+M15 queue:
+
+- `M15-001-DAY1-ACCEPTANCE-STATE-RECONCILE-20260616-2241` - Queued. Reconcile M1 through M14 automated evidence, current Day 1 scope, remaining hard-gated gaps, and deferred manual review status without runtime changes.
+- `M15-002-DAY1-ACCEPTANCE-EVIDENCE-MAP-HARDENING-20260616-2241` - Queued. Harden the Day 1 acceptance evidence map and gap classification.
+- `M15-003-DAY1-MANUAL-GATE-PACKAGE-HARDENING-20260616-2241` - Queued. Prepare the future human acceptance gate package while preserving deferred manual status.
+- `M15-004-DAY1-ACCEPTANCE-READINESS-QA-FINALIZE-20260616-2241` - Queued. Finalize M15 QA/control state after bounded readiness slices complete.
+- `STOP-M15-001` - Stop. Manual gate for Day 1 acceptance decisions or forbidden runtime/security/schema/storage/money/deployment scope.
+
+M15 kickoff changes only `.ai` control files, `docs/qa/M15_DAY1_ACCEPTANCE_EVIDENCE_QA_MAP.md`, and a narrow M15 scope-guard docs/control allowlist. It does not change product runtime behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or policy, schema/migrations, storage/privacy/file-byte behavior, money/bill/settlement/payment/recurring/OCR/reconciliation authority, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
+
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M15 kickoff does not imply Day 1 completion.

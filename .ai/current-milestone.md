@@ -1,81 +1,69 @@
 # Current Milestone
 
-- ID: `M14`
-- Name: `Day 1 Mobile Visual Theme, Color, And Accessibility Readiness`
+- ID: `M15`
+- Name: `Day 1 Acceptance Evidence And Gate Readiness`
 - Target branch: `ai/integration`
-- Previous milestone ID: `M13`
+- Previous milestone ID: `M14`
 
 ## Goal
 
-Advance the next bounded Day 1 mobile product-readiness seam after M13 by reconciling and hardening mobile visual theme, color-token, reusable component, and accessibility/readability readiness inside existing mobile presentation seams. M14 is intentionally a mobile presentation/readiness milestone: it may improve built-in theme tokens, contrast/readability, component usage, and presentation-only unsupported visual preference readouts, but it must not add persisted visual settings, backend/API behavior, OpenAPI/generated-client changes, schema, auth/security runtime, storage/privacy behavior, money/business authority, web/admin runtime, deployment, or broad settings/data-portability behavior.
+Prepare the next bounded Day 1 readiness milestone after M14 by reconciling finalized automated milestone evidence, remaining hard-gated gaps, and the deferred manual acceptance prerequisites into a clear Day 1 acceptance gate package.
+
+M15 is intentionally docs/control/readiness-only. It may update `.ai` control files and `docs/qa/M15_DAY1_ACCEPTANCE_EVIDENCE_QA_MAP.md`. It must not implement product runtime behavior, change backend/API behavior, change OpenAPI/contracts or generated clients, alter auth/session/security runtime or policy, modify schema/migrations, alter storage/privacy/file-byte behavior, change money/bill/settlement/payment/recurring/OCR/reconciliation authority, touch Docker/deployment/env/CI, add secrets, change web/admin runtime, broaden offline cache/sync, reduce Day 1 scope, or replace architecture direction.
 
 Repo-state basis for this milestone:
 
-- `README.md` says the mobile app already includes first-launch local/server configuration, authenticated shell, dashboard, profile/payment, session/device, personal/group bill, group management, settlement, recurring, notification, monthly report, and receipt review starter surfaces, while broader mobile product UI, web/admin portals, full offline cache hydration, and broad settings/data-portability runtime remain future work.
-- `docs/ux/UI_UX_FOUNDATION.md` defines the approved warm fintech groups visual direction, requires accessible-by-default color/motion/density/language/touch-target behavior, and says mobile is a first-class capture, review, action, and settlement surface.
-- `docs/ux/SCREEN_INVENTORY.md` identifies mobile Home Dashboard, Groups, bills, receipts, settlements, Action Inbox, Search and Reports, Sync and Conflict Review, and Settings as implementation-facing surfaces while warning future implementation must verify current backend/API support.
-- `docs/architecture/VISUAL_THEME_COLOR_SETTINGS_ARCHITECTURE.md` defines visual settings as presentation-only, explicitly forbids visual settings from influencing authorization, money, settlement state, sync acceptance, storage access, audit truth, or security policy, and says future persistence/API/schema/admin work requires separate reviewed slices.
-- `docs/prd/MVP_DAY1_SCOPE.md` requires Day 1 to be usable for real financial records and accessible enough for repeated use, while preserving API/domain authority for money, authorization, storage, status transitions, and audit.
-- Current mobile code under `apps/mobile/lib/ui/`, `apps/mobile/lib/app/`, `apps/mobile/lib/dashboard/`, and existing product surfaces already use `SettleoraTheme`, `SettleoraColors`, reusable components, and focused widget tests, creating bounded mobile-only seams for theme/readability/accessibility hardening without API, OpenAPI, generated-client, schema, auth/security, storage/privacy, money, deployment, web/admin, or unrelated changes.
+- `README.md` records that the repository has starter backend and mobile surfaces across auth/session, self profile/payment details, personal/group bills, settlements, recurring bills, notifications, monthly reports, receipt review, sync, and visual/theme readiness, while broad web/admin portals, full offline cache hydration, broader mobile product UI, runtime import/export/backup, advanced OCR/worker behavior, broad reconciliation mutations, and several Day 1 completeness areas remain future work.
+- `docs/qa/M1_*` through `docs/qa/M14_*` show bounded automated milestones finalized or prepared for deferred acceptance review, with manual UI retest and manual code review consistently deferred until Day 1 acceptance.
+- `.ai/state.json` for M14 marked the controller readiness flag true and explicitly said the V3 controller is expected to stop on that finalized milestone. This kickoff treats that as a finalized-milestone stop, not as a Day 1 completion signal.
+- `docs/prd/MVP_DAY1_SCOPE.md` defines Day 1 as safe for real user records and requires core expense, shared bill, settlement, receipt, offline/sync, reporting, import/export, storage/privacy, and security flows, while preserving API/domain authority for money, authorization, storage, status transitions, and audit.
+- `PROGRAM_ARCHITECTURE.md` keeps API/domain services authoritative for database writes, authorization, money, storage access, sync acceptance, status transitions, and audit.
+- `docs/workflow/CODEX_TASK_GUIDE.md` requires explicit scoped validation, no direct push to `main`, no force push, no `git add .`, and no silent runtime/API/security/schema/generated-client/deployment/secret/money changes.
+- Remaining sensible product expansions after M14 cross manual or hard-gated categories in this kickoff: auth/security runtime and policy, storage/file privacy and byte behavior, money/settlement/bill authority, schema/migrations, OpenAPI/generated-client changes, Docker/deployment/CI, public/admin exposure, web/admin runtime, broad offline cache/sync, runtime import/export/backup, or manual acceptance decisions.
 
-## Allowed Scope For Future M14 Tasks
+## Allowed Scope For Future M15 Tasks
 
-- Reconciliation of current mobile theme tokens, reusable components, built-in palette usage, hardcoded color gaps, touch/readability/accessibility coverage, and unsupported persisted visual preference states.
-- Mobile-only built-in theme/component/readability hardening under existing presentation seams, including `apps/mobile/lib/ui/**`, bounded app/dashboard/settings readouts, and focused widget tests.
-- Presentation-only copy that clarifies theme/color preferences are not persisted server policy, not authorization signals, not financial truth, and not available as admin/deployment/user-owned palette runtime yet.
-- M14 QA map and milestone QA docs under `docs/qa/`.
 - `.ai` control files.
-- `scripts/ai/v3-scope-guard.mjs` only for narrow M14 path allowances.
+- `docs/qa/M15_DAY1_ACCEPTANCE_EVIDENCE_QA_MAP.md` and narrowly related Day 1 acceptance evidence entries under `docs/qa/`.
+- `scripts/ai/v3-scope-guard.mjs` only for the narrow M15 docs/control allowlist needed by this milestone.
+- Documentation-only evidence classification that links existing source documents and existing QA maps.
+- Manual acceptance gate package preparation that preserves `deferred_until_day1_acceptance` status.
 
 ## Forbidden Without Human Approval
 
-- Main merge, except explicit development-stage PR/merge-gate tasks that pass the repository main merge policy.
-- Backend/API behavior, visual preference endpoints, policy endpoints, server persistence, OpenAPI/generated-client changes, or schema/migrations.
-- Auth/session/security runtime, authorization policy, token/credential/session behavior, registration/bootstrap policy, OIDC/Keycloak, MFA, passkey, recovery, admin, or audit-policy changes.
-- Storage/file privacy policy, file authorization policy, private-vault behavior, file byte movement, CSV import/export, local backup/restore, local-to-server migration/link, server-to-local export/disconnect, statement import, or retention policy changes.
-- Client-side authorization decisions from theme, color, status color, hidden controls, route state, cached rows, generated-client availability, local search/filter results, dashboard visibility, or component visibility.
-- Money, bill, settlement, payment, recurring, OCR, reconciliation mutation, calculation authority, business status-transition authority, or import-driven financial mutation.
-- Runtime visual preference persistence, custom palette creation, palette sharing, deployment/admin default palette policy, user preference sync, or local-to-server visual preference migration.
-- Docker/deployment/env/CI config.
-- Production secrets, credentials, tokens, `.env`, `.ssh`, `.codex`, or local auth/session config.
-- Web/admin runtime UI, broad offline cache/sync, Day 1 scope reduction, architecture direction replacement, or unrelated major-domain work.
+- Marking manual UI retest, manual code review, release readiness, production readiness, or Day 1 acceptance as passed.
+- Product runtime behavior in mobile, web, admin, API, workers, generated clients, or infrastructure.
+- Backend/API behavior, OpenAPI/contracts/generated-client changes, schema/migrations, auth/session/security runtime or policy, storage/file privacy/authz/file-byte behavior, money/bill/settlement/payment/recurring/OCR/reconciliation mutation or calculation authority, Docker/deployment/env/CI, secrets, public/admin exposure, production deploy, mobile store release, broad offline cache/sync, Day 1 scope reduction, architecture replacement, branch cleanup/deletion, force-like history changes, or unrelated major-domain expansion.
 
 ## Done Criteria
 
-- Current mobile theme/component/readability/accessibility readiness state is reconciled against Day 1 UX and visual-settings architecture requirements and captured in the M14 QA map.
-- Existing mobile built-in theme tokens and reusable components are hardened where safe so presentation is readable, bounded, and consistent across current starter surfaces without adding preference persistence or policy behavior.
-- Any visual preference, appearance mode, accent, palette, category/tag/group/dashboard/chart/status-color, or customization readout is clearly presentation-only and unsupported where runtime persistence/API/schema is absent.
-- Empty, unavailable, unsupported, high-contrast/system-mode, stale/offline, and disabled-control states do not leak raw IDs, tokens, storage paths, provider payloads, private/vault internals, secrets, or unrelated records.
-- Manual UI retest and manual code review remain deferred until Day 1 acceptance, not passed.
-- No human-gated blocker is bypassed.
-- M14 ends in a bounded controller stop state before backend/API, OpenAPI/contracts, generated clients, schema, auth/security runtime, storage/privacy, money/settlement/bill/recurring/OCR/reconciliation authority, deployment, web/admin, broad offline sync/cache, visual preference persistence, or unrelated major-domain work.
+- Current Day 1 automated milestone evidence is reconciled from M1 through M14 without changing runtime behavior.
+- Remaining Day 1 gaps are classified as evidence-ready, deferred manual review, hard-gated, or future Day 2/Day 3 where source documents support that classification.
+- A future human-opened Day 1 acceptance gate has a clear evidence package and stop conditions.
+- Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+- M15 ends in a bounded controller stop state before human acceptance or forbidden runtime scope.
 
 ## Current Task Pointer
 
-- Current/next task: none; M14 is finalized and UI-test ready for deferred Day 1 acceptance review.
+- Current/next task: `M15-001-DAY1-ACCEPTANCE-STATE-RECONCILE-20260616-2241`.
 - Last completed task: `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053`.
-- Current state: M14-004 completed QA/control finalization after the bounded M14 reconciliation, theme/component/readability hardening, and unsupported visual preference readout hardening slices.
-- Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
-- Manual code review status: `deferred_until_day1_acceptance`; not passed by M14 kickoff.
-- Recommended next automated task: none for M14; the controller is expected to stop because M14 is marked UI-test ready.
-- Stop sentinel: `STOP-M14-001` stops persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
+- Current state: M15 queued by post-M14 controller-continuation kickoff.
+- Manual UI retest status: `deferred_until_day1_acceptance`; not passed by kickoff.
+- Manual code review status: `deferred_until_day1_acceptance`; not passed by kickoff.
+- Stop sentinel: `STOP-M15-001` stops human acceptance decisions or forbidden runtime/security/schema/storage/money/deployment scope.
 
-## M14 Kickoff Summary
+## M15 Kickoff Summary
 
-M14 is queued as `Day 1 Mobile Visual Theme, Color, And Accessibility Readiness`.
+M15 is queued as `Day 1 Acceptance Evidence And Gate Readiness`.
 
-The selection follows M13 finalization and the controller dry-run stop reason `Milestone is marked deferred acceptance ready`. This is a controller-continuation kickoff after a finalized milestone stop, not a signal that Day 1 is complete.
+This is a controller-continuation kickoff after the AI V3 controller stop caused by finalized M14 being ready for deferred acceptance review. It is not a Day 1 completion signal, not a manual UI retest pass, and not a manual code review pass.
 
-The next safe queue is bounded to mobile presentation readiness because the repo already has starter mobile product surfaces and a shared `SettleoraTheme`/component system, while Day 1 UX and visual-settings architecture docs still call for accessible-by-default, warm fintech group-first presentation and presentation-only color/theme guardrails. The milestone avoids persistence/API/schema/admin work and starts with a state reconciliation task.
+M15 queue:
 
-M14 queue:
+- `M15-001-DAY1-ACCEPTANCE-STATE-RECONCILE-20260616-2241` - Queued. Reconcile M1 through M14 evidence, current Day 1 scope, remaining hard-gated gaps, and deferred manual review state without runtime changes.
+- `M15-002-DAY1-ACCEPTANCE-EVIDENCE-MAP-HARDENING-20260616-2241` - Queued. Harden the acceptance evidence map and gap classification without changing product behavior.
+- `M15-003-DAY1-MANUAL-GATE-PACKAGE-HARDENING-20260616-2241` - Queued. Prepare the future human acceptance gate package while preserving deferred manual status.
+- `M15-004-DAY1-ACCEPTANCE-READINESS-QA-FINALIZE-20260616-2241` - Queued. Finalize M15 QA/control state after bounded readiness slices complete.
+- `STOP-M15-001` - Stop. Manual gate for Day 1 acceptance decisions or forbidden runtime/security/schema/storage/money/deployment scope.
 
-- `M14-001-MOBILE-VISUAL-THEME-ACCESSIBILITY-STATE-RECONCILE-20260616-2053` - Completed. Reconciled current mobile theme, color-token, component, accessibility, and unsupported visual preference readiness without runtime behavior changes.
-- `M14-002-MOBILE-THEME-COMPONENT-READABILITY-HARDENING-20260616-2053` - Completed. Hardened built-in mobile theme/component/readability seams without API, persistence, schema, policy, or business-authority changes.
-- `M14-003-MOBILE-VISUAL-PREFERENCE-UNSUPPORTED-READOUT-HARDENING-20260616-2053` - Completed. Clarified unsupported presentation-only visual preference/palette/customization states in existing mobile settings/readout seams without adding runtime settings.
-- `M14-004-MOBILE-VISUAL-THEME-ACCESSIBILITY-QA-FINALIZE-20260616-2053` - Completed. Finalized M14 QA/control state, recorded carried-forward validation coverage, preserved deferred manual UI/code review, and marked M14 UI-test ready for deferred Day 1 acceptance review.
-- `STOP-M14-001` - Stop. Manual gate for persistence/API/contracts/generated-client/auth/security/schema/storage/privacy/money/deployment/web-admin/broad-sync/secrets/unrelated scope.
-
-M14 kickoff changes only `.ai` control files, the M14 QA map, and a narrow M14 scope-guard allowlist. It does not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, file byte behavior, real CSV import/export, local backup/restore, migration/link/disconnect/export runtime, money/bill/settlement/recurring/OCR/reconciliation authority, import-driven financial mutation, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, persisted visual settings, Day 1 scope, or architecture direction.
-
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M14 is finalized and UI-test ready; this is not a Day 1 acceptance pass.
+Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed. M15 kickoff does not imply Day 1 completion.
