@@ -1,12 +1,12 @@
 # M11 Mobile Account Session And Device Management QA Map
 
-Status: `M11-001, M11-002, and M11-003 completed; M11-004 current; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11 finalized/UI-test ready; M11-001, M11-002, M11-003, and M11-004 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## Boundary
 
 M11 hardens the mobile account session and device management UX inside existing backend and generated-client seams. It does not authorize backend/API behavior, OpenAPI/generated-client changes, schema/migration changes, auth/session/security runtime or configuration changes outside existing mobile presentation and secure-storage seams, token issuance or refresh rotation changes, password/credential/OIDC/MFA/passkey/recovery/registration/admin changes, audit-policy changes, storage/privacy or file authorization changes, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority changes, import/export/backup runtime, deployment, Docker, CI, secrets, web/admin runtime UI, or broad offline cache/sync work.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is not ready for UI retest while M11-004 remains queued/current.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed by M11. M11 is UI-test ready for deferred Day 1 acceptance review.
 
 ## Selection Basis
 
@@ -114,6 +114,8 @@ M11-002 completed coverage:
 - Successful per-session revoke reloads the server-authoritative session list.
 - If post-revoke reload fails, the UI preserves a safe previously loaded readout, disables another per-session revoke, and asks the user to refresh sessions before retrying.
 - Focused widget coverage asserts raw session IDs, access tokens, refresh credentials, token hashes, auth account IDs, provider payloads, API paths, and stack traces are not visible in these session-list states.
+- Required focused validation passed `widget_test.dart`, `auth_session_repository_test.dart`, `secure_storage_test.dart`, and `server_mode_shell_dashboard_test.dart` with 77 tests.
+- Full mobile validation passed with 707 Flutter tests.
 
 M11-003 completed coverage:
 
@@ -127,6 +129,13 @@ M11-003 completed coverage:
 - Required focused validation passed `widget_test.dart`, `auth_session_repository_test.dart`, `secure_storage_test.dart`, and `server_mode_shell_dashboard_test.dart` with 82 tests.
 - Full mobile validation passed with 712 Flutter tests.
 
+M11-004 completed coverage:
+
+- M11 QA/control state was finalized after all bounded implementation slices completed.
+- `.ai` state now marks M11 as `m11_finalized_ui_test_ready`, with `currentTaskId` set to `null`, `uiTestingReady` set to `true`, and `automatedValidationComplete` set to `true`.
+- Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+- Final full mobile validation for M11-004 passed with 712 Flutter tests.
+
 ## Day 1 Requirement Map
 
 | Day 1 account/session requirement | Current state | M11 implication |
@@ -139,18 +148,22 @@ M11-003 completed coverage:
 | Audit boundaries | Backend owns security-impactful audit records; mobile triggers reviewed endpoints only. | M11 does not change audit policy or claim audit success beyond existing backend behavior. |
 | Local-only mode boundary | First-launch local/server choice exists; local mode avoids server auth and server repository creation. | M11 must not implement local-only expense storage, migration, import/export, backup, or silent server upload. |
 
-## Remaining M11 Focus
+## Completed M11 Focus
 
 - `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Completed. Hardened session/device list and per-session revoke UI inside existing mobile seams: safe metadata readout, current-session marker/protection, duplicate revoke prevention, bounded list/revoke failures, refresh-after-mutation behavior, and raw ID/token/credential suppression.
 - `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Completed. Hardened current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session behavior, and access-token refresh behavior inside existing mobile seams.
-- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Current. Finalize QA/control state after bounded implementation slices complete, preserve deferred manual UI/code review, and mark M11 ready for deferred UI retest only when the controller-approved work is complete.
+- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Completed. Finalized QA/control state after bounded implementation slices completed, preserved deferred manual UI/code review, and marked M11 UI-test ready for deferred Day 1 acceptance review.
 - `STOP-M11-001` - Preserve the manual stop sentinel for forbidden API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
-## M11-003 Forbidden-Scope Confirmation
+## M11 Forbidden-Scope Confirmation
 
-M11-003 stayed inside existing mobile presentation and secure-storage seams. It did not change backend/API behavior, OpenAPI contracts, generated clients, auth/session/security runtime or configuration outside mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password handling, OIDC/Keycloak, MFA, passkeys, recovery, registration policy, admin user management, credential storage policy, audit policy, schema/migrations, storage/file privacy or authorization policy, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR/reconciliation authority, import/export/backup, deployment/Docker/CI/env, web/admin runtime, broad offline cache/sync, secrets, Day 1 scope, or architecture direction.
+M11 stayed inside existing mobile presentation, secure-storage, docs, and control seams. It did not change backend/API behavior, OpenAPI contracts, generated clients, auth/session/security runtime or configuration outside mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password handling, OIDC/Keycloak, MFA, passkeys, recovery, registration policy, admin user management, credential storage policy, audit policy, schema/migrations, storage/file privacy or authorization policy, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR/reconciliation authority, import/export/backup, deployment/Docker/CI/env, web/admin runtime, broad offline cache/sync, secrets, Day 1 scope, or architecture direction.
 
-M11-004 is expected to finalize QA/control state only. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+M11-004 finalized QA/control state only. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+
+## Follow-Up
+
+A separate user-requested post-M11 docs-only FX/currency/UX architecture task is pending after M11 finalization. It should cover currency registry, FX provider/rate storage, bill FX snapshots, group/context FX profiles, group FX approval, bill-create FX UX defaults, and experience modes/advanced toggles before the next normal implementation milestone, unless the controller reports a stricter blocker. M11 does not implement or edit that currency/FX architecture scope.
 
 ## Validation Expectations
 

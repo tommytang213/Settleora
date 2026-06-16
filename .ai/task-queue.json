@@ -91,7 +91,7 @@
     "title": "Finalize mobile account session and device management QA state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**"
