@@ -4,7 +4,7 @@
     "title": "Reconcile mobile search, filters, and group workspace readiness state",
     "risk": "low",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
