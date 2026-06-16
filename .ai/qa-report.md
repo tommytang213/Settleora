@@ -19,8 +19,10 @@ Runtime/component hardening:
 Focused automated coverage:
 
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart` passed with 54 Flutter tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart test/widget_test.dart` passed with 90 Flutter tests.
+- `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 718 Flutter tests.
 - Coverage asserts the shared readout and both changed app/profile paths expose presentation-only unsupported visual preference copy and do not contain fake runtime controls inside the readout.
-- Validation warnings were limited to Flutter dependency newer-version notices.
+- Validation warnings were limited to Flutter dependency newer-version notices and the Redocly CLI update notice.
 
 M14 queue state after M14-003:
 

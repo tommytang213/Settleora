@@ -132,7 +132,10 @@ Focused/full validation counts:
 
 - Focused touched-surface validation passed with 54 Flutter tests:
   - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart`
-- Full validation remains to be completed by the required M14-003 final validation sequence and recorded in the task report.
+- Required focused validation passed with 90 Flutter tests:
+  - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart test/dashboard_preview_screen_test.dart test/server_mode_shell_dashboard_test.dart test/profile_screen_test.dart test/widget_test.dart`
+- Full mobile validation passed with 718 Flutter tests:
+  - `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile`
 
 Explicit non-goals preserved:
 
