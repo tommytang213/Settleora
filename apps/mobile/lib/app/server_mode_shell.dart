@@ -84,6 +84,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
 class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
   bool _isSigningOut = false;
+  bool _isConfirmingSignOut = false;
   bool _isLoadingOverview = true;
   bool _isFlushingBillSync = false;
   Future<void>? _overviewLoadFuture;
@@ -488,7 +489,24 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _signOutCurrentSession() async {
-    if (_isSigningOut) {
+    if (_isSigningOut || _isConfirmingSignOut) {
+      return;
+    }
+
+    setState(() {
+      _isConfirmingSignOut = true;
+    });
+
+    final confirmed = await _confirmCurrentSignOut();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isConfirmingSignOut = false;
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -560,10 +578,11 @@ class _SettleoraAuthenticatedServerShellState
   Future<bool> _confirmLocalSignOut(SettleoraAuthFailure failure) async {
     final result = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Text(failure.title),
         content: const Text(
-          'The server could not confirm sign-out. You can clear the saved session on this device and sign in again later.',
+          'The server could not confirm current-session sign-out. Clear local session material on this device only? Server-side session revocation was not confirmed, so you may need to sign out from another device after connectivity returns.',
         ),
         actions: [
           TextButton(
@@ -575,6 +594,33 @@ class _SettleoraAuthenticatedServerShellState
             key: const Key('sign-out-local-confirm'),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Sign Out Here'),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
+  Future<bool> _confirmCurrentSignOut() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out this device?'),
+        content: const Text(
+          'Normal sign-out asks the server to end the current session before this device clears its saved session material.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('sign-out-current-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('sign-out-current-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign Out'),
           ),
         ],
       ),
@@ -605,7 +651,9 @@ class _SettleoraAuthenticatedServerShellState
                 IconButton(
                   key: const Key('server-shell-sign-out'),
                   tooltip: 'Sign out',
-                  onPressed: _isSigningOut ? null : _signOutCurrentSession,
+                  onPressed: (_isSigningOut || _isConfirmingSignOut)
+                      ? null
+                      : _signOutCurrentSession,
                   icon: _isSigningOut
                       ? const SizedBox.square(
                           dimension: 20,
@@ -2296,6 +2344,7 @@ class SettleoraSessionListScreen extends StatefulWidget {
 class _SettleoraSessionListScreenState
     extends State<SettleoraSessionListScreen> {
   bool _isLoading = true;
+  bool _isConfirmingSignOutAll = false;
   bool _isSigningOutAll = false;
   String? _confirmingRevokeSessionId;
   String? _revokingSessionId;
@@ -2486,15 +2535,28 @@ class _SettleoraSessionListScreenState
   }
 
   Future<void> _signOutAll() async {
-    if (_isSigningOutAll) {
+    if (_isSigningOutAll || _isConfirmingSignOutAll) {
       return;
     }
 
+    setState(() {
+      _isConfirmingSignOutAll = true;
+    });
+
     final confirmed = await _confirm(
       title: 'Sign Out All Sessions?',
-      message: 'This signs out this device and every other active session.',
+      message:
+          'Ask the server to end every active session for this account. This signs out this device after the server confirms the account-wide action.',
       confirmLabel: 'Sign Out All',
     );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isConfirmingSignOutAll = false;
+    });
+
     if (!confirmed) {
       return;
     }
@@ -2517,6 +2579,11 @@ class _SettleoraSessionListScreenState
       await _endSession('Signed out on all sessions.');
     } on SettleoraAuthFailure catch (failure) {
       if (!mounted) {
+        return;
+      }
+
+      if (failure.kind == SettleoraAuthFailureKind.sessionExpired) {
+        await _endSession(failure.message);
         return;
       }
 
@@ -2591,7 +2658,9 @@ class _SettleoraSessionListScreenState
                 ],
                 OutlinedButton.icon(
                   key: const Key('session-list-sign-out-all'),
-                  onPressed: _isSigningOutAll ? null : _signOutAll,
+                  onPressed: (_isSigningOutAll || _isConfirmingSignOutAll)
+                      ? null
+                      : _signOutAll,
                   icon: _isSigningOutAll
                       ? const SizedBox.square(
                           dimension: 18,

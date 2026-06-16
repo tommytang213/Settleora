@@ -54,10 +54,10 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
-- Last completed task: `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315`.
-- Current state: M11-002 hardened mobile session/device list and per-session revoke behavior inside existing mobile seams. M11 remains in progress; M11-003 is current, M11-004 remains queued, M11 is not ready for UI retest, and manual UI retest/manual code review remain deferred until Day 1 acceptance.
-- Recommended next automated task: `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
+- Current task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
+- Last completed task: `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
+- Current state: M11-003 hardened mobile current-session sign-out, account-wide sign-out, server-unreachable local-clear confirmation, expired-session routing, and refresh fail-closed behavior inside existing mobile seams. M11 remains in progress; M11-004 remains queued/current, M11 is not ready for UI retest, and manual UI retest/manual code review remain deferred until Day 1 acceptance.
+- Recommended next automated task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
 - Stop sentinel: `STOP-M11-001` stops API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M10 Carry-Forward Boundary

@@ -102,6 +102,27 @@ Focused automated coverage:
 
 M11 remains in progress. M11-003 is now current, M11-004 remains queued, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
 
+## M11-003 Sign-Out/Refresh Session Hardening Summary
+
+M11-003 completed mobile current-session sign-out, account-wide sign-out, server-unreachable local-clear confirmation, expired-session routing, and refresh fail-closed hardening inside existing mobile seams:
+
+- Current-session sign-out now uses explicit bounded copy that normal sign-out asks the server to end the current session before local session material is cleared.
+- Current-session sign-out blocks duplicate confirmations and duplicate in-flight submissions while preserving local session material until the server confirms sign-out or the user explicitly confirms local-only device clear after an unreachable/server failure.
+- Server-unreachable local-clear copy now distinguishes local device session material clearing from unconfirmed server-side session revocation and tells the user they may need to sign out from another device after connectivity returns.
+- Account-wide sign-out confirmation copy now states the action asks the server to end every active session for the account before this device signs out.
+- Account-wide sign-out blocks duplicate confirmations and duplicate in-flight submissions, preserves local session material while in flight, and routes session-expired failures through the shared session-ended/sign-in path.
+- Access-token refresh now clears local session state if a refresh response produces blank access material, so protected routes receive no token and fail closed.
+
+Focused automated coverage during implementation:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 28 tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/secure_storage_test.dart` passed with 10 tests.
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart test/auth_session_repository_test.dart test/secure_storage_test.dart test/server_mode_shell_dashboard_test.dart` passed with 82 tests.
+
+M11 remains in progress. M11-004 is now current, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
+
+M11-003 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration outside existing mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
+
 ## M10-003 Payment Visibility Readout Summary
 
 Updated `apps/mobile/lib/profile/profile_repository.dart`, `apps/mobile/lib/profile/profile_screen.dart`, focused profile screen tests, M10 QA docs, and `.ai` control state only.

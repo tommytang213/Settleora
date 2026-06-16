@@ -416,12 +416,76 @@ void main() {
 
     await tester.tap(find.byKey(const Key('server-shell-sign-out')));
     await tester.pumpAndSettle();
+    expect(find.text('Sign out this device?'), findsOneWidget);
+    expect(
+      find.textContaining('asks the server to end the current session'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('sign-out-current-confirm')));
+    await tester.pumpAndSettle();
 
     expect(authRepository.signOutCurrentCalls, 1);
     expect(authRepository.lastAccessToken, 'redacted-signed-in-access');
     expect(storage.session, isNull);
     expect(find.text('Sign in to Settleora'), findsOneWidget);
     expect(find.text('Signed out.'), findsOneWidget);
+  });
+
+  testWidgets('current-session sign out blocks duplicate submissions', (
+    tester,
+  ) async {
+    final signOutCompleter = Completer<void>();
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+      session: sampleSessionMaterial(),
+    );
+    final authRepository = FakeAuthRepository(
+      signOutCurrentCompleter: signOutCompleter,
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('server-shell-sign-out')));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const Key('server-shell-sign-out')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign out this device?'), findsOneWidget);
+    expect(authRepository.signOutCurrentCalls, 0);
+
+    await tester.tap(find.byKey(const Key('sign-out-current-confirm')));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const Key('server-shell-sign-out')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+
+    expect(authRepository.signOutCurrentCalls, 1);
+    final signOutButton = tester.widget<IconButton>(
+      find.byKey(const Key('server-shell-sign-out')),
+    );
+    expect(signOutButton.onPressed, isNull);
+    expect(storage.session, isNotNull);
+
+    signOutCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(authRepository.signOutCurrentCalls, 1);
+    expect(storage.session, isNull);
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
   });
 
   testWidgets(
@@ -451,12 +515,26 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('server-shell-sign-out')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('sign-out-current-confirm')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(authRepository.signOutCurrentCalls, 1);
       expect(storage.session, isNotNull);
       expect(find.text('Server unavailable'), findsOneWidget);
+      expect(
+        find.textContaining('local session material on this device only'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Server-side session revocation was not confirmed'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('sign out from another device'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const Key('sign-out-local-confirm')));
       await tester.pumpAndSettle();
@@ -464,6 +542,11 @@ void main() {
       expect(storage.session, isNull);
       expect(find.text('Sign in to Settleora'), findsOneWidget);
       expect(find.textContaining('Signed out on this device'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('redacted-signed-in-access')));
+      expect(
+        visibleText(tester),
+        isNot(contains('redacted-signed-in-refresh')),
+      );
     },
   );
 
@@ -773,6 +856,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
       await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Ask the server to end every active session'),
+        findsOneWidget,
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Sign Out All'));
       await tester.pumpAndSettle();
 
@@ -782,6 +869,115 @@ void main() {
       expect(find.text('Sign in to Settleora'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'session list sign-out-all blocks duplicates and preserves local session while in flight',
+    (tester) async {
+      final signOutAllCompleter = Completer<void>();
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final authRepository = FakeAuthRepository(
+        sessions: [sampleSessionSummary(isCurrent: true)],
+        signOutAllCompleter: signOutAllCompleter,
+      );
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('session-list-sign-out-all')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sign Out All Sessions?'), findsOneWidget);
+      expect(authRepository.signOutAllCalls, 0);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign Out All'));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('session-list-sign-out-all')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(authRepository.signOutAllCalls, 1);
+      final signOutAllButton = tester.widget<OutlinedButton>(
+        find.byKey(const Key('session-list-sign-out-all')),
+      );
+      expect(signOutAllButton.onPressed, isNull);
+      expect(storage.session, isNotNull);
+
+      signOutAllCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(authRepository.signOutAllCalls, 1);
+      expect(storage.session, isNull);
+      expect(find.text('Sign in to Settleora'), findsOneWidget);
+    },
+  );
+
+  testWidgets('session-expired sign-out-all uses shared session-ended path', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+      session: sampleSessionMaterial(),
+    );
+    final authRepository = FakeAuthRepository(
+      sessions: [sampleSessionSummary(isCurrent: true)],
+      signOutAllFailure: const SettleoraAuthFailure(
+        kind: SettleoraAuthFailureKind.sessionExpired,
+        message: 'Your session has expired. Sign in again.',
+        statusCode: 401,
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        authRepositoryFactory: (_) => authRepository,
+        now: () => DateTime.utc(2026, 5, 14),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await scrollToShellTile(tester, const Key('server-shell-sessions'));
+    await tester.tap(find.byKey(const Key('server-shell-sessions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('session-list-sign-out-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign Out All'));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.signOutAllCalls, 1);
+    expect(storage.session, isNull);
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
+    expect(
+      find.text('Your session has expired. Sign in again.'),
+      findsOneWidget,
+    );
+    expect(find.text('Sessions'), findsNothing);
+    expect(visibleText(tester), isNot(contains('redacted-signed-in-access')));
+    expect(visibleText(tester), isNot(contains('redacted-signed-in-refresh')));
+  });
 
   testWidgets('queue renders empty state from repository', (tester) async {
     final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
@@ -1245,6 +1441,8 @@ class FakeAuthRepository implements SettleoraAuthRepository {
     this.listSessionsFailure,
     Map<int, SettleoraAuthFailure>? listSessionsFailuresByCall,
     this.revokeSessionFailure,
+    this.signOutCurrentCompleter,
+    this.signOutAllCompleter,
     this.revokeCompleter,
   }) : signInSession = signInSession ?? sampleSessionMaterial(),
        refreshedSession = refreshedSession ?? sampleRefreshedSessionMaterial(),
@@ -1264,6 +1462,8 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   final SettleoraAuthFailure? listSessionsFailure;
   final Map<int, SettleoraAuthFailure> listSessionsFailuresByCall;
   final SettleoraAuthFailure? revokeSessionFailure;
+  final Completer<void>? signOutCurrentCompleter;
+  final Completer<void>? signOutAllCompleter;
   final Completer<void>? revokeCompleter;
   int signInCalls = 0;
   int currentUserCalls = 0;
@@ -1324,6 +1524,11 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   Future<void> signOutCurrentSession({required String accessToken}) async {
     signOutCurrentCalls += 1;
     lastAccessToken = accessToken;
+    final completer = signOutCurrentCompleter;
+    if (completer != null) {
+      await completer.future;
+    }
+
     final failure = signOutCurrentFailure;
     if (failure != null) {
       throw failure;
@@ -1336,6 +1541,11 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   }) async {
     signOutAllCalls += 1;
     lastAccessToken = accessToken;
+    final completer = signOutAllCompleter;
+    if (completer != null) {
+      await completer.future;
+    }
+
     final failure = signOutAllFailure;
     if (failure != null) {
       throw failure;
