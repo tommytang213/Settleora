@@ -648,7 +648,7 @@ class _FilteredSummaryPanel extends StatelessWidget {
       icon: Icons.filter_alt_outlined,
       title: '${discovery.visibleRowCount} matching report rows',
       message:
-          'Local discovery only changes visible loaded rows. Totals and bill count remain the server-returned monthly summary.',
+          'Local discovery only changes visible loaded rows. Totals, bill count, reconciliation readouts, and settlement counts remain the server-returned monthly summary.',
       compact: true,
     );
   }
@@ -855,7 +855,7 @@ class _FilteredEmptyPanel extends StatelessWidget {
       icon: Icons.search_off_outlined,
       title: 'No matching report rows',
       message:
-          'Clear local search or filters to show the loaded server report rows.',
+          'No loaded report rows match these local filters. Clear filters to show loaded server rows; no-match does not recompute report, reconciliation, or settlement truth.',
       compact: true,
     );
   }

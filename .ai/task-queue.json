@@ -34,7 +34,7 @@
     "title": "Mobile cross-surface search and filter readout hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "completed",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",
@@ -69,7 +69,7 @@
     "title": "Mobile group workspace and dashboard readiness hardening",
     "risk": "medium",
     "autoMergeAllowed": true,
-    "status": "queued",
+    "status": "current",
     "allowedAreas": [
       ".ai/**",
       "docs/qa/**",

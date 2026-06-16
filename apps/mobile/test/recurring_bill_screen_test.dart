@@ -311,6 +311,11 @@ void main() {
             .selected,
         isTrue,
       );
+      await tester.scrollUntilVisible(
+        find.text('Rent'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Rent'), findsWidgets);
       expect(find.text('Gym'), findsNothing);
       expect(
@@ -318,8 +323,18 @@ void main() {
         findsOneWidget,
       );
 
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('recurring-bill-clear-discovery')),
+        -120,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.byKey(const Key('recurring-bill-clear-discovery')));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('recurring-bill-forecast-filter-all')),
+        -120,
+        scrollable: find.byType(Scrollable).first,
+      );
 
       expect(
         tester
@@ -357,8 +372,36 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.text('No matching templates'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('No matching templates'), findsOneWidget);
+    expect(
+      find.text(
+        'No loaded recurring templates match these local filters. Clear filters to review loaded server rows; no-match is not a server search or recurring authority result.',
+      ),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.text('No matching forecast'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('No matching forecast'), findsOneWidget);
+    expect(
+      find.text(
+        'No loaded forecast occurrences match these local filters. Forecast rows are server-returned readouts; no-match does not prove no authorized recurring records exist elsewhere.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Search and filters narrow loaded template and forecast rows only. Draft generation, group access, recurrence, participants, money, and audit remain API-authoritative.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('No recurring bills'), findsNothing);
     expect(find.text('No forecast'), findsNothing);
   });
