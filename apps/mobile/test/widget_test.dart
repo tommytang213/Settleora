@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/app_configuration.dart';
@@ -519,12 +521,230 @@ void main() {
 
     await tester.tap(find.byKey(const Key('session-revoke-1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Revoke'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Revoke Session'));
     await tester.pumpAndSettle();
 
     expect(authRepository.revokeSessionCalls, 1);
     expect(authRepository.lastRevokedSessionId, 'other-session-id-not-visible');
   });
+
+  testWidgets(
+    'session list explains display-only metadata and protects current session',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final authRepository = FakeAuthRepository(
+        sessions: [
+          sampleSessionSummary(
+            id: 'current-session-id-not-visible',
+            isCurrent: true,
+            deviceLabel: null,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('API-returned display metadata only'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('The server decides session validity'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('does not show raw session IDs'),
+        findsOneWidget,
+      );
+      expect(find.text('Current'), findsOneWidget);
+      expect(
+        find.textContaining('use the main sign-out flow for this session'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.logout_outlined), findsOneWidget);
+      expect(find.byKey(const Key('session-revoke-0')), findsNothing);
+      expect(
+        visibleText(tester),
+        isNot(contains('current-session-id-not-visible')),
+      );
+      expect(visibleText(tester), isNot(contains('redacted-signed-in-access')));
+      expect(
+        visibleText(tester),
+        isNot(contains('redacted-signed-in-refresh')),
+      );
+      expect(visibleText(tester), isNot(contains('/api/v1/auth/sessions')));
+      expect(visibleText(tester), isNot(contains('token_hash')));
+      expect(visibleText(tester), isNot(contains('auth_account')));
+      expect(visibleText(tester), isNot(contains('provider_payload')));
+    },
+  );
+
+  testWidgets(
+    'session revoke confirmation and in-flight state prevent duplicate revoke',
+    (tester) async {
+      final revokeCompleter = Completer<void>();
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final authRepository = FakeAuthRepository(
+        sessions: [
+          sampleSessionSummary(isCurrent: true),
+          sampleSessionSummary(
+            id: 'other-session-id-not-visible',
+            isCurrent: false,
+            deviceLabel: 'Tablet',
+          ),
+        ],
+        revokeCompleter: revokeCompleter,
+      );
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('session-revoke-1')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('session-revoke-1')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Revoke other session?'), findsOneWidget);
+      expect(authRepository.revokeSessionCalls, 0);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Revoke Session'));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('session-revoke-1')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+
+      expect(authRepository.revokeSessionCalls, 1);
+      final revokeButton = tester.widget<IconButton>(
+        find.byKey(const Key('session-revoke-1')),
+      );
+      expect(revokeButton.onPressed, isNull);
+
+      revokeCompleter.complete();
+      await tester.pumpAndSettle();
+
+      expect(authRepository.revokeSessionCalls, 1);
+      expect(authRepository.listSessionsCalls, 2);
+    },
+  );
+
+  testWidgets(
+    'session revoke success preserves safe state when refresh fails',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final authRepository = FakeAuthRepository(
+        sessions: [
+          sampleSessionSummary(isCurrent: true),
+          sampleSessionSummary(
+            id: 'other-session-id-not-visible',
+            isCurrent: false,
+            deviceLabel: 'Tablet',
+          ),
+        ],
+        listSessionsFailuresByCall: {
+          2: const SettleoraAuthFailure(
+            kind: SettleoraAuthFailureKind.network,
+            message: 'raw /api/v1/auth/sessions stack trace token_hash',
+          ),
+        },
+      );
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('session-revoke-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Revoke Session'));
+      await tester.pumpAndSettle();
+
+      expect(authRepository.revokeSessionCalls, 1);
+      expect(authRepository.listSessionsCalls, 2);
+      expect(find.text('This device'), findsOneWidget);
+      expect(find.text('Tablet'), findsOneWidget);
+      expect(
+        find.textContaining('server accepted the revoke request'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Refresh sessions before trying'),
+        findsOneWidget,
+      );
+      expect(
+        visibleText(tester),
+        isNot(contains('other-session-id-not-visible')),
+      );
+      expect(visibleText(tester), isNot(contains('/api/v1/auth/sessions')));
+      expect(visibleText(tester), isNot(contains('stack trace')));
+      expect(visibleText(tester), isNot(contains('token_hash')));
+
+      final revokeButton = tester.widget<IconButton>(
+        find.byKey(const Key('session-revoke-1')),
+      );
+      expect(revokeButton.onPressed, isNull);
+
+      await tester.tap(find.byKey(const Key('session-list-retry')));
+      await tester.pumpAndSettle();
+
+      expect(authRepository.listSessionsCalls, 3);
+      final refreshedRevokeButton = tester.widget<IconButton>(
+        find.byKey(const Key('session-revoke-1')),
+      );
+      expect(refreshedRevokeButton.onPressed, isNotNull);
+    },
+  );
 
   testWidgets(
     'session list sign-out-all clears local session after backend call',
@@ -1023,11 +1243,14 @@ class FakeAuthRepository implements SettleoraAuthRepository {
     this.signOutCurrentFailure,
     this.signOutAllFailure,
     this.listSessionsFailure,
+    Map<int, SettleoraAuthFailure>? listSessionsFailuresByCall,
     this.revokeSessionFailure,
+    this.revokeCompleter,
   }) : signInSession = signInSession ?? sampleSessionMaterial(),
        refreshedSession = refreshedSession ?? sampleRefreshedSessionMaterial(),
        currentUserResponse = currentUserResponse ?? sampleCurrentUser(),
-       sessions = sessions ?? [sampleSessionSummary(isCurrent: true)];
+       sessions = sessions ?? [sampleSessionSummary(isCurrent: true)],
+       listSessionsFailuresByCall = listSessionsFailuresByCall ?? const {};
 
   final SettleoraServerSessionMaterial signInSession;
   final SettleoraServerSessionMaterial refreshedSession;
@@ -1039,7 +1262,9 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   final SettleoraAuthFailure? signOutCurrentFailure;
   final SettleoraAuthFailure? signOutAllFailure;
   final SettleoraAuthFailure? listSessionsFailure;
+  final Map<int, SettleoraAuthFailure> listSessionsFailuresByCall;
   final SettleoraAuthFailure? revokeSessionFailure;
+  final Completer<void>? revokeCompleter;
   int signInCalls = 0;
   int currentUserCalls = 0;
   int refreshCalls = 0;
@@ -1123,6 +1348,11 @@ class FakeAuthRepository implements SettleoraAuthRepository {
   }) async {
     listSessionsCalls += 1;
     lastAccessToken = accessToken;
+    final callFailure = listSessionsFailuresByCall[listSessionsCalls];
+    if (callFailure != null) {
+      throw callFailure;
+    }
+
     final failure = listSessionsFailure;
     if (failure != null) {
       throw failure;
@@ -1139,6 +1369,11 @@ class FakeAuthRepository implements SettleoraAuthRepository {
     revokeSessionCalls += 1;
     lastRevokedSessionId = sessionId;
     lastAccessToken = accessToken;
+    final completer = revokeCompleter;
+    if (completer != null) {
+      await completer.future;
+    }
+
     final failure = revokeSessionFailure;
     if (failure != null) {
       throw failure;

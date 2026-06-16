@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M11 in progress; M11-001 completed; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11 in progress; M11-001 and M11-002 completed; M11-003 current; manual UI/code review deferred until Day 1 acceptance`
 
 ## M11 Kickoff Summary
 
@@ -18,14 +18,14 @@ The selection is based on current repo state:
 M11 queue:
 
 - `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315` - Completed. Reconciled current mobile account/session implementation and automated coverage without runtime behavior changes.
-- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Queued/current. Harden session/device list and per-session revoke UI inside existing mobile seams.
-- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Queued. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
+- `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Completed. Hardened session/device list and per-session revoke UI inside existing mobile seams.
+- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Current. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
 - `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Queued. Finalize M11 QA/control state after bounded slices complete.
 - `STOP-M11-001` - Stop. Manual gate for API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
 M11 kickoff changed only `.ai` control files, the M11 QA map, and a narrow M11 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M11 is not ready for UI retest. Recommended next automated task is `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315`.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M11 is not ready for UI retest. Recommended next automated task is `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
 
 ## M11-001 Reconciliation Summary
 
@@ -83,6 +83,24 @@ Current implementation findings:
 - No mobile runtime or test files were changed by M10-001.
 
 Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M10 is now finalized and UI-test ready; recommended next automated action is to run the AI V3 controller for the next controller-approved Day 1 milestone or queue kickoff.
+
+## M11-002 Session List/Revoke Hardening Summary
+
+M11-002 completed mobile session/device list and per-session revoke hardening inside existing mobile seams:
+
+- Session list copy now states API-returned rows are display metadata only and the server decides session validity and revocation.
+- Current-session rows remain protected from per-session revoke and explain that current-session sign-out belongs to the main sign-out flow.
+- Non-current session revoke now uses explicit non-dismissible destructive confirmation, blocks duplicate confirmation/revoke attempts, and shows in-flight state only while the server revoke call is active.
+- Successful per-session revoke reloads the server-authoritative session list.
+- If revoke succeeds but the follow-up reload fails, the UI preserves the previously loaded safe readout, disables another per-session revoke, and asks the user to refresh sessions before retrying instead of repeating the revoke blindly.
+- Empty and preserved-failure copy stays bounded and avoids raw session IDs, tokens, refresh credentials, token hashes, auth account IDs, provider payloads, API paths, stack traces, secrets, and unrelated user data.
+
+Focused automated coverage:
+
+- `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 25 tests during implementation.
+- Added widget coverage for display-only/server-authority copy, current-session protection, destructive confirmation, duplicate revoke prevention, refresh-after-revoke behavior, refresh-failure preservation, retry recovery, and unsafe raw-value suppression.
+
+M11 remains in progress. M11-003 is now current, M11-004 remains queued, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
 
 ## M10-003 Payment Visibility Readout Summary
 

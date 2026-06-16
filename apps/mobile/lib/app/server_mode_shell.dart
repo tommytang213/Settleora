@@ -2297,7 +2297,9 @@ class _SettleoraSessionListScreenState
     extends State<SettleoraSessionListScreen> {
   bool _isLoading = true;
   bool _isSigningOutAll = false;
+  String? _confirmingRevokeSessionId;
   String? _revokingSessionId;
+  bool _requiresRefreshBeforeRevoke = false;
   List<SettleoraSessionSummary> _sessions = const [];
   SettleoraAuthFailure? _failure;
 
@@ -2325,6 +2327,7 @@ class _SettleoraSessionListScreenState
         _sessions = await widget.authRepository.listSessions(
           accessToken: accessToken,
         );
+        _requiresRefreshBeforeRevoke = false;
       }
     } on SettleoraAuthFailure catch (failure) {
       _failure = failure;
@@ -2364,15 +2367,29 @@ class _SettleoraSessionListScreenState
   }
 
   Future<void> _revokeSession(SettleoraSessionSummary session) async {
-    if (session.isCurrent || _revokingSessionId != null) {
+    if (session.isCurrent ||
+        _requiresRefreshBeforeRevoke ||
+        _confirmingRevokeSessionId != null ||
+        _revokingSessionId != null) {
       return;
     }
 
+    setState(() {
+      _confirmingRevokeSessionId = session.id;
+    });
+
     final confirmed = await _confirm(
-      title: 'Revoke Session?',
-      message: 'This signs out that device if the server still has it active.',
-      confirmLabel: 'Revoke',
+      title: 'Revoke other session?',
+      message:
+          'Ask the server to sign out this other session. This cannot sign out the current device; use the main sign-out flow for this session.',
+      confirmLabel: 'Revoke Session',
     );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _confirmingRevokeSessionId = null;
+    });
     if (!confirmed) {
       return;
     }
@@ -2393,7 +2410,7 @@ class _SettleoraSessionListScreenState
         sessionId: session.id,
         accessToken: accessToken,
       );
-      await _load();
+      await _reloadAfterRevoke();
     } on SettleoraAuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -2402,12 +2419,69 @@ class _SettleoraSessionListScreenState
       setState(() {
         _failure = failure;
       });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = const SettleoraAuthFailure(
+          kind: SettleoraAuthFailureKind.server,
+          message: 'Session management is unavailable right now.',
+        );
+      });
     } finally {
       if (mounted) {
         setState(() {
           _revokingSessionId = null;
         });
       }
+    }
+  }
+
+  Future<void> _reloadAfterRevoke() async {
+    try {
+      final accessToken = await _readAccessToken();
+      if (accessToken == null) {
+        await _endSession('Your session has expired. Sign in again.');
+        return;
+      }
+
+      final refreshed = await widget.authRepository.listSessions(
+        accessToken: accessToken,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _sessions = refreshed;
+        _failure = null;
+        _requiresRefreshBeforeRevoke = false;
+      });
+    } on SettleoraAuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = _postRevokeRefreshFailure(failure);
+        _requiresRefreshBeforeRevoke = true;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _failure = _postRevokeRefreshFailure(
+          const SettleoraAuthFailure(
+            kind: SettleoraAuthFailureKind.server,
+            message: 'Session management is unavailable right now.',
+          ),
+        );
+        _requiresRefreshBeforeRevoke = true;
+      });
     }
   }
 
@@ -2465,6 +2539,7 @@ class _SettleoraSessionListScreenState
   }) async {
     final result = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: Text(message),
@@ -2501,13 +2576,19 @@ class _SettleoraSessionListScreenState
                   padding: EdgeInsets.only(top: 72),
                   child: Center(child: CircularProgressIndicator()),
                 )
-              else if (failure != null)
+              else if (failure != null && _sessions.isEmpty)
                 _SessionStatePanel(
                   failure: failure,
                   onRetry: _load,
                   onSessionEnded: _endSession,
                 )
               else ...[
+                const _SessionListAuthorityNotice(),
+                const SizedBox(height: 12),
+                if (failure != null) ...[
+                  _SessionInlineFailure(failure: failure, onRetry: _load),
+                  const SizedBox(height: 12),
+                ],
                 OutlinedButton.icon(
                   key: const Key('session-list-sign-out-all'),
                   onPressed: _isSigningOutAll ? null : _signOutAll,
@@ -2528,6 +2609,9 @@ class _SettleoraSessionListScreenState
                       revokeButtonKey: ValueKey('session-revoke-$index'),
                       session: _sessions[index],
                       isRevoking: _revokingSessionId == _sessions[index].id,
+                      revokeDisabled:
+                          _requiresRefreshBeforeRevoke ||
+                          _confirmingRevokeSessionId != null,
                       onRevoke: () => _revokeSession(_sessions[index]),
                     ),
               ],
@@ -2544,12 +2628,14 @@ class _SessionTile extends StatelessWidget {
     required this.revokeButtonKey,
     required this.session,
     required this.isRevoking,
+    required this.revokeDisabled,
     required this.onRevoke,
   });
 
   final Key revokeButtonKey;
   final SettleoraSessionSummary session;
   final bool isRevoking;
+  final bool revokeDisabled;
   final VoidCallback onRevoke;
 
   @override
@@ -2566,6 +2652,8 @@ class _SessionTile extends StatelessWidget {
             'Issued: ${_formatTimestamp(session.issuedAtUtc)}',
             'Expires: ${_formatTimestamp(session.expiresAtUtc)}',
             if (lastSeen != null) 'Last seen: ${_formatTimestamp(lastSeen)}',
+            if (session.isCurrent)
+              'Protected: use the main sign-out flow for this session.',
           ].join('\n'),
         ),
         trailing: session.isCurrent
@@ -2573,7 +2661,7 @@ class _SessionTile extends StatelessWidget {
             : IconButton(
                 key: revokeButtonKey,
                 tooltip: 'Revoke session',
-                onPressed: isRevoking ? null : onRevoke,
+                onPressed: isRevoking || revokeDisabled ? null : onRevoke,
                 icon: isRevoking
                     ? const SizedBox.square(
                         dimension: 20,
@@ -2581,6 +2669,54 @@ class _SessionTile extends StatelessWidget {
                       )
                     : const Icon(Icons.logout_outlined),
               ),
+      ),
+    );
+  }
+}
+
+class _SessionListAuthorityNotice extends StatelessWidget {
+  const _SessionListAuthorityNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: const EdgeInsets.all(12),
+      child: Text(
+        'Session rows show API-returned display metadata only. The server decides session validity and revocation; this screen does not show raw session IDs, tokens, refresh credentials, or provider data.',
+        style: TextStyle(color: colors.textMuted),
+      ),
+    );
+  }
+}
+
+class _SessionInlineFailure extends StatelessWidget {
+  const _SessionInlineFailure({required this.failure, required this.onRetry});
+
+  final SettleoraAuthFailure failure;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(failure.title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(failure.message, style: TextStyle(color: colors.textMuted)),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('session-list-retry'),
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh Sessions'),
+          ),
+        ],
       ),
     );
   }
@@ -2652,11 +2788,25 @@ class _EmptySessions extends StatelessWidget {
         children: [
           Icon(Icons.devices_other_outlined, size: 42),
           SizedBox(height: 12),
-          Text('No active sessions'),
+          Text('No other sessions shown'),
+          SizedBox(height: 6),
+          Text(
+            'The API did not return another session to manage. Pull to refresh before retrying.',
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
   }
+}
+
+SettleoraAuthFailure _postRevokeRefreshFailure(SettleoraAuthFailure failure) {
+  return SettleoraAuthFailure(
+    kind: failure.kind,
+    statusCode: failure.statusCode,
+    message:
+        'The server accepted the revoke request, but the refreshed session list is unavailable. Refresh sessions before trying another revoke.',
+  );
 }
 
 String _formatTimestamp(DateTime value) {
