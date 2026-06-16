@@ -54,10 +54,12 @@ Repo-state basis for this milestone:
 
 ## Current Task Pointer
 
-- Current task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
-- Last completed task: `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
-- Current state: M11-003 hardened mobile current-session sign-out, account-wide sign-out, server-unreachable local-clear confirmation, expired-session routing, and refresh fail-closed behavior inside existing mobile seams. M11 remains in progress; M11-004 remains queued/current, M11 is not ready for UI retest, and manual UI retest/manual code review remain deferred until Day 1 acceptance.
-- Recommended next automated task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
+- Current task: `none`.
+- Last completed task: `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315`.
+- Current state: M11 is finalized as `Day 1 Mobile Account Session And Device Management Hardening` and is UI-test ready for deferred Day 1 acceptance review. M11-001 reconciled current account/session state, M11-002 hardened session/device list and per-session revoke behavior, M11-003 hardened current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session routing, and refresh fail-closed behavior, and M11-004 finalized QA/control state without runtime changes.
+- Manual UI retest status: `deferred_until_day1_acceptance`; not passed by M11.
+- Manual code review status: `deferred_until_day1_acceptance`; not passed by M11.
+- Recommended next automated task: run the user-requested post-M11 docs-only FX/currency/UX architecture task before the next normal implementation milestone, unless the controller reports a stricter blocker. This follow-up is not an M11 runtime task and does not authorize currency/FX docs edits inside M11.
 - Stop sentinel: `STOP-M11-001` stops API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
 ## M10 Carry-Forward Boundary

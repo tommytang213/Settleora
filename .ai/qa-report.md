@@ -1,6 +1,6 @@
 # AI QA Report
 
-Status: `M11 in progress; M11-001 and M11-002 completed; M11-003 current; manual UI/code review deferred until Day 1 acceptance`
+Status: `M11 finalized/UI-test ready; M11-001, M11-002, M11-003, and M11-004 completed; manual UI/code review deferred until Day 1 acceptance`
 
 ## M11 Kickoff Summary
 
@@ -19,13 +19,13 @@ M11 queue:
 
 - `M11-001-MOBILE-ACCOUNT-SESSION-STATE-RECONCILE-20260616-1315` - Completed. Reconciled current mobile account/session implementation and automated coverage without runtime behavior changes.
 - `M11-002-MOBILE-SESSION-LIST-REVOKE-HARDENING-20260616-1315` - Completed. Hardened session/device list and per-session revoke UI inside existing mobile seams.
-- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Current. Harden current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
-- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Queued. Finalize M11 QA/control state after bounded slices complete.
+- `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315` - Completed. Hardened current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session, and access-token refresh behavior inside existing mobile seams.
+- `M11-004-MOBILE-ACCOUNT-SESSION-QA-FINALIZE-20260616-1315` - Completed. Finalized M11 QA/control state after bounded slices completed.
 - `STOP-M11-001` - Stop. Manual gate for API/contracts/generated-client/auth/session/security runtime/schema/token/credential/password/OIDC/MFA/passkey/recovery/admin/audit-policy/storage/privacy/money/deployment/import/export/backup/web-admin/broad-sync/secrets/unrelated scope.
 
 M11 kickoff changed only `.ai` control files, the M11 QA map, and a narrow M11 scope-guard allowlist. It did not change runtime product behavior, backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration, token issuance, refresh rotation, revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
 
-Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M11 is not ready for UI retest. Recommended next automated task is `M11-003-MOBILE-SIGNOUT-REFRESH-SESSION-HARDENING-20260616-1315`.
+Manual UI retest and manual code review remain deferred until Day 1 acceptance and are not passed. M11 is UI-test ready for deferred Day 1 acceptance review. Recommended next automated action is the user-requested post-M11 docs-only FX/currency/UX architecture task before the next normal implementation milestone, unless the controller reports a stricter blocker.
 
 ## M11-001 Reconciliation Summary
 
@@ -99,8 +99,10 @@ Focused automated coverage:
 
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart` passed with 25 tests during implementation.
 - Added widget coverage for display-only/server-authority copy, current-session protection, destructive confirmation, duplicate revoke prevention, refresh-after-revoke behavior, refresh-failure preservation, retry recovery, and unsafe raw-value suppression.
+- Required focused validation passed with 77 tests.
+- Full mobile validation passed with 707 Flutter tests.
 
-M11 remains in progress. M11-003 is now current, M11-004 remains queued, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
+At M11-002 completion, M11-003 became current, M11-004 remained queued, `STOP-M11-001` remained preserved, M11 was not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remained deferred until Day 1 acceptance and were not passed.
 
 ## M11-003 Sign-Out/Refresh Session Hardening Summary
 
@@ -120,9 +122,32 @@ Focused automated coverage during implementation:
 - `cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/widget_test.dart test/auth_session_repository_test.dart test/secure_storage_test.dart test/server_mode_shell_dashboard_test.dart` passed with 82 tests.
 - `cd /workspace/repos/Settleora && PATH=/opt/flutter/bin:$PATH npm run validate:mobile` passed with 712 Flutter tests.
 
-M11 remains in progress. M11-004 is now current, `STOP-M11-001` remains preserved, M11 is not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remain deferred until Day 1 acceptance and are not passed.
+At M11-003 completion, M11-004 became current, `STOP-M11-001` remained preserved, M11 was not UI-test ready until M11-004 finalization, and manual UI retest/manual code review remained deferred until Day 1 acceptance and were not passed.
 
 M11-003 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration outside existing mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, deployment/CI, web/admin runtime, broad offline cache/sync, secrets, or unrelated major-domain behavior.
+
+## M11-004 QA Finalization Summary
+
+M11 is finalized as `Day 1 Mobile Account Session And Device Management Hardening` and marked UI-test ready for deferred Day 1 acceptance review.
+
+Completed M11 slices:
+
+- M11-001 reconciled current mobile auth/session repository models, secure session storage, access-token refresh boundaries, first-launch/sign-in/session UI surfaces, automated coverage, Day 1 account/session requirement mapping, and forbidden-scope stop conditions without runtime behavior changes.
+- M11-002 completed session/device list and per-session revoke hardening for safe server-returned metadata readout, current-session marker/protection, duplicate revoke prevention, bounded list/revoke failures, refresh-after-mutation behavior, preserved safe state after post-revoke reload failure, and raw ID/token/credential suppression.
+- M11-003 completed current-session sign-out, account-wide sign-out, server-unreachable local clear, expired-session routing, duplicate destructive-action prevention, and access-token refresh fail-closed hardening inside existing mobile seams.
+- M11-004 completed control/QA finalization and set M11 to UI-test ready with no remaining automated M11 work.
+
+Recorded M11 validation coverage:
+
+- M11-002 focused validation passed with 77 tests; full mobile validation passed with 707 Flutter tests.
+- M11-003 focused validation passed with 82 tests; full mobile validation passed with 712 Flutter tests.
+- M11-004 final full mobile validation passed with 712 Flutter tests.
+
+M11-004 updated only `.ai` control files and `docs/qa/M11_MOBILE_ACCOUNT_SESSION_QA_MAP.md`. Manual UI retest and manual code review remain `deferred_until_day1_acceptance`, not passed.
+
+M11 did not change backend/API behavior, OpenAPI/contracts, generated clients, auth/session/security runtime or configuration outside mobile presentation and secure-storage seams, token issuance, refresh rotation policy, server revocation semantics, password/credential/OIDC/MFA/passkey/recovery/registration/admin behavior, audit policy, schema/migrations, storage/privacy/file authorization, QR/proof/receipt byte behavior, money/bill/settlement/recurring/OCR authority, import/export/backup runtime, Docker/deployment/env/CI, secrets, web/admin runtime, broad offline cache/sync, Day 1 scope, or architecture direction.
+
+Follow-up: a separate user-requested post-M11 docs-only FX/currency/UX architecture task should run before the next normal implementation milestone, unless the controller reports a stricter blocker. That follow-up is not an M11 runtime task and M11-004 did not edit currency/FX docs.
 
 ## M10-003 Payment Visibility Readout Summary
 
