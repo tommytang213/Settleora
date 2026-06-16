@@ -4,9 +4,7 @@
 
 Do not report vulnerabilities through public GitHub issues.
 
-Report security concerns privately through:
-
-tommytang213@gmail.com
+Report security concerns through GitHub private vulnerability reporting for this repository.
 
 Do not include secrets, credentials, tokens, personal data, private URLs, or exploit payloads in public issues or pull requests.
 

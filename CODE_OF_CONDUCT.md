@@ -10,7 +10,7 @@
 
 - Harassment, abuse, discrimination, threats, spam, trolling, or bad-faith behavior.
 - Posting secrets, credentials, tokens, private URLs, or personal data.
-- Publicly posting vulnerability details instead of following SECURITY.md.
+- Publicly posting vulnerability details. Security reports must follow SECURITY.md and must not be posted publicly.
 
 ## Enforcement
 

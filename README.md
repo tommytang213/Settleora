@@ -141,6 +141,18 @@ Commercial use requires written permission from the copyright holder. Commercial
 
 This project is source-available/noncommercial, not open source under OSI-style open-source definitions.
 
+This public license does not restrict the copyright holder from operating official commercial services, offering paid hosting, collecting subscriptions, or granting separate commercial licenses.
+
+## Contributions
+
+External code contributions are not currently accepted.
+
+Bug reports, feature requests, security reports, and documentation suggestions are welcome.
+
+Ideas may be independently implemented by the maintainer in separate maintainer-authored changes.
+
+Security reports must use GitHub private vulnerability reporting. Do not report security issues through public issues or pull requests.
+
 ## No Warranty / Use at Your Own Risk
 
 This project is provided as-is.
