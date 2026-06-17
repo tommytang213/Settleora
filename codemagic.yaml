@@ -1,0 +1,112 @@
+workflows:
+  mobile-ios-validation:
+    name: Mobile iOS validation
+    working_directory: apps/mobile
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    triggering:
+      events:
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: false
+      cancel_previous_builds: true
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Show Flutter version
+        script: flutter --version
+      - name: Install Flutter dependencies
+        script: flutter pub get
+      - name: Analyze Flutter app
+        script: flutter analyze
+      - name: Run Flutter tests
+        script: flutter test
+
+  mobile-ios-testflight-internal:
+    name: Mobile iOS internal TestFlight skeleton
+    working_directory: apps/mobile
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      groups:
+        - settleora-ios-signing
+        - settleora-app-store-connect
+        - settleora-testflight-control
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: $IOS_BUNDLE_ID
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Require explicit internal TestFlight enablement
+        script: |
+          set -eu
+          if [ "${CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE:-}" != "true" ]; then
+            echo "Internal TestFlight upload is disabled."
+            echo "Set CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE=true in the Codemagic settleora-testflight-control group after Apple signing and App Store Connect setup are complete."
+            exit 1
+          fi
+      - name: Verify required Codemagic and Apple variables
+        script: |
+          set -eu
+          missing=""
+          for name in \
+            APP_STORE_CONNECT_PRIVATE_KEY \
+            APP_STORE_CONNECT_KEY_IDENTIFIER \
+            APP_STORE_CONNECT_ISSUER_ID \
+            IOS_CERTIFICATE \
+            IOS_CERTIFICATE_PASSWORD \
+            IOS_PROVISIONING_PROFILE \
+            IOS_BUNDLE_ID \
+            APP_STORE_APP_ID \
+            CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE
+          do
+            eval "value=\${$name:-}"
+            if [ -z "$value" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing required Codemagic variable(s):$missing"
+            echo "Configure the documented Codemagic variable groups before running this workflow for upload."
+            exit 1
+          fi
+      - name: Install Flutter dependencies
+        script: flutter pub get
+      - name: Analyze Flutter app
+        script: flutter analyze
+      - name: Run Flutter tests
+        script: flutter test
+      - name: Set up internal-only iOS code signing
+        script: |
+          set -eu
+          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+      - name: Build signed iOS IPA
+        script: |
+          set -eu
+          flutter build ipa --release \
+            --build-name="${FLUTTER_BUILD_NAME:-1.0.0}" \
+            --build-number="${BUILD_NUMBER:-1}"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: false
+        submit_to_app_store: false
