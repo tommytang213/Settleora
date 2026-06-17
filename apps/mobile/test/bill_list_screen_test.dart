@@ -3953,6 +3953,22 @@ void main() {
       find.byKey(const Key('personal-bill-receipt-image-source-cancel')),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('receipt-capture-guidance')), findsOneWidget);
+    expect(find.text('Take receipt photo'), findsOneWidget);
+    expect(find.text('Choose from photos'), findsOneWidget);
+    expect(find.text('Use manual entry'), findsOneWidget);
+    expect(find.text('Fit the whole receipt in frame.'), findsOneWidget);
+    expect(find.text('Use good lighting.'), findsOneWidget);
+    expect(find.text('Keep the receipt flat.'), findsOneWidget);
+    expect(find.text('Tap the camera shutter when ready.'), findsOneWidget);
+    expect(
+      find.text(
+        'Auto edge detection and auto-capture are not available in this build.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('provider'), findsNothing);
+    expect(find.textContaining('endpoint'), findsNothing);
     Navigator.of(
       tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
     ).pop();
@@ -4016,6 +4032,9 @@ void main() {
       find.byKey(const Key('personal-bill-receipt-image-source-gallery')),
       findsOneWidget,
     );
+    expect(find.text('Take receipt photo'), findsOneWidget);
+    expect(find.text('Choose from photos'), findsOneWidget);
+    expect(find.text('Use manual entry'), findsOneWidget);
     Navigator.of(
       tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
     ).pop(ReceiptImageSource.gallery);
@@ -4157,6 +4176,8 @@ void main() {
       find.byKey(const Key('personal-bill-receipt-image-source-camera')),
       findsOneWidget,
     );
+    expect(find.text('Take receipt photo'), findsOneWidget);
+    expect(find.text('Choose from photos'), findsOneWidget);
     Navigator.of(
       tester.element(find.byType(SettleoraPersonalBillCreateScreen)),
     ).pop(ReceiptImageSource.camera);
@@ -6698,7 +6719,7 @@ void main() {
     await useLargeSurface(tester);
     final receiptOcrProvider = FakeReceiptOcrProvider(
       const ReceiptOcrResult.unsupported(
-        'On-device receipt text extraction is not available on this device yet. You can still enter the bill manually.',
+        'Receipt reading is not available on this device yet. You can still enter the bill manually.',
       ),
     );
     await _pumpGroupBillCreate(
@@ -7162,6 +7183,15 @@ void main() {
 
     expect(
       find.byKey(const Key('group-bill-receipt-image-source-cancel')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('receipt-capture-guidance')), findsOneWidget);
+    expect(find.text('Take receipt photo'), findsOneWidget);
+    expect(find.text('Choose from photos'), findsOneWidget);
+    expect(find.text('Use manual entry'), findsOneWidget);
+    expect(find.text('Fit the whole receipt in frame.'), findsOneWidget);
+    expect(
+      find.text('Choose from photos if camera capture is inconvenient.'),
       findsOneWidget,
     );
     Navigator.of(

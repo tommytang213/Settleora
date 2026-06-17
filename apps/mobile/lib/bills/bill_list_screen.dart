@@ -1757,7 +1757,7 @@ class _SettleoraPersonalBillCreateScreenState
 
       setState(() {
         _receiptOcrResult = const ReceiptOcrResult.failed(
-          'Receipt text extraction failed. You can still enter the bill manually.',
+          'Receipt reading failed. You can still enter the bill manually.',
         );
         _receiptOcrCorrectedPreview = null;
         _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
@@ -2468,7 +2468,7 @@ class _CreateBillHeader extends StatelessWidget {
                           ? 'Receipt selected. It uploads after save; OCR review remains provisional.'
                           : canAddReceipt
                           ? 'Enter details manually, or add a receipt now for review-first OCR handoff after save.'
-                          : 'Manual entry is available. True OCR extraction is not part of this task.',
+                          : 'Manual entry is available. Receipt reading can be added after save.',
                       style: Theme.of(
                         context,
                       ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
@@ -3710,15 +3710,15 @@ String _receiptOcrSummaryText({
   required ReceiptOcrPreview? preview,
 }) {
   if (isExtracting) {
-    return 'Reading the selected receipt on device. Review and apply suggestions before saving.';
+    return 'Preparing receipt suggestions on this device. Manual entry stays available while this finishes.';
   }
 
   if (preview != null) {
-    return 'Suggestions are provisional. Review them here, apply them to editable fields, then edit anything that looks wrong before saving.';
+    return 'Suggested receipt details are drafts. Review them here, apply only the sections you want, then edit anything that looks wrong before saving.';
   }
 
   return result?.message ??
-      'Receipt OCR is unavailable right now. Manual entry remains available.';
+      'Receipt reading is unavailable right now. Manual entry remains available.';
 }
 
 List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
@@ -4073,43 +4073,129 @@ Future<ReceiptImageSource?> _selectReceiptImageSource(
   return showModalBottomSheet<ReceiptImageSource>(
     context: context,
     builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Scan receipt',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              key: Key('$keyPrefix-receipt-image-source-camera'),
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Take photo'),
-              subtitle: const Text('Use the camera for this receipt only.'),
-              onTap: () => Navigator.of(context).pop(ReceiptImageSource.camera),
-            ),
-            ListTile(
-              key: Key('$keyPrefix-receipt-image-source-gallery'),
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose photo'),
-              subtitle: const Text('Import an existing receipt image.'),
-              onTap: () =>
-                  Navigator.of(context).pop(ReceiptImageSource.gallery),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              key: Key('$keyPrefix-receipt-image-source-cancel'),
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Scan receipt',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              const _ReceiptCaptureGuidance(),
+              const SizedBox(height: 10),
+              ListTile(
+                key: Key('$keyPrefix-receipt-image-source-camera'),
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Take receipt photo'),
+                subtitle: const Text(
+                  'The camera opens next. Tap the shutter when the full receipt is in frame.',
+                ),
+                onTap: () =>
+                    Navigator.of(context).pop(ReceiptImageSource.camera),
+              ),
+              ListTile(
+                key: Key('$keyPrefix-receipt-image-source-gallery'),
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from photos'),
+                subtitle: const Text('Use an existing clear receipt image.'),
+                onTap: () =>
+                    Navigator.of(context).pop(ReceiptImageSource.gallery),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                key: Key('$keyPrefix-receipt-image-source-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Use manual entry'),
+              ),
+            ],
+          ),
         ),
       ),
     ),
   );
+}
+
+class _ReceiptCaptureGuidance extends StatelessWidget {
+  const _ReceiptCaptureGuidance();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final textTheme = Theme.of(context).textTheme;
+
+    return DecoratedBox(
+      key: const Key('receipt-capture-guidance'),
+      decoration: BoxDecoration(
+        color: colors.primarySoft,
+        borderRadius: BorderRadius.circular(SettleoraRadius.md),
+        border: Border.all(color: colors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.document_scanner_outlined, color: colors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Receipt photo tips',
+                    style: textTheme.titleSmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const _ReceiptCaptureGuidanceLine(
+              text: 'Fit the whole receipt in frame.',
+            ),
+            const _ReceiptCaptureGuidanceLine(text: 'Use good lighting.'),
+            const _ReceiptCaptureGuidanceLine(text: 'Keep the receipt flat.'),
+            const _ReceiptCaptureGuidanceLine(
+              text: 'Tap the camera shutter when ready.',
+            ),
+            const _ReceiptCaptureGuidanceLine(
+              text: 'Choose from photos if camera capture is inconvenient.',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Auto edge detection and auto-capture are not available in this build.',
+              key: const Key('receipt-capture-auto-detect-follow-up'),
+              style: textTheme.bodySmall?.copyWith(color: colors.textMuted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptCaptureGuidanceLine extends StatelessWidget {
+  const _ReceiptCaptureGuidanceLine({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.check_circle_outline, size: 16),
+          const SizedBox(width: 6),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
 }
 
 ReceiptIntakeSourceType _receiptIntakeSourceTypeForImageSource(
@@ -6165,7 +6251,7 @@ class _SettleoraGroupBillCreateScreenState
 
       setState(() {
         _receiptOcrResult = const ReceiptOcrResult.failed(
-          'Receipt text extraction failed. You can still enter the group bill manually.',
+          'Receipt reading failed. You can still enter the group bill manually.',
         );
         _receiptOcrCorrectedPreview = null;
         _receiptOcrApplySelection = const _ReceiptOcrApplySelection.none();
@@ -7811,7 +7897,7 @@ class _GroupBillCreateStartPanel extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             entryMode == _GroupBillCreateEntryMode.receipt
-                ? 'Receipt handoff is review-first and provisional. True OCR extraction is not part of this task.'
+                ? 'Receipt handoff is review-first and provisional. Manual entry stays available.'
                 : 'Start from clean fields, then add items, split rows, payers, and optional receipt attachments.',
             style: TextStyle(color: context.settleoraColors.textMuted),
           ),
