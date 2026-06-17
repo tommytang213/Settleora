@@ -36,7 +36,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
-    public async Task PersonalDraftBillSubmitByCreatorResetsDraftParticipantsToPendingAcceptanceAndWritesSafeAudit()
+    public async Task PersonalDraftBillSubmitByCreatorAcceptsSelfAndLeavesOtherParticipantsPending()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -75,16 +75,23 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         var bill = await ReadBillAsync(testFactory, billId);
         Assert.Equal(ExpenseBillStatuses.PendingConfirmation, bill.Status);
         Assert.Equal(WriteTimestamp, bill.UpdatedAtUtc);
-        Assert.All(
+        var creatorParticipant = Assert.Single(
             bill.Participants,
-            participantRow =>
-            {
-                Assert.Equal(ExpenseBillParticipantStatuses.PendingAcceptance, participantRow.Status);
-                Assert.Null(participantRow.AcceptedAtUtc);
-                Assert.Null(participantRow.RejectedAtUtc);
-                Assert.Null(participantRow.RejectionReasonCode);
-                Assert.Equal(WriteTimestamp, participantRow.UpdatedAtUtc);
-            });
+            participantRow => participantRow.UserProfileId == creatorSession.UserProfileId);
+        Assert.Equal(ExpenseBillParticipantStatuses.Accepted, creatorParticipant.Status);
+        Assert.Equal(WriteTimestamp, creatorParticipant.AcceptedAtUtc);
+        Assert.Null(creatorParticipant.RejectedAtUtc);
+        Assert.Null(creatorParticipant.RejectionReasonCode);
+        Assert.Equal(WriteTimestamp, creatorParticipant.UpdatedAtUtc);
+
+        var otherParticipant = Assert.Single(
+            bill.Participants,
+            participantRow => participantRow.UserProfileId == participant.UserProfileId);
+        Assert.Equal(ExpenseBillParticipantStatuses.PendingAcceptance, otherParticipant.Status);
+        Assert.Null(otherParticipant.AcceptedAtUtc);
+        Assert.Null(otherParticipant.RejectedAtUtc);
+        Assert.Null(otherParticipant.RejectionReasonCode);
+        Assert.Equal(WriteTimestamp, otherParticipant.UpdatedAtUtc);
 
         var auditEvent = Assert.Single(await ReadWorkflowAuditEventsAsync(testFactory));
         Assert.Equal(BillSubmittedAction, auditEvent.Action);
@@ -99,7 +106,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             newParticipantStatus: null,
             participantUserProfileId: null,
             participantCount: 2,
-            acceptedCount: 0,
+            acceptedCount: 1,
             rejectedCount: 0,
             rejectionReasonCode: null);
         AssertSafeWorkflowAuditContent(
@@ -119,6 +126,64 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         Assert.Equal(billId, notification.ExpenseBillId);
         Assert.Equal($"/api/v1/bills/{billId:D}", notification.ActionUrl);
         Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
+    }
+
+    [Fact]
+    public async Task PersonalSelfOnlyBillSubmitConfirmsWithoutSelfAcceptanceNotification()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal Self Creator");
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(creatorSession.UserProfileId)],
+            ExpenseBillStatuses.Draft,
+            "Personal Self Submit Merchant",
+            InitialTimestamp);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var submitRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            PersonalSubmitPath(billId),
+            creatorSession.RawSessionToken);
+
+        using var submitResponse = await client.SendAsync(submitRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, submitResponse.StatusCode);
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, bill.Status);
+        var participant = Assert.Single(bill.Participants);
+        Assert.Equal(creatorSession.UserProfileId, participant.UserProfileId);
+        Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status);
+        Assert.Equal(WriteTimestamp, participant.AcceptedAtUtc);
+        Assert.Null(participant.RejectedAtUtc);
+        Assert.Null(participant.RejectionReasonCode);
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
+
+        var auditEvent = Assert.Single(await ReadWorkflowAuditEventsAsync(testFactory));
+        AssertWorkflowAuditMetadata(
+            auditEvent,
+            billId,
+            groupId: null,
+            groupMode: "personal",
+            previousBillStatus: ExpenseBillStatuses.Draft,
+            newBillStatus: ExpenseBillStatuses.Confirmed,
+            previousParticipantStatus: null,
+            newParticipantStatus: null,
+            participantUserProfileId: null,
+            participantCount: 1,
+            acceptedCount: 1,
+            rejectedCount: 0,
+            rejectionReasonCode: null);
+
+        using var acceptRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            PersonalAcceptPath(billId, creatorSession.UserProfileId),
+            creatorSession.RawSessionToken);
+        using var acceptResponse = await client.SendAsync(acceptRequest);
+        await AssertBillWorkflowConflictProblemAsync(acceptResponse, creatorSession.RawSessionToken);
     }
 
     [Fact]
@@ -233,6 +298,134 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         await AssertBillUnavailableProblemAsync(nonCreatorPersonalResponse);
 
         Assert.Single(await ReadWorkflowAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task GroupBillSubmitByCreatorAcceptsCreatorAndLeavesOtherParticipantPendingUntilAcceptance()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Self Creator");
+        var memberSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Pending Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            "Group Self Acceptance",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(creatorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(memberSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId),
+                new ParticipantSeed(memberSession.UserProfileId)
+            ],
+            ExpenseBillStatuses.Draft,
+            "Group Self Submit Merchant",
+            InitialTimestamp);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var submitRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupSubmitPath(groupId, billId),
+            creatorSession.RawSessionToken);
+
+        using var submitResponse = await client.SendAsync(submitRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, submitResponse.StatusCode);
+        var submittedBill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(ExpenseBillStatuses.PendingConfirmation, submittedBill.Status);
+        Assert.Contains(
+            submittedBill.Participants,
+            participant => participant.UserProfileId == creatorSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.Accepted
+                && participant.AcceptedAtUtc == WriteTimestamp);
+        Assert.Contains(
+            submittedBill.Participants,
+            participant => participant.UserProfileId == memberSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
+                && participant.AcceptedAtUtc == null);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(memberSession.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.BillSubmitted, notification.EventType);
+
+        var submitAudit = Assert.Single(await ReadWorkflowAuditEventsAsync(testFactory));
+        AssertWorkflowAuditMetadata(
+            submitAudit,
+            billId,
+            groupId,
+            groupMode: "group",
+            previousBillStatus: ExpenseBillStatuses.Draft,
+            newBillStatus: ExpenseBillStatuses.PendingConfirmation,
+            previousParticipantStatus: null,
+            newParticipantStatus: null,
+            participantUserProfileId: null,
+            participantCount: 2,
+            acceptedCount: 1,
+            rejectedCount: 0,
+            rejectionReasonCode: null);
+
+        using var acceptRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupAcceptPath(groupId, billId, memberSession.UserProfileId),
+            memberSession.RawSessionToken);
+        using var acceptResponse = await client.SendAsync(acceptRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, acceptResponse.StatusCode);
+        var confirmedBill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, confirmedBill.Status);
+    }
+
+    [Fact]
+    public async Task GroupBillSubmitByCreatorWithoutParticipantRowDoesNotInventAcceptedCreatorParticipant()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Non Participant Creator");
+        var memberSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Only Participant");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            "Group Creator Not Participant",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(creatorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(memberSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            groupId,
+            [new ParticipantSeed(memberSession.UserProfileId)],
+            ExpenseBillStatuses.Draft,
+            "Group Creator Not Participant Merchant",
+            InitialTimestamp);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var submitRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupSubmitPath(groupId, billId),
+            creatorSession.RawSessionToken);
+
+        using var submitResponse = await client.SendAsync(submitRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, submitResponse.StatusCode);
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(ExpenseBillStatuses.PendingConfirmation, bill.Status);
+        var participant = Assert.Single(bill.Participants);
+        Assert.Equal(memberSession.UserProfileId, participant.UserProfileId);
+        Assert.Equal(ExpenseBillParticipantStatuses.PendingAcceptance, participant.Status);
+        Assert.DoesNotContain(
+            bill.Participants,
+            candidate => candidate.UserProfileId == creatorSession.UserProfileId);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(memberSession.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
     }
 
     [Fact]
