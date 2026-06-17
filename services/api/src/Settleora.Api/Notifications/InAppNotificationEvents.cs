@@ -33,6 +33,33 @@ internal static class InAppNotificationEvents
         }
     }
 
+    public static async Task WriteBillPendingParticipantNotificationsAsync(
+        IInAppNotificationWriter notificationWriter,
+        ExpenseBill bill,
+        Guid actorUserProfileId,
+        string eventType,
+        string priority,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        foreach (var recipientId in bill.Participants
+            .Where(participant => participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance)
+            .Select(participant => participant.UserProfileId)
+            .Distinct()
+            .Order())
+        {
+            await WriteBillNotificationAsync(
+                notificationWriter,
+                bill,
+                recipientId,
+                actorUserProfileId,
+                eventType,
+                priority,
+                now,
+                cancellationToken);
+        }
+    }
+
     public static Task WriteBillCreatorNotificationAsync(
         IInAppNotificationWriter notificationWriter,
         ExpenseBill bill,

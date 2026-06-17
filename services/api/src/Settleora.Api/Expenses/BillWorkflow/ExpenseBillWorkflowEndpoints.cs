@@ -384,17 +384,29 @@ internal static class ExpenseBillWorkflowEndpoints
 
         var now = timeProvider.GetUtcNow();
         var previousBillStatus = bill.Status;
-        bill.Status = ExpenseBillStatuses.PendingConfirmation;
-        bill.UpdatedAtUtc = now;
 
         foreach (var participant in bill.Participants)
         {
-            participant.Status = ExpenseBillParticipantStatuses.PendingAcceptance;
-            participant.AcceptedAtUtc = null;
+            if (participant.UserProfileId == actor.UserProfileId)
+            {
+                participant.Status = ExpenseBillParticipantStatuses.Accepted;
+                participant.AcceptedAtUtc = now;
+            }
+            else
+            {
+                participant.Status = ExpenseBillParticipantStatuses.PendingAcceptance;
+                participant.AcceptedAtUtc = null;
+            }
+
             participant.RejectedAtUtc = null;
             participant.RejectionReasonCode = null;
             participant.UpdatedAtUtc = now;
         }
+
+        bill.Status = bill.Participants.All(participant => participant.Status == ExpenseBillParticipantStatuses.Accepted)
+            ? ExpenseBillStatuses.Confirmed
+            : ExpenseBillStatuses.PendingConfirmation;
+        bill.UpdatedAtUtc = now;
 
         var counts = CountParticipants(bill);
         await auditWriter.WriteAsync(
@@ -418,7 +430,7 @@ internal static class ExpenseBillWorkflowEndpoints
                 RejectionReasonCode: null,
                 now),
             cancellationToken);
-        await InAppNotificationEvents.WriteBillParticipantNotificationsAsync(
+        await InAppNotificationEvents.WriteBillPendingParticipantNotificationsAsync(
             notificationWriter,
             bill,
             actor.UserProfileId,
