@@ -96,10 +96,18 @@ workflows:
             --build-name="$FLUTTER_BUILD_NAME" \
             --build-number="$BUILD_NUMBER"
 
+      - name: List signed iOS IPA artifacts
+        script: |
+          echo "CM_BUILD_DIR=$CM_BUILD_DIR"
+          echo "PWD=$(pwd)"
+          find "$CM_BUILD_DIR" -path "*/build/ios/ipa/*.ipa" -print
+          find "$CM_BUILD_DIR" -path "*/build/ios/archive/*.xcarchive" -print
+
     artifacts:
-      - build/ios/ipa/*.ipa
+      - $CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa
+      - $CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
+      - $CM_BUILD_DIR/apps/mobile/flutter_drive.log
 
     publishing:
       app_store_connect:
