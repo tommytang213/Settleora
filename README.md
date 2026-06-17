@@ -48,6 +48,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [OpenAPI contract](packages/contracts/openapi/settleora.v1.yaml)
 - [Local infrastructure compose](infra/docker-compose.yml)
 - [TrueNAS LAN Docker compose package](infra/docker-compose.truenas-lan.yml)
+- [TrueNAS LAN image-based compose template](infra/docker-compose.truenas-lan.image.yml)
 
 ## Current Scaffold
 
@@ -74,7 +75,7 @@ docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up 
 
 The health endpoint is available at `http://localhost:8080/health` by default. PostgreSQL, RabbitMQ, and storage readiness is available at `http://localhost:8080/health/ready` when the API is run with configured dependency settings. The self payment QR flow goes through the internal storage abstraction, and future public file flows must also avoid exposing physical storage paths or provider object keys.
 
-For trusted LAN-only TrueNAS testing with an iPhone TestFlight server-mode build, use [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md). That path publishes only the API port by default and keeps PostgreSQL, RabbitMQ, and API local storage private to the host/app network.
+For trusted LAN-only TrueNAS testing with an iPhone TestFlight server-mode build, use [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md). That path publishes only the API port by default, keeps PostgreSQL, RabbitMQ, and API local storage private to the host/app network, and runs a first-class `migrate` service before API startup. The migration service defaults to `managed-auto`, which applies pending migrations only when the API migration safety policy classifies them as safe; professional hosters can use `check-only`, `manual`, `validate-only`, `apply-safe`, or the explicit dangerous `force-allow-destructive` mode documented in the runbook.
 
 ## Scaffold Validation
 
@@ -127,6 +128,8 @@ npm run validate:clients
 npm run validate:api
 npm run validate:api-local
 npm run validate:compose
+npm run validate:compose:truenas-lan
+npm run validate:compose:truenas-lan-image
 npm run validate:api-docker
 npm run validate:api-docker-local
 npm run validate:mobile

@@ -24,6 +24,7 @@ using Settleora.Api.Expenses.RecurringBills;
 using Settleora.Api.Health;
 using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
+using Settleora.Api.Persistence.MigrationRunner;
 using Settleora.Api.Reports.MonthlyReports;
 using Settleora.Api.Settlements;
 using Settleora.Api.Storage;
@@ -35,6 +36,7 @@ using Settleora.Api.Users.SelfProfile;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSettleoraPersistence(builder.Configuration);
+builder.Services.AddDatabaseMigrationRunner();
 builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
 builder.Services.AddAdminLocalUsers();
@@ -71,6 +73,27 @@ builder.Services.AddFileObjectStorage();
 builder.Services.AddSingleton<IDatabaseReadinessCheck, NpgsqlDatabaseReadinessCheck>();
 builder.Services.AddSingleton<IRabbitMqReadinessCheck, RabbitMqReadinessCheck>();
 builder.Services.AddSingleton<IStorageReadinessCheck, LocalStorageReadinessCheck>();
+
+var migrationCommand = DatabaseMigrationCommandLine.TryParse(args, builder.Configuration);
+if (migrationCommand is not null)
+{
+    await using var migrationApp = builder.Build();
+    await using var scope = migrationApp.Services.CreateAsyncScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        var runner = scope.ServiceProvider.GetRequiredService<DatabaseMigrationRunner>();
+        return await runner.RunAsync(migrationCommand, CancellationToken.None);
+    }
+    catch (Exception exception)
+    {
+        logger.LogError(
+            exception,
+            "Settleora database migration command failed.");
+        return DatabaseMigrationExitCode.Failure;
+    }
+}
 
 var app = builder.Build();
 
@@ -121,5 +144,7 @@ app.MapSessionRevocationEndpoints();
 app.MapAdminUserEndpoints();
 
 app.Run();
+
+return DatabaseMigrationExitCode.Success;
 
 public partial class Program { }

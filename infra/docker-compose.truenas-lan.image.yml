@@ -1,8 +1,6 @@
 services:
   migrate:
-    build:
-      context: ..
-      dockerfile: services/api/Dockerfile
+    image: ${SETTLEORA_API_IMAGE:-ghcr.io/tommytang213/settleora-api:main}
     command: ["migrate-database", "--mode=${SETTLEORA_DATABASE_MIGRATION_MODE:-managed-auto}"]
     environment:
       ASPNETCORE_ENVIRONMENT: ${SETTLEORA_ENVIRONMENT:-Development}
@@ -14,9 +12,7 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: ..
-      dockerfile: services/api/Dockerfile
+    image: ${SETTLEORA_API_IMAGE:-ghcr.io/tommytang213/settleora-api:main}
     environment:
       ASPNETCORE_ENVIRONMENT: ${SETTLEORA_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080

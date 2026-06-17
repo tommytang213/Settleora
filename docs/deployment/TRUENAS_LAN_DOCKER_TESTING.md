@@ -13,6 +13,7 @@ The live repo currently provides:
 - API image build: `services/api/Dockerfile`
 - Compose stack: `infra/docker-compose.yml`
 - LAN-only TrueNAS testing compose package: `infra/docker-compose.truenas-lan.yml`
+- Image-based LAN package template: `infra/docker-compose.truenas-lan.image.yml`
 - Example env file: `infra/env/.env.example`
 - LAN-only example env file: `infra/env/.env.truenas-lan.example`
 - API health: `GET /health`
@@ -25,6 +26,7 @@ The compose stack defines these services:
 
 | Service | Current repo source | Purpose | LAN exposure guidance |
 | --- | --- | --- | --- |
+| `migrate` | Same API image/build as `api` | Runs the first-class EF Core migration command before API startup. | Private one-shot service; publishes no host ports. |
 | `api` | Built from `services/api/Dockerfile` | ASP.NET Core API on container port `8080`. | The LAN compose package publishes only this API port. Expose only to trusted LAN clients for testing. |
 | `postgres` | `postgres:16-alpine` | API-owned relational database. | The LAN compose package does not publish PostgreSQL by default. Never expose it to the internet. |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | Queue foundation for async jobs and future workers. | The LAN compose package does not publish AMQP or the management UI by default. Never expose either to the internet. |
@@ -40,7 +42,9 @@ Use `infra/docker-compose.truenas-lan.yml` for maintainer LAN testing. It is a c
 The LAN compose package:
 
 - Builds the API from `services/api/Dockerfile`.
-- Runs the current real services only: `api`, `postgres`, and `rabbitmq`.
+- Runs the current real services: `migrate`, `api`, `postgres`, and `rabbitmq`.
+- Runs `migrate-database --mode=${SETTLEORA_DATABASE_MIGRATION_MODE:-managed-auto}` as a first-class one-shot migration service.
+- Starts the API only after the migration service exits successfully when Docker Compose supports `depends_on.condition: service_completed_successfully`.
 - Publishes only the API host port through `SETTLEORA_API_BIND_ADDRESS` and `SETTLEORA_API_HTTP_PORT`.
 - Keeps PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, and RabbitMQ management port `15672` private to the compose network.
 - Sets `Settleora__Storage__Provider=Local`.
@@ -90,6 +94,7 @@ Required LAN-test settings:
 | `SETTLEORA_API_BIND_ADDRESS` | Host bind address for the API port. | Use the TrueNAS LAN IP if you want to bind narrowly; `0.0.0.0` binds all host interfaces. |
 | `SETTLEORA_API_HTTP_PORT` | API host port. | Default is `8080`; choose an unused LAN port. |
 | `SETTLEORA_API_BASE_URL` | Maintainer reference URL for clients. | The current API does not consume this variable; use the equivalent URL in the iPhone app. |
+| `SETTLEORA_DATABASE_MIGRATION_MODE` | Migration service mode. | Default `managed-auto`; use `check-only`/`manual` for pro hoster control, `validate-only` for connectivity/metadata checks, `apply-safe` for explicit safe application, and `force-allow-destructive` only after backup and review. |
 
 The compose file also sets service-internal connection strings:
 
@@ -134,7 +139,7 @@ Start the LAN stack:
 
 ```bash
 cd /workspace/repos/Settleora
-docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan up --build -d postgres rabbitmq api
+docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan up --build -d
 ```
 
 Expected default API URL on the Docker host:
@@ -158,6 +163,13 @@ cd /workspace/repos/Settleora
 docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan ps
 ```
 
+For an image-based package path, use the same env file with `infra/docker-compose.truenas-lan.image.yml` and set `SETTLEORA_API_IMAGE` if the published image tag differs from the default GHCR example:
+
+```bash
+cd /workspace/repos/Settleora
+docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.image.yml -p settleora_lan up -d
+```
+
 Stop the stack without deleting datasets:
 
 ```bash
@@ -167,11 +179,44 @@ docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.tru
 
 Do not use `down -v` for maintainer data. The LAN package uses bind-mounted datasets, and dataset backup/removal must be an explicit TrueNAS maintenance action.
 
-## Database Migration Note
+## Database Migrations
 
-The API startup does not apply EF Core migrations automatically. Before treating a LAN deployment as usable, the database schema must be created/applied through an explicit migration process.
+Production API startup does not silently apply EF Core migrations. The TrueNAS LAN package now includes a separate first-class `migrate` service that uses the same API image/build output and exits before the API starts.
 
-The current repo has a validation command that proves the migrations can apply to a disposable PostgreSQL database:
+The API-hosted command is:
+
+```bash
+dotnet Settleora.Api.dll migrate-database --mode=managed-auto
+```
+
+Supported modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `managed-auto` | Default easy-install mode. Applies pending migrations only when the migration safety policy classifies them as safe. Blocks unsafe/destructive operations. |
+| `apply-safe` | Explicit safe apply mode with the same destructive-operation guard as `managed-auto`. |
+| `manual` | Professional hoster mode. Checks pending migrations and exits non-zero if the schema is not current; does not apply. |
+| `check-only` | Alias-style check mode for manual operators; does not apply and exits non-zero with pending migrations. |
+| `validate-only` | Checks PostgreSQL connectivity and EF migration metadata; does not fail merely because migrations are pending. |
+| `force-allow-destructive` | Dangerous override. Applies pending migrations without the managed safety block and must only be used after operator review and backup. |
+
+The safety policy blocks known destructive operations such as dropping tables/columns, EF operations marked destructive, and raw SQL containing destructive/unclassified tokens. The current policy is conservative lexical/runtime classification, not a replacement for human migration review. If managed mode blocks a migration, startup stops with actionable logs instead of silently changing or damaging data.
+
+To check status without applying:
+
+```bash
+cd /workspace/repos/Settleora
+docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan run --rm migrate migrate-database --mode=check-only
+```
+
+To apply safe migrations explicitly:
+
+```bash
+cd /workspace/repos/Settleora
+docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan run --rm migrate migrate-database --mode=apply-safe
+```
+
+The existing validation command still proves migrations can apply to a disposable PostgreSQL database:
 
 ```bash
 cd /workspace/repos/Settleora
@@ -180,25 +225,7 @@ npm run validate:api-migrations
 
 That validation command is not a production migration runbook and deliberately creates/removes its own disposable validation database. It does not migrate the maintainer's TrueNAS dataset.
 
-For the current LAN package, the safest manual workaround is to apply EF Core migrations from a temporary .NET SDK container attached to the same private compose network before owner bootstrap. This keeps PostgreSQL private and uses the repo-local `.config/dotnet-tools.json` manifest for `dotnet-ef`.
-
-```bash
-cd /workspace/repos/Settleora
-set -a
-. infra/env/.env.truenas-lan
-set +a
-docker run --rm \
-  --network settleora_lan_default \
-  -v "$PWD:/src" \
-  -w /src \
-  -e Settleora__Database__ConnectionString="Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}" \
-  mcr.microsoft.com/dotnet/sdk:9.0 \
-  sh -lc "dotnet tool restore && dotnet ef database update --project services/api/src/Settleora.Api --startup-project services/api/src/Settleora.Api --context SettleoraDbContext"
-```
-
-Important current blocker: the LAN package still does not include a first-class migration runner service, install hook, upgrade hook, rollback flow, or backup-before-migrate enforcement. If the SDK-container command fails because Docker image pulls, network access, filesystem permissions, or .NET tooling are unavailable on the TrueNAS host, stop and record that exact failure. Do not expose PostgreSQL just to run migrations unless the maintainer explicitly accepts that temporary local risk and keeps the port off the public internet.
-
-A polished TrueNAS app follow-up must define install/upgrade migration behavior, backup prerequisites, rollback handling, and maintainer-visible failure states.
+Compose/TrueNAS compatibility note: this package uses Docker Compose `depends_on.condition: service_completed_successfully` so the API waits for the one-shot migrator. If a TrueNAS app engine does not honor that condition, keep the `migrate` service and configure the platform's equivalent install/upgrade job or start-order gate; do not remove the migration runner or publish PostgreSQL just to manage schema.
 
 ## Health And Bootstrap Checks
 
