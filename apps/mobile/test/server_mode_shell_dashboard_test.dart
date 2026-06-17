@@ -83,12 +83,12 @@ void main() {
     expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.textContaining('Monthly report opens server-returned aggregates'),
+      find.textContaining('Monthly report opens the saved summary'),
       220,
       scrollable: find.byType(Scrollable).first,
     );
     expect(
-      find.textContaining('Monthly report opens server-returned aggregates'),
+      find.textContaining('Monthly report opens the saved summary'),
       findsOneWidget,
     );
     expect(
@@ -242,7 +242,7 @@ void main() {
     expect(find.text('Authority'), findsOneWidget);
     expect(
       find.textContaining(
-        'Theme and color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy',
+        'Appearance choices will never change access, money, settlement, privacy, or security rules.',
       ),
       findsOneWidget,
     );

@@ -39,14 +39,19 @@ class AppButton extends StatelessWidget {
         ? BorderSide(color: colors.borderStrong)
         : BorderSide.none;
     final child = icon == null
-        ? Text(label)
+        ? FittedBox(fit: BoxFit.scaleDown, child: Text(label))
         : Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 18),
               const SizedBox(width: 8),
-              Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(label, maxLines: 1),
+                ),
+              ),
             ],
           );
     final button = FilledButton(
@@ -179,7 +184,7 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
                     Text('Visual preferences', style: textTheme.titleSmall),
                     const SizedBox(height: SettleoraSpacing.xxs),
                     Text(
-                      'Current mobile uses built-in theme tokens only. Visual preferences are presentation-only readouts in this slice.',
+                      'Custom appearance settings are not available in the mobile app yet.',
                       style: TextStyle(color: colors.textMuted),
                     ),
                   ],
@@ -190,28 +195,26 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
           const SizedBox(height: SettleoraSpacing.sm),
           const _VisualPreferenceLine(
             label: 'Appearance mode',
-            value:
-                'System, light, and dark appearance concepts are future explicit work; no server-mode visual preference persistence exists in this slice, and no visual preference API or schema path exists here.',
+            value: 'The app currently follows the built-in mobile appearance.',
           ),
           const _VisualPreferenceLine(
             label: 'Accent and palettes',
-            value:
-                'Accent color and built-in palette vs custom palette choices are not configurable. Custom palette creation, sharing, import, export, restore, and migration controls are not present.',
+            value: 'Accent color and palette choices cannot be customized yet.',
           ),
           const _VisualPreferenceLine(
             label: 'Subject colors',
             value:
-                'Category, tag, group, dashboard, chart, and configurable status color concepts remain built-in presentation labels only.',
+                'Category, tag, group, dashboard, chart, and status colors use the built-in Settleora style.',
           ),
           const _VisualPreferenceLine(
             label: 'Personalization',
             value:
-                'Dashboard layout and palette personalization readiness is read-only; no local-to-server visual preference migration exists in this slice, and no admin/deployment default palette policy exists in this slice.',
+                'Dashboard layout and color personalization are not configurable yet.',
           ),
           const _VisualPreferenceLine(
             label: 'Authority',
             value:
-                'Theme and color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy.',
+                'Appearance choices will never change access, money, settlement, privacy, or security rules.',
           ),
         ],
       ),

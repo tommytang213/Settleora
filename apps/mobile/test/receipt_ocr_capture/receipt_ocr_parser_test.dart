@@ -68,7 +68,7 @@ Card 25.50
     ]);
   });
 
-  test('parser warns when currency is inferred from symbol only', () {
+  test('parser leaves symbol-only currency blank for review', () {
     const parser = ReceiptOcrParser();
 
     final preview = parser.parse(r'''
@@ -78,11 +78,11 @@ Latte $5.50
 Total $5.50
 ''');
 
-    expect(preview.currency, 'USD');
+    expect(preview.currency, isNull);
     expect(
       preview.warnings,
       contains(
-        'Currency was inferred from a symbol. Confirm the currency before applying.',
+        'The receipt only shows a currency symbol. Choose the currency before applying.',
       ),
     );
   });

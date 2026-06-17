@@ -155,7 +155,7 @@ class ReceiptImageNormalizationPolicy {
         decision = ReceiptImageHandlingDecision.unsupported;
         reasonCodes.add('heic_not_supported_by_current_mobile_seam');
         messages.add(
-          'HEIC may be a future input candidate, but the current receipt upload/OCR seam does not support it.',
+          'HEIC receipt images are not supported yet. Use JPG, PNG, WEBP, or PDF.',
         );
       case _ReceiptFileType.unknown:
         decision = ReceiptImageHandlingDecision.unsupported;

@@ -1165,7 +1165,7 @@ void main() {
       expect(find.byTooltip('Save receipt review'), findsOneWidget);
       expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
       expect(
-        find.bySemanticsLabel(RegExp('Currency candidate, three-letter code')),
+        find.bySemanticsLabel(RegExp('Currency candidate selector')),
         findsOneWidget,
       );
       expect(
@@ -1332,7 +1332,7 @@ void main() {
       expect(find.text('Apply reviewed lines?'), findsOneWidget);
       expect(
         find.text(
-          'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
+          'OCR data is provisional. Review the saved details before applying them to a draft bill.',
         ),
         findsOneWidget,
       );
@@ -1511,7 +1511,7 @@ void main() {
       expect(find.text('Apply reviewed lines?'), findsOneWidget);
       expect(
         find.text(
-          'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
+          'OCR data is provisional. Review the saved details before applying them to a draft bill.',
         ),
         findsOneWidget,
       );
@@ -1610,10 +1610,6 @@ void main() {
         editableTextForKey(const Key('receipt-review-edit-merchant')),
         'Updated Merchant',
       );
-      await tester.enterText(
-        editableTextForKey(const Key('receipt-review-edit-currency')),
-        'usd',
-      );
       await tester.ensureVisible(
         find.byKey(const Key('receipt-review-edit-save')),
       );
@@ -1692,9 +1688,10 @@ void main() {
       await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-        editableTextForKey(const Key('receipt-review-edit-currency')),
-        '',
+      await selectDropdownValue(
+        tester,
+        'USD - US Dollar',
+        'No currency preference',
       );
       await tester.enterText(
         editableTextForKey(const Key('receipt-review-edit-subtotal')),
@@ -2087,6 +2084,17 @@ Finder editableTextForKey(Key key) {
 
 String editableTextValue(WidgetTester tester, Key key) {
   return tester.widget<EditableText>(editableTextForKey(key)).controller.text;
+}
+
+Future<void> selectDropdownValue(
+  WidgetTester tester,
+  String currentLabel,
+  String nextLabel,
+) async {
+  await tester.tap(find.text(currentLabel).first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(nextLabel).last);
+  await tester.pumpAndSettle();
 }
 
 Future<void> useLargeSurface(WidgetTester tester) async {

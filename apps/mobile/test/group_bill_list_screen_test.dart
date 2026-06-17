@@ -1096,7 +1096,7 @@ void main() {
     expect(find.text('Correction requested'), findsOneWidget);
     expect(
       find.text(
-        'Reason: Wrong split. The creator can revise and resubmit the shared bill when server workflow allows it.',
+        'Reason: Wrong split. The creator can revise and resubmit the shared bill when revisions are available.',
       ),
       findsOneWidget,
     );
@@ -1189,7 +1189,7 @@ void main() {
       );
       expect(
         find.text(
-          'Accept or request a correction through the server workflow. Mobile does not decide authorization or final bill state.',
+          'Accept or request a correction when the bill details have been checked.',
         ),
         findsOneWidget,
       );
@@ -2272,9 +2272,10 @@ void main() {
         find.byKey(const Key('group-bill-payer-amount-0')),
         ' 12.00 ',
       );
-      await tester.enterText(
-        find.byKey(const Key('group-bill-payer-method-0')),
-        ' Cash ',
+      await _chooseDropdownValue(
+        tester,
+        const Key('group-bill-payer-method-0'),
+        'Cash',
       );
       await _addGroupDraftAttachment(
         tester,
@@ -3340,9 +3341,10 @@ void main() {
       const Key('group-bill-payer-currency-0'),
       'HKD',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-method-0')),
-      ' Cash ',
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-method-0'),
+      'Cash',
     );
     await _tapSaveGroupBill(tester);
 
@@ -3364,7 +3366,7 @@ void main() {
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
     expect(draft?.payers.single.currency, 'HKD');
-    expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
+    expect(draft?.payers.single.paymentMethodLabelSnapshot, 'Cash');
   });
 
   testWidgets('group bill item derives unit and line total as currency units', (
@@ -4216,9 +4218,10 @@ void main() {
       const Key('group-bill-payer-currency-0'),
       'HKD',
     );
-    await tester.enterText(
-      find.byKey(const Key('group-bill-payer-method-0')),
-      ' Cash ',
+    await _chooseDropdownValue(
+      tester,
+      const Key('group-bill-payer-method-0'),
+      'Cash',
     );
     await _addGroupDraftAttachment(
       tester,
@@ -4262,7 +4265,7 @@ void main() {
     expect(draft?.payers.single.userProfileId, _otherProfileId);
     expect(draft?.payers.single.amount, ' 12.00 ');
     expect(draft?.payers.single.currency, 'HKD');
-    expect(draft?.payers.single.paymentMethodLabelSnapshot, ' Cash ');
+    expect(draft?.payers.single.paymentMethodLabelSnapshot, 'Cash');
     expect(attachmentRepository.attachCalls, 1);
     expect(attachmentRepository.removeCalls, 0);
     expect(attachmentRepository.uploads.single.filename, 'duplicate-name.png');
@@ -5189,9 +5192,10 @@ Future<void> _addSingleGroupPayer(
     const Key('group-bill-payer-currency-0'),
     'HKD',
   );
-  await tester.enterText(
-    find.byKey(const Key('group-bill-payer-method-0')),
-    ' Cash ',
+  await _chooseDropdownValue(
+    tester,
+    const Key('group-bill-payer-method-0'),
+    'Cash',
   );
 }
 
@@ -5213,9 +5217,20 @@ Future<void> _chooseDropdownValue(
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).hitTestable().last);
+  await tester.tap(find.text(_dropdownDisplayLabel(label)).hitTestable().last);
   await tester.pumpAndSettle();
 }
+
+String _dropdownDisplayLabel(String label) => switch (label) {
+  'HKD' => 'HKD - Hong Kong Dollar',
+  'USD' => 'USD - US Dollar',
+  'EUR' => 'EUR - Euro',
+  'GBP' => 'GBP - British Pound',
+  'JPY' => 'JPY - Japanese Yen',
+  'KWD' => 'KWD - Kuwaiti Dinar',
+  'BHD' => 'BHD - Bahraini Dinar',
+  _ => label,
+};
 
 Future<void> _addGroupDraftAttachment(
   WidgetTester tester,

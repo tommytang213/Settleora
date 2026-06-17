@@ -72,7 +72,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('Subject routes such as group bills'),
+      find.textContaining('Group bills, settlements, recurring bills'),
       findsOneWidget,
     );
     expect(

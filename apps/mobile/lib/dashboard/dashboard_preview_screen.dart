@@ -728,7 +728,7 @@ class _DashboardReadinessNotice extends StatelessWidget {
         ),
         SizedBox(height: 8),
         Text(
-          'Subject routes such as group bills, settlements, recurring, reports, notifications, and receipt review must reload through their own repository/API seams before mutation.',
+          'Group bills, settlements, recurring bills, reports, notifications, and receipt review refresh their details before actions are submitted.',
         ),
         SizedBox(height: 8),
         Text(

@@ -461,7 +461,7 @@ void main() {
     expect(find.text('Mark settlement paid?'), findsOneWidget);
     expect(
       find.text(
-        'Mark paid only after sending payment. Mobile asks the API to record the claim; the server verifies authorization, settlement state, residual handling, audit, and money.',
+        'Mark paid only after sending payment. Access, settlement state, residual handling, audit, and money are checked before the claim is saved.',
       ),
       findsOneWidget,
     );
@@ -638,7 +638,7 @@ void main() {
     expect(find.text('2 pending payments'), findsOneWidget);
     expect(find.text('1 confirmed payments'), findsOneWidget);
     expect(
-      find.textContaining('without recalculating selected lines'),
+      find.textContaining('Refresh before acting if anything looks stale'),
       findsOneWidget,
     );
   });
@@ -746,7 +746,7 @@ void main() {
       expect(find.text('Actual paid'), findsOneWidget);
       expect(find.text('Allocation 1'), findsOneWidget);
       expect(
-        find.textContaining('server-returned clearing facts'),
+        find.textContaining('clearing details for the loaded selected lines'),
         findsOneWidget,
       );
       expect(find.text('Underpayment / Remaining Balance'), findsOneWidget);
@@ -822,7 +822,9 @@ void main() {
 
     expect(find.text('Settlement-scoped visibility'), findsOneWidget);
     expect(
-      find.textContaining('API authorizes the relationship and visibility'),
+      find.textContaining(
+        'Only people involved in an eligible settlement can see these payment details',
+      ),
       findsOneWidget,
     );
     expect(find.text('Relationship-backed'), findsOneWidget);
@@ -946,7 +948,7 @@ void main() {
     expect(find.text('Confirm receipt?'), findsOneWidget);
     expect(
       find.text(
-        'Confirm only if you received this payment. Mobile asks the API to confirm receipt; the server decides authorization, settlement state, payment truth, residual blocking, audit, and money.',
+        'Confirm only if you received this payment. Access, settlement state, residual handling, and audit details are checked before the confirmation is saved.',
       ),
       findsOneWidget,
     );
@@ -1023,7 +1025,7 @@ void main() {
     expect(find.text('Dispute payment?'), findsOneWidget);
     expect(
       find.text(
-        'This asks the API to dispute the marked-paid claim for correction. Mobile does not decide payment truth, authorization, audit state, or money, and this seam does not support sending a reason yet.',
+        'This marks the payment claim as disputed so it can be corrected. A reason cannot be added from mobile yet.',
       ),
       findsOneWidget,
     );
@@ -1092,7 +1094,7 @@ void main() {
     expect(find.text('Dispute settlement?'), findsOneWidget);
     expect(
       find.text(
-        'This asks the API to dispute the settlement for correction. Mobile does not decide authorization, payment truth, audit state, or money, and this seam does not support sending a reason yet.',
+        'This marks the settlement as disputed so it can be corrected. A reason cannot be added from mobile yet.',
       ),
       findsOneWidget,
     );
@@ -1126,7 +1128,7 @@ void main() {
 
     expect(
       find.text(
-        'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+        'Actions shown here use the latest loaded status. Access, settlement state, audit, and money are checked again before changes are saved.',
       ),
       findsOneWidget,
     );

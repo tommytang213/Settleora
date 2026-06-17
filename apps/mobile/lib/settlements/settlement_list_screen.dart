@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_form_fields.dart';
 import 'settlement_repository.dart';
 
 class SettleoraSettlementListScreen extends StatefulWidget {
@@ -272,7 +273,7 @@ class _SettlementLandingSummary extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Review server-returned balances, settlement requests, and payment actions from this screen.',
+                        'Review balances, settlement requests, and payment actions from this screen.',
                       ),
                     ],
                   ),
@@ -820,7 +821,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'request-dispute',
                     title: 'Dispute settlement?',
                     message:
-                        'This asks the API to dispute the settlement for correction. Mobile does not decide authorization, payment truth, audit state, or money, and this seam does not support sending a reason yet.',
+                        'This marks the settlement as disputed so it can be corrected. A reason cannot be added from mobile yet.',
                     confirmLabel: 'Dispute',
                     successMessage: 'Settlement disputed.',
                     operation: () async {
@@ -876,7 +877,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-confirm-${payment.id}',
                     title: 'Confirm receipt?',
                     message:
-                        'Confirm only if you received this payment. Mobile asks the API to confirm receipt; the server decides authorization, settlement state, payment truth, residual blocking, audit, and money.',
+                        'Confirm only if you received this payment. Access, settlement state, residual handling, and audit details are checked before the confirmation is saved.',
                     confirmLabel: 'Confirm receipt',
                     successMessage: 'Payment confirmed.',
                     operation: () async {
@@ -902,7 +903,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-dispute-${payment.id}',
                     title: 'Dispute payment?',
                     message:
-                        'This asks the API to dispute the marked-paid claim for correction. Mobile does not decide payment truth, authorization, audit state, or money, and this seam does not support sending a reason yet.',
+                        'This marks the payment claim as disputed so it can be corrected. A reason cannot be added from mobile yet.',
                     confirmLabel: 'Dispute payment',
                     successMessage: 'Payment disputed.',
                     operation: () async {
@@ -915,7 +916,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'residual-confirm-${residual.id}',
                     title: 'Confirm residual?',
                     message:
-                        'Confirm this remaining amount handling only if it matches what you agreed. Mobile asks the API to confirm the residual; the server decides authorization, resulting settlement state, audit, and money.',
+                        'Confirm this remaining amount handling only if it matches what you agreed. Access, settlement state, and audit details are checked before the confirmation is saved.',
                     confirmLabel: 'Confirm residual',
                     successMessage: 'Residual confirmed.',
                     operation: () async {
@@ -1171,7 +1172,7 @@ class _BalanceTile extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Balance rows are server-returned projections. Mobile displays these amounts and counts without recalculating selected lines, residuals, or clearing.',
+                'Balance rows show the latest loaded projection. Refresh before acting if anything looks stale.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -1338,14 +1339,14 @@ class _RequestHeader extends StatelessWidget {
         _KeyValueText(label: 'Lines', value: '${request.lines.length}'),
         const SizedBox(height: 8),
         Text(
-          'Actions shown here use loaded server status and actor role as guidance only. The API decides authorization, settlement state, audit, and money.',
+          'Actions shown here use the latest loaded status. Access, settlement state, audit, and money are checked again before changes are saved.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 6),
         Text(
-          'Selected total is the server-returned request amount for the loaded request lines. Actual paid amounts are shown separately on payment claims.',
+          'Selected total is the request amount for the loaded lines. Actual paid amounts are shown separately on payment claims.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1472,7 +1473,7 @@ _LifecycleGuidance _lifecycleState({
               icon: Icons.north_east_outlined,
               title: 'You are expected to pay',
               message:
-                  'Use the counterparty payment details, then mark this settlement paid after sending payment. The server verifies the payment claim and keeps the audit trail.',
+                  'Use the counterparty payment details, then mark this settlement paid after sending payment. The claim is checked and recorded in the audit trail.',
               chips: const ['Payment needed', 'Mark paid available'],
             )
           : _LifecycleGuidance(
@@ -1522,8 +1523,7 @@ _LifecycleGuidance _lifecycleState({
     SettleoraSettlementRequestStatusValues.disputed => const _LifecycleGuidance(
       icon: Icons.report_problem_outlined,
       title: 'Disputed',
-      message:
-          'This settlement needs correction outside the current mobile action seam before it can proceed.',
+      message: 'This settlement needs correction before it can proceed.',
       chips: ['Needs correction'],
     ),
     SettleoraSettlementRequestStatusValues.cancelled =>
@@ -1670,10 +1670,10 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
           icon: Icons.verified_user_outlined,
           title: 'Settlement-scoped visibility',
           message:
-              'These details are returned only through the settlement counterparty seam. The API authorizes the relationship and visibility; mobile does not run broad profile lookup or expose payment QR bytes.',
+              'Only people involved in an eligible settlement can see these payment details. QR payment bytes are not shown here.',
           chips: [
             'Relationship-backed',
-            _fallback(details.visibilityApplied, 'API-authorized'),
+            _fallback(details.visibilityApplied, 'Verified'),
           ],
         ),
         const SizedBox(height: 10),
@@ -2116,7 +2116,7 @@ class _AllocationList extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 3),
           child: Text(
-            'Allocation rows are server-returned clearing facts for loaded selected lines.',
+            'Allocation rows show clearing details for the loaded selected lines.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -2289,23 +2289,21 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Mark paid only after sending payment. Mobile asks the API to record the claim; the server verifies authorization, settlement state, residual handling, audit, and money.',
+              'Mark paid only after sending payment. Access, settlement state, residual handling, audit, and money are checked before the claim is saved.',
             ),
             const SizedBox(height: 14),
-            TextField(
-              key: const Key('settlement-mark-paid-amount'),
-              controller: _amountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              key: const Key('settlement-mark-paid-currency'),
-              controller: _currencyController,
-              decoration: const InputDecoration(labelText: 'Currency'),
-              textCapitalization: TextCapitalization.characters,
+            MoneyAmountCurrencyField(
+              amountKey: const Key('settlement-mark-paid-amount'),
+              currencyKey: const Key('settlement-mark-paid-currency'),
+              amountController: _amountController,
+              currencyValue: _currencyController.text,
+              onCurrencyChanged: (currency) {
+                setState(() {
+                  _currencyController.text = currency ?? '';
+                });
+              },
+              amountLabel: 'Amount',
+              currencyLabel: 'Currency',
             ),
             const SizedBox(height: 10),
             TextField(

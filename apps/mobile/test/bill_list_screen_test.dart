@@ -3864,7 +3864,7 @@ void main() {
             ?.text,
         'Manual Store',
       );
-      expect(find.text('USD', skipOffstage: false), findsWidgets);
+      expect(find.text('USD - US Dollar', skipOffstage: false), findsWidgets);
       expect(find.text('Suggestions applied'), findsNothing);
     },
   );
@@ -4672,7 +4672,7 @@ void main() {
         ),
         findsNothing,
       );
-      expect(find.text('USD'), findsWidgets);
+      expect(find.text('USD - US Dollar'), findsWidgets);
       expect(find.text('Quantity'), findsOneWidget);
       expect(find.text('Unit amount'), findsOneWidget);
       expect(find.text('Line total'), findsOneWidget);
@@ -4700,7 +4700,7 @@ void main() {
       await tester.tap(find.byKey(const Key('bill-list-create')));
       await tester.pumpAndSettle();
 
-      expect(find.text('HKD'), findsWidgets);
+      expect(find.text('HKD - Hong Kong Dollar'), findsWidgets);
 
       await tester.enterText(
         find.byKey(const Key('personal-bill-item-name-0')),
@@ -10808,7 +10808,7 @@ void main() {
     expect(find.text('Create proposal'), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('proposal-total-amount')))
+          .widget<TextFormField>(find.byKey(const Key('proposal-total-amount')))
           .controller
           ?.text,
       '10.80',
@@ -11130,8 +11130,21 @@ Future<void> _chooseDropdownValue(
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).hitTestable().last);
+  await tester.tap(find.text(_currencyDropdownLabel(label)).hitTestable().last);
   await tester.pumpAndSettle();
+}
+
+String _currencyDropdownLabel(String code) {
+  return switch (code) {
+    'HKD' => 'HKD - Hong Kong Dollar',
+    'USD' => 'USD - US Dollar',
+    'EUR' => 'EUR - Euro',
+    'GBP' => 'GBP - British Pound',
+    'JPY' => 'JPY - Japanese Yen',
+    'KWD' => 'KWD - Kuwaiti Dinar',
+    'BHD' => 'BHD - Bahraini Dinar',
+    _ => code,
+  };
 }
 
 Future<void> _discardPersonalBillCreateDraft(WidgetTester tester) async {

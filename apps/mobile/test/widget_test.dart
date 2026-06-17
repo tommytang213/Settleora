@@ -131,15 +131,15 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('Server mode requires server authentication'),
+        find.textContaining('Server mode requires sign-in'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('The API decides account access'),
+        find.textContaining('Access, collaboration, shared records, sync'),
         findsOneWidget,
       );
       expect(find.textContaining('shared records'), findsOneWidget);
-      expect(find.textContaining('sync acceptance'), findsOneWidget);
+      expect(find.textContaining('permissions'), findsOneWidget);
       expect(
         find.textContaining('Saving or changing a server clears saved session'),
         findsOneWidget,

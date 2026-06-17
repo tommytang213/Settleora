@@ -392,7 +392,7 @@ void main() {
     expect(find.text('No matching forecast'), findsOneWidget);
     expect(
       find.text(
-        'No loaded forecast occurrences match these local filters. Forecast rows are server-returned readouts; no-match does not prove no authorized recurring records exist elsewhere.',
+        'No loaded forecast occurrences match these filters. Refresh or adjust filters if you expected to see more recurring bills.',
       ),
       findsOneWidget,
     );

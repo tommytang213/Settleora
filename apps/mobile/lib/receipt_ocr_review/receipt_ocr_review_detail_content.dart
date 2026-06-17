@@ -359,14 +359,23 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               keyboardType: TextInputType.datetime,
               validator: _dateValidator,
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-currency'),
-              controller: _currencyController,
-              label: 'Currency',
-              semanticLabel: 'Currency candidate, three-letter code',
-              enabled: !isBusy,
-              textCapitalization: TextCapitalization.characters,
-              validator: _currencyValidator,
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: CurrencySelector(
+                key: const Key('receipt-review-edit-currency'),
+                value: _currencyController.text,
+                label: 'Currency',
+                helperText: 'Review the currency before applying amounts.',
+                semanticLabel: 'Currency candidate selector',
+                allowClear: true,
+                enabled: !isBusy,
+                validator: _currencyValidator,
+                onChanged: (currency) {
+                  setState(() {
+                    _currencyController.text = currency ?? '';
+                  });
+                },
+              ),
             ),
             const SizedBox(height: 12),
             Text(
@@ -643,7 +652,6 @@ class _EditTextField extends StatelessWidget {
     required this.enabled,
     this.semanticLabel,
     this.keyboardType,
-    this.textCapitalization = TextCapitalization.none,
     this.validator,
   });
 
@@ -652,7 +660,6 @@ class _EditTextField extends StatelessWidget {
   final bool enabled;
   final String? semanticLabel;
   final TextInputType? keyboardType;
-  final TextCapitalization textCapitalization;
   final String? Function(String?)? validator;
 
   @override
@@ -661,7 +668,6 @@ class _EditTextField extends StatelessWidget {
       controller: controller,
       enabled: enabled,
       keyboardType: keyboardType,
-      textCapitalization: textCapitalization,
       validator: validator,
       decoration: InputDecoration(
         border: const OutlineInputBorder(),
