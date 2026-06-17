@@ -4,7 +4,7 @@
 
 This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists.
 
-Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml` and `services/api/Dockerfile`. TrueNAS catalog metadata, app form schema, upgrade automation, screenshots, and maintainer-run install evidence remain pending.
+Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. TrueNAS catalog metadata, app form schema, upgrade automation, screenshots, and maintainer-run install evidence remain pending.
 
 ## Day 1 Definition Of Polished TrueNAS App
 
@@ -33,7 +33,7 @@ Required app qualities:
 | API | Required app workload, built from `services/api/Dockerfile` or a versioned image. | Dockerfile exists; compose builds locally. |
 | PostgreSQL | Required private dependency with persistent dataset. | Compose uses `postgres:16-alpine` and a named volume. |
 | RabbitMQ | Required private dependency while API readiness checks queue connectivity and future workers use jobs. | Compose uses `rabbitmq:3.13-management-alpine` and a named volume; management port is published in development compose. |
-| Local file storage | Required persistent dataset mounted into the API container. | API supports local storage config; base compose does not yet mount a storage volume. |
+| Local file storage | Required persistent dataset mounted into the API container. | API supports local storage config; the LAN compose package mounts `SETTLEORA_API_STORAGE_HOST_PATH` at `SETTLEORA_STORAGE_ROOT`. |
 | OCR worker | Future optional/required depending on OCR runtime slice. | Placeholder only. |
 | Web user portal | Future app workload if implemented. | Placeholder only. |
 | Web admin portal | Future app workload if implemented and protected. | Placeholder only. |
@@ -98,7 +98,7 @@ A catalog app follow-up must define:
 - How to roll back the app image safely when migrations have already changed schema.
 - Whether RabbitMQ state can be discarded during upgrades or must be preserved.
 
-Current blocker: the API does not auto-apply EF Core migrations on startup, and this branch does not add migration behavior.
+Current blocker: the API does not auto-apply EF Core migrations on startup. The LAN Docker testing runbook documents a temporary private-network SDK-container workaround, but a polished catalog app still needs a first-class install/upgrade migration runner, backup-before-migrate policy, rollback guidance, and maintainer-visible failure states.
 
 ## Backup And Restore
 
@@ -150,21 +150,19 @@ Attach or record:
 
 Recommended follow-up slices:
 
-1. Compose hardening for LAN packaging: add a storage volume mount, private-by-default dependency ports, healthcheck blocks where supported, and a LAN override pattern without changing production/security posture silently.
-2. Migration/install runbook: define explicit schema application, backup prerequisite, failure recovery, and validation steps.
-3. TrueNAS app metadata draft: app name, description, icon/screenshot placeholders, source/license/no-warranty text, version mapping, and release note structure.
-4. TrueNAS form schema draft: ports, datasets, generated secrets, environment defaults, storage path, and LAN-only warnings.
-5. Backup/restore runbook and manual test package: PostgreSQL plus file storage consistency evidence.
-6. Security exposure review: LAN/VPN/reverse-proxy/Cloudflare Access guidance, admin surface protection, and public exposure stop conditions.
-7. Maintainer TrueNAS install evidence: run the app on TrueNAS `25.10.1`, capture health/readiness/mobile smoke evidence, and update the Day 1 acceptance package.
-8. Future service expansion: add OCR worker, web user portal, and web admin portal only after their runtime implementations exist and pass their own gates.
+1. Migration/install runner: define explicit schema application, backup prerequisite, failure recovery, and validation steps for install and upgrade.
+2. TrueNAS app metadata draft: app name, description, icon/screenshot placeholders, source/license/no-warranty text, version mapping, and release note structure.
+3. TrueNAS form schema draft: ports, datasets, generated secrets, environment defaults, storage path, and LAN-only warnings.
+4. Backup/restore runbook and manual test package: PostgreSQL plus file storage consistency evidence.
+5. Security exposure review: LAN/VPN/reverse-proxy/Cloudflare Access guidance, admin surface protection, and public exposure stop conditions.
+6. Maintainer TrueNAS install evidence: run the app on TrueNAS `25.10.1`, capture health/readiness/mobile smoke evidence, and update the Day 1 acceptance package.
+7. Future service expansion: add OCR worker, web user portal, and web admin portal only after their runtime implementations exist and pass their own gates.
 
 ## Current Day 1 Gaps
 
 - Actual TrueNAS install evidence is pending.
 - Polished catalog app package is pending.
-- Dedicated storage volume mapping is pending.
-- Migration and rollback strategy is pending.
+- First-class catalog migration and rollback strategy is pending.
 - Backup/restore evidence is pending.
 - Public exposure and admin exposure are blocked by manual gates.
 - Web/admin/OCR worker runtime packaging is pending because those services are placeholders.

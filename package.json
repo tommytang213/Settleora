@@ -17,6 +17,7 @@
     "validate:api": "dotnet test services/api/Settleora.Api.sln",
     "validate:api-local": "node tools/doctor-validation.mjs && dotnet test services/api/Settleora.Api.sln",
     "validate:compose": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml config",
+    "validate:compose:truenas-lan": "docker compose --env-file infra/env/.env.truenas-lan.example -f infra/docker-compose.truenas-lan.yml config",
     "validate:api-docker": "docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml build api",
     "validate:api-docker-local": "node tools/doctor-validation.mjs --docker && npm run validate:compose && npm run validate:api-docker",
     "validate:mobile": "node tools/doctor-validation.mjs --mobile && cd apps/mobile && flutter pub get && flutter analyze && flutter test",
