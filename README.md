@@ -40,6 +40,8 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Recurring bills technical spec](docs/features/recurring-bills/TECHNICAL_SPEC.md)
 - [Product requirements](docs/prd/)
 - [Day 1 acceptance evidence package](docs/acceptance/day1/)
+- [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md)
+- [TrueNAS catalog app readiness](docs/deployment/TRUENAS_CATALOG_APP_READINESS.md)
 - [Codemagic/TestFlight setup](docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)
