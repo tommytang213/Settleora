@@ -20,8 +20,18 @@ class ReceiptOcrParser {
     final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines);
     final itemCandidates = _extractItems(lines, currency);
+    final merchant = _detectMerchant(lines);
+    final unresolvedItemLines = _countUnresolvedItemLikeLines(
+      lines,
+      merchant: merchant,
+    );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
+    }
+    if (unresolvedItemLines > 0) {
+      warnings.add(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      );
     }
     if (amounts.total == null && itemCandidates.isEmpty) {
       warnings.add('No clear total amount was detected.');
@@ -33,7 +43,7 @@ class ReceiptOcrParser {
     }
 
     return ReceiptOcrPreview(
-      merchant: _detectMerchant(lines),
+      merchant: merchant,
       receiptDate: _detectDate(lines),
       currency: currency,
       subtotal: amounts.subtotal,
@@ -50,7 +60,9 @@ class ReceiptOcrParser {
 
   String? _detectMerchant(List<String> lines) {
     for (final line in lines.take(5)) {
-      if (_isAdministrativeLine(line) || _lineHasAmount(line)) {
+      if (_isAdministrativeLine(line) ||
+          _isReceiptMetadataLine(line) ||
+          _lineHasAmount(line)) {
         continue;
       }
       return _cleanDescription(line);
@@ -147,12 +159,12 @@ class ReceiptOcrParser {
   ) {
     final items = <ReceiptOcrItemCandidate>[];
     for (final line in lines) {
-      if (_isAdministrativeLine(line)) {
+      if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
         continue;
       }
 
       final match = RegExp(
-        r'^(.+?)\s+([A-Z]{3}|HK\$|\$)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})$',
+        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|\$)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -163,7 +175,8 @@ class ReceiptOcrParser {
       final lineTotal = _normalizeAmount(match.group(3)!);
       if (description.length < 2 ||
           lineTotal == null ||
-          lineTotal.startsWith('-')) {
+          lineTotal.startsWith('-') ||
+          !_hasTraceableItemAmountToken(line, match.group(3)!)) {
         continue;
       }
 
@@ -201,6 +214,31 @@ class ReceiptOcrParser {
     }
 
     return items.take(40).toList(growable: false);
+  }
+
+  int _countUnresolvedItemLikeLines(List<String> lines, {String? merchant}) {
+    var count = 0;
+    for (final line in lines) {
+      if (merchant != null && _cleanDescription(line) == merchant) {
+        continue;
+      }
+      if (_isAdministrativeLine(line) ||
+          _isReceiptMetadataLine(line) ||
+          _lineHasAmount(line) ||
+          _detectDate([line]) != null) {
+        continue;
+      }
+
+      final cleaned = _cleanDescription(line);
+      final letterCount = RegExp(
+        r'[A-Za-z\u3040-\u30ff\u3400-\u9fff]',
+      ).allMatches(cleaned).length;
+      if (cleaned.length >= 3 && letterCount >= 2) {
+        count += 1;
+      }
+    }
+
+    return count;
   }
 }
 
@@ -283,6 +321,85 @@ bool _isAdministrativeLine(String line) {
       normalized.contains('invoice') ||
       normalized.contains('receipt') ||
       normalized.contains('thank you');
+}
+
+bool _isReceiptMetadataLine(String line) {
+  final normalized = line.toLowerCase().trim();
+  if (normalized.isEmpty) {
+    return true;
+  }
+
+  if (_isDateOrTimeOnlyLine(normalized)) {
+    return true;
+  }
+
+  final metadataPatterns = [
+    RegExp(
+      r'\b\d{1,6}\s+[\w\s.#-]+\b(st|street|rd|road|ave|avenue|blvd|boulevard|lane|ln|drive|dr|way|plaza|building|tower|floor|fl|unit|suite|shop|room|rm)\b',
+    ),
+    RegExp(
+      r'\b(room|rm|suite|unit|shop|floor|fl|level|lvl|block|blk|building|bldg|tower)\s*[#-]?\s*\w+\b',
+    ),
+    RegExp(r'\b\d{1,2}\s*/\s*f\b'),
+    RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
+    RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
+    RegExp(r'\b\d{5}(?:-\d{4})?\b'),
+    RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
+    RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),
+    RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
+    RegExp(r'\b(email|instagram|facebook|wechat|line id|twitter|xhs)\b'),
+    RegExp(r'\b(tax\s*id|tin|gst\s*no|vat\s*no|business\s*no|br\s*no)\b'),
+    RegExp(r'\b(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
+    RegExp(
+      r'\b(table|tbl|store|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\s*[:#-]?\s*[a-z0-9-]+\b',
+    ),
+    RegExp(
+      r'\b(open|close|closed|served|powered by|thank you|welcome|visit again)\b',
+    ),
+  ];
+
+  return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
+}
+
+bool _isDateOrTimeOnlyLine(String normalized) {
+  final compact = normalized
+      .replaceAll(RegExp(r'\b(am|pm)\b'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return RegExp(r'^\d{1,2}[:.]\d{2}(?::\d{2})?$').hasMatch(compact) ||
+      RegExp(r'^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$').hasMatch(compact) ||
+      RegExp(r'^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$').hasMatch(compact) ||
+      RegExp(
+        r'^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}[:.]\d{2}(?::\d{2})?$',
+      ).hasMatch(compact) ||
+      RegExp(
+        r'^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s+\d{1,2}[:.]\d{2}(?::\d{2})?$',
+      ).hasMatch(compact);
+}
+
+bool _hasTraceableItemAmountToken(String line, String amountToken) {
+  final normalizedToken = _normalizeAmount(amountToken);
+  if (normalizedToken == null) {
+    return false;
+  }
+
+  if (normalizedToken.contains('.')) {
+    return true;
+  }
+
+  final tokenValue = int.tryParse(normalizedToken);
+  if (tokenValue == null) {
+    return false;
+  }
+
+  if (tokenValue >= 10) {
+    return true;
+  }
+
+  return RegExp(
+    r'(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|\$)',
+    caseSensitive: false,
+  ).hasMatch(line);
 }
 
 bool _hasSubtotalLabel(String line, String normalized) {

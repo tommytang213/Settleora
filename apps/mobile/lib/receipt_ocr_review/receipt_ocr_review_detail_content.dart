@@ -753,7 +753,9 @@ String _lineSummary(ReceiptOcrReviewLine line) {
     if (line.lineTotalAmount != null) 'Total ${line.lineTotalAmount}',
   ];
 
-  return parts.isEmpty ? 'No amount candidates' : parts.join('  ');
+  return parts.isEmpty
+      ? 'Needs manual review: no traceable line amount'
+      : parts.join('  ');
 }
 
 bool _hasAnyReviewCandidate(ReceiptOcrReviewDetail review) {
