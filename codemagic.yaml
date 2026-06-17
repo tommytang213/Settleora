@@ -94,7 +94,8 @@ workflows:
         script: |
           flutter build ipa --release \
             --build-name="$FLUTTER_BUILD_NAME" \
-            --build-number="$BUILD_NUMBER"
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
 
       - name: List signed iOS IPA artifacts
         script: |
@@ -102,6 +103,11 @@ workflows:
           echo "PWD=$(pwd)"
           find "$CM_BUILD_DIR" -path "*/build/ios/ipa/*.ipa" -print
           find "$CM_BUILD_DIR" -path "*/build/ios/archive/*.xcarchive" -print
+          IPA_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/ipa" -name "*.ipa" -type f 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$IPA_COUNT" = "0" ]; then
+            echo "No IPA files were produced under $CM_BUILD_DIR/apps/mobile/build/ios/ipa"
+            exit 1
+          fi
 
     artifacts:
       - $CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa
