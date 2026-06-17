@@ -105,3 +105,21 @@ M19 mobile receipt image normalization/privacy work added conservative policy/re
 - `apps/mobile/test/receipt_ocr_capture/receipt_ocr_parser_test.dart` and `apps/mobile/test/bill_list_screen_test.dart` cover preferred JPEG, PNG/WEBP accepted-with-derivative policy, PDF limited handling, unknown/HEIC unsupported handling, large file/dimension warnings, safe diagnostics, visible privacy/normalization guidance, and review-first OCR apply behavior.
 
 This improves Day 1 mobile receipt image normalization/privacy evidence but does not complete Day 1. Actual device file conversion, normalized JPEG byte persistence, thumbnail generation, encrypted or secure local receipt cache, share-sheet/offline capture coverage, server upload normalization enforcement, server OCR worker runtime, storage/file privacy review, manual OCR/mobile UI review, code review, and Day 1 acceptance remain pending.
+
+## Post-M15 Receipt Byte Artifact Processing Addendum
+
+M20 mobile receipt byte artifact work added the first tested mobile-owned byte processing foundation after the M19 policy/readout slice:
+
+- `apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart` implements `ReceiptImageArtifactProcessor`, request/result models, safe diagnostics, original-retention readout, in-memory normalized JPEG bytes, in-memory thumbnail JPEG bytes, unsupported HEIC handling, PDF document-limited handling, and a secure-cache-deferred readiness model.
+- `apps/mobile/lib/receipt_ocr_capture/receipt_intake_safety.dart` carries artifact results into the existing intake safety review without exposing raw OCR text, receipt contents, full local paths, storage internals, auth/session data, private URLs, or payment details in diagnostics.
+- `apps/mobile/lib/bills/bill_list_screen.dart` wires the processor into personal and group receipt create flows. Decodable JPEG/PNG receipt inputs produce normalized JPEG draft attachment bytes and thumbnail bytes in memory; unsupported or malformed inputs keep the existing review-first OCR/manual path without fabricating conversion.
+- `apps/mobile/test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart` covers real PNG/JPEG conversion, thumbnail generation, PDF/HEIC rejection/limited behavior, basename-only labels, diagnostic redaction, and original-retention/cache readouts.
+- `apps/mobile/test/bill_list_screen_test.dart` covers the receipt intake panel showing produced normalized/thumbnail bytes, deferred secure cache, sensitive-content warning, and review-first OCR apply behavior.
+
+Focused validation passed on this branch:
+
+```bash
+cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart test/receipt_ocr_capture/receipt_ocr_parser_test.dart test/bill_duplicate_warning_test.dart test/bill_list_screen_test.dart
+```
+
+This improves Day 1 mobile receipt normalization evidence but does not complete Day 1. Secure/encrypted local receipt artifact cache is still deferred. Server upload/storage normalization enforcement, storage authorization review, share-sheet/offline capture coverage, PDF page extraction, HEIC support, server OCR worker runtime, manual OCR/mobile UI review, code review, and Day 1 acceptance remain pending. The current ML Kit provider may still OCR from the original device file path where native path-based OCR is required, even when the draft attachment bytes are normalized.

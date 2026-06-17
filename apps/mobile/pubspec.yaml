@@ -39,6 +39,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^11.0.2
   google_mlkit_text_recognition: ^0.15.1
+  image: ^4.5.4
   image_picker: ^1.2.2
 
 dev_dependencies:
