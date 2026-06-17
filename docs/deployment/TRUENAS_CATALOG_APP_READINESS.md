@@ -4,7 +4,7 @@
 
 This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists.
 
-Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. TrueNAS catalog metadata, app form schema, upgrade automation, screenshots, and maintainer-run install evidence remain pending.
+Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. The LAN package now includes a first-class API-hosted migration runner service for managed/default and manual/pro schema-control modes. TrueNAS catalog metadata, app form schema, backup/rollback automation, screenshots, and maintainer-run install evidence remain pending.
 
 ## Day 1 Definition Of Polished TrueNAS App
 
@@ -30,7 +30,8 @@ Required app qualities:
 
 | Component | Day 1 catalog expectation | Current repo state |
 | --- | --- | --- |
-| API | Required app workload, built from `services/api/Dockerfile` or a versioned image. | Dockerfile exists; compose builds locally. |
+| API | Required app workload, built from `services/api/Dockerfile` or a versioned image. | Dockerfile exists; source-build and image-based LAN compose templates exist. |
+| Migration runner | Required install/upgrade schema gate before API startup. | API image supports `migrate-database`; LAN compose runs a private one-shot `migrate` service before API startup. |
 | PostgreSQL | Required private dependency with persistent dataset. | Compose uses `postgres:16-alpine` and a named volume. |
 | RabbitMQ | Required private dependency while API readiness checks queue connectivity and future workers use jobs. | Compose uses `rabbitmq:3.13-management-alpine` and a named volume; management port is published in development compose. |
 | Local file storage | Required persistent dataset mounted into the API container. | API supports local storage config; the LAN compose package mounts `SETTLEORA_API_STORAGE_HOST_PATH` at `SETTLEORA_STORAGE_ROOT`. |
@@ -48,6 +49,7 @@ A future TrueNAS app form should include:
 - PostgreSQL database name, user, generated password, and data dataset.
 - RabbitMQ user, generated password, vhost if supported, and data dataset.
 - API storage dataset and in-container mount path.
+- Migration mode, defaulting to managed safe auto-apply for easy LAN install, with manual/check-only and explicit apply modes for professional hosters.
 - Optional external URL/base URL only after server-mode/mobile clients require it and security gates approve the semantics.
 - Session lifetime settings only if exposed with safe documented bounds from `services/api/README.md`.
 - Explicit checkboxes or warnings confirming this app is LAN-only unless public exposure gates pass.
@@ -89,16 +91,31 @@ Public exposure remains blocked until auth/session/security, storage/privacy, ad
 
 ## Upgrade And Migration Strategy
 
-A catalog app follow-up must define:
+The API process supports a non-HTTP migration command:
 
-- Whether app startup applies migrations automatically or requires an explicit maintainer action.
+```text
+migrate-database --mode=managed-auto
+```
+
+Catalog/default LAN install should run this command as a separate private migration job/service before starting the API. Production API startup itself must not silently apply migrations.
+
+Supported modes:
+
+- `managed-auto`: default easy-install mode; applies pending migrations only when the migration safety policy classifies them as safe.
+- `apply-safe`: explicit safe apply mode for operators who want to run the migration job directly.
+- `manual` / `check-only`: professional hoster modes; report pending migrations and exit non-zero without applying.
+- `validate-only`: checks PostgreSQL connectivity and migration metadata.
+- `force-allow-destructive`: dangerous override for explicitly reviewed and backed-up destructive changes.
+
+The current safety policy blocks known destructive operations such as dropping tables/columns, EF operations marked destructive, and raw SQL containing destructive/unclassified tokens. This is a conservative package guard, not a substitute for migration review, backup policy, or rollback planning.
+
+A catalog app follow-up still must define:
+
 - Backup-before-upgrade requirements for PostgreSQL and file storage.
-- How failed migrations are reported.
+- How failed or blocked migrations are surfaced in TrueNAS app UI/logs.
 - How the app behaves if API image and database schema versions do not match.
 - How to roll back the app image safely when migrations have already changed schema.
 - Whether RabbitMQ state can be discarded during upgrades or must be preserved.
-
-Current blocker: the API does not auto-apply EF Core migrations on startup. The LAN Docker testing runbook documents a temporary private-network SDK-container workaround, but a polished catalog app still needs a first-class install/upgrade migration runner, backup-before-migrate policy, rollback guidance, and maintainer-visible failure states.
 
 ## Backup And Restore
 
@@ -150,7 +167,7 @@ Attach or record:
 
 Recommended follow-up slices:
 
-1. Migration/install runner: define explicit schema application, backup prerequisite, failure recovery, and validation steps for install and upgrade.
+1. Migration/install runner hardening: wire the existing `migrate-database` command into TrueNAS catalog install/upgrade hooks, define backup prerequisite, failure recovery, and validation steps.
 2. TrueNAS app metadata draft: app name, description, icon/screenshot placeholders, source/license/no-warranty text, version mapping, and release note structure.
 3. TrueNAS form schema draft: ports, datasets, generated secrets, environment defaults, storage path, and LAN-only warnings.
 4. Backup/restore runbook and manual test package: PostgreSQL plus file storage consistency evidence.
@@ -162,7 +179,7 @@ Recommended follow-up slices:
 
 - Actual TrueNAS install evidence is pending.
 - Polished catalog app package is pending.
-- First-class catalog migration and rollback strategy is pending.
+- First-class migration command and LAN compose service exist; TrueNAS catalog hook wiring, backup-before-migrate enforcement, rollback strategy, and maintainer-visible failure UI remain pending.
 - Backup/restore evidence is pending.
 - Public exposure and admin exposure are blocked by manual gates.
 - Web/admin/OCR worker runtime packaging is pending because those services are placeholders.
