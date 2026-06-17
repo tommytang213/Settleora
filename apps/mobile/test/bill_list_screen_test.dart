@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
@@ -162,9 +163,10 @@ void main() {
       pickedFile: samplePickedAttachmentFile(
         filename: 'receipt.png',
         contentType: 'image/png',
-        bytes: const [1, 2, 3],
+        bytes: samplePngBytes(width: 640, height: 480),
       ),
     );
+    final attachmentRepository = FakeBillAttachmentRepository();
     final receiptRepository = FakeReceiptOcrReviewRepository();
     final receiptOcrProvider = FakeReceiptOcrProvider(
       const ReceiptOcrResult.extracted(
@@ -203,7 +205,7 @@ void main() {
         home: SettleoraBillListScreen(
           repository: repository,
           syncController: sampleBillSyncController(),
-          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentRepository: attachmentRepository,
           attachmentFileInput: fileInput,
           receiptOcrReviewRepository: receiptRepository,
           receiptOcrProvider: receiptOcrProvider,
@@ -216,8 +218,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(receiptOcrProvider.calls, 1);
-    expect(receiptOcrProvider.lastRequest?.bytes, const [1, 2, 3]);
-    expect(receiptOcrProvider.lastRequest?.contentType, 'image/png');
+    expect(receiptOcrProvider.lastRequest?.contentType, 'image/jpeg');
+    expect(receiptOcrProvider.lastRequest?.bytes, isNotEmpty);
+    expect(
+      receiptOcrProvider.lastRequest?.bytes,
+      isNot(fileInput.pickedFile?.bytes),
+    );
     expect(
       find.byKey(const Key('personal-bill-ocr-preview-panel')),
       findsOneWidget,
@@ -254,7 +260,14 @@ void main() {
     );
     expect(
       find.text(
-        'Current build: no normalized or thumbnail bytes are saved, shared, or uploaded here.',
+        'Current build: normalized JPEG bytes and thumbnail bytes were prepared in memory; server storage enforcement remains future work.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('receipt-intake-cache-label')), findsOneWidget);
+    expect(
+      find.text(
+        'Secure/encrypted local receipt artifact cache is deferred; artifacts are in memory only in this build.',
       ),
       findsOneWidget,
     );
@@ -416,6 +429,9 @@ void main() {
     await _tapSaveBill(tester);
 
     expect(repository.createCalls, 1);
+    expect(attachmentRepository.lastUpload?.filename, 'receipt-normalized.jpg');
+    expect(attachmentRepository.lastUpload?.contentType, 'image/jpeg');
+    expect(attachmentRepository.lastUpload?.bytes, isNotEmpty);
     expect(repository.lastCreateDraft?.merchantName, 'Corrected Market');
     expect(repository.lastCreateDraft?.billDate, '2026-06-13');
     expect(repository.lastCreateDraft?.currency, 'USD');
@@ -12275,6 +12291,17 @@ SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
     allowedContentTypes:
         SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
   );
+}
+
+List<int> samplePngBytes({required int width, required int height}) {
+  final image = img.Image(width: width, height: height);
+  for (final pixel in image) {
+    pixel
+      ..r = pixel.x % 255
+      ..g = pixel.y % 255
+      ..b = 96;
+  }
+  return img.encodePng(image);
 }
 
 ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(

@@ -1,4 +1,5 @@
 import '../bills/bill_attachment_file_input.dart';
+import 'receipt_image_artifact_processor.dart';
 import 'receipt_image_normalization_policy.dart';
 
 enum ReceiptIntakeSourceType { cameraCapture, photoImport, fileImport, unknown }
@@ -26,6 +27,7 @@ class ReceiptIntakeSafetyMetadata {
     this.nativeCameraAvailable,
     this.nativePhotoImportAvailable,
     this.nativeFileImportAvailable,
+    this.artifactResult,
   });
 
   factory ReceiptIntakeSafetyMetadata.fromPickedFile({
@@ -34,6 +36,7 @@ class ReceiptIntakeSafetyMetadata {
     bool? nativeCameraAvailable,
     bool? nativePhotoImportAvailable,
     bool? nativeFileImportAvailable,
+    ReceiptImageArtifactResult? artifactResult,
   }) {
     return ReceiptIntakeSafetyMetadata(
       sourceType: sourceType,
@@ -43,6 +46,7 @@ class ReceiptIntakeSafetyMetadata {
       nativeCameraAvailable: nativeCameraAvailable,
       nativePhotoImportAvailable: nativePhotoImportAvailable,
       nativeFileImportAvailable: nativeFileImportAvailable,
+      artifactResult: artifactResult,
     );
   }
 
@@ -53,17 +57,20 @@ class ReceiptIntakeSafetyMetadata {
   final bool? nativeCameraAvailable;
   final bool? nativePhotoImportAvailable;
   final bool? nativeFileImportAvailable;
+  final ReceiptImageArtifactResult? artifactResult;
 }
 
 class ReceiptIntakeSafetyReview {
   const ReceiptIntakeSafetyReview({
     required this.sourceType,
     required this.normalizationReview,
+    this.artifactResult,
     required this.warnings,
   });
 
   final ReceiptIntakeSourceType sourceType;
   final ReceiptImageNormalizationPolicyReview normalizationReview;
+  final ReceiptImageArtifactResult? artifactResult;
   final List<String> warnings;
 }
 
@@ -124,6 +131,8 @@ ReceiptIntakeSafetyReview reviewReceiptIntakeSafety(
     warnings.add('Native file import is unavailable in this build.');
   }
 
+  final artifactResult = metadata.artifactResult;
+
   return ReceiptIntakeSafetyReview(
     sourceType: metadata.sourceType,
     normalizationReview: ReceiptImageNormalizationPolicy.review(
@@ -137,8 +146,14 @@ ReceiptIntakeSafetyReview reviewReceiptIntakeSafety(
         mediaType: contentType,
         extension: extension,
         sizeBytes: metadata.sizeBytes,
+        width: artifactResult?.width,
+        height: artifactResult?.height,
+        byteNormalizationPerformed:
+            artifactResult?.normalizedJpegProduced ?? false,
+        thumbnailGenerated: artifactResult?.thumbnailJpegProduced ?? false,
       ),
     ),
+    artifactResult: artifactResult,
     warnings: warnings.toList(growable: false),
   );
 }

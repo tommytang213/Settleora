@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
+import '../receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import '../receipt_ocr_capture/receipt_image_intake.dart';
+import '../receipt_ocr_capture/receipt_image_normalization_policy.dart';
 import '../receipt_ocr_capture/receipt_intake_safety.dart';
 import '../receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
@@ -299,6 +301,81 @@ bool _receiptOcrPreviewHasReviewCandidates(ReceiptOcrPreview preview) {
       );
 }
 
+({SettleoraPickedBillAttachmentFile file, ReceiptImageArtifactResult result})
+_processedReceiptAttachmentArtifact({
+  required SettleoraPickedBillAttachmentFile file,
+  required ReceiptIntakeSourceType sourceType,
+  required ReceiptImageArtifactProcessor processor,
+}) {
+  final artifactResult = processor.process(
+    ReceiptImageArtifactRequest(
+      sourceType: _receiptImageSourceKindForArtifact(
+        sourceType,
+        contentType: file.contentType,
+        extension: _safeFilenameExtension(file.filename),
+      ),
+      sourceContentType: file.contentType,
+      sourceExtension: _safeFilenameExtension(file.filename),
+      sourceLabel: file.filename,
+      sourceBytes: file.bytes,
+    ),
+  );
+
+  if (!artifactResult.normalizedJpegProduced) {
+    return (file: file, result: artifactResult);
+  }
+
+  return (
+    file: pickedBillAttachmentFileFromBytes(
+      filename: _normalizedReceiptFilename(file.filename),
+      contentType: ReceiptImageArtifactProcessor.normalizedJpegContentType,
+      bytes: artifactResult.normalizedJpegBytes!,
+      localPath: file.localPath,
+      allowedContentTypes:
+          SettleoraBillAttachmentContentTypeValues.receiptValues,
+    ),
+    result: artifactResult,
+  );
+}
+
+ReceiptImageSourceKind _receiptImageSourceKindForArtifact(
+  ReceiptIntakeSourceType sourceType, {
+  required String? contentType,
+  required String? extension,
+}) {
+  if (contentType == 'application/pdf' || extension == 'pdf') {
+    return ReceiptImageSourceKind.importedPdf;
+  }
+  return switch (sourceType) {
+    ReceiptIntakeSourceType.cameraCapture =>
+      ReceiptImageSourceKind.capturedPhoto,
+    ReceiptIntakeSourceType.photoImport => ReceiptImageSourceKind.importedImage,
+    ReceiptIntakeSourceType.fileImport => ReceiptImageSourceKind.importedImage,
+    ReceiptIntakeSourceType.unknown => ReceiptImageSourceKind.unknown,
+  };
+}
+
+String _normalizedReceiptFilename(String filename) {
+  final safeName = filename.replaceAll('\\', '/').split('/').last.trim();
+  final dotIndex = safeName.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return 'receipt-normalized.jpg';
+  }
+  return '${safeName.substring(0, dotIndex)}-normalized.jpg';
+}
+
+String? _safeFilenameExtension(String? filename) {
+  final safeName = filename?.replaceAll('\\', '/').split('/').last.trim();
+  if (safeName == null || safeName.isEmpty) {
+    return null;
+  }
+  final dotIndex = safeName.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex == safeName.length - 1) {
+    return null;
+  }
+  return safeName.substring(dotIndex + 1).toLowerCase();
+}
+
 ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
   ReceiptOcrPreview? preview,
 ) {
@@ -479,6 +556,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptImageIntake,
+    this.receiptImageArtifactProcessor = const ReceiptImageArtifactProcessor(),
     this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
@@ -492,6 +570,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptImageArtifactProcessor receiptImageArtifactProcessor;
   final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -695,6 +774,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
           receiptImageIntake: widget.receiptImageIntake,
+          receiptImageArtifactProcessor: widget.receiptImageArtifactProcessor,
           receiptOcrProvider: widget.receiptOcrProvider,
           defaultCurrency: widget.defaultCurrency,
           scanReceiptOnStart: scanReceiptFirst,
@@ -1008,6 +1088,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
     this.receiptOcrReviewRepository,
     this.revisionRepository,
     this.receiptImageIntake,
+    this.receiptImageArtifactProcessor = const ReceiptImageArtifactProcessor(),
     this.receiptOcrProvider,
     this.defaultCurrency,
     this.scanReceiptOnStart = false,
@@ -1020,6 +1101,7 @@ class SettleoraPersonalBillCreateScreen extends StatefulWidget {
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptImageArtifactProcessor receiptImageArtifactProcessor;
   final ReceiptOcrProvider? receiptOcrProvider;
   final String? defaultCurrency;
   final bool scanReceiptOnStart;
@@ -1328,13 +1410,20 @@ class _SettleoraPersonalBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final sourceType = _receiptIntakeSourceTypeForImageSource(source);
+      final processedArtifact = _processedReceiptAttachmentArtifact(
+        file: validatedFile,
+        sourceType: sourceType,
+        processor: widget.receiptImageArtifactProcessor,
+      );
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
-          sourceType: _receiptIntakeSourceTypeForImageSource(source),
+          sourceType: sourceType,
           file: validatedFile,
           nativeCameraAvailable: widget.receiptImageIntake != null,
           nativePhotoImportAvailable: widget.receiptImageIntake != null,
           nativeFileImportAvailable: widget.attachmentFileInput != null,
+          artifactResult: processedArtifact.result,
         ),
       );
       final draftAttachmentId = _nextDraftAttachmentId;
@@ -1342,14 +1431,14 @@ class _SettleoraPersonalBillCreateScreenState
         _draftAttachments.add(
           _BillCreateDraftAttachment(
             id: draftAttachmentId,
-            file: validatedFile,
+            file: processedArtifact.file,
             purpose: SettleoraBillAttachmentPurposeValues.receipt,
           ),
         );
         _nextDraftAttachmentId += 1;
       });
       await _runReceiptOcrPreview(
-        validatedFile,
+        processedArtifact.file,
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
@@ -1496,6 +1585,23 @@ class _SettleoraPersonalBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+      final processedArtifact = _processedReceiptAttachmentArtifact(
+        file: validatedFile,
+        sourceType: ReceiptIntakeSourceType.fileImport,
+        processor: widget.receiptImageArtifactProcessor,
+      );
+      final index = _draftAttachments.indexWhere(
+        (attachment) => attachment.id == draftAttachmentId,
+      );
+      if (index >= 0) {
+        setState(() {
+          _draftAttachments[index] = _BillCreateDraftAttachment(
+            id: draftAttachmentId,
+            file: processedArtifact.file,
+            purpose: purpose,
+          );
+        });
+      }
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -1503,10 +1609,11 @@ class _SettleoraPersonalBillCreateScreenState
           nativeCameraAvailable: widget.receiptImageIntake != null,
           nativePhotoImportAvailable: widget.receiptImageIntake != null,
           nativeFileImportAvailable: widget.attachmentFileInput != null,
+          artifactResult: processedArtifact.result,
         ),
       );
       await _runReceiptOcrPreview(
-        validatedFile,
+        processedArtifact.file,
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
@@ -3292,8 +3399,16 @@ class _ReceiptIntakeSafetyPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Current build: no normalized or thumbnail bytes are saved, shared, or uploaded here.',
+                  _receiptArtifactCurrentBuildLabel(review),
                   key: const Key('receipt-intake-current-build-label'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _receiptArtifactCacheLabel(review),
+                  key: const Key('receipt-intake-cache-label'),
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
@@ -3327,6 +3442,30 @@ class _ReceiptIntakeSafetyPanel extends StatelessWidget {
 }
 
 String _yesNoExpected(bool expected) => expected ? 'expected' : 'not expected';
+
+String _receiptArtifactCurrentBuildLabel(ReceiptIntakeSafetyReview review) {
+  final artifact = review.artifactResult;
+  final normalized = artifact?.normalizedJpegProduced ?? false;
+  final thumbnail = artifact?.thumbnailJpegProduced ?? false;
+  if (normalized && thumbnail) {
+    return 'Current build: normalized JPEG bytes and thumbnail bytes were prepared in memory; server storage enforcement remains future work.';
+  }
+  if (normalized) {
+    return 'Current build: normalized JPEG bytes were prepared in memory; thumbnail bytes were not produced.';
+  }
+  if (thumbnail) {
+    return 'Current build: thumbnail bytes were prepared in memory; normalized JPEG bytes were not produced.';
+  }
+  return 'Current build: no normalized or thumbnail bytes were produced for this receipt input.';
+}
+
+String _receiptArtifactCacheLabel(ReceiptIntakeSafetyReview review) {
+  final artifact = review.artifactResult;
+  if (artifact == null) {
+    return 'Local cache: secure/encrypted receipt artifact cache is not active in this path.';
+  }
+  return artifact.cacheReadiness.message;
+}
 
 enum _ReceiptDuplicateSaveAction { cancel, reviewExisting, saveAnyway }
 
@@ -4560,6 +4699,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptImageIntake,
+    this.receiptImageArtifactProcessor = const ReceiptImageArtifactProcessor(),
     this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
@@ -4577,6 +4717,7 @@ class SettleoraGroupBillListScreen extends StatefulWidget {
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptImageArtifactProcessor receiptImageArtifactProcessor;
   final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -4688,6 +4829,7 @@ class _SettleoraGroupBillListScreenState
           attachmentRepository: widget.attachmentRepository,
           attachmentFileInput: widget.attachmentFileInput,
           receiptImageIntake: widget.receiptImageIntake,
+          receiptImageArtifactProcessor: widget.receiptImageArtifactProcessor,
           receiptOcrProvider: widget.receiptOcrProvider,
           receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
           revisionRepository: widget.revisionRepository,
@@ -5191,6 +5333,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
     this.attachmentRepository,
     this.attachmentFileInput,
     this.receiptImageIntake,
+    this.receiptImageArtifactProcessor = const ReceiptImageArtifactProcessor(),
     this.receiptOcrProvider,
     this.receiptOcrReviewRepository,
     this.revisionRepository,
@@ -5206,6 +5349,7 @@ class SettleoraGroupBillCreateScreen extends StatefulWidget {
   final SettleoraBillAttachmentRepository? attachmentRepository;
   final SettleoraBillAttachmentFileInput? attachmentFileInput;
   final ReceiptImageIntake? receiptImageIntake;
+  final ReceiptImageArtifactProcessor receiptImageArtifactProcessor;
   final ReceiptOcrProvider? receiptOcrProvider;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
@@ -5758,13 +5902,20 @@ class _SettleoraGroupBillCreateScreenState
         allowedContentTypes:
             SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
+      final sourceType = _receiptIntakeSourceTypeForImageSource(source);
+      final processedArtifact = _processedReceiptAttachmentArtifact(
+        file: validatedFile,
+        sourceType: sourceType,
+        processor: widget.receiptImageArtifactProcessor,
+      );
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
-          sourceType: _receiptIntakeSourceTypeForImageSource(source),
+          sourceType: sourceType,
           file: validatedFile,
           nativeCameraAvailable: widget.receiptImageIntake != null,
           nativePhotoImportAvailable: widget.receiptImageIntake != null,
           nativeFileImportAvailable: widget.attachmentFileInput != null,
+          artifactResult: processedArtifact.result,
         ),
       );
       final draftAttachmentId = _nextDraftAttachmentId;
@@ -5772,14 +5923,14 @@ class _SettleoraGroupBillCreateScreenState
         _draftAttachments.add(
           _BillCreateDraftAttachment(
             id: draftAttachmentId,
-            file: validatedFile,
+            file: processedArtifact.file,
             purpose: SettleoraBillAttachmentPurposeValues.receipt,
           ),
         );
         _nextDraftAttachmentId += 1;
       });
       await _runReceiptOcrPreview(
-        validatedFile,
+        processedArtifact.file,
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
@@ -5926,6 +6077,23 @@ class _SettleoraGroupBillCreateScreenState
     });
 
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
+      final processedArtifact = _processedReceiptAttachmentArtifact(
+        file: validatedFile,
+        sourceType: ReceiptIntakeSourceType.fileImport,
+        processor: widget.receiptImageArtifactProcessor,
+      );
+      final index = _draftAttachments.indexWhere(
+        (attachment) => attachment.id == draftAttachmentId,
+      );
+      if (index >= 0) {
+        setState(() {
+          _draftAttachments[index] = _BillCreateDraftAttachment(
+            id: draftAttachmentId,
+            file: processedArtifact.file,
+            purpose: purpose,
+          );
+        });
+      }
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -5933,10 +6101,11 @@ class _SettleoraGroupBillCreateScreenState
           nativeCameraAvailable: widget.receiptImageIntake != null,
           nativePhotoImportAvailable: widget.receiptImageIntake != null,
           nativeFileImportAvailable: widget.attachmentFileInput != null,
+          artifactResult: processedArtifact.result,
         ),
       );
       await _runReceiptOcrPreview(
-        validatedFile,
+        processedArtifact.file,
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
