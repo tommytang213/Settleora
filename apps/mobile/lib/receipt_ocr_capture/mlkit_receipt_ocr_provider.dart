@@ -15,14 +15,14 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
         (defaultTargetPlatform != TargetPlatform.android &&
             defaultTargetPlatform != TargetPlatform.iOS)) {
       return const ReceiptOcrResult.unsupported(
-        'On-device receipt text extraction is available on iOS and Android. You can still enter the bill manually.',
+        'Receipt reading is available on iOS and Android. You can still enter the bill manually.',
       );
     }
 
     final imagePath = request.imagePath?.trim();
     if (imagePath == null || imagePath.isEmpty) {
       return const ReceiptOcrResult.failed(
-        'The selected receipt image could not be prepared for text extraction. You can still enter the bill manually.',
+        'The selected receipt image could not be prepared for reading. You can still enter the bill manually.',
       );
     }
 
@@ -40,7 +40,7 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
       return ReceiptOcrResult.extracted(parser.parse(text));
     } catch (_) {
       return const ReceiptOcrResult.failed(
-        'Receipt text extraction failed. You can still enter the bill manually.',
+        'Receipt reading failed. You can still enter the bill manually.',
       );
     } finally {
       await textRecognizer.close();
