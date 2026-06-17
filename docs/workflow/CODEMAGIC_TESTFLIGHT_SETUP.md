@@ -15,6 +15,13 @@ The root `codemagic.yaml` defines:
 - `mobile-ios-validation`: safe Flutter validation only.
 - `mobile-ios-testflight-internal`: manual, guarded internal TestFlight upload skeleton.
 
+The first repository-side Codemagic file must be parse-safe before any Apple
+Developer, App Store Connect, or Codemagic signing secrets exist. Codemagic
+validates the whole YAML when detecting configuration, including workflows that
+are manual or guard-failed at runtime. Do not place unset signing or publishing
+variables in structured Codemagic fields until the matching variable groups and
+secrets already exist in Codemagic.
+
 ## Safe Validation Workflow
 
 Run `Mobile iOS validation` first in Codemagic. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
@@ -51,6 +58,13 @@ Expected variable names:
 
 `CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE` must remain unset or set to anything other than `true` until signing and App Store Connect setup are complete. The TestFlight workflow fails early when this guard is not exactly `true`.
 
+Keep these group and variable names documented while the repository YAML remains
+parse-safe. Do not enable active `environment.groups`, `environment.ios_signing`,
+or `publishing.app_store_connect` entries that reference these values until the
+groups and secrets exist in Codemagic. In particular,
+`ios_signing.bundle_identifier: $IOS_BUNDLE_ID` can block configuration-file
+detection when `IOS_BUNDLE_ID` is not available through an imported group.
+
 Use Codemagic's iOS code signing identities or Apple Developer Portal integration for certificates and provisioning profiles. If using Codemagic signing identities, keep `IOS_CERTIFICATE` and `IOS_PROVISIONING_PROFILE` aligned with the reference names configured in Codemagic, and keep certificate/profile files out of the repo.
 
 ## Apple Setup Required
@@ -70,16 +84,21 @@ The current Flutter iOS project still uses the starter bundle identifier in `app
 
 Run `Mobile iOS internal TestFlight skeleton` manually only after the setup above is complete.
 
-The workflow:
+The current parse-safe workflow:
 
-- Imports only the named Codemagic variable groups.
+- Does not import the named Codemagic variable groups yet.
+- Does not enable `environment.ios_signing` yet.
+- Does not enable `publishing.app_store_connect` yet.
 - Fails before signing/upload unless `CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE=true`.
-- Checks all expected variable names before building.
-- Uses Codemagic iOS signing with App Store distribution type.
-- Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
-- Builds a signed IPA.
-- Uploads to App Store Connect without submitting to App Store review.
-- Leaves TestFlight tester distribution as a manual App Store Connect/Codemagic follow-up.
+- Still fails after the guard is enabled, with a message that active signing and publishing require a follow-up setup task.
+- Keeps the expected variable names and future signing/publishing shape documented without making Codemagic require unavailable values at config-parse time.
+
+After the Codemagic variable groups and Apple assets exist, a follow-up task may
+enable the inactive setup in `codemagic.yaml`. That task should import only the
+named variable groups, enable Codemagic iOS signing with App Store distribution
+type, pass `testFlightInternalTestingOnly` through `xcode-project use-profiles`,
+build a signed IPA, and configure App Store Connect upload without public App
+Store submission or external tester automation.
 
 No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
 
@@ -91,10 +110,12 @@ Codemagic cloud build success, Apple signing success, App Store Connect processi
 
 ## Recommended Order
 
-1. Merge the Codemagic foundation after review.
-2. In Codemagic, confirm the branch with `codemagic.yaml` appears and run `Mobile iOS validation`.
-3. Create the Apple Developer/App Store Connect app record and real bundle ID setup.
-4. Configure Codemagic variable groups and encrypted secrets.
-5. Keep `CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE` disabled until signing is verified.
-6. Manually run the internal TestFlight workflow with the guard enabled.
-7. Record Codemagic build logs, App Store Connect processing status, and TestFlight install evidence in the Day 1 acceptance package when available.
+1. Merge the parse-safe Codemagic hotfix.
+2. In Codemagic, run the configuration check or confirm the branch with `codemagic.yaml` is detected.
+3. Run `Mobile iOS validation`.
+4. Create the Apple Developer/App Store Connect app record and real bundle ID setup.
+5. Configure Codemagic variable groups, encrypted secrets, signing identities, and provisioning.
+6. Set `CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE=true` only when manual setup is complete.
+7. Enable the real signing and publishing fields in a follow-up task, or run a follow-up task that adds them before upload.
+8. Manually run the internal TestFlight workflow only after active signing and publishing are enabled.
+9. Record Codemagic build logs, App Store Connect processing status, and TestFlight install evidence in the Day 1 acceptance package when available.
