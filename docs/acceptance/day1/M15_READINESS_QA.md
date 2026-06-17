@@ -83,3 +83,14 @@ cd /workspace/repos/Settleora/apps/mobile && /opt/flutter/bin/flutter test test/
 ```
 
 This improves Day 1 in-app notification preference/readout evidence but does not complete Day 1. Push delivery, email delivery, persisted/server notification preferences, cross-device preference sync, reminder scheduling, deep links/background delivery, complete notification event producer coverage, manual notification UI retest, and code review remain pending.
+
+## Post-M15 Receipt Intake Safety Addendum
+
+M18 mobile OCR/receipt intake hardening added starter implementation evidence after the original M15 docs-only package:
+
+- `apps/mobile/lib/receipt_ocr_capture/receipt_intake_safety.dart` centralizes mobile-owned receipt intake source and warning policy for camera capture, photo import, file import, unknown source, supported receipt content types/extensions, large or missing file size metadata, provisional server-mode OCR state, and unavailable native intake paths.
+- `apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart` now warns when a currency candidate was inferred from a symbol only, so users must confirm the currency before applying OCR suggestions.
+- `apps/mobile/lib/bills/bill_list_screen.dart` shows a receipt intake review panel in the personal/group OCR preview flow and keeps apply behavior review-first and explicit.
+- `apps/mobile/test/receipt_ocr_capture/receipt_ocr_parser_test.dart`, `apps/mobile/test/bill_duplicate_warning_test.dart`, and `apps/mobile/test/bill_list_screen_test.dart` cover intake warnings, symbol-only currency guidance, duplicate-preview warnings, total mismatch guidance, and visible review-first OCR apply copy.
+
+This improves Day 1 mobile receipt intake/review safety evidence but does not complete Day 1. Policy-driven image normalization, raw source retention policy, thumbnails, share-sheet/offline capture coverage, full receipt line classification and merge/split lineage, full tax/refund/tender/change handling, OCR worker runtime, automatic OCR completion, manual OCR UI retest, storage/privacy review, money review, and code review remain pending.

@@ -222,6 +222,25 @@ void main() {
       find.byKey(const Key('personal-bill-ocr-preview-panel')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('receipt-intake-safety-panel')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-intake-source-label')),
+      findsOneWidget,
+    );
+    expect(find.text('File import'), findsOneWidget);
+    expect(
+      find.text(
+        'Server-mode OCR data stays provisional until the API validates and accepts it.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Native camera capture is unavailable in this build.'),
+      findsOneWidget,
+    );
     expect(find.text('Review'), findsOneWidget);
     expect(find.text('Merchant candidate'), findsWidgets);
     expect(find.text('2 item candidates'), findsWidgets);
