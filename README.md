@@ -47,6 +47,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Workflow guidance](docs/workflow/)
 - [OpenAPI contract](packages/contracts/openapi/settleora.v1.yaml)
 - [Local infrastructure compose](infra/docker-compose.yml)
+- [TrueNAS LAN Docker compose package](infra/docker-compose.truenas-lan.yml)
 
 ## Current Scaffold
 
@@ -72,6 +73,8 @@ docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up 
 ```
 
 The health endpoint is available at `http://localhost:8080/health` by default. PostgreSQL, RabbitMQ, and storage readiness is available at `http://localhost:8080/health/ready` when the API is run with configured dependency settings. The self payment QR flow goes through the internal storage abstraction, and future public file flows must also avoid exposing physical storage paths or provider object keys.
+
+For trusted LAN-only TrueNAS testing with an iPhone TestFlight server-mode build, use [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md). That path publishes only the API port by default and keeps PostgreSQL, RabbitMQ, and API local storage private to the host/app network.
 
 ## Scaffold Validation
 

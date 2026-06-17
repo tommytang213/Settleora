@@ -18,6 +18,8 @@ Thumbs.db
 .env.*
 !.env.example
 !**/.env.example
+!.env.*.example
+!**/.env.*.example
 
 # Node
 node_modules/

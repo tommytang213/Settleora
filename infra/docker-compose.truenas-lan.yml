@@ -1,0 +1,65 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${SETTLEORA_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:8080
+      Settleora__Database__ConnectionString: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Settleora__RabbitMq__HostName: rabbitmq
+      Settleora__RabbitMq__Port: 5672
+      Settleora__RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER}
+      Settleora__RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+      Settleora__RabbitMq__VirtualHost: /
+      Settleora__Storage__Provider: Local
+      Settleora__Storage__RootPath: ${SETTLEORA_STORAGE_ROOT:-/var/lib/settleora/storage}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${SETTLEORA_API_BIND_ADDRESS:-0.0.0.0}:${SETTLEORA_API_HTTP_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: ${SETTLEORA_API_STORAGE_HOST_PATH}
+        target: ${SETTLEORA_STORAGE_ROOT:-/var/lib/settleora/storage}
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - type: bind
+        source: ${SETTLEORA_POSTGRES_HOST_PATH}
+        target: /var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - type: bind
+        source: ${SETTLEORA_RABBITMQ_HOST_PATH}
+        target: /var/lib/rabbitmq
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
