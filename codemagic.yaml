@@ -36,16 +36,22 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
-      groups:
-        - settleora-ios-signing
-        - settleora-app-store-connect
-        - settleora-testflight-control
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: $IOS_BUNDLE_ID
+      # Keep this skeleton parse-safe before Apple signing variables exist.
+      # Enable variable groups, ios_signing, signed IPA build, and publishing
+      # only after the documented Codemagic and Apple setup is complete.
+      #
+      # Future setup groups:
+      #   - settleora-ios-signing
+      #   - settleora-app-store-connect
+      #   - settleora-testflight-control
+      #
+      # Future signing example, intentionally inactive:
+      # ios_signing:
+      #   distribution_type: app_store
+      #   bundle_identifier: <configured bundle identifier>
     cache:
       cache_paths:
         - ~/.pub-cache
@@ -59,6 +65,9 @@ workflows:
             echo "Set CODEMAGIC_TESTFLIGHT_INTERNAL_ENABLE=true in the Codemagic settleora-testflight-control group after Apple signing and App Store Connect setup are complete."
             exit 1
           fi
+          echo "Internal TestFlight upload is still blocked in repo configuration."
+          echo "Run a follow-up setup task to enable variable groups, ios_signing, signed IPA build, and App Store Connect publishing."
+          exit 1
       - name: Verify required Codemagic and Apple variables
         script: |
           set -eu
@@ -84,29 +93,23 @@ workflows:
             echo "Configure the documented Codemagic variable groups before running this workflow for upload."
             exit 1
           fi
+          echo "All documented variables are present, but active signing and publishing are intentionally disabled in this parse-safe skeleton."
+          exit 1
       - name: Install Flutter dependencies
         script: flutter pub get
       - name: Analyze Flutter app
         script: flutter analyze
       - name: Run Flutter tests
         script: flutter test
-      - name: Set up internal-only iOS code signing
-        script: |
-          set -eu
-          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
-      - name: Build signed iOS IPA
-        script: |
-          set -eu
-          flutter build ipa --release \
-            --build-name="${FLUTTER_BUILD_NAME:-1.0.0}" \
-            --build-number="${BUILD_NUMBER:-1}"
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-    publishing:
-      app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: false
-        submit_to_app_store: false
+      # Future signing and upload steps intentionally inactive:
+      # - xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+      # - flutter build ipa --release --build-name="${FLUTTER_BUILD_NAME:-1.0.0}" --build-number="${BUILD_NUMBER:-1}"
+      #
+      # Future publishing example, intentionally inactive:
+      # publishing:
+      #   app_store_connect:
+      #     api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+      #     key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+      #     issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      #     submit_to_testflight: false
+      #     submit_to_app_store: false
