@@ -22,10 +22,13 @@ const _confirmReceiptOcrReviewApplyLabel =
     'Confirm apply OCR review to bill draft';
 const _provisionalReceiptOcrReviewSemanticLabel =
     'Provisional OCR data. Review before applying.';
-const _headerOcrCandidatesSemanticLabel = 'Header OCR candidates, provisional';
-const _totalOcrCandidatesSemanticLabel = 'Total OCR candidates, provisional';
-const _lineOcrCandidatesSemanticLabel = 'Line OCR candidates, provisional';
-const _lineOcrCandidateSemanticLabel = 'Line OCR candidate';
+const _headerOcrCandidatesSemanticLabel =
+    'Receipt OCR header suggestions, provisional';
+const _totalOcrCandidatesSemanticLabel =
+    'Receipt OCR totals for review, provisional';
+const _lineOcrCandidatesSemanticLabel =
+    'Receipt OCR lines for review, provisional';
+const _lineOcrCandidateSemanticLabel = 'Receipt OCR line for review';
 const _ocrReviewIssueSemanticLabel = 'OCR review issue';
 const _receiptOcrBusyDisabledSemanticLabel =
     'Disabled while receipt review action is in progress';
@@ -80,29 +83,29 @@ String _receiptOcrReviewStatusSemanticLabel(ReceiptOcrReviewStatus status) {
 
 String _receiptOcrReviewLineCountSemanticLabel(int lineCount) {
   if (lineCount <= 0) {
-    return 'No line candidates';
+    return 'No receipt lines';
   }
 
   if (lineCount == 1) {
-    return '1 line candidate';
+    return '1 receipt line';
   }
 
   if (lineCount > 50) {
-    return '50 or more line candidates';
+    return '50 or more receipt lines';
   }
 
-  return '$lineCount line candidates';
+  return '$lineCount receipt lines';
 }
 
 String _receiptOcrReviewCurrencySemanticLabel(String? currency) {
   if (currency == null || currency.trim().isEmpty) {
-    return 'No currency candidate';
+    return 'No currency selected';
   }
 
   final normalized = currency.trim().toUpperCase();
   if (!RegExp(r'^[A-Z]{3}$').hasMatch(normalized)) {
-    return 'Currency candidate present';
+    return 'Currency selected';
   }
 
-  return 'Currency candidate $normalized';
+  return 'Currency $normalized';
 }
