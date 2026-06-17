@@ -40,6 +40,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Recurring bills technical spec](docs/features/recurring-bills/TECHNICAL_SPEC.md)
 - [Product requirements](docs/prd/)
 - [Day 1 acceptance evidence package](docs/acceptance/day1/)
+- [Codemagic/TestFlight setup](docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
 - [Workflow guidance](docs/workflow/)
 - [OpenAPI contract](packages/contracts/openapi/settleora.v1.yaml)
