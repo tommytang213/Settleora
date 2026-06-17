@@ -356,7 +356,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                         icon: Icons.filter_alt_off_outlined,
                         title: 'No matching groups',
                         message:
-                            'No loaded visible groups match these local filters. Clear filters to review loaded server-returned groups; no-match is not an authorization result or server search.',
+                            'No loaded visible groups match these filters. Clear filters to review your available groups.',
                         compact: true,
                       )
                     else
@@ -948,7 +948,7 @@ class _SettleoraGroupDetailScreenState
                             icon: Icons.person_search_outlined,
                             title: 'No matching members',
                             message:
-                                'No loaded visible members match these local filters. Clear filters to review loaded server-returned members; no-match is not membership or authorization truth.',
+                                'No loaded visible members match these filters. Clear filters to review available group members.',
                             compact: true,
                           )
                         else
@@ -1048,7 +1048,7 @@ class _GroupWorkspaceReadinessCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Use the shell routes for settlements, recurring bills, notifications, receipt reviews, reports, and sync status. Each subject screen reloads through its own repository/API seam before mutation; group labels, member rows, dashboard cards, notification metadata, cached route state, and local filters are not access signals.',
+              'Use the main navigation for settlements, recurring bills, notifications, receipt reviews, reports, and sync status. Details are refreshed before actions, and local labels or filters do not grant access.',
               style: TextStyle(color: muted),
             ),
             const SizedBox(height: 8),

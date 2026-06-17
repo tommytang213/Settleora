@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_form_fields.dart';
 import 'recurring_bill_repository.dart';
 
 class SettleoraRecurringBillScreen extends StatefulWidget {
@@ -406,7 +407,7 @@ class _SettleoraRecurringBillScreenState
                           icon: Icons.search_off_outlined,
                           title: 'No matching forecast',
                           message:
-                              'No loaded forecast occurrences match these local filters. Forecast rows are server-returned readouts; no-match does not prove no authorized recurring records exist elsewhere.',
+                              'No loaded forecast occurrences match these filters. Refresh or adjust filters if you expected to see more recurring bills.',
                           compact: true,
                         )
                       else
@@ -1261,15 +1262,18 @@ class _SettleoraRecurringBillTemplateFormScreenState
                   _Section(
                     title: 'Bill Payload',
                     children: [
-                      TextFormField(
+                      CurrencySelector(
                         key: const Key('recurring-bill-form-currency'),
-                        controller: _currencyController,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: const InputDecoration(
-                          labelText: 'Currency',
-                          border: OutlineInputBorder(),
-                        ),
+                        value: _currencyController.text,
+                        label: 'Currency',
                         validator: _currencyValidator,
+                        enabled: !_isSaving,
+                        semanticLabel: 'Recurring bill currency selector',
+                        onChanged: (currency) {
+                          setState(() {
+                            _currencyController.text = currency ?? '';
+                          });
+                        },
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
@@ -1920,7 +1924,7 @@ class _ServerAuthorityPanel extends StatelessWidget {
       icon: Icons.verified_user_outlined,
       title: 'Server checked',
       message:
-          'The server validates recurrence, group membership, authorization, money, generated drafts, and audit. Mobile only submits form fields and renders returned state.',
+          'Settleora checks recurrence, group membership, access, money, generated drafts, and audit before changes are saved.',
       compact: compact,
     );
   }

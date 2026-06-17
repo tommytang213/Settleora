@@ -11,6 +11,7 @@ import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_form_fields.dart';
 import '../ui/settleora_theme.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
@@ -10448,16 +10449,16 @@ class _GroupBillCreatePayerCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            PaymentMethodSelector(
               key: ValueKey('group-bill-payer-method-$index'),
-              controller: controllers.paymentMethodLabel,
+              value: controllers.paymentMethodLabel.text,
               enabled: !isSaving,
-              onChanged: (_) => onDraftChanged(),
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Payment method label',
-                border: OutlineInputBorder(),
-              ),
+              maxLength: 120,
+              helperText: 'Optional reconciliation hint.',
+              onChanged: (value) {
+                controllers.paymentMethodLabel.text = value ?? '';
+                onDraftChanged();
+              },
             ),
           ],
         ),
@@ -10484,33 +10485,17 @@ class _CurrencyPickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedValue = controller.text.trim().toUpperCase();
-    final value = _supportedBillCurrencyCodes.contains(normalizedValue)
-        ? normalizedValue
-        : _supportedBillCurrencyCodes.first;
-    if (controller.text != value) {
-      controller.text = value;
-    }
-
-    return DropdownButtonFormField<String>(
-      key: ValueKey('currency-picker-$label-$value'),
-      initialValue: value,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
-      items: [
-        for (final currency in _supportedBillCurrencyCodes)
-          DropdownMenuItem<String>(value: currency, child: Text(currency)),
-      ],
-      onChanged: enabled
-          ? (selected) {
-              if (selected == null) {
-                return;
-              }
-              onChanged(selected);
-            }
-          : null,
+    return CurrencySelector(
+      key: ValueKey('currency-picker-$label-${controller.text}'),
+      value: controller.text,
+      label: label,
+      enabled: enabled,
+      onChanged: (selected) {
+        if (selected == null) {
+          return;
+        }
+        onChanged(selected);
+      },
       validator: (_) => validator(controller.text),
     );
   }
@@ -14897,7 +14882,7 @@ class _GroupBillAcknowledgementActions extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Accept or request a correction through the server workflow. Mobile does not decide authorization or final bill state.',
+              'Accept or request a correction when the bill details have been checked.',
             ),
             if (failure != null) ...[
               const SizedBox(height: 10),
@@ -17352,7 +17337,7 @@ _GroupBillNextStepGuidance _groupBillNextStepGuidance(
     return _GroupBillNextStepGuidance(
       title: 'Correction requested',
       message:
-          '$reason The creator can revise and resubmit the shared bill when server workflow allows it.',
+          '$reason The creator can revise and resubmit the shared bill when revisions are available.',
       icon: Icons.report_problem_outlined,
     );
   }

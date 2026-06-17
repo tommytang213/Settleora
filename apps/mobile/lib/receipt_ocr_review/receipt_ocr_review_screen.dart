@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_form_fields.dart';
 import 'receipt_ocr_review_repository.dart';
 
 part 'receipt_ocr_review_accessibility.dart';
@@ -602,7 +603,7 @@ class _ReceiptOcrReviewDetailScreenState
         return AlertDialog(
           title: const Text('Apply reviewed lines?'),
           content: const Text(
-            'OCR data is provisional. Applying asks the repository/API to revalidate this saved review; the server response remains authoritative for draft bill changes.',
+            'OCR data is provisional. Review the saved details before applying them to a draft bill.',
           ),
           actions: [
             TextButton(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_form_fields.dart';
 import 'bill_revision_repository.dart';
 
 enum SettleoraBillRevisionProposalEditorMode { create, revise }
@@ -229,7 +230,8 @@ class _SettleoraBillRevisionProposalEditorScreenState
 
   SettleoraBillRevisionProposalSnapshot? _buildProposal() {
     final totalAmount = _totalAmountController.text.trim();
-    final totalCurrency = _totalCurrencyController.text.trim();
+    final totalCurrency =
+        settleoraNormalizeCurrencyCode(_totalCurrencyController.text) ?? '';
     final participantRows = <SettleoraBillRevisionProposalParticipantRow>[];
     final payerRows = <SettleoraBillRevisionProposalPayerRow>[];
 
@@ -253,7 +255,8 @@ class _SettleoraBillRevisionProposalEditorScreenState
     for (var index = 0; index < _participants.length; index += 1) {
       final row = _participants[index];
       final amount = row.amountController.text.trim();
-      final currency = row.currencyController.text.trim();
+      final currency =
+          settleoraNormalizeCurrencyCode(row.currencyController.text) ?? '';
       if (amount.isEmpty || currency.isEmpty) {
         return _setValidation(
           'Enter amount and currency for participant ${index + 1}.',
@@ -271,7 +274,8 @@ class _SettleoraBillRevisionProposalEditorScreenState
     for (var index = 0; index < _payers.length; index += 1) {
       final row = _payers[index];
       final amount = row.amountController.text.trim();
-      final currency = row.currencyController.text.trim();
+      final currency =
+          settleoraNormalizeCurrencyCode(row.currencyController.text) ?? '';
       if (amount.isEmpty || currency.isEmpty) {
         return _setValidation(
           'Enter amount and currency for payer ${index + 1}.',
@@ -351,28 +355,19 @@ class _SettleoraBillRevisionProposalEditorScreenState
               title: 'Proposal total',
               icon: Icons.payments_outlined,
               children: [
-                TextField(
-                  key: const Key('proposal-total-amount'),
-                  controller: _totalAmountController,
+                MoneyAmountCurrencyField(
+                  amountKey: const Key('proposal-total-amount'),
+                  currencyKey: const Key('proposal-total-currency'),
+                  amountController: _totalAmountController,
+                  currencyValue: _totalCurrencyController.text,
+                  onCurrencyChanged: (currency) {
+                    setState(() {
+                      _totalCurrencyController.text = currency ?? '';
+                    });
+                  },
+                  amountLabel: 'Total amount',
+                  currencyLabel: 'Total currency',
                   enabled: !_isSaving,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Total amount',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  key: const Key('proposal-total-currency'),
-                  controller: _totalCurrencyController,
-                  enabled: !_isSaving,
-                  textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
-                    labelText: 'Total currency',
-                    border: OutlineInputBorder(),
-                  ),
                 ),
               ],
             ),
@@ -468,7 +463,7 @@ class _EditorSummaryPanel extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Settleora will validate final totals, participant shares, payer contributions, permissions, and current bill state on the server.',
+          'Settleora will check final totals, participant shares, payer contributions, permissions, and current bill state before saving.',
         ),
         if (mode == SettleoraBillRevisionProposalEditorMode.revise) ...[
           const SizedBox(height: 8),
@@ -501,6 +496,9 @@ class _ParticipantRowEditor extends StatelessWidget {
       currencyKey: ValueKey('proposal-participant-$index-currency'),
       amountController: row.amountController,
       currencyController: row.currencyController,
+      onCurrencyChanged: (currency) {
+        row.currencyController.text = currency ?? '';
+      },
       amountLabel: 'Share amount',
       currencyLabel: 'Share currency',
       enabled: enabled,
@@ -528,6 +526,9 @@ class _PayerRowEditor extends StatelessWidget {
       currencyKey: ValueKey('proposal-payer-$index-currency'),
       amountController: row.amountController,
       currencyController: row.currencyController,
+      onCurrencyChanged: (currency) {
+        row.currencyController.text = currency ?? '';
+      },
       amountLabel: 'Contribution amount',
       currencyLabel: 'Contribution currency',
       enabled: enabled,
@@ -543,6 +544,7 @@ class _MoneyRowEditor extends StatelessWidget {
     required this.currencyKey,
     required this.amountController,
     required this.currencyController,
+    required this.onCurrencyChanged,
     required this.amountLabel,
     required this.currencyLabel,
     required this.enabled,
@@ -554,6 +556,7 @@ class _MoneyRowEditor extends StatelessWidget {
   final Key currencyKey;
   final TextEditingController amountController;
   final TextEditingController currencyController;
+  final ValueChanged<String?> onCurrencyChanged;
   final String amountLabel;
   final String currencyLabel;
   final bool enabled;
@@ -578,28 +581,15 @@ class _MoneyRowEditor extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Profile ${_shortId(profileId)}'),
               const SizedBox(height: 10),
-              TextField(
-                key: amountKey,
-                controller: amountController,
+              MoneyAmountCurrencyField(
+                amountKey: amountKey,
+                currencyKey: currencyKey,
+                amountController: amountController,
+                currencyValue: currencyController.text,
+                onCurrencyChanged: onCurrencyChanged,
+                amountLabel: amountLabel,
+                currencyLabel: currencyLabel,
                 enabled: enabled,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: InputDecoration(
-                  labelText: amountLabel,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                key: currencyKey,
-                controller: currencyController,
-                enabled: enabled,
-                textCapitalization: TextCapitalization.characters,
-                decoration: InputDecoration(
-                  labelText: currencyLabel,
-                  border: const OutlineInputBorder(),
-                ),
               ),
             ],
           ),
@@ -619,7 +609,7 @@ class _LocalPreviewPanel extends StatelessWidget {
       icon: Icons.visibility_outlined,
       children: [
         Text(
-          'This is a local pre-submit preview, not authoritative bill truth. The server response and review context remain the source of truth after save.',
+          'This preview helps you review the proposal before saving. The saved review screen shows the final result people will approve.',
         ),
       ],
     );
@@ -645,7 +635,7 @@ class _UnsupportedDetailsPanel extends StatelessWidget {
       icon: Icons.info_outline,
       children: [
         const Text(
-          'The current proposal contract supports only aggregate total, participant shares, and payer contributions.',
+          'This editor supports only aggregate total, participant shares, and payer contributions.',
         ),
         const SizedBox(height: 8),
         for (final item in unsupported)

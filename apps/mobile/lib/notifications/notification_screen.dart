@@ -1369,7 +1369,11 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Row(
           children: [
-            Expanded(child: Text('$description; API decides final state.')),
+            Expanded(
+              child: Text(
+                '$description; status is checked before changes are shown.',
+              ),
+            ),
             const SizedBox(width: 12),
             OutlinedButton.icon(
               key: const Key('notification-mark-visible-read'),

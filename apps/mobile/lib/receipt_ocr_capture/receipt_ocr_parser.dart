@@ -28,7 +28,7 @@ class ReceiptOcrParser {
     }
     if (currencyDetection.isSymbolOnly) {
       warnings.add(
-        'Currency was inferred from a symbol. Confirm the currency before applying.',
+        'The receipt only shows a currency symbol. Choose the currency before applying.',
       );
     }
 
@@ -100,10 +100,7 @@ class ReceiptOcrParser {
       return const _ReceiptCurrencyDetection(currency: 'HKD');
     }
     if (joined.contains(r'$')) {
-      return const _ReceiptCurrencyDetection(
-        currency: 'USD',
-        isSymbolOnly: true,
-      );
+      return const _ReceiptCurrencyDetection(isSymbolOnly: true);
     }
     return const _ReceiptCurrencyDetection();
   }

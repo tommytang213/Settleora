@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app/auth_session_repository.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_form_fields.dart';
 import 'profile_repository.dart';
 
 const _paymentMethodMaxLength = 120;
@@ -376,18 +377,20 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      TextField(
+                      CurrencySelector(
                         key: const Key('profile-default-currency'),
-                        controller: _defaultCurrencyController,
-                        textCapitalization: TextCapitalization.characters,
-                        maxLength: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Default currency',
-                          hintText: 'USD',
-                          helperText:
-                              'Optional 3-letter code. Blank clears your preference.',
-                          border: OutlineInputBorder(),
-                        ),
+                        value: _defaultCurrencyController.text,
+                        label: 'Default currency',
+                        helperText:
+                            'Optional. Blank clears the preference used to prefill new forms.',
+                        allowClear: true,
+                        enabled: !_isSavingAny,
+                        semanticLabel: 'Default currency selector',
+                        onChanged: (value) {
+                          setState(() {
+                            _defaultCurrencyController.text = value ?? '';
+                          });
+                        },
                       ),
                       if (_profileSaveFailure != null) ...[
                         const SizedBox(height: 8),
@@ -416,26 +419,28 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                       _PaymentDetailsSummary(details: paymentDetails),
                       const SizedBox(height: 8),
                       Text(
-                        'Blank or cleared payment fields are saved as not set. Visibility is a server-returned profile fact, not a client-side authorization decision.',
+                        'Blank or cleared payment fields are saved as not set. Only people involved in an eligible settlement can see these details.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Payment details are not globally visible. The API decides who may see them, including settlement-scoped counterparty access.',
+                        'Payment details are not globally visible. Access is checked before details are shown.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 14),
-                      TextField(
+                      PaymentMethodSelector(
                         key: const Key('profile-payment-method'),
-                        controller: _paymentMethodController,
-                        textInputAction: TextInputAction.next,
+                        value: _paymentMethodController.text,
                         maxLength: _paymentMethodMaxLength,
-                        maxLengthEnforcement: MaxLengthEnforcement.none,
-                        decoration: const InputDecoration(
-                          labelText: 'Payment method',
-                          hintText: 'Bank transfer',
-                          border: OutlineInputBorder(),
-                        ),
+                        helperText:
+                            'Optional hint for settlement and reconciliation.',
+                        enabled: !_isSavingAny,
+                        semanticLabel: 'Preferred payment method selector',
+                        onChanged: (value) {
+                          setState(() {
+                            _paymentMethodController.text = value ?? '';
+                          });
+                        },
                       ),
                       const SizedBox(height: 10),
                       TextField(
@@ -501,7 +506,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Changing this value saves a requested profile fact; it does not grant counterparty permission by itself.',
+                        'Changing this value saves who should be allowed to request access.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
@@ -614,7 +619,7 @@ class _PaymentDetailsSummary extends StatelessWidget {
                               ? settleoraPaymentDetailsVisibilityDescription(
                                   visibility,
                                 )
-                              : 'Blank or cleared payment fields mean the API currently has no payment text to show.',
+                              : 'Blank or cleared payment fields mean there is no payment text to show.',
                         ),
                       ],
                     ),
@@ -647,8 +652,8 @@ class _PaymentDetailsSummary extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 details.isConfigured
-                    ? 'Server authorization still controls who can read these details.'
-                    : 'The visibility value is the server-returned default/readout for an unconfigured payment profile.',
+                    ? 'Access is checked before these details are shown.'
+                    : 'This is the default visibility for payment details that are not configured yet.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -754,7 +759,7 @@ class _AccountPrivacyBoundaryReadout extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Account and profile rows are server-returned readouts. Cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access, storage access, privacy policy, financial policy, or audit behavior.',
+                'Account and profile details are shown only after sign-in. Refresh if something looks stale before sharing payment information.',
                 style: TextStyle(color: muted),
               ),
             ),
@@ -789,8 +794,8 @@ class _QrStatus extends StatelessWidget {
         title: Text(qrFile == null ? 'QR not linked' : 'QR available'),
         subtitle: Text(
           qrFile == null
-              ? 'No QR metadata is linked. QR upload, removal, content reading, and image handling stay in a separate file-handling slice.'
-              : 'Metadata only: ${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}. QR bytes, file IDs, storage paths, and download URLs are not shown here; upload, removal, and content handling stay in a separate file-handling slice.',
+              ? 'No QR payment image is linked yet.'
+              : '${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}.',
         ),
       ),
     );

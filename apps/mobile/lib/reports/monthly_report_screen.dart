@@ -648,7 +648,7 @@ class _FilteredSummaryPanel extends StatelessWidget {
       icon: Icons.filter_alt_outlined,
       title: '${discovery.visibleRowCount} matching report rows',
       message:
-          'Local discovery only changes visible loaded rows. Totals, bill count, reconciliation readouts, and settlement counts remain the server-returned monthly summary.',
+          'Filters only change the rows shown here. Totals, bill count, reconciliation readouts, and settlement counts keep the saved monthly summary.',
       compact: true,
     );
   }
@@ -676,8 +676,7 @@ class _CurrencySection extends StatelessWidget {
           _StatePanel(
             icon: Icons.account_balance_wallet_outlined,
             title: emptyLabel,
-            message:
-                'No server-returned currency buckets are visible for this month.',
+            message: 'No currency buckets are visible for this month.',
             compact: true,
           )
         else
@@ -754,8 +753,7 @@ class _StatusSection extends StatelessWidget {
           const _StatePanel(
             icon: Icons.format_list_bulleted_outlined,
             title: 'No status counts',
-            message:
-                'No server-returned status counts are visible for this month.',
+            message: 'No status counts are visible for this month.',
             compact: true,
           )
         else

@@ -77,16 +77,15 @@ void main() {
       find.byKey(const Key('profile-account-boundary-readout')),
       findsOneWidget,
     );
-    expect(find.textContaining('server-returned readouts'), findsOneWidget);
     expect(
       find.textContaining(
-        'Cached rows, hidden controls, route state, generated-client availability, UI mode, and preferences do not authorize data access',
+        'Account and profile details are shown only after sign-in.',
       ),
       findsOneWidget,
     );
     expect(
       find.textContaining(
-        'privacy policy, financial policy, or audit behavior',
+        'Refresh if something looks stale before sharing payment information.',
       ),
       findsOneWidget,
     );
@@ -97,30 +96,28 @@ void main() {
     expect(find.text('Settlement counterparties'), findsWidgets);
     expect(
       find.text(
-        'Settlement counterparties means the API may show details only inside a server-authorized settlement or payment relationship.',
+        'Settlement counterparties means details can be shown only inside an eligible settlement or payment relationship.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Access is checked before these details are shown.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Payment details are not globally visible. Access is checked before details are shown.',
       ),
       findsOneWidget,
     );
     expect(
       find.text(
-        'Server authorization still controls who can read these details.',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.text(
-        'Payment details are not globally visible. The API decides who may see them, including settlement-scoped counterparty access.',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.text(
-        'Changing this value saves a requested profile fact; it does not grant counterparty permission by itself.',
+        'Changing this value saves who should be allowed to request access.',
       ),
       findsOneWidget,
     );
     expect(find.text('QR available'), findsOneWidget);
-    expect(find.textContaining('Metadata only: image/png'), findsOneWidget);
+    expect(find.textContaining('image/png'), findsOneWidget);
     expect(find.textContaining('2.0 KB'), findsOneWidget);
     expect(find.textContaining('updated'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -134,62 +131,18 @@ void main() {
     );
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
-      find.textContaining('Current mobile uses built-in theme tokens only'),
-      findsOneWidget,
-    );
-    expect(
       find.textContaining(
-        'Visual preferences are presentation-only readouts in this slice',
+        'Custom appearance settings are not available in the mobile app yet.',
       ),
       findsOneWidget,
     );
     expect(
-      find.textContaining('System, light, and dark appearance concepts'),
+      find.textContaining('currently follows the built-in mobile appearance'),
       findsOneWidget,
     );
     expect(
       find.textContaining(
-        'no server-mode visual preference persistence exists in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no visual preference API or schema path exists here',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining('built-in palette vs custom palette choices'),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'Category, tag, group, dashboard, chart, and configurable status color concepts',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'Dashboard layout and palette personalization readiness is read-only',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no local-to-server visual preference migration exists in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'no admin/deployment default palette policy exists in this slice',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'Theme and color choices must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy',
+        'Appearance choices will never change access, money, settlement, privacy, or security rules',
       ),
       findsOneWidget,
     );
@@ -238,9 +191,9 @@ void main() {
       SettleoraPaymentDetailsVisibilityValues.private:
           'Private means this self profile readout is for you only and does not grant counterparty access.',
       SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly:
-          'Settlement counterparties means the API may show details only inside a server-authorized settlement or payment relationship.',
+          'Settlement counterparties means details can be shown only inside an eligible settlement or payment relationship.',
       SettleoraPaymentDetailsVisibilityValues.groupMembersWhenShared:
-          'Group members when shared means the API may show details only in a concrete shared group, bill, settlement, or payment context.',
+          'Group members when shared means details can be shown only in a concrete shared group, bill, settlement, or payment context.',
     };
 
     for (final entry in cases.entries) {
@@ -265,7 +218,7 @@ void main() {
       expect(find.text(entry.value), findsOneWidget);
       expect(
         find.textContaining(
-          'Visibility is a server-returned profile fact, not a client-side authorization decision.',
+          'Only people involved in an eligible settlement can see these details.',
         ),
         findsOneWidget,
       );
@@ -294,27 +247,22 @@ void main() {
 
     expect(find.byKey(const Key('profile-payment-summary')), findsOneWidget);
     expect(find.text('No payment details yet'), findsOneWidget);
-    expect(find.text('Not set'), findsNWidgets(3));
+    expect(find.text('Not set'), findsWidgets);
     expect(find.text('Settlement counterparties'), findsWidgets);
     expect(
       find.text(
-        'Blank or cleared payment fields mean the API currently has no payment text to show.',
+        'Blank or cleared payment fields mean there is no payment text to show.',
       ),
       findsOneWidget,
     );
     expect(
       find.text(
-        'The visibility value is the server-returned default/readout for an unconfigured payment profile.',
+        'This is the default visibility for payment details that are not configured yet.',
       ),
       findsOneWidget,
     );
     expect(find.text('QR not linked'), findsOneWidget);
-    expect(
-      find.text(
-        'No QR metadata is linked. QR upload, removal, content reading, and image handling stay in a separate file-handling slice.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('No QR payment image is linked yet.'), findsOneWidget);
   });
 
   testWidgets('profile readout suppresses unsafe raw payment and QR text', (
@@ -370,9 +318,10 @@ void main() {
       find.byKey(const Key('profile-display-name')),
       'Morgan',
     );
-    await tester.enterText(
-      find.byKey(const Key('profile-default-currency')),
-      'HKD',
+    await selectDropdownValue(
+      tester,
+      const Key('profile-default-currency'),
+      'HKD - Hong Kong Dollar',
     );
     await tester.tap(find.byKey(const Key('profile-save')));
     await tester.pumpAndSettle();
@@ -390,9 +339,10 @@ void main() {
       find.byType(ListView),
       const Offset(0, -320),
     );
-    await tester.enterText(
-      find.byKey(const Key('profile-payment-method')),
-      '  FPS  ',
+    await selectDropdownValue(
+      tester,
+      const Key('profile-payment-method'),
+      'FPS',
     );
     await tester.enterText(
       find.byKey(const Key('profile-payment-handle')),
@@ -466,8 +416,9 @@ void main() {
       find.byType(ListView),
       const Offset(0, -320),
     );
-    await tester.enterText(
-      find.byKey(const Key('profile-payment-method')),
+    await selectDropdownValue(
+      tester,
+      const Key('profile-payment-method'),
       'FPS',
     );
     tester.testTextInput.hide();
@@ -655,8 +606,9 @@ void main() {
       find.byType(ListView),
       const Offset(0, -320),
     );
-    await tester.enterText(
-      find.byKey(const Key('profile-payment-method')),
+    await selectDropdownValue(
+      tester,
+      const Key('profile-payment-method'),
       'PayMe',
     );
     await tester.enterText(
@@ -670,14 +622,11 @@ void main() {
     await tester.tap(find.byKey(const Key('profile-payment-cancel')));
     await tester.pumpAndSettle();
 
-    final methodField = tester.widget<TextField>(
-      find.byKey(const Key('profile-payment-method')),
-    );
     final handleField = tester.widget<TextField>(
       find.byKey(const Key('profile-payment-handle')),
     );
 
-    expect(methodField.controller?.text, 'Bank transfer');
+    expect(find.text('Bank transfer'), findsWidgets);
     expect(handleField.controller?.text, 'pay.example/taylor');
     expect(repository.paymentUpdateCalls, 0);
     expect(visibleText(tester), isNot(contains('discard-me')));
@@ -1375,6 +1324,25 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Future<void> selectDropdownValue(
+  WidgetTester tester,
+  Key fieldKey,
+  String nextLabel,
+) async {
+  final field = find.byKey(fieldKey);
+  await tester.ensureVisible(field);
+  await tester.pumpAndSettle();
+  await tester.tap(
+    find.descendant(
+      of: field,
+      matching: find.byType(DropdownButtonFormField<String?>),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(nextLabel).last);
+  await tester.pumpAndSettle();
 }
 
 const _profileId = '11111111-1111-1111-1111-111111111111';

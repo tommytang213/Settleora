@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
 void main() {
@@ -144,37 +145,29 @@ void main() {
     expect(find.text('Card content'), findsOneWidget);
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
-      find.textContaining('Current mobile uses built-in theme tokens only'),
+      find.textContaining(
+        'Custom appearance settings are not available in the mobile app yet.',
+      ),
       findsOneWidget,
     );
     expect(find.text('Appearance mode'), findsOneWidget);
     expect(
-      find.textContaining('System, light, and dark appearance concepts'),
+      find.textContaining('currently follows the built-in mobile appearance'),
       findsOneWidget,
     );
     expect(find.text('Accent and palettes'), findsOneWidget);
-    expect(
-      find.textContaining('built-in palette vs custom palette choices'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('cannot be customized yet'), findsOneWidget);
     expect(find.text('Subject colors'), findsOneWidget);
     expect(
-      find.textContaining(
-        'Category, tag, group, dashboard, chart, and configurable status color concepts',
-      ),
+      find.textContaining('use the built-in Settleora style'),
       findsOneWidget,
     );
     expect(find.text('Personalization'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'no local-to-server visual preference migration exists in this slice',
-      ),
-      findsOneWidget,
-    );
+    expect(find.textContaining('not configurable yet'), findsOneWidget);
     expect(find.text('Authority'), findsOneWidget);
     expect(
       find.textContaining(
-        'must not affect authorization, money, settlement state, sync acceptance, storage access, audit truth, privacy policy, or security policy',
+        'will never change access, money, settlement, privacy, or security rules',
       ),
       findsOneWidget,
     );
@@ -220,6 +213,136 @@ void main() {
     );
   });
 
+  testWidgets(
+    'currency selector preserves supported, blank, and unknown values',
+    (tester) async {
+      String? selected = 'HKD';
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              return Scaffold(
+                body: CurrencySelector(
+                  key: const Key('currency-selector'),
+                  value: selected,
+                  allowClear: true,
+                  onChanged: (value) => setState(() => selected = value),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('HKD - Hong Kong Dollar'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('currency-selector')));
+      await tester.pumpAndSettle();
+      expect(find.text('JPY - Japanese Yen'), findsOneWidget);
+      await tester.tap(find.text('JPY - Japanese Yen').last);
+      await tester.pumpAndSettle();
+      expect(selected, 'JPY');
+
+      selected = 'AUD';
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: CurrencySelector(
+              key: const Key('currency-selector-unknown'),
+              value: selected,
+              allowClear: true,
+              onChanged: (value) => selected = value,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('AUD - Not currently selectable'), findsOneWidget);
+    },
+  );
+
+  testWidgets('payment method selector handles common and custom values', (
+    tester,
+  ) async {
+    String? selected = 'FPS';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              body: PaymentMethodSelector(
+                key: const Key('payment-method-selector'),
+                value: selected,
+                onChanged: (value) => setState(() => selected = value),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    expect(find.text('FPS'), findsOneWidget);
+    await tester.tap(find.text('FPS'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('PayMe').last);
+    await tester.pumpAndSettle();
+    expect(selected, 'PayMe');
+
+    selected = 'My local wallet';
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: PaymentMethodSelector(
+            key: const Key('payment-method-selector-custom'),
+            value: selected,
+            onChanged: (value) => selected = value,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Other'), findsOneWidget);
+    expect(find.text('My local wallet'), findsOneWidget);
+  });
+
+  testWidgets('shared icon button label fits narrow mobile widths', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(280, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 148,
+              child: AppButton(
+                key: const Key('narrow-scan-button'),
+                label: 'Scan receipt',
+                icon: Icons.document_scanner_outlined,
+                variant: AppButtonVariant.secondary,
+                expanded: true,
+                onPressed: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Scan receipt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('amount status row stays readable at high text scale', (
     tester,
   ) async {
@@ -240,7 +363,7 @@ void main() {
                 child: AppCard(
                   child: AmountStatusRow(
                     title: 'Very long dinner club settlement',
-                    subtitle: 'Long server-returned subtitle remains bounded',
+                    subtitle: 'Long saved-summary subtitle remains bounded',
                     amount: r'HKD 123456.78',
                     status: 'Needs review',
                     statusVariant: StatusChipVariant.warning,
@@ -256,7 +379,7 @@ void main() {
 
     expect(find.text('Very long dinner club settlement'), findsOneWidget);
     expect(
-      find.text('Long server-returned subtitle remains bounded'),
+      find.text('Long saved-summary subtitle remains bounded'),
       findsOneWidget,
     );
     expect(find.text(r'HKD 123456.78'), findsOneWidget);

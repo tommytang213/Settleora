@@ -1560,7 +1560,7 @@ class _DashboardMoreSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Monthly report opens server-returned aggregates for the selected month.',
+            'Monthly report opens the saved summary for the selected month.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),

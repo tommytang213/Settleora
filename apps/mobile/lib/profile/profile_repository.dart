@@ -177,11 +177,11 @@ String settleoraPaymentDetailsVisibilityDescription(
     SettleoraPaymentDetailsVisibilityValues.private =>
       'Private means this self profile readout is for you only and does not grant counterparty access.',
     SettleoraPaymentDetailsVisibilityValues.settlementCounterpartiesOnly =>
-      'Settlement counterparties means the API may show details only inside a server-authorized settlement or payment relationship.',
+      'Settlement counterparties means details can be shown only inside an eligible settlement or payment relationship.',
     SettleoraPaymentDetailsVisibilityValues.groupMembersWhenShared =>
-      'Group members when shared means the API may show details only in a concrete shared group, bill, settlement, or payment context.',
+      'Group members when shared means details can be shown only in a concrete shared group, bill, settlement, or payment context.',
     _ =>
-      'This server-returned visibility is shown for readout only; API authorization still decides access.',
+      'This visibility setting is shown for readout only. Access is checked before payment details are shown.',
   };
 }
 

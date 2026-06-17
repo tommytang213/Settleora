@@ -208,7 +208,7 @@ class _ServerModeFormFields extends StatelessWidget {
         const _BoundaryNotice(
           icon: Icons.verified_user_outlined,
           message:
-              'Server mode requires server authentication. The API decides account access, collaboration, shared records, sync acceptance, and authorization.',
+              'Server mode requires sign-in. Access, collaboration, shared records, sync, and permissions are checked before changes are shown.',
         ),
         const SizedBox(height: 10),
         const _BoundaryNotice(

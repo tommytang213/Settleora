@@ -182,7 +182,7 @@ void main() {
     expect(find.text('9000 JPY'), findsNothing);
     expect(
       find.textContaining(
-        'Totals, bill count, reconciliation readouts, and settlement counts remain',
+        'Totals, bill count, reconciliation readouts, and settlement counts keep',
       ),
       findsOneWidget,
     );

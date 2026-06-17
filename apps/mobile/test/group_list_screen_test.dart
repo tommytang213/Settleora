@@ -312,7 +312,7 @@ void main() {
     expect(find.text('No matching groups'), findsOneWidget);
     expect(
       find.text(
-        'No loaded visible groups match these local filters. Clear filters to review loaded server-returned groups; no-match is not an authorization result or server search.',
+        'No loaded visible groups match these filters. Clear filters to review your available groups.',
       ),
       findsOneWidget,
     );
@@ -366,7 +366,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('Each subject screen reloads through its own'),
+      find.textContaining('Details are refreshed before actions'),
       findsOneWidget,
     );
     expect(
@@ -672,7 +672,7 @@ void main() {
     expect(find.text('No matching members'), findsOneWidget);
     expect(
       find.text(
-        'No loaded visible members match these local filters. Clear filters to review loaded server-returned members; no-match is not membership or authorization truth.',
+        'No loaded visible members match these filters. Clear filters to review available group members.',
       ),
       findsOneWidget,
     );
