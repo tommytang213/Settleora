@@ -37,7 +37,9 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
         );
       }
 
-      return ReceiptOcrResult.extracted(parser.parse(text));
+      return ReceiptOcrResult.extracted(
+        parser.parse(text, fallbackCurrency: request.fallbackCurrency),
+      );
     } catch (_) {
       return const ReceiptOcrResult.failed(
         'Receipt reading failed. You can still enter the bill manually.',

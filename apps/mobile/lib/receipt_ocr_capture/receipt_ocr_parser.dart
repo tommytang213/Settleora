@@ -1,9 +1,10 @@
 import 'receipt_ocr_preview.dart';
+import '../ui/settleora_form_fields.dart';
 
 class ReceiptOcrParser {
   const ReceiptOcrParser();
 
-  ReceiptOcrPreview parse(String recognizedText) {
+  ReceiptOcrPreview parse(String recognizedText, {String? fallbackCurrency}) {
     final lines = recognizedText
         .split(RegExp(r'\r?\n'))
         .map((line) => line.trim())
@@ -16,7 +17,10 @@ class ReceiptOcrParser {
       );
     }
 
-    final currencyDetection = _detectCurrency(lines);
+    final currencyDetection = _detectCurrency(
+      lines,
+      fallbackCurrency: fallbackCurrency,
+    );
     final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines);
     final itemCandidates = _extractItems(lines, currency);
@@ -36,7 +40,11 @@ class ReceiptOcrParser {
     if (amounts.total == null && itemCandidates.isEmpty) {
       warnings.add('No clear total amount was detected.');
     }
-    if (currencyDetection.isSymbolOnly) {
+    if (currencyDetection.usedFallbackForSymbolOnly) {
+      warnings.add(
+        'The receipt only shows a currency symbol. Using the current bill currency; review it before applying.',
+      );
+    } else if (currencyDetection.isSymbolOnly) {
       warnings.add(
         'The receipt only shows a currency symbol. Choose the currency before applying.',
       );
@@ -101,18 +109,40 @@ class ReceiptOcrParser {
     return null;
   }
 
-  _ReceiptCurrencyDetection _detectCurrency(List<String> lines) {
+  _ReceiptCurrencyDetection _detectCurrency(
+    List<String> lines, {
+    String? fallbackCurrency,
+  }) {
     final joined = lines.join(' ').toUpperCase();
     for (final code in _supportedCurrencyCodes) {
       if (RegExp('\\b$code\\b').hasMatch(joined)) {
         return _ReceiptCurrencyDetection(currency: code);
       }
     }
-    if (joined.contains('HK\$')) {
+
+    if (_hasExplicitHongKongCurrencyMarker(joined)) {
       return const _ReceiptCurrencyDetection(currency: 'HKD');
     }
+    if (_hasExplicitUnitedStatesCurrencyMarker(joined)) {
+      return const _ReceiptCurrencyDetection(currency: 'USD');
+    }
+    if (joined.contains('€')) {
+      return const _ReceiptCurrencyDetection(currency: 'EUR');
+    }
+    if (joined.contains('£')) {
+      return const _ReceiptCurrencyDetection(currency: 'GBP');
+    }
+    if (joined.contains('¥')) {
+      return const _ReceiptCurrencyDetection(currency: 'JPY');
+    }
+
     if (joined.contains(r'$')) {
-      return const _ReceiptCurrencyDetection(isSymbolOnly: true);
+      final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
+      return _ReceiptCurrencyDetection(
+        currency: normalizedFallback,
+        isSymbolOnly: true,
+        usedFallbackForSymbolOnly: normalizedFallback != null,
+      );
     }
     return const _ReceiptCurrencyDetection();
   }
@@ -164,7 +194,7 @@ class ReceiptOcrParser {
       }
 
       final match = RegExp(
-        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|\$)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})$',
+        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|US\$|\$|€|£|¥)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -259,21 +289,39 @@ class _LabeledReceiptAmounts {
 }
 
 class _ReceiptCurrencyDetection {
-  const _ReceiptCurrencyDetection({this.currency, this.isSymbolOnly = false});
+  const _ReceiptCurrencyDetection({
+    this.currency,
+    this.isSymbolOnly = false,
+    this.usedFallbackForSymbolOnly = false,
+  });
 
   final String? currency;
   final bool isSymbolOnly;
+  final bool usedFallbackForSymbolOnly;
 }
 
-const _supportedCurrencyCodes = <String>{
-  'USD',
-  'HKD',
-  'EUR',
-  'GBP',
-  'JPY',
-  'KWD',
-  'BHD',
-};
+final _supportedCurrencyCodes = settleoraSupportedCurrencies
+    .map((currency) => currency.code)
+    .toSet();
+
+String? _supportedCurrencyCode(String? value) {
+  final normalized = settleoraNormalizeCurrencyCode(value);
+  return settleoraIsSupportedCurrency(normalized) ? normalized : null;
+}
+
+bool _hasExplicitHongKongCurrencyMarker(String joined) {
+  return joined.contains('HK\$') ||
+      RegExp(r'\bHKD?\s*\$').hasMatch(joined) ||
+      RegExp(r'\b(HONG\s+KONG|HK)\s+DOLLARS?\b').hasMatch(joined) ||
+      RegExp(r'\bHONG\s+KONG\b').hasMatch(joined) ||
+      RegExp(r'\bH\.?\s*K\.?\b').hasMatch(joined);
+}
+
+bool _hasExplicitUnitedStatesCurrencyMarker(String joined) {
+  return joined.contains('US\$') ||
+      RegExp(r'\bUSD?\s*\$').hasMatch(joined) ||
+      RegExp(r'\b(US|U\.S\.|UNITED\s+STATES)\s+DOLLARS?\b').hasMatch(joined);
+}
 
 bool _lineHasAmount(String line) {
   return _lastAmountInLine(line) != null;
@@ -397,7 +445,7 @@ bool _hasTraceableItemAmountToken(String line, String amountToken) {
   }
 
   return RegExp(
-    r'(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|\$)',
+    r'(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|US\$|\$|€|£|¥)',
     caseSensitive: false,
   ).hasMatch(line);
 }

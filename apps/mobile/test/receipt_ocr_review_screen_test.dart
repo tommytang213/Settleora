@@ -267,7 +267,7 @@ void main() {
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
-      const merchantCandidate = 'Corner Market OCR Candidate';
+      const merchantCandidate = 'Corner Market OCR Suggestion';
       final repository = FakeReceiptOcrReviewRepository(
         listResponse: [
           sampleSummary(
@@ -294,19 +294,16 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('50 or more line candidates')),
+        find.bySemanticsLabel(RegExp('50 or more receipt lines')),
         findsOneWidget,
       );
-      expect(
-        find.bySemanticsLabel(RegExp('Currency candidate USD')),
-        findsOneWidget,
-      );
+      expect(find.bySemanticsLabel(RegExp('Currency USD')), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('Open group bill receipt review')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Currency candidate present')),
+        find.bySemanticsLabel(RegExp('Currency selected')),
         findsOneWidget,
       );
       expect(
@@ -901,12 +898,13 @@ void main() {
       expect(find.text('Provisional'), findsOneWidget);
       expect(find.text('Personal bill'), findsOneWidget);
       expect(find.text('On device OCR'), findsOneWidget);
-      expect(find.text('Header candidates'), findsOneWidget);
-      expect(find.text('Line candidates'), findsOneWidget);
+      expect(find.text('Receipt totals'), findsOneWidget);
+      expect(find.text('Review receipt lines'), findsOneWidget);
       expect(find.text('Milk'), findsOneWidget);
       expect(find.text('Apply preview'), findsOneWidget);
       expect(find.text('Preview apply'), findsOneWidget);
       expect(find.text('Apply to draft'), findsOneWidget);
+      expect(visibleText(tester).toLowerCase(), isNot(contains('candidate')));
       expect(find.byTooltip('Edit receipt review'), findsOneWidget);
       expect(find.byTooltip('Refresh receipt review'), findsOneWidget);
       expect(
@@ -920,18 +918,27 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Header OCR candidates, provisional')),
+        find.bySemanticsLabel(
+          RegExp('Receipt OCR header suggestions, provisional'),
+        ),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Total OCR candidates, provisional')),
+        find.bySemanticsLabel(
+          RegExp('Receipt OCR totals for review, provisional'),
+        ),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Line OCR candidates, provisional')),
+        find.bySemanticsLabel(
+          RegExp('Receipt OCR lines for review, provisional'),
+        ),
         findsOneWidget,
       );
-      expect(find.bySemanticsLabel(RegExp('Line OCR candidate')), findsWidgets);
+      expect(
+        find.bySemanticsLabel(RegExp('Receipt OCR line for review')),
+        findsWidgets,
+      );
       expect(find.byTooltip('Preview bill draft changes'), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('Preview bill draft changes')),
@@ -964,11 +971,8 @@ void main() {
       expect(find.text('Service charge'), findsOneWidget);
       expect(find.text('Milk'), findsNothing);
       expect(find.text('Coupon'), findsNothing);
-      expect(find.text('No matching line candidates'), findsNothing);
-      expect(
-        find.text('Showing 1 of 4 loaded line candidates'),
-        findsOneWidget,
-      );
+      expect(find.text('No matching receipt lines'), findsNothing);
+      expect(find.text('Showing 1 of 4 loaded receipt lines'), findsOneWidget);
     });
 
     testWidgets('detail line filter chips count and filter rows', (
@@ -1045,9 +1049,9 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('No matching line candidates'), findsOneWidget);
+      expect(find.text('No matching receipt lines'), findsOneWidget);
       expect(find.text('Service charge'), findsNothing);
-      expect(find.text('No line candidates'), findsNothing);
+      expect(find.text('No receipt lines'), findsNothing);
     });
 
     testWidgets('detail line clear reset restores all loaded rows', (
@@ -1120,14 +1124,14 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('No matching line candidates'), findsOneWidget);
+      expect(find.text('No matching receipt lines'), findsOneWidget);
       expect(
         find.text(
-          'Adjust the search or filters to show loaded OCR line candidates.',
+          'Adjust the search or filters to show loaded OCR receipt lines.',
         ),
         findsOneWidget,
       );
-      expect(find.text('No line candidates'), findsNothing);
+      expect(find.text('No receipt lines'), findsNothing);
       expect(find.text('Milk'), findsNothing);
     });
 
@@ -1140,14 +1144,14 @@ void main() {
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
 
-      expect(find.text('Header candidates'), findsOneWidget);
-      expect(find.text('No line candidates'), findsOneWidget);
+      expect(find.text('Receipt totals'), findsOneWidget);
+      expect(find.text('No receipt lines'), findsOneWidget);
       expect(
         find.text('Apply is blocked until the server receives reviewed lines.'),
         findsOneWidget,
       );
       expect(find.byKey(const Key('receipt-review-line-search')), findsNothing);
-      expect(find.text('No matching line candidates'), findsNothing);
+      expect(find.text('No matching receipt lines'), findsNothing);
     });
 
     testWidgets('labels detail edit actions and delete confirmation controls', (
@@ -1169,39 +1173,39 @@ void main() {
       expect(find.byTooltip('Save receipt review'), findsOneWidget);
       expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
       expect(
-        find.bySemanticsLabel(RegExp('Currency candidate selector')),
+        find.bySemanticsLabel(RegExp('Receipt currency selector')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Subtotal amount candidate')),
+        find.bySemanticsLabel(RegExp('Subtotal amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Tax amount candidate')),
+        find.bySemanticsLabel(RegExp('Tax amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Service charge amount candidate')),
+        find.bySemanticsLabel(RegExp('Service charge amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Discount amount candidate')),
+        find.bySemanticsLabel(RegExp('Discount amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Grand total amount candidate')),
+        find.bySemanticsLabel(RegExp('Grand total amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Line quantity candidate')),
+        find.bySemanticsLabel(RegExp('Line quantity suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Line unit price amount candidate')),
+        find.bySemanticsLabel(RegExp('Line unit price amount suggestion')),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel(RegExp('Line total amount candidate')),
+        find.bySemanticsLabel(RegExp('Line total amount suggestion')),
         findsOneWidget,
       );
 
@@ -1421,7 +1425,7 @@ void main() {
         expect(find.text('No OCR result'), findsOneWidget);
         expect(
           find.text(
-            'No reviewed OCR candidates are saved for this receipt yet.',
+            'No reviewed OCR suggestions are saved for this receipt yet.',
           ),
           findsOneWidget,
         );
@@ -1850,7 +1854,7 @@ void main() {
         expect(find.text('Remove saved review?'), findsOneWidget);
         expect(
           find.text(
-            'This deletes the saved OCR review and candidate data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
+            'This deletes the saved OCR review data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
           ),
           findsOneWidget,
         );

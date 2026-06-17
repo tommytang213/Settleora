@@ -1211,7 +1211,7 @@ void main() {
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Line candidates'), findsOneWidget);
+    expect(find.text('Review receipt lines'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
 
     final previewApplyButton = find

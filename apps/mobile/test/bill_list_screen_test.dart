@@ -27,6 +27,7 @@ import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
 import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets('bill list queues archive and flushes through sync', (
@@ -292,10 +293,11 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Review'), findsOneWidget);
-    expect(find.text('Merchant candidate'), findsWidgets);
-    expect(find.text('2 item candidates'), findsWidgets);
+    expect(find.text('Merchant suggested'), findsWidgets);
+    expect(find.text('2 suggested lines'), findsWidgets);
     expect(find.text('Review line totals before saving.'), findsOneWidget);
-    expect(find.text('Edit OCR candidates'), findsOneWidget);
+    expect(find.text('Review receipt suggestions'), findsOneWidget);
+    expect(visibleText(tester).toLowerCase(), isNot(contains('candidate')));
     expect(
       find.text(
         'Edit OCR suggestions here. Nothing changes in the bill draft until you apply selected sections.',
@@ -313,20 +315,20 @@ void main() {
     );
     expect(find.text('Receipt totals for review only'), findsOneWidget);
     expect(
-      find.text('Subtotal candidate: HKD 45.00 (review only)'),
+      find.text('Subtotal suggested: HKD 45.00 (review only)'),
       findsOneWidget,
     );
     expect(
-      find.text('Discount candidate: HKD -2.00 (review only)'),
+      find.text('Discount suggested: HKD -2.00 (review only)'),
       findsOneWidget,
     );
-    expect(find.text('Tax candidate: HKD 0.00 (review only)'), findsOneWidget);
+    expect(find.text('Tax suggested: HKD 0.00 (review only)'), findsOneWidget);
     expect(
-      find.text('Service charge candidate: HKD 0.00 (review only)'),
+      find.text('Service charge suggested: HKD 0.00 (review only)'),
       findsOneWidget,
     );
     expect(
-      find.text('Grand total candidate: HKD 43.00 (review only)'),
+      find.text('Grand total suggested: HKD 43.00 (review only)'),
       findsOneWidget,
     );
     expect(
@@ -361,7 +363,8 @@ void main() {
       find.byKey(const Key('personal-bill-ocr-edit-date')),
       '2026-06-13',
     );
-    await tester.enterText(
+    await _selectCurrency(
+      tester,
       find.byKey(const Key('personal-bill-ocr-edit-currency')),
       'USD',
     );
@@ -381,7 +384,8 @@ void main() {
       find.byKey(const ValueKey('personal-bill-ocr-item-line-total-0')),
       '30.00',
     );
-    await tester.enterText(
+    await _selectCurrency(
+      tester,
       find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
       'USD',
     );
@@ -503,9 +507,9 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Provisional review'), findsOneWidget);
-    expect(find.text('Header candidates'), findsOneWidget);
-    expect(find.text('Line candidates'), findsOneWidget);
-    expect(find.text('2 candidates'), findsOneWidget);
+    expect(find.text('Receipt totals'), findsOneWidget);
+    expect(find.text('Review receipt lines'), findsOneWidget);
+    expect(find.text('2 lines'), findsOneWidget);
     expect(find.text('Grand total'), findsOneWidget);
     expect(find.text('10.80 USD'), findsWidgets);
     expect(find.text('Milk'), findsWidgets);
@@ -513,6 +517,99 @@ void main() {
     expect(find.textContaining('signed URL'), findsNothing);
     expect(find.textContaining('storage'), findsNothing);
   });
+
+  testWidgets(
+    'personal OCR uses selected currency fallback and keeps currency editable',
+    (tester) async {
+      await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(
+          id: _createdBillId,
+          merchantName: 'Fallback Cafe',
+          billDate: '2026-06-12',
+          totalAmount: '12.00',
+          totalCurrency: 'USD',
+        ),
+      );
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.failed('unused'),
+        resultBuilder: (request) => ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Fallback Cafe',
+            receiptDate: '2026-06-12',
+            currency: request.fallbackCurrency,
+            total: '12.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                quantity: '1',
+                lineTotal: '12.00',
+                currency: request.fallbackCurrency,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: repository,
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1, 2, 3],
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-currency')),
+        'HKD',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-scan-receipt')),
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(receiptOcrProvider.lastRequest?.fallbackCurrency, 'HKD');
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.byKey(const Key('personal-bill-ocr-edit-currency')),
+            )
+            .value,
+        'HKD',
+      );
+
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-ocr-edit-currency')),
+        'USD',
+      );
+      await _selectCurrency(
+        tester,
+        find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+        'USD',
+      );
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+      await tester.ensureVisible(find.byKey(const Key('personal-bill-save')));
+      await _tapSaveBill(tester);
+
+      expect(repository.createCalls, 1);
+      expect(repository.lastCreateDraft?.currency, 'USD');
+      expect(repository.lastCreateDraft?.items.single.currency, 'USD');
+    },
+  );
 
   testWidgets('personal OCR add remove and reset candidate rows', (
     tester,
@@ -573,7 +670,7 @@ void main() {
       '3.00',
     );
 
-    expect(find.text('2 OCR item candidates'), findsOneWidget);
+    expect(find.text('2 suggested receipt lines'), findsOneWidget);
 
     final secondRemove = find.byKey(
       const ValueKey('personal-bill-ocr-remove-item-1'),
@@ -609,7 +706,7 @@ void main() {
           ?.text,
       'Original Shop',
     );
-    expect(find.text('1 OCR item candidate'), findsOneWidget);
+    expect(find.text('1 suggested receipt line'), findsOneWidget);
     expect(
       tester
           .widget<TextFormField>(
@@ -854,7 +951,7 @@ void main() {
     expect(find.text('OCR review still needs saving'), findsOneWidget);
     expect(
       find.text(
-        'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR candidates to this receipt only.',
+        'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR receipt lines to this receipt only.',
       ),
       findsOneWidget,
     );
@@ -979,6 +1076,7 @@ void main() {
     );
     expect(find.text('Review-only totals'), findsOneWidget);
     expect(find.text('Grand total'), findsOneWidget);
+    await _scrollSavedOcrReviewEditActionsIntoView(tester);
     expect(find.text('Save review'), findsOneWidget);
     expect(find.textContaining('Apply'), findsNothing);
 
@@ -990,9 +1088,10 @@ void main() {
       find.byKey(const Key('saved-ocr-review-ocr-edit-date')),
       '2026-06-14',
     );
-    await tester.enterText(
+    await _selectCurrency(
+      tester,
       find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
-      'hkd',
+      'HKD',
     );
     await tester.enterText(
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-description-0')),
@@ -1010,7 +1109,8 @@ void main() {
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-line-total-0')),
       '22.00',
     );
-    await tester.enterText(
+    await _selectCurrency(
+      tester,
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-currency-0')),
       'HKD',
     );
@@ -1287,7 +1387,7 @@ void main() {
     expect(find.text('Preview Milk'), findsOneWidget);
     expect(
       find.text(
-        'Preview validates saved OCR candidates before draft apply. It does not change this bill.',
+        'Preview validates saved OCR review data before draft apply. It does not change this bill.',
       ),
       findsOneWidget,
     );
@@ -2313,7 +2413,7 @@ void main() {
     expect(receiptRepository.applyReviewCalls, 1);
     expect(
       find.text(
-        'Saved review actions are disabled while the server applies OCR candidates to the draft bill.',
+        'Saved review actions are disabled while the server applies receipt lines to the draft bill.',
       ),
       findsOneWidget,
     );
@@ -3253,7 +3353,8 @@ void main() {
         find.byKey(const Key('personal-bill-ocr-edit-date')),
         '2026-06-13',
       );
-      await tester.enterText(
+      await _selectCurrency(
+        tester,
         find.byKey(const Key('personal-bill-ocr-edit-currency')),
         'USD',
       );
@@ -6747,6 +6848,7 @@ void main() {
 
     expect(receiptOcrProvider.calls, 1);
     expect(receiptOcrProvider.lastRequest?.bytes, const [9, 8, 7]);
+    expect(receiptOcrProvider.lastRequest?.fallbackCurrency, 'USD');
     expect(
       find.byKey(const Key('group-bill-ocr-preview-panel')),
       findsOneWidget,
@@ -7078,7 +7180,8 @@ void main() {
         find.byKey(const Key('group-bill-ocr-edit-date')),
         '2026-06-13',
       );
-      await tester.enterText(
+      await _selectCurrency(
+        tester,
         find.byKey(const Key('group-bill-ocr-edit-currency')),
         'USD',
       );
@@ -7367,7 +7470,7 @@ void main() {
       await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Edit OCR candidates'), findsOneWidget);
+      expect(find.text('Review receipt suggestions'), findsOneWidget);
       expect(
         tester
             .widget<TextFormField>(
@@ -7388,11 +7491,10 @@ void main() {
       );
       expect(
         tester
-            .widget<TextFormField>(
+            .widget<CurrencySelector>(
               find.byKey(const Key('group-bill-ocr-edit-currency')),
             )
-            .controller
-            ?.text,
+            .value,
         'HKD',
       );
       expect(
@@ -7415,19 +7517,19 @@ void main() {
       );
       expect(find.text('Receipt totals for review only'), findsOneWidget);
       expect(
-        find.text('Subtotal candidate: HKD 68.00 (review only)'),
+        find.text('Subtotal suggested: HKD 68.00 (review only)'),
         findsOneWidget,
       );
       expect(
-        find.text('Tax candidate: HKD 2.00 (review only)'),
+        find.text('Tax suggested: HKD 2.00 (review only)'),
         findsOneWidget,
       );
       expect(
-        find.text('Service charge candidate: HKD 6.00 (review only)'),
+        find.text('Service charge suggested: HKD 6.00 (review only)'),
         findsOneWidget,
       );
       expect(
-        find.text('Grand total candidate: HKD 76.00 (review only)'),
+        find.text('Grand total suggested: HKD 76.00 (review only)'),
         findsOneWidget,
       );
       expect(
@@ -7492,7 +7594,8 @@ void main() {
         find.byKey(const ValueKey('group-bill-ocr-item-line-total-2')),
         '8.00',
       );
-      await tester.enterText(
+      await _selectCurrency(
+        tester,
         find.byKey(const ValueKey('group-bill-ocr-item-currency-2')),
         'HKD',
       );
@@ -7810,7 +7913,7 @@ void main() {
       expect(receiptRepository.lastRoute?.groupId, _groupId);
       expect(find.text('Saved OCR review'), findsOneWidget);
       expect(find.text('Group bill'), findsWidgets);
-      expect(find.text('Line candidates'), findsOneWidget);
+      expect(find.text('Review receipt lines'), findsOneWidget);
     },
   );
 
@@ -11695,9 +11798,10 @@ class FakeReceiptImageIntake implements ReceiptImageIntake {
 }
 
 class FakeReceiptOcrProvider implements ReceiptOcrProvider {
-  FakeReceiptOcrProvider(this.result);
+  FakeReceiptOcrProvider(this.result, {this.resultBuilder});
 
   final ReceiptOcrResult result;
+  final ReceiptOcrResult Function(ReceiptOcrRequest request)? resultBuilder;
   int calls = 0;
   ReceiptOcrRequest? lastRequest;
 
@@ -11705,7 +11809,7 @@ class FakeReceiptOcrProvider implements ReceiptOcrProvider {
   Future<ReceiptOcrResult> extractReceipt(ReceiptOcrRequest request) async {
     calls += 1;
     lastRequest = request;
-    return result;
+    return resultBuilder?.call(request) ?? result;
   }
 }
 
@@ -12776,6 +12880,20 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Future<void> _selectCurrency(
+  WidgetTester tester,
+  Finder selector,
+  String code,
+) async {
+  await tester.ensureVisible(selector);
+  await tester.tap(selector);
+  await tester.pumpAndSettle();
+  final option = find.textContaining('$code -').last;
+  await tester.ensureVisible(option);
+  await tester.tap(option);
+  await tester.pumpAndSettle();
 }
 
 SettleoraGroupMember sampleGroupMember({

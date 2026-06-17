@@ -87,6 +87,80 @@ Total $5.50
     );
   });
 
+  test('explicit HK markers and context produce HKD', () {
+    const parser = ReceiptOcrParser();
+
+    final explicitCode = parser.parse(r'''
+Harbour Market
+Total HKD 88.00
+''');
+    final explicitSymbol = parser.parse(r'''
+Harbour Market
+Tea HK$18.00
+Total HK$18.00
+''');
+    final hongKongContext = parser.parse(r'''
+Harbour Market
+Hong Kong
+Tea $18.00
+Total $18.00
+''');
+
+    expect(explicitCode.currency, 'HKD');
+    expect(explicitSymbol.currency, 'HKD');
+    expect(hongKongContext.currency, 'HKD');
+  });
+
+  test('ambiguous dollar uses fallback currency instead of USD', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse(r'''
+Coffee Bar
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'HKD');
+
+    expect(preview.currency, 'HKD');
+    expect(preview.items.single.currency, 'HKD');
+    expect(
+      preview.warnings,
+      contains(
+        'The receipt only shows a currency symbol. Using the current bill currency; review it before applying.',
+      ),
+    );
+  });
+
+  test('ambiguous dollar uses USD only when fallback is USD', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse(r'''
+Coffee Bar
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'USD');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'USD');
+  });
+
+  test('explicit USD markers override HKD fallback', () {
+    const parser = ReceiptOcrParser();
+
+    final codePreview = parser.parse(r'''
+Travel Cafe
+Pasta USD 18.00
+Total USD 18.00
+''', fallbackCurrency: 'HKD');
+    final symbolPreview = parser.parse(r'''
+Travel Cafe
+Pasta US$18.00
+Total US$18.00
+''', fallbackCurrency: 'HKD');
+
+    expect(codePreview.currency, 'USD');
+    expect(symbolPreview.currency, 'USD');
+  });
+
   test('parser ignores address header block and keeps real items', () {
     const parser = ReceiptOcrParser();
 

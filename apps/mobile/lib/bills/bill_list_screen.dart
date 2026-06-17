@@ -1730,6 +1730,7 @@ class _SettleoraPersonalBillCreateScreenState
           bytes: pickedFile.bytes,
           contentType: pickedFile.contentType,
           imagePath: pickedFile.localPath,
+          fallbackCurrency: _currencyController.text,
         ),
       );
       if (!mounted ||
@@ -2622,16 +2623,16 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               runSpacing: 8,
               children: [
                 if (preview.merchant != null)
-                  _ReviewChecklistChip(label: 'Merchant candidate'),
+                  _ReviewChecklistChip(label: 'Merchant suggested'),
                 if (preview.receiptDate != null)
-                  _ReviewChecklistChip(label: 'Date candidate'),
+                  _ReviewChecklistChip(label: 'Date suggested'),
                 if (preview.currency != null)
                   _ReviewChecklistChip(label: preview.currency!),
                 _ReviewChecklistChip(
-                  label: _pluralCount(preview.items.length, 'item candidate'),
+                  label: _pluralCount(preview.items.length, 'suggested line'),
                 ),
                 if (preview.total != null)
-                  _ReviewChecklistChip(label: 'Total candidate'),
+                  _ReviewChecklistChip(label: 'Total suggested'),
               ],
             ),
             const SizedBox(height: 10),
@@ -2897,7 +2898,7 @@ class _ReceiptOcrEditableReviewFormState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Edit OCR candidates',
+          'Review receipt suggestions',
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontWeight: FontWeight.w600,
@@ -2909,7 +2910,7 @@ class _ReceiptOcrEditableReviewFormState
           controller: _merchantController,
           enabled: widget.enabled,
           onChanged: (_) => _emitChanged(),
-          decoration: const InputDecoration(labelText: 'Merchant candidate'),
+          decoration: const InputDecoration(labelText: 'Merchant suggestion'),
         ),
         const SizedBox(height: 10),
         TextFormField(
@@ -2918,23 +2919,29 @@ class _ReceiptOcrEditableReviewFormState
           enabled: widget.enabled,
           onChanged: (_) => _emitChanged(),
           decoration: const InputDecoration(
-            labelText: 'Receipt date candidate',
+            labelText: 'Receipt date suggestion',
           ),
         ),
         const SizedBox(height: 10),
-        TextFormField(
+        CurrencySelector(
           key: Key('${widget.keyPrefix}-ocr-edit-currency'),
-          controller: _currencyController,
+          value: _currencyController.text,
+          label: 'Currency',
+          helperText: 'Review the currency before applying receipt amounts.',
+          allowClear: true,
           enabled: widget.enabled,
-          onChanged: (_) => _emitChanged(),
-          decoration: const InputDecoration(labelText: 'Currency candidate'),
+          semanticLabel: 'Receipt currency selector',
+          onChanged: (currency) {
+            _currencyController.text = currency ?? '';
+            _emitChanged();
+          },
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               child: Text(
-                _pluralCount(_itemControllers.length, 'OCR item candidate'),
+                _pluralCount(_itemControllers.length, 'suggested receipt line'),
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
@@ -2953,7 +2960,7 @@ class _ReceiptOcrEditableReviewFormState
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'No OCR item candidates. Item apply is unavailable until at least one candidate exists.',
+              'No suggested receipt lines. Item apply is unavailable until at least one line exists.',
               key: Key('${widget.keyPrefix}-ocr-empty-items'),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -3069,14 +3076,14 @@ class _ReceiptOcrEditableItemCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'OCR item $itemNumber',
+                    'Suggested receipt line $itemNumber',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
                 IconButton(
                   key: ValueKey('$keyPrefix-ocr-remove-item-$index'),
                   onPressed: enabled ? onRemove : null,
-                  tooltip: 'Remove OCR item candidate',
+                  tooltip: 'Remove suggested receipt line',
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
               ],
@@ -3117,12 +3124,18 @@ class _ReceiptOcrEditableItemCard extends StatelessWidget {
               decoration: const InputDecoration(labelText: 'Line total'),
             ),
             const SizedBox(height: 8),
-            TextFormField(
+            CurrencySelector(
               key: ValueKey('$keyPrefix-ocr-item-currency-$index'),
-              controller: controllers.currency,
+              value: controllers.currency.text,
+              label: 'Currency',
+              helperText: 'Review the line currency before applying.',
+              allowClear: true,
               enabled: enabled,
-              onChanged: (_) => onChanged(),
-              decoration: const InputDecoration(labelText: 'Currency'),
+              semanticLabel: 'Suggested receipt line currency selector',
+              onChanged: (currency) {
+                controllers.currency.text = currency ?? '';
+                onChanged();
+              },
             ),
           ],
         ),
@@ -3174,7 +3187,7 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
         _ReceiptOcrApplyOption(
           section: _ReceiptOcrApplySection.items,
           label: 'Items',
-          subtitle: _pluralCount(preview.items.length, 'item candidate'),
+          subtitle: _pluralCount(preview.items.length, 'suggested line'),
           selected: selection.items,
         ),
     ];
@@ -3728,31 +3741,31 @@ List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
   return [
     if ((preview.subtotal ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
-        label: 'Subtotal candidate',
+        label: 'Subtotal suggested',
         amount: preview.subtotal!.trim(),
         currency: currency,
       ),
     if ((preview.discount ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
-        label: 'Discount candidate',
+        label: 'Discount suggested',
         amount: preview.discount!.trim(),
         currency: currency,
       ),
     if ((preview.tax ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
-        label: 'Tax candidate',
+        label: 'Tax suggested',
         amount: preview.tax!.trim(),
         currency: currency,
       ),
     if ((preview.service ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
-        label: 'Service charge candidate',
+        label: 'Service charge suggested',
         amount: preview.service!.trim(),
         currency: currency,
       ),
     if ((preview.total ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
-        label: 'Grand total candidate',
+        label: 'Grand total suggested',
         amount: preview.total!.trim(),
         currency: currency,
       ),
@@ -6224,6 +6237,7 @@ class _SettleoraGroupBillCreateScreenState
           bytes: pickedFile.bytes,
           contentType: pickedFile.contentType,
           imagePath: pickedFile.localPath,
+          fallbackCurrency: _currencyController.text,
         ),
       );
       if (!mounted ||
@@ -13132,7 +13146,7 @@ class _SavedReceiptOcrReviewSheetState
       builder: (context) => AlertDialog(
         title: const Text('Apply OCR to draft bill?'),
         content: const Text(
-          'This applies the server-validated OCR line candidates to the draft bill. It will not finalize the bill.',
+          'This applies the server-validated receipt lines to the draft bill. It will not finalize the bill.',
         ),
         actions: [
           TextButton(
@@ -13678,12 +13692,12 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Header candidates',
+                'Receipt totals',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
               if (_savedReceiptOcrHeaderRows(review).isEmpty)
-                const Text('No header total candidates were saved.')
+                const Text('No receipt totals were saved.')
               else
                 for (final row in _savedReceiptOcrHeaderRows(review))
                   _KeyValueText(label: row.$1, value: row.$2),
@@ -13696,14 +13710,14 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Line candidates',
+                'Review receipt lines',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 4),
-              Text(_pluralCount(lines.length, 'candidate')),
+              Text(_pluralCount(lines.length, 'line')),
               const SizedBox(height: 8),
               if (lines.isEmpty)
-                const Text('No line candidates were saved for this review.')
+                const Text('No receipt lines were saved for this review.')
               else
                 for (final line in lines)
                   _SavedReceiptOcrLineTile(
@@ -13780,7 +13794,7 @@ class _SavedReceiptOcrApplyPreviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Preview validates saved OCR candidates before draft apply. It does not change this bill.',
+            'Preview validates saved OCR review data before draft apply. It does not change this bill.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: context.settleoraColors.textMuted,
             ),
@@ -13940,7 +13954,7 @@ String _savedReviewActionBusyMessage(_SavedReceiptOcrBusyState busyState) {
     _SavedReceiptOcrBusyState.loadingPreview =>
       'Saved review actions are disabled while the draft apply preview is loading.',
     _SavedReceiptOcrBusyState.applying =>
-      'Saved review actions are disabled while the server applies OCR candidates to the draft bill.',
+      'Saved review actions are disabled while the server applies receipt lines to the draft bill.',
     _SavedReceiptOcrBusyState.removing =>
       'Saved review actions are disabled while the provisional OCR review is being removed.',
     _SavedReceiptOcrBusyState.idle =>
@@ -13983,7 +13997,7 @@ class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
         Text('Header summary', style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 4),
         if (headerRows.isEmpty)
-          const Text('No header candidate summary returned.')
+          const Text('No receipt total summary returned.')
         else
           for (final row in headerRows)
             _KeyValueText(label: row.$1, value: row.$2),
@@ -13991,7 +14005,7 @@ class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
         Text('Line summary', style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 4),
         _KeyValueText(
-          label: 'Candidates',
+          label: 'Receipt lines',
           value: _pluralCount(preview.summary.lineCount, 'line'),
         ),
         _KeyValueText(
@@ -14060,7 +14074,7 @@ class _SavedReceiptOcrPreviewLineTile extends StatelessWidget {
           Text(
             _hasNonEmptyCandidate(line.text)
                 ? line.text
-                : 'Unnamed line candidate',
+                : 'Unnamed receipt line',
           ),
           if (parts.isNotEmpty)
             Text(
@@ -14177,7 +14191,7 @@ class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               if (_savedReceiptOcrHeaderRows(review).isEmpty)
-                const Text('No receipt total candidates were saved.')
+                const Text('No receipt totals were saved.')
               else
                 for (final row in _savedReceiptOcrHeaderRows(review))
                   _KeyValueText(label: row.$1, value: row.$2),
@@ -14248,7 +14262,7 @@ class _SavedReceiptOcrLineTile extends StatelessWidget {
           Text(
             _hasNonEmptyCandidate(line.text)
                 ? line.text
-                : 'Unnamed line candidate',
+                : 'Unnamed receipt line',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           if (parts.isNotEmpty) ...[
@@ -14320,7 +14334,7 @@ class ReceiptOcrReviewHandoffBanner extends StatelessWidget {
                     Text(
                       didSave
                           ? 'The bill was saved, the receipt was attached, and a provisional OCR review was saved. Review it before applying any bill changes.'
-                          : 'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR candidates to this receipt only.',
+                          : 'The bill was saved and the receipt was attached, but the provisional OCR review was not saved. Retry saves the same reviewed OCR receipt lines to this receipt only.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],

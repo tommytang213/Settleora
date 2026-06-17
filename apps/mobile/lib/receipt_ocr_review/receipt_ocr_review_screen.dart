@@ -504,7 +504,7 @@ class _ReceiptOcrReviewDetailScreenState
         return AlertDialog(
           title: const Text('Remove saved review?'),
           content: const Text(
-            'This deletes the saved OCR review and candidate data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
+            'This deletes the saved OCR review data for this receipt review. It does not delete the receipt attachment or any finalized bill record.',
           ),
           actions: [
             TextButton(

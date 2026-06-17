@@ -147,7 +147,7 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
               icon: Icons.receipt_long_outlined,
               title: 'No OCR result',
               message:
-                  'No reviewed OCR candidates are saved for this receipt yet.',
+                  'No reviewed OCR suggestions are saved for this receipt yet.',
               compact: true,
             ),
           const SizedBox(height: 20),
@@ -348,7 +348,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             _EditTextField(
               key: const Key('receipt-review-edit-merchant'),
               controller: _merchantController,
-              label: 'Merchant candidate',
+              label: 'Merchant suggestion',
               enabled: !isBusy,
             ),
             _EditTextField(
@@ -366,7 +366,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                 value: _currencyController.text,
                 label: 'Currency',
                 helperText: 'Review the currency before applying amounts.',
-                semanticLabel: 'Currency candidate selector',
+                semanticLabel: 'Receipt currency selector',
                 allowClear: true,
                 enabled: !isBusy,
                 validator: _currencyValidator,
@@ -379,7 +379,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Header candidates',
+              'Receipt totals',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 10),
@@ -387,7 +387,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-subtotal'),
               controller: _subtotalController,
               label: 'Subtotal',
-              semanticLabel: 'Subtotal amount candidate',
+              semanticLabel: 'Subtotal amount suggestion',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -398,7 +398,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-tax'),
               controller: _taxController,
               label: 'Tax',
-              semanticLabel: 'Tax amount candidate',
+              semanticLabel: 'Tax amount suggestion',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -409,7 +409,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-service-charge'),
               controller: _serviceChargeController,
               label: 'Service charge',
-              semanticLabel: 'Service charge amount candidate',
+              semanticLabel: 'Service charge amount suggestion',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -420,7 +420,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-discount'),
               controller: _discountController,
               label: 'Discount',
-              semanticLabel: 'Discount amount candidate',
+              semanticLabel: 'Discount amount suggestion',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -431,7 +431,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               key: const Key('receipt-review-edit-grand-total'),
               controller: _grandTotalController,
               label: 'Grand total',
-              semanticLabel: 'Grand total amount candidate',
+              semanticLabel: 'Grand total amount suggestion',
               enabled: !isBusy,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -443,7 +443,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               children: [
                 Expanded(
                   child: Text(
-                    'Line candidates',
+                    'Review receipt lines',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -459,7 +459,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             if (_lineEditors.isEmpty)
               const _StatePanel(
                 icon: Icons.format_list_bulleted,
-                title: 'No line candidates',
+                title: 'No receipt lines',
                 message:
                     'Save can proceed, but apply may be blocked by the server.',
                 compact: true,
@@ -607,7 +607,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-quantity-$index'),
                 controller: editors.quantityController,
                 label: 'Quantity',
-                semanticLabel: 'Line quantity candidate',
+                semanticLabel: 'Line quantity suggestion',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -618,7 +618,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-unit-$index'),
                 controller: editors.unitPriceAmountController,
                 label: 'Unit price',
-                semanticLabel: 'Line unit price amount candidate',
+                semanticLabel: 'Line unit price amount suggestion',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -629,7 +629,7 @@ class _LineEditCard extends StatelessWidget {
                 key: ValueKey('receipt-review-edit-line-total-$index'),
                 controller: editors.lineTotalAmountController,
                 label: 'Line total',
-                semanticLabel: 'Line total amount candidate',
+                semanticLabel: 'Line total amount suggestion',
                 enabled: enabled,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -843,7 +843,7 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
       return const _StatePanel(
         icon: Icons.payments_outlined,
         title: 'No header totals',
-        message: 'Review the line candidates or use manual entry.',
+        message: 'Review the receipt lines or use manual entry.',
         compact: true,
       );
     }
@@ -855,7 +855,7 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Header candidates',
+            'Receipt totals',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
@@ -931,7 +931,7 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
     if (lines.isEmpty) {
       return const _StatePanel(
         icon: Icons.format_list_bulleted,
-        title: 'No line candidates',
+        title: 'No receipt lines',
         message: 'Apply is blocked until the server receives reviewed lines.',
         compact: true,
       );
@@ -952,7 +952,7 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Line candidates',
+            'Review receipt lines',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
@@ -970,9 +970,9 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
             if (discovery.visibleLines.isEmpty)
               const _StatePanel(
                 icon: Icons.search_off_outlined,
-                title: 'No matching line candidates',
+                title: 'No matching receipt lines',
                 message:
-                    'Adjust the search or filters to show loaded OCR line candidates.',
+                    'Adjust the search or filters to show loaded OCR receipt lines.',
                 compact: true,
               )
             else
@@ -1012,7 +1012,7 @@ class _ReceiptOcrReviewLineDiscoveryControls extends StatelessWidget {
           key: const Key('receipt-review-line-search'),
           controller: searchController,
           decoration: const InputDecoration(
-            labelText: 'Search line candidates',
+            labelText: 'Search receipt lines',
             prefixIcon: Icon(Icons.search),
             border: OutlineInputBorder(),
           ),
@@ -1021,7 +1021,7 @@ class _ReceiptOcrReviewLineDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Showing $visibleCount of $loadedCount loaded line candidates',
+          'Showing $visibleCount of $loadedCount loaded receipt lines',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),

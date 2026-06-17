@@ -9,11 +9,13 @@ class ReceiptOcrRequest {
     required List<int> bytes,
     required this.contentType,
     this.imagePath,
+    this.fallbackCurrency,
   }) : bytes = List.unmodifiable(bytes);
 
   final List<int> bytes;
   final String contentType;
   final String? imagePath;
+  final String? fallbackCurrency;
 }
 
 class ReceiptOcrResult {
