@@ -3264,6 +3264,49 @@ class _ReceiptIntakeSafetyPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
+                Text(
+                  'File: ${review.normalizationReview.sourceLabel}',
+                  key: const Key('receipt-intake-file-label'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onWarningSoft,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Handling: ${review.normalizationReview.decisionLabel}; '
+                  '${review.normalizationReview.mediaTypeLabel}.',
+                  key: const Key('receipt-intake-handling-label'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Policy: normalized JPEG ${_yesNoExpected(review.normalizationReview.normalizedJpegExpected)}, '
+                  'raw source retention off by default, thumbnail ${_yesNoExpected(review.normalizationReview.thumbnailExpected)}.',
+                  key: const Key('receipt-intake-policy-label'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Current build: no normalized or thumbnail bytes are saved, shared, or uploaded here.',
+                  key: const Key('receipt-intake-current-build-label'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Receipt contents may include sensitive merchant, payment, location, or contact details.',
+                  key: const Key('receipt-intake-privacy-label'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.onWarningSoft),
+                ),
+                const SizedBox(height: 6),
                 for (final warning in review.warnings)
                   Padding(
                     padding: const EdgeInsets.only(top: 3),
@@ -3282,6 +3325,8 @@ class _ReceiptIntakeSafetyPanel extends StatelessWidget {
     );
   }
 }
+
+String _yesNoExpected(bool expected) => expected ? 'expected' : 'not expected';
 
 enum _ReceiptDuplicateSaveAction { cancel, reviewExisting, saveAnyway }
 

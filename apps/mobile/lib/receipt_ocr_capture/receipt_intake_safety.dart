@@ -1,4 +1,5 @@
 import '../bills/bill_attachment_file_input.dart';
+import 'receipt_image_normalization_policy.dart';
 
 enum ReceiptIntakeSourceType { cameraCapture, photoImport, fileImport, unknown }
 
@@ -57,10 +58,12 @@ class ReceiptIntakeSafetyMetadata {
 class ReceiptIntakeSafetyReview {
   const ReceiptIntakeSafetyReview({
     required this.sourceType,
+    required this.normalizationReview,
     required this.warnings,
   });
 
   final ReceiptIntakeSourceType sourceType;
+  final ReceiptImageNormalizationPolicyReview normalizationReview;
   final List<String> warnings;
 }
 
@@ -123,6 +126,19 @@ ReceiptIntakeSafetyReview reviewReceiptIntakeSafety(
 
   return ReceiptIntakeSafetyReview(
     sourceType: metadata.sourceType,
+    normalizationReview: ReceiptImageNormalizationPolicy.review(
+      ReceiptImageNormalizationPolicyInput(
+        sourceKind: _receiptImageSourceKind(
+          metadata.sourceType,
+          contentType: contentType,
+          extension: extension,
+        ),
+        sourceLabel: metadata.filename,
+        mediaType: contentType,
+        extension: extension,
+        sizeBytes: metadata.sizeBytes,
+      ),
+    ),
     warnings: warnings.toList(growable: false),
   );
 }
@@ -148,4 +164,21 @@ String? _receiptFilenameExtension(String? filename) {
   }
 
   return safeName.substring(dotIndex + 1).toLowerCase();
+}
+
+ReceiptImageSourceKind _receiptImageSourceKind(
+  ReceiptIntakeSourceType sourceType, {
+  required String? contentType,
+  required String? extension,
+}) {
+  if (contentType == 'application/pdf' || extension == 'pdf') {
+    return ReceiptImageSourceKind.importedPdf;
+  }
+  return switch (sourceType) {
+    ReceiptIntakeSourceType.cameraCapture =>
+      ReceiptImageSourceKind.capturedPhoto,
+    ReceiptIntakeSourceType.photoImport => ReceiptImageSourceKind.importedImage,
+    ReceiptIntakeSourceType.fileImport => ReceiptImageSourceKind.importedImage,
+    ReceiptIntakeSourceType.unknown => ReceiptImageSourceKind.unknown,
+  };
 }

@@ -231,6 +231,43 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('File import'), findsOneWidget);
+    expect(find.byKey(const Key('receipt-intake-file-label')), findsOneWidget);
+    expect(find.text('File: receipt.png'), findsOneWidget);
+    expect(
+      find.byKey(const Key('receipt-intake-handling-label')),
+      findsOneWidget,
+    );
+    expect(find.text('Handling: Accepted; image/png .png.'), findsOneWidget);
+    expect(
+      find.byKey(const Key('receipt-intake-policy-label')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Policy: normalized JPEG expected, raw source retention off by default, thumbnail expected.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-intake-current-build-label')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Current build: no normalized or thumbnail bytes are saved, shared, or uploaded here.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('receipt-intake-privacy-label')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Receipt contents may include sensitive merchant, payment, location, or contact details.',
+      ),
+      findsOneWidget,
+    );
     expect(
       find.text(
         'Server-mode OCR data stays provisional until the API validates and accepts it.',

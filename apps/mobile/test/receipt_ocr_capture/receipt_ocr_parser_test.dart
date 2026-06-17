@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_intake_safety.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
@@ -335,6 +336,137 @@ Thank you
       ),
     );
   });
+
+  test('normalization policy accepts JPEG as preferred target', () {
+    final review = ReceiptImageNormalizationPolicy.review(
+      const ReceiptImageNormalizationPolicyInput(
+        sourceKind: ReceiptImageSourceKind.capturedPhoto,
+        sourceLabel: r'C:\private\receipt.jpg',
+        mediaType: 'image/jpeg',
+        extension: 'jpg',
+        sizeBytes: 2048,
+      ),
+    );
+
+    expect(review.decision, ReceiptImageHandlingDecision.accepted);
+    expect(review.normalizedJpegExpected, isTrue);
+    expect(review.originalRetainedByPolicy, isFalse);
+    expect(review.thumbnailExpected, isTrue);
+    expect(review.byteNormalizationPerformed, isFalse);
+    expect(review.reasonCodes, contains('preferred_jpeg_input'));
+    expect(review.reasonCodes, contains('normalization_not_performed'));
+    expect(review.sourceLabel, 'receipt.jpg');
+    expect(review.safeDiagnosticSummary, isNot(contains(r'C:\private')));
+    expect(review.safeDiagnosticSummary, isNot(contains('receipt.jpg')));
+  });
+
+  test(
+    'normalization policy accepts PNG and WEBP but requires JPEG derivative',
+    () {
+      final pngReview = ReceiptImageNormalizationPolicy.review(
+        const ReceiptImageNormalizationPolicyInput(
+          sourceKind: ReceiptImageSourceKind.importedImage,
+          sourceLabel: 'receipt.png',
+          mediaType: 'image/png',
+          extension: 'png',
+          sizeBytes: 2048,
+        ),
+      );
+      final webpReview = ReceiptImageNormalizationPolicy.review(
+        const ReceiptImageNormalizationPolicyInput(
+          sourceKind: ReceiptImageSourceKind.importedImage,
+          sourceLabel: 'receipt.webp',
+          mediaType: 'image/webp',
+          extension: 'webp',
+          sizeBytes: 2048,
+        ),
+      );
+
+      expect(pngReview.decision, ReceiptImageHandlingDecision.accepted);
+      expect(webpReview.decision, ReceiptImageHandlingDecision.accepted);
+      expect(
+        pngReview.reasonCodes,
+        contains('image_input_needs_jpeg_derivative'),
+      );
+      expect(
+        webpReview.reasonCodes,
+        contains('image_input_needs_jpeg_derivative'),
+      );
+      expect(
+        pngReview.displayLines,
+        contains('Current build: byte normalization is not performed here.'),
+      );
+    },
+  );
+
+  test('normalization policy limits PDF and rejects unknown or HEIC', () {
+    final pdfReview = ReceiptImageNormalizationPolicy.review(
+      const ReceiptImageNormalizationPolicyInput(
+        sourceKind: ReceiptImageSourceKind.importedPdf,
+        sourceLabel: 'receipt.pdf',
+        mediaType: 'application/pdf',
+        extension: 'pdf',
+        sizeBytes: 2048,
+      ),
+    );
+    final unknownReview = ReceiptImageNormalizationPolicy.review(
+      const ReceiptImageNormalizationPolicyInput(
+        sourceKind: ReceiptImageSourceKind.unknown,
+        sourceLabel: 'receipt.bmp',
+        mediaType: 'image/bmp',
+        extension: 'bmp',
+        sizeBytes: 2048,
+      ),
+    );
+    final heicReview = ReceiptImageNormalizationPolicy.review(
+      const ReceiptImageNormalizationPolicyInput(
+        sourceKind: ReceiptImageSourceKind.importedImage,
+        sourceLabel: 'receipt.heic',
+        mediaType: 'image/heic',
+        extension: 'heic',
+        sizeBytes: 2048,
+      ),
+    );
+
+    expect(pdfReview.decision, ReceiptImageHandlingDecision.limited);
+    expect(
+      pdfReview.reasonCodes,
+      contains('pdf_document_not_image_normalized'),
+    );
+    expect(unknownReview.decision, ReceiptImageHandlingDecision.unsupported);
+    expect(
+      unknownReview.reasonCodes,
+      contains('unknown_or_unsupported_file_type'),
+    );
+    expect(heicReview.decision, ReceiptImageHandlingDecision.unsupported);
+    expect(
+      heicReview.reasonCodes,
+      contains('heic_not_supported_by_current_mobile_seam'),
+    );
+  });
+
+  test(
+    'normalization policy warns on size and dimensions without contents',
+    () {
+      final review = ReceiptImageNormalizationPolicy.review(
+        const ReceiptImageNormalizationPolicyInput(
+          sourceKind: ReceiptImageSourceKind.importedImage,
+          sourceLabel: 'receipt.png',
+          mediaType: 'image/png',
+          extension: 'png',
+          sizeBytes: ReceiptImageNormalizationPolicy.largeFileWarningBytes + 1,
+          width: 5000,
+          height: 4000,
+        ),
+      );
+
+      expect(review.reasonCodes, contains('large_file_warning'));
+      expect(review.reasonCodes, contains('large_dimension_warning'));
+      expect(review.messages.join(' '), contains('Receipt file is large'));
+      expect(review.safeDiagnosticSummary, isNot(contains('merchant')));
+      expect(review.safeDiagnosticSummary, isNot(contains('payment')));
+    },
+  );
 }
 
 class _FakeReceiptOcrProvider implements ReceiptOcrProvider {
