@@ -1005,6 +1005,10 @@ void main() {
       await tester.pump();
 
       expect(find.text('Manual note'), findsOneWidget);
+      expect(
+        find.text('Needs manual review: no traceable line amount'),
+        findsOneWidget,
+      );
       expect(find.text('Milk'), findsNothing);
       expect(find.text('Service charge'), findsNothing);
       expect(find.text('Coupon'), findsNothing);

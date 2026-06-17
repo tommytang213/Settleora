@@ -87,6 +87,90 @@ Total $5.50
     );
   });
 
+  test('parser ignores address header block and keeps real items', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Harbour Noodle
+Shop 3, 12 Market Road
+3/F Central Building
+Tel: +852 2345 6789
+Order #3
+Beef Noodle 58.00
+Iced Tea 18.00
+Total HKD 76.00
+Thank you
+''');
+
+    expect(preview.merchant, 'Harbour Noodle');
+    expect(preview.currency, 'HKD');
+    expect(preview.total, '76.00');
+    expect(preview.items.map((item) => item.description), [
+      'Beef Noodle',
+      'Iced Tea',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['58.00', '18.00']);
+    expect(
+      preview.items.map((item) => item.description).join(' '),
+      isNot(contains('Market Road')),
+    );
+    expect(preview.items.map((item) => item.lineTotal), isNot(contains('3')));
+  });
+
+  test('parser does not promote contact and counter numbers as amounts', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Corner Deli
+Store 3
+Table 3
+Register 3
+Cashier 3
+Phone 555-0103
+Sandwich 8.50
+Total USD 8.50
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Sandwich');
+    expect(preview.items.single.lineTotal, '8.50');
+    expect(preview.items.map((item) => item.lineTotal), isNot(contains('3')));
+  });
+
+  test('parser rejects noisy isolated single digit item totals', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Cafe Stand
+Noise 3
+Tea 12
+Total 12
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Tea');
+    expect(preview.items.single.lineTotal, '12');
+    expect(preview.items.map((item) => item.lineTotal), isNot(contains('3')));
+  });
+
+  test('parser warns when item-looking text has no traceable amount', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Cafe Stand
+Mystery Cake
+Total HKD 24.00
+''');
+
+    expect(preview.items, isEmpty);
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
   test('preview hints when item line totals differ from detected subtotal', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',
