@@ -118,7 +118,9 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
-        beta_groups:
-          - Internal Testers
+        # Upload the signed IPA to App Store Connect for internal TestFlight
+        # visibility only. Do not set beta_groups to "Internal Testers":
+        # Codemagic/App Store Connect beta group assignment is for supported
+        # beta distribution groups and fails for Apple's internal tester group.
+        submit_to_testflight: false
         submit_to_app_store: false
