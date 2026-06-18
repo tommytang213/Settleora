@@ -394,6 +394,171 @@ export interface UpdateFutureBillRequest {
 }
 
 /**
+ * Manual financial account creation request. Owner, status, archive state, and timestamps are derived server-side.
+ */
+export interface CreateManualFinancialAccountRequest {
+  displayName: string;
+  accountType: ManualFinancialAccountType;
+  /**
+   * Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+   */
+  currentBalanceAmount: string;
+  currency: CurrencyCode;
+  balanceAsOfDate: string;
+  note?: string | null;
+}
+
+/**
+ * Manual financial account patch request. If currentBalanceAmount is supplied, currency must also be supplied so the balance remains currency-attached.
+ */
+export interface UpdateManualFinancialAccountRequest {
+  displayName?: string;
+  accountType?: ManualFinancialAccountType;
+  /**
+   * Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+   */
+  currentBalanceAmount?: string;
+  currency?: CurrencyCode;
+  balanceAsOfDate?: string;
+  note?: string | null;
+}
+
+/**
+ * Manual expected cash-in source creation request. Owner, status, archive state, and timestamps are derived server-side.
+ */
+export interface CreateManualIncomeSourceRequest {
+  displayName: string;
+  /**
+   * Positive decimal-safe expected cash-in amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  cadence: ManualIncomeCadence;
+  nextExpectedDate: string;
+  endDate?: string | null;
+  /**
+   * Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+   */
+  manualFinancialAccountId?: string | null;
+  note?: string | null;
+}
+
+/**
+ * Manual expected cash-in source replacement request. Optional linked manual account IDs must be active and owned by the authenticated actor.
+ */
+export interface UpdateManualIncomeSourceRequest {
+  displayName: string;
+  /**
+   * Positive decimal-safe expected cash-in amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  cadence: ManualIncomeCadence;
+  nextExpectedDate: string;
+  endDate?: string | null;
+  /**
+   * Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+   */
+  manualFinancialAccountId?: string | null;
+  note?: string | null;
+}
+
+/**
+ * Server-owned read-only manual finance availability projection for the authenticated actor. Amounts are decimal-safe strings and remain grouped by currency without conversion.
+ */
+export interface ManualFinanceSummaryResponse {
+  asOfUtc: string;
+  windowStartDate: string;
+  windowEndDate: string;
+  currencies: ManualFinanceSummaryCurrencyRow[];
+  /**
+   * Stable limitation flags for this projection.
+   */
+  warnings: string[];
+}
+
+/**
+ * One per-currency availability row. Values are not converted or mixed across currencies.
+ */
+export interface ManualFinanceSummaryCurrencyRow {
+  currency: CurrencyCode;
+  /**
+   * Sum of active, non-archived manual account balance snapshots for this currency.
+   */
+  activeManualAccountBalanceTotal: string;
+  /**
+   * Sum of active, non-archived one-time manual income rows expected in the window for this currency.
+   */
+  expectedManualIncomeTotal: string;
+  /**
+   * Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
+   */
+  upcomingOneTimeFutureBillObligationTotal: string;
+  /**
+   * Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+   */
+  recurringObligationEstimateTotal: string;
+  /**
+   * activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+   */
+  estimatedAvailableAmount: string;
+  /**
+   * Stable per-row limitation flags.
+   */
+  warnings: string[];
+}
+
+export interface ManualFinancialAccountListResponse {
+  accounts: ManualFinancialAccountResponse[];
+}
+
+/**
+ * Safe manual financial account response for the authenticated owner. It excludes auth/session data, storage details, payment credentials, statement rows, transaction ledgers, and unrelated users.
+ */
+export interface ManualFinancialAccountResponse {
+  id: string;
+  displayName: string;
+  accountType: ManualFinancialAccountType;
+  /**
+   * Decimal-safe manual balance snapshot represented as a string.
+   */
+  currentBalanceAmount: string;
+  currency: CurrencyCode;
+  balanceAsOfDate: string;
+  note: string | null;
+  status: ManualFinancialAccountStatus;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  archivedAtUtc: string | null;
+}
+
+export interface ManualIncomeSourceListResponse {
+  incomeSources: ManualIncomeSourceResponse[];
+}
+
+/**
+ * Safe manual expected cash-in response for the authenticated owner. It excludes auth/session data, payroll/provider integration data, bank credentials, transaction ledgers, and unrelated users.
+ */
+export interface ManualIncomeSourceResponse {
+  id: string;
+  displayName: string;
+  /**
+   * Decimal-safe expected cash-in amount represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  cadence: ManualIncomeCadence;
+  nextExpectedDate: string;
+  endDate: string | null;
+  manualFinancialAccountId: string | null;
+  note: string | null;
+  status: ManualIncomeSourceStatus;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  archivedAtUtc: string | null;
+}
+
+/**
  * Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
  */
 export interface RecurringBillScheduleRequest {
@@ -2142,6 +2307,26 @@ export type InAppNotificationSubjectType = "expense_bill" | "settlement_request"
  * Bounded archive visibility filter or lifecycle state for expense bills.
  */
 export type ExpenseBillArchiveState = "active" | "archived" | "all";
+
+/**
+ * User-owned manual account category for cash visibility.
+ */
+export type ManualFinancialAccountType = "cash" | "bank_account" | "stored_value" | "other";
+
+/**
+ * Manual financial account lifecycle status.
+ */
+export type ManualFinancialAccountStatus = "active" | "archived";
+
+/**
+ * Manual expected cash-in cadence.
+ */
+export type ManualIncomeCadence = "one_time" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
+
+/**
+ * Manual expected cash-in lifecycle status.
+ */
+export type ManualIncomeSourceStatus = "active" | "archived";
 
 /**
  * Expense bill root status.

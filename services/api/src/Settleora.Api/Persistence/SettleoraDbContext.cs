@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Finance;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
@@ -65,6 +66,8 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
         modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
+        modelBuilder.Entity<ManualFinancialAccount>(ConfigureManualFinancialAccount);
+        modelBuilder.Entity<ManualIncomeSource>(ConfigureManualIncomeSource);
         modelBuilder.Entity<RecurringBillTemplate>(ConfigureRecurringBillTemplate);
         modelBuilder.Entity<RecurringBillOccurrence>(ConfigureRecurringBillOccurrence);
         modelBuilder.Entity<ExpenseBillRevision>(ConfigureExpenseBillRevision);
@@ -89,6 +92,200 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
         modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
+    }
+
+    private static void ConfigureManualFinancialAccount(EntityTypeBuilder<ManualFinancialAccount> entity)
+    {
+        entity.ToTable("manual_financial_accounts", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_manual_financial_accounts_account_type",
+                "account_type IN ('cash', 'bank_account', 'stored_value', 'other')");
+            table.HasCheckConstraint(
+                "ck_manual_financial_accounts_status",
+                "status IN ('active', 'archived')");
+            table.HasCheckConstraint(
+                "ck_manual_financial_accounts_currency_upper",
+                "current_balance_currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_manual_financial_accounts_display_name_not_blank",
+                "length(btrim(display_name)) > 0");
+            table.HasCheckConstraint(
+                "ck_manual_financial_accounts_archived_status_pair",
+                "(status = 'archived') = (archived_at_utc IS NOT NULL)");
+        });
+
+        entity.HasKey(account => account.Id);
+
+        entity.Property(account => account.Id)
+            .HasColumnName("id");
+
+        entity.Property(account => account.OwnerUserProfileId)
+            .HasColumnName("owner_user_profile_id");
+
+        entity.Property(account => account.DisplayName)
+            .HasColumnName("display_name")
+            .HasMaxLength(ManualFinanceConstraints.DisplayNameMaxLength)
+            .IsRequired();
+
+        entity.Property(account => account.AccountType)
+            .HasColumnName("account_type")
+            .HasMaxLength(ManualFinanceConstraints.AccountTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(account => account.CurrentBalanceAmount)
+            .HasColumnName("current_balance_amount")
+            .HasPrecision(ManualFinanceConstraints.MoneyAmountPrecision, ManualFinanceConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(account => account.CurrentBalanceCurrency)
+            .HasColumnName("current_balance_currency")
+            .HasMaxLength(ManualFinanceConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(account => account.BalanceAsOfDate)
+            .HasColumnName("balance_as_of_date")
+            .IsRequired();
+
+        entity.Property(account => account.Note)
+            .HasColumnName("note")
+            .HasMaxLength(ManualFinanceConstraints.NoteMaxLength);
+
+        entity.Property(account => account.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ManualFinanceConstraints.AccountStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(account => account.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(account => account.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(account => account.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(account => new
+            {
+                account.OwnerUserProfileId,
+                account.Status,
+                account.DisplayName
+            })
+            .HasDatabaseName("ix_manual_financial_accounts_owner_status_name");
+
+        entity.HasOne(account => account.OwnerUserProfile)
+            .WithMany()
+            .HasForeignKey(account => account.OwnerUserProfileId)
+            .HasConstraintName("fk_manual_financial_accounts_owner_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureManualIncomeSource(EntityTypeBuilder<ManualIncomeSource> entity)
+    {
+        entity.ToTable("manual_income_sources", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_cadence",
+                "cadence IN ('one_time', 'weekly', 'biweekly', 'monthly', 'quarterly', 'yearly')");
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_status",
+                "status IN ('active', 'archived')");
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_currency_upper",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_display_name_not_blank",
+                "length(btrim(display_name)) > 0");
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_end_date_order",
+                "end_date IS NULL OR end_date >= next_expected_date");
+            table.HasCheckConstraint(
+                "ck_manual_income_sources_archived_status_pair",
+                "(status = 'archived') = (archived_at_utc IS NOT NULL)");
+        });
+
+        entity.HasKey(income => income.Id);
+
+        entity.Property(income => income.Id)
+            .HasColumnName("id");
+
+        entity.Property(income => income.OwnerUserProfileId)
+            .HasColumnName("owner_user_profile_id");
+
+        entity.Property(income => income.ManualFinancialAccountId)
+            .HasColumnName("manual_financial_account_id");
+
+        entity.Property(income => income.DisplayName)
+            .HasColumnName("display_name")
+            .HasMaxLength(ManualFinanceConstraints.DisplayNameMaxLength)
+            .IsRequired();
+
+        entity.Property(income => income.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(ManualFinanceConstraints.MoneyAmountPrecision, ManualFinanceConstraints.MoneyAmountScale)
+            .IsRequired();
+
+        entity.Property(income => income.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ManualFinanceConstraints.CurrencyMaxLength)
+            .IsRequired();
+
+        entity.Property(income => income.Cadence)
+            .HasColumnName("cadence")
+            .HasMaxLength(ManualFinanceConstraints.IncomeCadenceMaxLength)
+            .IsRequired();
+
+        entity.Property(income => income.NextExpectedDate)
+            .HasColumnName("next_expected_date")
+            .IsRequired();
+
+        entity.Property(income => income.EndDate)
+            .HasColumnName("end_date");
+
+        entity.Property(income => income.Note)
+            .HasColumnName("note")
+            .HasMaxLength(ManualFinanceConstraints.NoteMaxLength);
+
+        entity.Property(income => income.Status)
+            .HasColumnName("status")
+            .HasMaxLength(ManualFinanceConstraints.IncomeStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(income => income.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(income => income.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(income => income.ArchivedAtUtc)
+            .HasColumnName("archived_at_utc");
+
+        entity.HasIndex(income => new
+            {
+                income.OwnerUserProfileId,
+                income.Status,
+                income.NextExpectedDate
+            })
+            .HasDatabaseName("ix_manual_income_sources_owner_status_next");
+
+        entity.HasIndex(income => income.ManualFinancialAccountId)
+            .HasDatabaseName("ix_manual_income_sources_manual_financial_account_id");
+
+        entity.HasOne(income => income.OwnerUserProfile)
+            .WithMany()
+            .HasForeignKey(income => income.OwnerUserProfileId)
+            .HasConstraintName("fk_manual_income_sources_owner_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(income => income.ManualFinancialAccount)
+            .WithMany()
+            .HasForeignKey(income => income.ManualFinancialAccountId)
+            .HasConstraintName("fk_manual_income_sources_manual_financial_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureSyncOperation(EntityTypeBuilder<SyncOperation> entity)
