@@ -14,8 +14,10 @@ internal static class LocalSignInEndpoints
 
     public static WebApplication MapLocalSignInEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/sign-in", SignInLegacyAsync);
-        app.MapPost("/api/v1/auth/local/sign-in", SignInWithCurrentUserAsync);
+        app.MapPost("/api/v1/auth/sign-in", SignInLegacyAsync)
+            .AllowAnonymous();
+        app.MapPost("/api/v1/auth/local/sign-in", SignInWithCurrentUserAsync)
+            .AllowAnonymous();
 
         return app;
     }

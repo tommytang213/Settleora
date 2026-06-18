@@ -8,9 +8,11 @@ internal static class HealthEndpoints
     {
         app.MapGet("/health", () => Results.Ok(new HealthResponse(
             Status: "ok",
-            Service: "settleora-api")));
+            Service: "settleora-api")))
+            .AllowAnonymous();
 
-        app.MapGet("/health/ready", GetReadinessAsync);
+        app.MapGet("/health/ready", GetReadinessAsync)
+            .AllowAnonymous();
 
         return app;
     }
