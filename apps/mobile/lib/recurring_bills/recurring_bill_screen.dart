@@ -1093,6 +1093,25 @@ class _SettleoraRecurringBillTemplateFormScreenState
     }
   }
 
+  Future<void> _pickDate(TextEditingController controller) async {
+    final currentValue = _parseIsoDate(controller.text.trim());
+    final now = DateTime.now();
+    final initialDate = currentValue ?? DateTime(now.year, now.month, now.day);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      controller.text = _formatIsoDate(selected);
+    });
+  }
+
   SettleoraRecurringBillScheduleDraft _scheduleDraft() {
     final interval = int.parse(_intervalController.text.trim());
     final dueOffset = int.tryParse(_dueOffsetController.text.trim());
@@ -1130,6 +1149,8 @@ class _SettleoraRecurringBillTemplateFormScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const _ServerAuthorityPanel(compact: false),
+                const SizedBox(height: 12),
+                _RecurringTemplateFormPreviewPanel(isEditing: isEditing),
                 if (_failure != null) ...[
                   const SizedBox(height: 12),
                   _InlineFailure(failure: _failure!),
@@ -1226,9 +1247,19 @@ class _SettleoraRecurringBillTemplateFormScreenState
                     TextFormField(
                       key: const Key('recurring-bill-form-start-date'),
                       controller: _startDateController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Start date (YYYY-MM-DD)',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          key: const Key(
+                            'recurring-bill-form-start-date-picker',
+                          ),
+                          tooltip: 'Pick start date',
+                          onPressed: _isSaving
+                              ? null
+                              : () => _pickDate(_startDateController),
+                          icon: const Icon(Icons.calendar_month_outlined),
+                        ),
                       ),
                       validator: (value) =>
                           _isoDateValidator(value, required: true),
@@ -1237,9 +1268,17 @@ class _SettleoraRecurringBillTemplateFormScreenState
                     TextFormField(
                       key: const Key('recurring-bill-form-end-date'),
                       controller: _endDateController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'End date (optional)',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          key: const Key('recurring-bill-form-end-date-picker'),
+                          tooltip: 'Pick end date',
+                          onPressed: _isSaving
+                              ? null
+                              : () => _pickDate(_endDateController),
+                          icon: const Icon(Icons.event_available_outlined),
+                        ),
                       ),
                       validator: (value) =>
                           _isoDateValidator(value, required: false),
@@ -1930,6 +1969,24 @@ class _ServerAuthorityPanel extends StatelessWidget {
   }
 }
 
+class _RecurringTemplateFormPreviewPanel extends StatelessWidget {
+  const _RecurringTemplateFormPreviewPanel({required this.isEditing});
+
+  final bool isEditing;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.preview_outlined,
+      title: isEditing ? 'Template update only' : 'Recurring template only',
+      message: isEditing
+          ? 'Saving updates the recurring template fields supported by the current API. Existing generated bills are not changed here.'
+          : 'Saving creates a recurring template and refreshes server forecast rows. It does not generate, record, or mark any bill paid.',
+      compact: true,
+    );
+  }
+}
+
 class _RefreshWarningPanel extends StatelessWidget {
   const _RefreshWarningPanel({required this.message, required this.onRefresh});
 
@@ -2283,6 +2340,25 @@ String _formatTimestamp(DateTime value) {
 
 String _operationKey(SettleoraRecurringBillForecastOccurrence occurrence) {
   return '${occurrence.templateId}|${occurrence.occurrenceDate}';
+}
+
+DateTime? _parseIsoDate(String value) {
+  if (_isoDateValidator(value, required: false) != null || value.isEmpty) {
+    return null;
+  }
+  final parts = value.split('-');
+  return DateTime(
+    int.parse(parts[0]),
+    int.parse(parts[1]),
+    int.parse(parts[2]),
+  );
+}
+
+String _formatIsoDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
 
 String? _requiredTextValidator(String? value, String field, int maxLength) {

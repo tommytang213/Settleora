@@ -729,6 +729,117 @@ void main() {
     expect(repository.createTemplateCalls, 0);
   });
 
+  testWidgets(
+    'create form exposes template-only copy date picker and currency cadence controls',
+    (tester) async {
+      final repository = FakeRecurringBillRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('recurring-bill-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recurring template only'), findsOneWidget);
+      expect(
+        find.text(
+          'Saving creates a recurring template and refreshes server forecast rows. It does not generate, record, or mark any bill paid.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const Key('recurring-bill-form-start-date-picker')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(
+          const Key('recurring-bill-form-currency'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('recurring-bill-form-currency')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('HKD - Hong Kong Dollar').last);
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(
+          const Key('recurring-bill-form-schedule-type'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('recurring-bill-form-schedule-type')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Weekly').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('recurring-bill-form-interval')),
+        '2',
+      );
+      await tester.enterText(
+        find.byKey(const Key('recurring-bill-form-merchant')),
+        'Gym',
+      );
+      await tester.ensureVisible(
+        find.byKey(
+          const Key('recurring-bill-form-start-date'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('recurring-bill-form-start-date')),
+        '2026-07-01',
+      );
+      await tester.ensureVisible(
+        find.byKey(
+          const Key('recurring-bill-form-item-name'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('recurring-bill-form-item-name')),
+        'Membership',
+      );
+      await tester.ensureVisible(
+        find.byKey(
+          const Key('recurring-bill-form-item-amount'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('recurring-bill-form-item-amount')),
+        '480',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('recurring-bill-form-save')),
+      );
+      await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.createTemplateCalls, 1);
+      expect(repository.lastCreateDraft?.currency, 'HKD');
+      expect(
+        repository.lastCreateDraft?.schedule.type,
+        SettleoraRecurringBillScheduleTypeValues.weekly,
+      );
+      expect(repository.lastCreateDraft?.schedule.intervalCount, 2);
+      expect(repository.lastCreateDraft?.schedule.startDate, '2026-07-01');
+    },
+  );
+
   testWidgets('create success calls repository once and refreshes', (
     tester,
   ) async {
@@ -843,6 +954,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.createTemplateCalls, 1);
+  });
+
+  testWidgets('create failure shows bounded user-facing copy', (tester) async {
+    final repository = FakeRecurringBillRepository(
+      createFailure: const SettleoraRecurringBillFailure(
+        kind: SettleoraRecurringBillFailureKind.validation,
+        message:
+            'The recurring bill request is no longer valid. Refresh and try again.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('recurring-bill-create')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-start-date'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-start-date')),
+      '2026-07-01',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-name'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-name')),
+      'Fiber plan',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-amount'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-amount')),
+      '88.50',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('recurring-bill-form-save')),
+    );
+    await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.createTemplateCalls, 1);
+    expect(
+      find.text(
+        'The recurring bill request is no longer valid. Refresh and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(visibleText(tester), isNot(contains('/api/v1')));
+    expect(visibleText(tester), isNot(contains('Exception')));
   });
 
   testWidgets('edit form opens with returned values and updates detail', (
