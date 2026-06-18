@@ -936,6 +936,116 @@ class SettleoraApiClient {
     return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<ManualFinancialAccountListResponse> listManualFinancialAccounts({bool? includeArchived, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/manual-financial-accounts", {"includeArchived": includeArchived}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinancialAccountListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualFinancialAccountResponse> createManualFinancialAccount(CreateManualFinancialAccountRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/manual-financial-accounts",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinancialAccountResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualFinancialAccountResponse> getManualFinancialAccount(String accountId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/manual-financial-accounts/${Uri.encodeComponent(accountId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinancialAccountResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualFinancialAccountResponse> updateManualFinancialAccount(String accountId, UpdateManualFinancialAccountRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/manual-financial-accounts/${Uri.encodeComponent(accountId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinancialAccountResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualFinancialAccountResponse> archiveManualFinancialAccount(String accountId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/manual-financial-accounts/${Uri.encodeComponent(accountId.toString())}/archive',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinancialAccountResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualIncomeSourceListResponse> listManualIncomeSources({bool? includeArchived, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/manual-income-sources", {"includeArchived": includeArchived}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualIncomeSourceListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualIncomeSourceResponse> createManualIncomeSource(CreateManualIncomeSourceRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/manual-income-sources",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualIncomeSourceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualIncomeSourceResponse> getManualIncomeSource(String incomeSourceId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/manual-income-sources/${Uri.encodeComponent(incomeSourceId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualIncomeSourceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualIncomeSourceResponse> updateManualIncomeSource(String incomeSourceId, UpdateManualIncomeSourceRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PUT",
+      '/api/v1/manual-income-sources/${Uri.encodeComponent(incomeSourceId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualIncomeSourceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<ManualIncomeSourceResponse> archiveManualIncomeSource(String incomeSourceId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/manual-income-sources/${Uri.encodeComponent(incomeSourceId.toString())}/archive',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualIncomeSourceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<InAppNotificationListResponse> listNotifications({InAppNotificationStatus? status, int? limit, DateTime? before, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

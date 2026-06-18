@@ -5715,6 +5715,434 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-financial-accounts:
+    get:
+      summary: List manual financial accounts
+      description: Lists manual financial accounts owned by the authenticated actor. Archived accounts are excluded by default. This endpoint returns raw account snapshots only and does not calculate available balance, settlement state, FX conversion, bank sync, statement import, or ledger truth.
+      operationId: listManualFinancialAccounts
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          description: Include archived manual financial accounts when true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Manual financial accounts owned by the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinancialAccountListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      summary: Create manual financial account
+      description: Creates one user-owned manual balance account for the authenticated actor. Owner identity, status, and timestamps are derived server-side; clients submit only bounded descriptive fields and a decimal-safe balance snapshot with currency.
+      operationId: createManualFinancialAccount
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateManualFinancialAccountRequest"
+      responses:
+        "201":
+          description: Manual financial account created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinancialAccountResponse"
+        "400":
+          description: The submitted manual financial account request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-financial-accounts/{accountId}:
+    get:
+      summary: Get manual financial account
+      description: Returns one manual financial account only when it is owned by the authenticated actor. Missing, archived-visible, cross-user, and deleted-profile cases fail closed.
+      operationId: getManualFinancialAccount
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          description: Manual financial account ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Manual financial account owned by the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinancialAccountResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual financial account is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Patch manual financial account
+      description: Patches safe fields on a user-owned manual financial account. Currency and balance amount are stored together as a manual snapshot and do not mutate bills, settlements, recurring templates, payment records, statements, or FX records.
+      operationId: updateManualFinancialAccount
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          description: Manual financial account ID to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateManualFinancialAccountRequest"
+      responses:
+        "200":
+          description: Manual financial account updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinancialAccountResponse"
+        "400":
+          description: The submitted manual financial account request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual financial account is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-financial-accounts/{accountId}/archive:
+    post:
+      summary: Archive manual financial account
+      description: Archives one user-owned manual financial account without hard-deleting it. Archiving does not mutate linked income rows, bills, settlements, payments, statement imports, or available-balance projections.
+      operationId: archiveManualFinancialAccount
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          description: Manual financial account ID to archive.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Manual financial account archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinancialAccountResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual financial account is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-income-sources:
+    get:
+      summary: List manual income sources
+      description: Lists manual expected cash-in sources owned by the authenticated actor. Archived rows are excluded by default. This endpoint returns raw manual expectation records only and does not perform payroll integration, bank sync, FX conversion, available-balance math, or settlement/payment mutation.
+      operationId: listManualIncomeSources
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          description: Include archived manual income sources when true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Manual income sources owned by the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualIncomeSourceListResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      summary: Create manual income source
+      description: Creates one user-owned manual expected cash-in source. Owner identity, status, and timestamps are derived server-side. Optional linked manual account IDs must be owned by the current actor.
+      operationId: createManualIncomeSource
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateManualIncomeSourceRequest"
+      responses:
+        "201":
+          description: Manual income source created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualIncomeSourceResponse"
+        "400":
+          description: The submitted manual income source request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile or linked manual financial account is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-income-sources/{incomeSourceId}:
+    get:
+      summary: Get manual income source
+      description: Returns one manual income source only when it is owned by the authenticated actor. Missing, cross-user, and deleted-profile cases fail closed.
+      operationId: getManualIncomeSource
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: incomeSourceId
+          in: path
+          required: true
+          description: Manual income source ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Manual income source owned by the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualIncomeSourceResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual income source is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    put:
+      summary: Update manual income source
+      description: Replaces safe editable fields on a user-owned manual income source. Optional linked manual account IDs must be owned by the current actor. Updating does not mutate bills, settlements, payments, recurring templates, statement imports, or available-balance projections.
+      operationId: updateManualIncomeSource
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: incomeSourceId
+          in: path
+          required: true
+          description: Manual income source ID to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateManualIncomeSourceRequest"
+      responses:
+        "200":
+          description: Manual income source updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualIncomeSourceResponse"
+        "400":
+          description: The submitted manual income source request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual income source or linked manual financial account is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-income-sources/{incomeSourceId}/archive:
+    post:
+      summary: Archive manual income source
+      description: Archives one user-owned manual income source without hard-deleting it. Archiving does not mutate linked manual accounts, bills, settlements, payments, statement imports, or available-balance projections.
+      operationId: archiveManualIncomeSource
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: incomeSourceId
+          in: path
+          required: true
+          description: Manual income source ID to archive.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Manual income source archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualIncomeSourceResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Manual income source is missing, cross-user, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/recurring-bills:
     post:
       summary: Create recurring bill template
@@ -7930,6 +8358,274 @@ components:
           type: string
           format: date
           description: Updated future due date. The API rejects current or past dates.
+    CreateManualFinancialAccountRequest:
+      type: object
+      description: Manual financial account creation request. Owner, status, archive state, and timestamps are derived server-side.
+      additionalProperties: false
+      required:
+        - displayName
+        - accountType
+        - currentBalanceAmount
+        - currency
+        - balanceAsOfDate
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        accountType:
+          $ref: "#/components/schemas/ManualFinancialAccountType"
+        currentBalanceAmount:
+          type: string
+          description: Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        balanceAsOfDate:
+          type: string
+          format: date
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+    UpdateManualFinancialAccountRequest:
+      type: object
+      description: Manual financial account patch request. If currentBalanceAmount is supplied, currency must also be supplied so the balance remains currency-attached.
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        accountType:
+          $ref: "#/components/schemas/ManualFinancialAccountType"
+        currentBalanceAmount:
+          type: string
+          description: Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        balanceAsOfDate:
+          type: string
+          format: date
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+    CreateManualIncomeSourceRequest:
+      type: object
+      description: Manual expected cash-in source creation request. Owner, status, archive state, and timestamps are derived server-side.
+      additionalProperties: false
+      required:
+        - displayName
+        - amount
+        - currency
+        - cadence
+        - nextExpectedDate
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amount:
+          type: string
+          description: Positive decimal-safe expected cash-in amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        cadence:
+          $ref: "#/components/schemas/ManualIncomeCadence"
+        nextExpectedDate:
+          type: string
+          format: date
+        endDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        manualFinancialAccountId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+    UpdateManualIncomeSourceRequest:
+      description: Manual expected cash-in source replacement request. Optional linked manual account IDs must be active and owned by the authenticated actor.
+      type: object
+      additionalProperties: false
+      required:
+        - displayName
+        - amount
+        - currency
+        - cadence
+        - nextExpectedDate
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amount:
+          type: string
+          description: Positive decimal-safe expected cash-in amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        cadence:
+          $ref: "#/components/schemas/ManualIncomeCadence"
+        nextExpectedDate:
+          type: string
+          format: date
+        endDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        manualFinancialAccountId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+    ManualFinancialAccountListResponse:
+      type: object
+      required:
+        - accounts
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualFinancialAccountResponse"
+    ManualFinancialAccountResponse:
+      type: object
+      description: Safe manual financial account response for the authenticated owner. It excludes auth/session data, storage details, payment credentials, statement rows, transaction ledgers, and unrelated users.
+      required:
+        - id
+        - displayName
+        - accountType
+        - currentBalanceAmount
+        - currency
+        - balanceAsOfDate
+        - note
+        - status
+        - createdAtUtc
+        - updatedAtUtc
+        - archivedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        accountType:
+          $ref: "#/components/schemas/ManualFinancialAccountType"
+        currentBalanceAmount:
+          type: string
+          description: Decimal-safe manual balance snapshot represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        balanceAsOfDate:
+          type: string
+          format: date
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/ManualFinancialAccountStatus"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    ManualIncomeSourceListResponse:
+      type: object
+      required:
+        - incomeSources
+      properties:
+        incomeSources:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualIncomeSourceResponse"
+    ManualIncomeSourceResponse:
+      type: object
+      description: Safe manual expected cash-in response for the authenticated owner. It excludes auth/session data, payroll/provider integration data, bank credentials, transaction ledgers, and unrelated users.
+      required:
+        - id
+        - displayName
+        - amount
+        - currency
+        - cadence
+        - nextExpectedDate
+        - endDate
+        - manualFinancialAccountId
+        - note
+        - status
+        - createdAtUtc
+        - updatedAtUtc
+        - archivedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amount:
+          type: string
+          description: Decimal-safe expected cash-in amount represented as a string.
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        cadence:
+          $ref: "#/components/schemas/ManualIncomeCadence"
+        nextExpectedDate:
+          type: string
+          format: date
+        endDate:
+          oneOf:
+            - type: string
+              format: date
+            - type: "null"
+        manualFinancialAccountId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        note:
+          oneOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/ManualIncomeSourceStatus"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     RecurringBillScheduleRequest:
       type: object
       description: Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
@@ -11522,6 +12218,36 @@ components:
         - active
         - archived
         - all
+    ManualFinancialAccountType:
+      type: string
+      description: User-owned manual account category for cash visibility.
+      enum:
+        - cash
+        - bank_account
+        - stored_value
+        - other
+    ManualFinancialAccountStatus:
+      type: string
+      description: Manual financial account lifecycle status.
+      enum:
+        - active
+        - archived
+    ManualIncomeCadence:
+      type: string
+      description: Manual expected cash-in cadence.
+      enum:
+        - one_time
+        - weekly
+        - biweekly
+        - monthly
+        - quarterly
+        - yearly
+    ManualIncomeSourceStatus:
+      type: string
+      description: Manual expected cash-in lifecycle status.
+      enum:
+        - active
+        - archived
     ExpenseBillStatus:
       type: string
       description: Expense bill root status.

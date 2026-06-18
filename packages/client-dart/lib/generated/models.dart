@@ -1079,6 +1079,441 @@ class UpdateFutureBillRequest {
   }
 }
 
+/// Manual financial account creation request. Owner, status, archive state, and timestamps are derived server-side.
+class CreateManualFinancialAccountRequest {
+  static const Object _unsetNote = Object();
+
+  CreateManualFinancialAccountRequest({
+    required this.displayName,
+    required this.accountType,
+    required this.currentBalanceAmount,
+    required this.currency,
+    required this.balanceAsOfDate,
+    Object? note = _unsetNote,
+  })
+      : note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final String displayName;
+  final ManualFinancialAccountType accountType;
+  /// Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+  final String currentBalanceAmount;
+  final CurrencyCode currency;
+  final String balanceAsOfDate;
+  final String? note;
+  final bool _hasNote;
+
+  factory CreateManualFinancialAccountRequest.fromJson(JsonObject json) {
+    return CreateManualFinancialAccountRequest(
+      displayName: json["displayName"] as String,
+      accountType: json["accountType"] as String,
+      currentBalanceAmount: json["currentBalanceAmount"] as String,
+      currency: json["currency"] as String,
+      balanceAsOfDate: json["balanceAsOfDate"] as String,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+
+    return {
+      "displayName": displayName,
+      "accountType": accountType,
+      "currentBalanceAmount": currentBalanceAmount,
+      "currency": currency,
+      "balanceAsOfDate": balanceAsOfDate,
+      if (_hasNote) "note": noteJsonValue,
+    };
+  }
+}
+
+/// Manual financial account patch request. If currentBalanceAmount is supplied, currency must also be supplied so the balance remains currency-attached.
+class UpdateManualFinancialAccountRequest {
+  static const Object _unsetNote = Object();
+
+  UpdateManualFinancialAccountRequest({
+    this.displayName,
+    this.accountType,
+    this.currentBalanceAmount,
+    this.currency,
+    this.balanceAsOfDate,
+    Object? note = _unsetNote,
+  })
+      : note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final String? displayName;
+  final ManualFinancialAccountType? accountType;
+  /// Decimal-safe manual balance snapshot represented as a string. Negative values are allowed for overdraft or debt-like manual snapshots.
+  final String? currentBalanceAmount;
+  final CurrencyCode? currency;
+  final String? balanceAsOfDate;
+  final String? note;
+  final bool _hasNote;
+
+  factory UpdateManualFinancialAccountRequest.fromJson(JsonObject json) {
+    return UpdateManualFinancialAccountRequest(
+      displayName: json["displayName"] == null ? null : json["displayName"] as String,
+      accountType: json["accountType"] == null ? null : json["accountType"] as String,
+      currentBalanceAmount: json["currentBalanceAmount"] == null ? null : json["currentBalanceAmount"] as String,
+      currency: json["currency"] == null ? null : json["currency"] as String,
+      balanceAsOfDate: json["balanceAsOfDate"] == null ? null : json["balanceAsOfDate"] as String,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayNameJsonValue = displayName;
+    final accountTypeJsonValue = accountType;
+    final currentBalanceAmountJsonValue = currentBalanceAmount;
+    final currencyJsonValue = currency;
+    final balanceAsOfDateJsonValue = balanceAsOfDate;
+    final noteJsonValue = note;
+
+    return {
+      if (displayNameJsonValue != null) "displayName": displayNameJsonValue,
+      if (accountTypeJsonValue != null) "accountType": accountTypeJsonValue,
+      if (currentBalanceAmountJsonValue != null) "currentBalanceAmount": currentBalanceAmountJsonValue,
+      if (currencyJsonValue != null) "currency": currencyJsonValue,
+      if (balanceAsOfDateJsonValue != null) "balanceAsOfDate": balanceAsOfDateJsonValue,
+      if (_hasNote) "note": noteJsonValue,
+    };
+  }
+}
+
+/// Manual expected cash-in source creation request. Owner, status, archive state, and timestamps are derived server-side.
+class CreateManualIncomeSourceRequest {
+  static const Object _unsetEndDate = Object();
+  static const Object _unsetManualFinancialAccountId = Object();
+  static const Object _unsetNote = Object();
+
+  CreateManualIncomeSourceRequest({
+    required this.displayName,
+    required this.amount,
+    required this.currency,
+    required this.cadence,
+    required this.nextExpectedDate,
+    Object? endDate = _unsetEndDate,
+    Object? manualFinancialAccountId = _unsetManualFinancialAccountId,
+    Object? note = _unsetNote,
+  })
+      : endDate = identical(endDate, _unsetEndDate) ? null : endDate as String?,
+        _hasEndDate = !identical(endDate, _unsetEndDate),
+        manualFinancialAccountId = identical(manualFinancialAccountId, _unsetManualFinancialAccountId) ? null : manualFinancialAccountId as String?,
+        _hasManualFinancialAccountId = !identical(manualFinancialAccountId, _unsetManualFinancialAccountId),
+        note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final String displayName;
+  /// Positive decimal-safe expected cash-in amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final ManualIncomeCadence cadence;
+  final String nextExpectedDate;
+  final String? endDate;
+  final bool _hasEndDate;
+  /// Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+  final String? manualFinancialAccountId;
+  final bool _hasManualFinancialAccountId;
+  final String? note;
+  final bool _hasNote;
+
+  factory CreateManualIncomeSourceRequest.fromJson(JsonObject json) {
+    return CreateManualIncomeSourceRequest(
+      displayName: json["displayName"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      cadence: json["cadence"] as String,
+      nextExpectedDate: json["nextExpectedDate"] as String,
+      endDate: json.containsKey("endDate")
+          ? json["endDate"] == null ? null : json["endDate"] as String
+          : _unsetEndDate,
+      manualFinancialAccountId: json.containsKey("manualFinancialAccountId")
+          ? json["manualFinancialAccountId"] == null ? null : json["manualFinancialAccountId"] as String
+          : _unsetManualFinancialAccountId,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final endDateJsonValue = endDate;
+    final manualFinancialAccountIdJsonValue = manualFinancialAccountId;
+    final noteJsonValue = note;
+
+    return {
+      "displayName": displayName,
+      "amount": amount,
+      "currency": currency,
+      "cadence": cadence,
+      "nextExpectedDate": nextExpectedDate,
+      if (_hasEndDate) "endDate": endDateJsonValue,
+      if (_hasManualFinancialAccountId) "manualFinancialAccountId": manualFinancialAccountIdJsonValue,
+      if (_hasNote) "note": noteJsonValue,
+    };
+  }
+}
+
+/// Manual expected cash-in source replacement request. Optional linked manual account IDs must be active and owned by the authenticated actor.
+class UpdateManualIncomeSourceRequest {
+  static const Object _unsetEndDate = Object();
+  static const Object _unsetManualFinancialAccountId = Object();
+  static const Object _unsetNote = Object();
+
+  UpdateManualIncomeSourceRequest({
+    required this.displayName,
+    required this.amount,
+    required this.currency,
+    required this.cadence,
+    required this.nextExpectedDate,
+    Object? endDate = _unsetEndDate,
+    Object? manualFinancialAccountId = _unsetManualFinancialAccountId,
+    Object? note = _unsetNote,
+  })
+      : endDate = identical(endDate, _unsetEndDate) ? null : endDate as String?,
+        _hasEndDate = !identical(endDate, _unsetEndDate),
+        manualFinancialAccountId = identical(manualFinancialAccountId, _unsetManualFinancialAccountId) ? null : manualFinancialAccountId as String?,
+        _hasManualFinancialAccountId = !identical(manualFinancialAccountId, _unsetManualFinancialAccountId),
+        note = identical(note, _unsetNote) ? null : note as String?,
+        _hasNote = !identical(note, _unsetNote);
+
+  final String displayName;
+  /// Positive decimal-safe expected cash-in amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final ManualIncomeCadence cadence;
+  final String nextExpectedDate;
+  final String? endDate;
+  final bool _hasEndDate;
+  /// Optional linked manual financial account. The API requires the linked account to be active and owned by the authenticated actor.
+  final String? manualFinancialAccountId;
+  final bool _hasManualFinancialAccountId;
+  final String? note;
+  final bool _hasNote;
+
+  factory UpdateManualIncomeSourceRequest.fromJson(JsonObject json) {
+    return UpdateManualIncomeSourceRequest(
+      displayName: json["displayName"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      cadence: json["cadence"] as String,
+      nextExpectedDate: json["nextExpectedDate"] as String,
+      endDate: json.containsKey("endDate")
+          ? json["endDate"] == null ? null : json["endDate"] as String
+          : _unsetEndDate,
+      manualFinancialAccountId: json.containsKey("manualFinancialAccountId")
+          ? json["manualFinancialAccountId"] == null ? null : json["manualFinancialAccountId"] as String
+          : _unsetManualFinancialAccountId,
+      note: json.containsKey("note")
+          ? json["note"] == null ? null : json["note"] as String
+          : _unsetNote,
+    );
+  }
+
+  JsonObject toJson() {
+    final endDateJsonValue = endDate;
+    final manualFinancialAccountIdJsonValue = manualFinancialAccountId;
+    final noteJsonValue = note;
+
+    return {
+      "displayName": displayName,
+      "amount": amount,
+      "currency": currency,
+      "cadence": cadence,
+      "nextExpectedDate": nextExpectedDate,
+      if (_hasEndDate) "endDate": endDateJsonValue,
+      if (_hasManualFinancialAccountId) "manualFinancialAccountId": manualFinancialAccountIdJsonValue,
+      if (_hasNote) "note": noteJsonValue,
+    };
+  }
+}
+
+class ManualFinancialAccountListResponse {
+  const ManualFinancialAccountListResponse({
+    required this.accounts,
+  });
+
+  final List<ManualFinancialAccountResponse> accounts;
+
+  factory ManualFinancialAccountListResponse.fromJson(JsonObject json) {
+    return ManualFinancialAccountListResponse(
+      accounts: (json["accounts"] as List<dynamic>).map((item) => ManualFinancialAccountResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "accounts": accounts.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe manual financial account response for the authenticated owner. It excludes auth/session data, storage details, payment credentials, statement rows, transaction ledgers, and unrelated users.
+class ManualFinancialAccountResponse {
+  const ManualFinancialAccountResponse({
+    required this.id,
+    required this.displayName,
+    required this.accountType,
+    required this.currentBalanceAmount,
+    required this.currency,
+    required this.balanceAsOfDate,
+    required this.note,
+    required this.status,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.archivedAtUtc,
+  });
+
+  final String id;
+  final String displayName;
+  final ManualFinancialAccountType accountType;
+  /// Decimal-safe manual balance snapshot represented as a string.
+  final String currentBalanceAmount;
+  final CurrencyCode currency;
+  final String balanceAsOfDate;
+  final String? note;
+  final ManualFinancialAccountStatus status;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? archivedAtUtc;
+
+  factory ManualFinancialAccountResponse.fromJson(JsonObject json) {
+    return ManualFinancialAccountResponse(
+      id: json["id"] as String,
+      displayName: json["displayName"] as String,
+      accountType: json["accountType"] as String,
+      currentBalanceAmount: json["currentBalanceAmount"] as String,
+      currency: json["currency"] as String,
+      balanceAsOfDate: json["balanceAsOfDate"] as String,
+      note: json["note"] == null ? null : json["note"] as String,
+      status: json["status"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final noteJsonValue = note;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "id": id,
+      "displayName": displayName,
+      "accountType": accountType,
+      "currentBalanceAmount": currentBalanceAmount,
+      "currency": currency,
+      "balanceAsOfDate": balanceAsOfDate,
+      "note": noteJsonValue,
+      "status": status,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+class ManualIncomeSourceListResponse {
+  const ManualIncomeSourceListResponse({
+    required this.incomeSources,
+  });
+
+  final List<ManualIncomeSourceResponse> incomeSources;
+
+  factory ManualIncomeSourceListResponse.fromJson(JsonObject json) {
+    return ManualIncomeSourceListResponse(
+      incomeSources: (json["incomeSources"] as List<dynamic>).map((item) => ManualIncomeSourceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "incomeSources": incomeSources.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe manual expected cash-in response for the authenticated owner. It excludes auth/session data, payroll/provider integration data, bank credentials, transaction ledgers, and unrelated users.
+class ManualIncomeSourceResponse {
+  const ManualIncomeSourceResponse({
+    required this.id,
+    required this.displayName,
+    required this.amount,
+    required this.currency,
+    required this.cadence,
+    required this.nextExpectedDate,
+    required this.endDate,
+    required this.manualFinancialAccountId,
+    required this.note,
+    required this.status,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.archivedAtUtc,
+  });
+
+  final String id;
+  final String displayName;
+  /// Decimal-safe expected cash-in amount represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final ManualIncomeCadence cadence;
+  final String nextExpectedDate;
+  final String? endDate;
+  final String? manualFinancialAccountId;
+  final String? note;
+  final ManualIncomeSourceStatus status;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? archivedAtUtc;
+
+  factory ManualIncomeSourceResponse.fromJson(JsonObject json) {
+    return ManualIncomeSourceResponse(
+      id: json["id"] as String,
+      displayName: json["displayName"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      cadence: json["cadence"] as String,
+      nextExpectedDate: json["nextExpectedDate"] as String,
+      endDate: json["endDate"] == null ? null : json["endDate"] as String,
+      manualFinancialAccountId: json["manualFinancialAccountId"] == null ? null : json["manualFinancialAccountId"] as String,
+      note: json["note"] == null ? null : json["note"] as String,
+      status: json["status"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final endDateJsonValue = endDate;
+    final manualFinancialAccountIdJsonValue = manualFinancialAccountId;
+    final noteJsonValue = note;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "id": id,
+      "displayName": displayName,
+      "amount": amount,
+      "currency": currency,
+      "cadence": cadence,
+      "nextExpectedDate": nextExpectedDate,
+      "endDate": endDateJsonValue,
+      "manualFinancialAccountId": manualFinancialAccountIdJsonValue,
+      "note": noteJsonValue,
+      "status": status,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
 class RecurringBillScheduleRequest {
   static const Object _unsetIntervalCount = Object();
@@ -6289,6 +6724,48 @@ class ExpenseBillArchiveStateValues {
   static const ExpenseBillArchiveState archived = "archived";
   static const ExpenseBillArchiveState all = "all";
   static const Set<ExpenseBillArchiveState> values = {active, archived, all};
+}
+
+/// User-owned manual account category for cash visibility.
+typedef ManualFinancialAccountType = String;
+class ManualFinancialAccountTypeValues {
+  const ManualFinancialAccountTypeValues._();
+  static const ManualFinancialAccountType cash = "cash";
+  static const ManualFinancialAccountType bankAccount = "bank_account";
+  static const ManualFinancialAccountType storedValue = "stored_value";
+  static const ManualFinancialAccountType other = "other";
+  static const Set<ManualFinancialAccountType> values = {cash, bankAccount, storedValue, other};
+}
+
+/// Manual financial account lifecycle status.
+typedef ManualFinancialAccountStatus = String;
+class ManualFinancialAccountStatusValues {
+  const ManualFinancialAccountStatusValues._();
+  static const ManualFinancialAccountStatus active = "active";
+  static const ManualFinancialAccountStatus archived = "archived";
+  static const Set<ManualFinancialAccountStatus> values = {active, archived};
+}
+
+/// Manual expected cash-in cadence.
+typedef ManualIncomeCadence = String;
+class ManualIncomeCadenceValues {
+  const ManualIncomeCadenceValues._();
+  static const ManualIncomeCadence oneTime = "one_time";
+  static const ManualIncomeCadence weekly = "weekly";
+  static const ManualIncomeCadence biweekly = "biweekly";
+  static const ManualIncomeCadence monthly = "monthly";
+  static const ManualIncomeCadence quarterly = "quarterly";
+  static const ManualIncomeCadence yearly = "yearly";
+  static const Set<ManualIncomeCadence> values = {oneTime, weekly, biweekly, monthly, quarterly, yearly};
+}
+
+/// Manual expected cash-in lifecycle status.
+typedef ManualIncomeSourceStatus = String;
+class ManualIncomeSourceStatusValues {
+  const ManualIncomeSourceStatusValues._();
+  static const ManualIncomeSourceStatus active = "active";
+  static const ManualIncomeSourceStatus archived = "archived";
+  static const Set<ManualIncomeSourceStatus> values = {active, archived};
 }
 
 /// Expense bill root status.
