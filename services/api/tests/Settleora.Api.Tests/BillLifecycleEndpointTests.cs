@@ -278,14 +278,25 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
         testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
         using var client = testFactory.CreateClient();
 
-        using (var archiveRequest = CreateBearerRequest(
+        using (var memberArchiveRequest = CreateBearerRequest(
             HttpMethod.Post,
             GroupArchivePath(groupId, billId),
             memberSession.RawSessionToken))
-        using (var archiveResponse = await client.SendAsync(archiveRequest))
+        using (var memberArchiveResponse = await client.SendAsync(memberArchiveRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(memberArchiveResponse);
+        }
+
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, billId)).ArchivedAtUtc);
+
+        using (var ownerArchiveRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupArchivePath(groupId, billId),
+            ownerSession.RawSessionToken))
+        using (var ownerArchiveResponse = await client.SendAsync(ownerArchiveRequest))
         {
             await AssertLifecycleResponseAsync(
-                archiveResponse,
+                ownerArchiveResponse,
                 billId,
                 groupId,
                 ExpenseBillStatuses.Rejected,

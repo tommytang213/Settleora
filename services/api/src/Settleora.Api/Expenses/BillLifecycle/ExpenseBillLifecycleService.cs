@@ -89,6 +89,7 @@ internal sealed class ExpenseBillLifecycleService
         var bill = await LoadGroupLifecycleBillAsync(
             groupId,
             billId,
+            actor.UserProfileId,
             cancellationToken);
         if (bill is null)
         {
@@ -244,6 +245,7 @@ internal sealed class ExpenseBillLifecycleService
     private async Task<ExpenseBill?> LoadGroupLifecycleBillAsync(
         Guid groupId,
         Guid billId,
+        Guid actorUserProfileId,
         CancellationToken cancellationToken)
     {
         return await LifecycleBillQuery(dbContext)
@@ -252,7 +254,9 @@ internal sealed class ExpenseBillLifecycleService
                     && bill.GroupId == groupId
                     && bill.Group != null
                     && bill.Group.DeletedAtUtc == null
-                    && bill.CreatedByUserProfile.DeletedAtUtc == null,
+                    && bill.CreatedByUserProfile.DeletedAtUtc == null
+                    && (bill.CreatedByUserProfileId == actorUserProfileId
+                        || bill.BillOwnerUserProfileId == actorUserProfileId),
                 cancellationToken);
     }
 
