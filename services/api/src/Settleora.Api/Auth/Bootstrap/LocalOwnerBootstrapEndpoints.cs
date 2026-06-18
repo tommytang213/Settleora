@@ -18,8 +18,10 @@ internal static class LocalOwnerBootstrapEndpoints
 
     public static WebApplication MapLocalOwnerBootstrapEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/auth/bootstrap/status", GetBootstrapStatusAsync);
-        app.MapPost("/api/v1/auth/bootstrap/local-owner", CreateLocalOwnerAsync);
+        app.MapGet("/api/v1/auth/bootstrap/status", GetBootstrapStatusAsync)
+            .AllowAnonymous();
+        app.MapPost("/api/v1/auth/bootstrap/local-owner", CreateLocalOwnerAsync)
+            .AllowAnonymous();
 
         return app;
     }

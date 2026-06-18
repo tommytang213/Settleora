@@ -12,7 +12,8 @@ internal static class RefreshSessionEndpoints
 
     public static WebApplication MapRefreshSessionEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/refresh", RefreshAsync);
+        app.MapPost("/api/v1/auth/refresh", RefreshAsync)
+            .AllowAnonymous();
 
         return app;
     }
