@@ -481,7 +481,11 @@ SettleoraManualFinanceSummaryCurrencyRow _mapSummaryRow(
         response.recurringExpectedManualIncomeTotal,
     upcomingOneTimeFutureBillObligationTotal:
         response.upcomingOneTimeFutureBillObligationTotal,
+    groupOneTimeFutureBillObligationTotal:
+        response.groupOneTimeFutureBillObligationTotal,
     recurringObligationEstimateTotal: response.recurringObligationEstimateTotal,
+    groupRecurringObligationEstimateTotal:
+        response.groupRecurringObligationEstimateTotal,
     estimatedAvailableAmount: response.estimatedAvailableAmount,
     warnings: response.warnings,
   );

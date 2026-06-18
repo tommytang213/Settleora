@@ -278,8 +278,31 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Archived personal", "888.00", "USD", "2026-06-20", archived: true);
         await SeedRecurringBillTemplateAsync(testFactory, other.UserProfileId, groupId: null, "Other recurring", "777.00", "USD", "2026-06-20");
         var groupId = await SeedGroupAsync(testFactory, actor.UserProfileId, "Shared Home", actor.UserProfileId, other.UserProfileId);
-        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Group planned utility", "1000.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, groupId: groupId);
-        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId, "Group rent", "600.00", "USD", "2026-06-20");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Group planned utility",
+            "1000.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Draft,
+            groupId: groupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "400.00");
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Group unsupported share", "111.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, groupId: groupId);
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId,
+            "Group rent",
+            "600.00",
+            "USD",
+            "2026-06-20",
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "250.00",
+            otherShareUserProfileId: other.UserProfileId,
+            otherShareAmount: "350.00");
+        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId, "Group unsupported rent", "600.00", "USD", "2026-06-20");
 
         using var request = CreateBearerRequest(
             HttpMethod.Get,
@@ -295,13 +318,166 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.Contains("doesNotIncludeBankSync", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesSafeRecurringManualIncomeInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesPersonalRecurringBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupFutureBillsNotIncluded", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupRecurringBillsNotIncluded", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupFutureBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupRecurringBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("groupFutureBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("groupRecurringBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
 
         var rows = payload.RootElement.GetProperty("currencies").EnumerateArray().ToDictionary(row => row.GetProperty("currency").GetString()!);
         Assert.Equal(["HKD", "USD"], rows.Keys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
-        AssertSummaryRow(rows["USD"], "100.5", "25.25", "5040", "75.25", "200", "4890.5");
-        AssertSummaryRow(rows["HKD"], "800", "50", "0", "300", "0", "550");
+        AssertSummaryRow(rows["USD"], "100.5", "25.25", "5040", "75.25", "400", "200", "250", "4240.5");
+        AssertSummaryRow(rows["HKD"], "800", "50", "0", "300", "0", "0", "0", "550");
+    }
+
+    [Fact]
+    public async Task SummaryExcludesInactiveArchivedAndOutOfWindowGroupProjectionRows()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Group Projection Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Group Projection Other");
+        using var client = testFactory.CreateClient();
+
+        var activeGroupId = await SeedGroupAsync(testFactory, actor.UserProfileId, "Active Group", actor.UserProfileId, other.UserProfileId);
+        var removedGroupId = await SeedGroupAsync(testFactory, actor.UserProfileId, "Removed Group", actor.UserProfileId, other.UserProfileId);
+        await SetGroupMembershipStatusAsync(testFactory, removedGroupId, actor.UserProfileId, GroupMembershipStatuses.Removed);
+
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Included group future",
+            "100.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.PendingConfirmation,
+            groupId: activeGroupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "40.00");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Unsupported group future",
+            "111.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Draft,
+            groupId: activeGroupId);
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Archived group future",
+            "999.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Draft,
+            archived: true,
+            groupId: activeGroupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "999.00");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Cancelled group future",
+            "999.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Cancelled,
+            groupId: activeGroupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "999.00");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Out-of-window group future",
+            "999.00",
+            "USD",
+            "2026-08-01",
+            ExpenseBillStatuses.Draft,
+            groupId: activeGroupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "999.00");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Removed-member group future",
+            "777.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Draft,
+            groupId: removedGroupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "777.00");
+
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            activeGroupId,
+            "Included group recurring",
+            "100.00",
+            "USD",
+            "2026-06-20",
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "30.00",
+            otherShareUserProfileId: other.UserProfileId,
+            otherShareAmount: "70.00");
+        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, activeGroupId, "Unsupported group recurring", "100.00", "USD", "2026-06-20");
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            activeGroupId,
+            "Paused group recurring",
+            "999.00",
+            "USD",
+            "2026-06-20",
+            status: RecurringBillTemplateStatuses.Paused,
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "999.00");
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            activeGroupId,
+            "Archived group recurring",
+            "999.00",
+            "USD",
+            "2026-06-20",
+            archived: true,
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "999.00");
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            activeGroupId,
+            "Out-of-window group recurring",
+            "999.00",
+            "USD",
+            "2026-08-20",
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "999.00");
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            removedGroupId,
+            "Removed-member group recurring",
+            "777.00",
+            "USD",
+            "2026-06-20",
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "777.00");
+
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=2026-06-18&windowEndDate=2026-07-18",
+            actor.RawSessionToken);
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+
+        var row = Assert.Single(payload.RootElement.GetProperty("currencies").EnumerateArray());
+        Assert.Equal("USD", row.GetProperty("currency").GetString());
+        AssertSummaryRow(row, "0", "0", "0", "0", "40", "0", "30", "-70");
+        Assert.Contains("groupFutureBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("groupRecurringBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
     }
 
     [Fact]
@@ -380,11 +556,13 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string dueDate,
         string status,
         bool archived = false,
-        Guid? groupId = null)
+        Guid? groupId = null,
+        Guid? participantUserProfileId = null,
+        string? participantShareAmount = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
-        dbContext.Set<ExpenseBill>().Add(new ExpenseBill
+        var bill = new ExpenseBill
         {
             Id = Guid.NewGuid(),
             CreatedByUserProfileId = ownerUserProfileId,
@@ -398,7 +576,22 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
             CreatedAtUtc = InitialTimestamp,
             UpdatedAtUtc = InitialTimestamp,
             ArchivedAtUtc = archived ? InitialTimestamp : null
-        });
+        };
+        if (participantUserProfileId is not null && participantShareAmount is not null)
+        {
+            bill.Participants.Add(new ExpenseBillParticipant
+            {
+                ExpenseBillId = bill.Id,
+                UserProfileId = participantUserProfileId.Value,
+                Status = ExpenseBillParticipantStatuses.PendingAcceptance,
+                ResolvedShareAmount = decimal.Parse(participantShareAmount, CultureInfo.InvariantCulture),
+                ResolvedShareCurrency = currency,
+                CreatedAtUtc = InitialTimestamp,
+                UpdatedAtUtc = InitialTimestamp
+            });
+        }
+
+        dbContext.Set<ExpenseBill>().Add(bill);
         await dbContext.SaveChangesAsync();
     }
 
@@ -437,6 +630,22 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         return groupId;
     }
 
+    private static async Task SetGroupMembershipStatusAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid groupId,
+        Guid userProfileId,
+        string status)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var membership = await dbContext.Set<GroupMembership>().SingleAsync(item =>
+            item.GroupId == groupId
+            && item.UserProfileId == userProfileId);
+        membership.Status = status;
+        membership.UpdatedAtUtc = InitialTimestamp;
+        await dbContext.SaveChangesAsync();
+    }
+
     private static async Task SeedRecurringBillTemplateAsync(
         WebApplicationFactory<Program> testFactory,
         Guid ownerUserProfileId,
@@ -446,14 +655,37 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string currency,
         string startDate,
         string status = RecurringBillTemplateStatuses.Active,
-        bool archived = false)
+        bool archived = false,
+        Guid? actorShareUserProfileId = null,
+        string? actorShareAmount = null,
+        Guid? otherShareUserProfileId = null,
+        string? otherShareAmount = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var parsedAmount = decimal.Parse(amount, CultureInfo.InvariantCulture);
+        var splits = new List<RecurringBillTemplatePayloadItemSplit>();
+        if (actorShareUserProfileId is not null && actorShareAmount is not null)
+        {
+            splits.Add(new RecurringBillTemplatePayloadItemSplit(
+                actorShareUserProfileId.Value,
+                ExpenseBillItemSplitMethods.ExactAmount,
+                decimal.Parse(actorShareAmount, CultureInfo.InvariantCulture),
+                0));
+        }
+
+        if (otherShareUserProfileId is not null && otherShareAmount is not null)
+        {
+            splits.Add(new RecurringBillTemplatePayloadItemSplit(
+                otherShareUserProfileId.Value,
+                ExpenseBillItemSplitMethods.ExactAmount,
+                decimal.Parse(otherShareAmount, CultureInfo.InvariantCulture),
+                1));
+        }
+
         var payload = new RecurringBillTemplatePayload(
             currency,
-            [new RecurringBillTemplatePayloadItem("Seed recurring item", null, parsedAmount, currency, [])],
+            [new RecurringBillTemplatePayloadItem("Seed recurring item", null, parsedAmount, currency, splits)],
             [],
             []);
         dbContext.Set<RecurringBillTemplate>().Add(new RecurringBillTemplate
@@ -485,19 +717,24 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string incomeTotal,
         string recurringIncomeTotal,
         string obligationTotal,
+        string groupObligationTotal,
         string recurringObligationTotal,
+        string groupRecurringObligationTotal,
         string availableTotal)
     {
         Assert.Equal(accountTotal, row.GetProperty("activeManualAccountBalanceTotal").GetString());
         Assert.Equal(incomeTotal, row.GetProperty("expectedManualIncomeTotal").GetString());
         Assert.Equal(recurringIncomeTotal, row.GetProperty("recurringExpectedManualIncomeTotal").GetString());
         Assert.Equal(obligationTotal, row.GetProperty("upcomingOneTimeFutureBillObligationTotal").GetString());
+        Assert.Equal(groupObligationTotal, row.GetProperty("groupOneTimeFutureBillObligationTotal").GetString());
         Assert.Equal(recurringObligationTotal, row.GetProperty("recurringObligationEstimateTotal").GetString());
+        Assert.Equal(groupRecurringObligationTotal, row.GetProperty("groupRecurringObligationEstimateTotal").GetString());
         Assert.Equal(availableTotal, row.GetProperty("estimatedAvailableAmount").GetString());
         Assert.Contains("doesNotConvertCurrency", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesSafeRecurringManualIncomeInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesPersonalRecurringBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupRecurringBillsNotIncluded", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupFutureBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupRecurringBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
     }
 
     private static async Task<SeededSession> SeedSessionActorAsync(

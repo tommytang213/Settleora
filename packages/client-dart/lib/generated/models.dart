@@ -1380,7 +1380,9 @@ class ManualFinanceSummaryCurrencyRow {
     required this.expectedManualIncomeTotal,
     required this.recurringExpectedManualIncomeTotal,
     required this.upcomingOneTimeFutureBillObligationTotal,
+    required this.groupOneTimeFutureBillObligationTotal,
     required this.recurringObligationEstimateTotal,
+    required this.groupRecurringObligationEstimateTotal,
     required this.estimatedAvailableAmount,
     required this.warnings,
   });
@@ -1394,9 +1396,13 @@ class ManualFinanceSummaryCurrencyRow {
   final String recurringExpectedManualIncomeTotal;
   /// Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
   final String upcomingOneTimeFutureBillObligationTotal;
-  /// Sum of active, non-archived personal recurring bill template forecast occurrences projected inside the window for this currency. Group/shared recurring bill templates are excluded until safe current-actor share projection exists.
+  /// Sum of current actor resolved shares from visible group one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows and unsupported actor-share cases.
+  final String groupOneTimeFutureBillObligationTotal;
+  /// Sum of active, non-archived personal recurring bill template forecast occurrences projected inside the window for this currency.
   final String recurringObligationEstimateTotal;
-  /// activeManualAccountBalanceTotal plus expectedManualIncomeTotal plus recurringExpectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+  /// Sum of current actor resolved shares from visible active, non-archived group recurring bill template occurrences projected inside the window for this currency, excluding unsupported actor-share cases.
+  final String groupRecurringObligationEstimateTotal;
+  /// activeManualAccountBalanceTotal plus expectedManualIncomeTotal plus recurringExpectedManualIncomeTotal minus personal and group future-bill and recurring-obligation totals in this row.
   final String estimatedAvailableAmount;
   /// Stable per-row limitation flags.
   final List<String> warnings;
@@ -1408,7 +1414,9 @@ class ManualFinanceSummaryCurrencyRow {
       expectedManualIncomeTotal: json["expectedManualIncomeTotal"] as String,
       recurringExpectedManualIncomeTotal: json["recurringExpectedManualIncomeTotal"] as String,
       upcomingOneTimeFutureBillObligationTotal: json["upcomingOneTimeFutureBillObligationTotal"] as String,
+      groupOneTimeFutureBillObligationTotal: json["groupOneTimeFutureBillObligationTotal"] as String,
       recurringObligationEstimateTotal: json["recurringObligationEstimateTotal"] as String,
+      groupRecurringObligationEstimateTotal: json["groupRecurringObligationEstimateTotal"] as String,
       estimatedAvailableAmount: json["estimatedAvailableAmount"] as String,
       warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
     );
@@ -1421,7 +1429,9 @@ class ManualFinanceSummaryCurrencyRow {
       "expectedManualIncomeTotal": expectedManualIncomeTotal,
       "recurringExpectedManualIncomeTotal": recurringExpectedManualIncomeTotal,
       "upcomingOneTimeFutureBillObligationTotal": upcomingOneTimeFutureBillObligationTotal,
+      "groupOneTimeFutureBillObligationTotal": groupOneTimeFutureBillObligationTotal,
       "recurringObligationEstimateTotal": recurringObligationEstimateTotal,
+      "groupRecurringObligationEstimateTotal": groupRecurringObligationEstimateTotal,
       "estimatedAvailableAmount": estimatedAvailableAmount,
       "warnings": warnings,
     };

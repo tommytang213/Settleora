@@ -427,8 +427,18 @@ class _AvailableEstimateCurrencyCard extends StatelessWidget {
               currency: row.currency,
             ),
             _SummaryAmountLine(
+              label: 'Group one-time future bill shares',
+              amount: row.groupOneTimeFutureBillObligationTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
               label: 'Projected recurring bill obligations',
               amount: row.recurringObligationEstimateTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Group recurring bill shares',
+              amount: row.groupRecurringObligationEstimateTotal,
               currency: row.currency,
             ),
             _SummaryAmountLine(
