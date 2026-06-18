@@ -118,12 +118,6 @@ internal static class SettlementPaymentProofEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var uploadReadResult = await ReadSettlementProofUploadAsync(request, cancellationToken);
-        if (!uploadReadResult.Succeeded || uploadReadResult.Upload is null)
-        {
-            return InvalidSettlementProofUpload(uploadReadResult.Errors);
-        }
-
         var paymentContext = await LoadVisiblePaymentContextAsync(
             dbContext,
             paymentId,
@@ -154,6 +148,12 @@ internal static class SettlementPaymentProofEndpoints
         if (!CanChangeProofInCurrentState(paymentContext))
         {
             return SettlementProofConflict();
+        }
+
+        var uploadReadResult = await ReadSettlementProofUploadAsync(request, cancellationToken);
+        if (!uploadReadResult.Succeeded || uploadReadResult.Upload is null)
+        {
+            return InvalidSettlementProofUpload(uploadReadResult.Errors);
         }
 
         var upload = uploadReadResult.Upload;
