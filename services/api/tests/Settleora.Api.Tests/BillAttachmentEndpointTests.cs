@@ -445,6 +445,9 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
 
         Assert.Equal(0, testContext.StorageProvider.WriteCount);
         Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+        Assert.Single(await ReadFileObjectsAsync(testFactory));
+        Assert.Empty(await ReadBillAttachmentAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
         Assert.Null((await ReadBillAttachmentAsync(testFactory, billId, attachmentFileId)).RemovedAtUtc);
         Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, attachmentFileId)).Status);
     }
@@ -554,6 +557,13 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
             using var readResponse = await client.SendAsync(readRequest);
             await AssertBillUnavailableProblemAsync(readResponse);
         }
+
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+        Assert.Equal(4, (await ReadFileObjectsAsync(testFactory)).Count);
+        Assert.Empty(await ReadBillAttachmentAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, finalizedBillId, readableFileId)).RemovedAtUtc);
     }
 
     [Fact]

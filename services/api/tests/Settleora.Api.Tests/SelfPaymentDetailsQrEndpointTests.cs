@@ -419,6 +419,13 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
             await AssertUnauthenticatedProblemAsync(missingPostResponse, "missing-auth.png");
         }
 
+        Assert.Equal(0, await CountActivePaymentProfilesAsync(testFactory, actor.UserProfileId));
+        Assert.Empty(await ReadFileObjectsAsync(testFactory));
+        Assert.Empty(await ReadPaymentQrAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+
         using (var invalidGetRequest = CreateBearerRequest(HttpMethod.Get, PaymentQrContentPath, WrongRawToken))
         using (var invalidGetResponse = await client.SendAsync(invalidGetRequest))
         {
@@ -426,6 +433,19 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
         }
 
         await MarkProfileDeletedAsync(testFactory, actor.UserProfileId);
+        using (var deletedPostRequest = CreateQrUploadRequest(actor.RawSessionToken, ValidPngBytes, "image/png", "deleted-profile-secret.png"))
+        using (var deletedPostResponse = await client.SendAsync(deletedPostRequest))
+        {
+            await AssertPaymentDetailsUnavailableProblemAsync(deletedPostResponse, "deleted-profile-secret.png");
+        }
+
+        Assert.Equal(0, await CountActivePaymentProfilesAsync(testFactory, actor.UserProfileId));
+        Assert.Empty(await ReadFileObjectsAsync(testFactory));
+        Assert.Empty(await ReadPaymentQrAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+
         using (var deletedDeleteRequest = CreateBearerRequest(HttpMethod.Delete, PaymentQrPath, actor.RawSessionToken))
         using (var deletedDeleteResponse = await client.SendAsync(deletedDeleteRequest))
         {
@@ -909,13 +929,15 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
         Assert.Equal(401, payload.RootElement.GetProperty("status").GetInt32());
     }
 
-    private static async Task AssertPaymentDetailsUnavailableProblemAsync(HttpResponseMessage response)
+    private static async Task AssertPaymentDetailsUnavailableProblemAsync(
+        HttpResponseMessage response,
+        string? unexpectedResponseText = null)
     {
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        AssertSafeProblemContent(content);
+        AssertSafeProblemContent(content, unexpectedResponseText);
 
         using var payload = JsonDocument.Parse(content);
         Assert.Equal("Payment details unavailable", payload.RootElement.GetProperty("title").GetString());
@@ -1115,6 +1137,10 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
 
         public bool FailWrites { get; set; }
 
+        public int WriteCount { get; private set; }
+
+        public int OpenReadCount { get; private set; }
+
         public string CreateObjectKey(string purpose, Guid fileObjectId, DateTimeOffset createdAtUtc)
         {
             return string.Join(
@@ -1129,6 +1155,8 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
 
         public async Task WriteAsync(string objectKey, Stream content, CancellationToken cancellationToken)
         {
+            WriteCount++;
+
             if (FailWrites)
             {
                 throw new IOException("Simulated QR storage write failure.");
@@ -1141,6 +1169,8 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
 
         public Task<Stream> OpenReadAsync(string objectKey, CancellationToken cancellationToken)
         {
+            OpenReadCount++;
+
             if (!storedObjects.TryGetValue(objectKey, out var bytes))
             {
                 throw new FileNotFoundException("Simulated missing QR object.");
