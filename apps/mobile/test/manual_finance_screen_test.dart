@@ -20,20 +20,27 @@ void main() {
     expect(find.text('Expected one-time income'), findsOneWidget);
     expect(find.text('Projected recurring manual income'), findsOneWidget);
     expect(find.text('Upcoming one-time future bills'), findsOneWidget);
+    expect(find.text('Group one-time future bill shares'), findsOneWidget);
     expect(find.text('Projected recurring bill obligations'), findsOneWidget);
+    expect(find.text('Group recurring bill shares'), findsOneWidget);
     expect(
       find.text('Estimated available (server manual estimate)'),
       findsOneWidget,
     );
     expect(find.text('250.00 HKD'), findsOneWidget);
+    expect(find.text('100.00 HKD'), findsOneWidget);
     expect(find.text('1000.00 HKD'), findsOneWidget);
     expect(find.text('500.00 HKD'), findsOneWidget);
-    expect(find.text('5373.45 HKD'), findsOneWidget);
+    expect(find.text('50.00 HKD'), findsOneWidget);
+    expect(find.text('5223.45 HKD'), findsOneWidget);
     expect(find.text('No FX conversion'), findsOneWidget);
     expect(find.text('Recurring manual income included'), findsOneWidget);
     expect(find.text('Personal recurring bills included'), findsOneWidget);
-    expect(find.text('Group future bills not included yet'), findsOneWidget);
-    expect(find.text('Group recurring bills not included yet'), findsOneWidget);
+    expect(find.text('Safe group future bill shares included'), findsOneWidget);
+    expect(
+      find.text('Safe group recurring bill shares included'),
+      findsOneWidget,
+    );
     expect(
       find.text('Recurring manual income forecast not included yet'),
       findsNothing,
@@ -48,6 +55,10 @@ void main() {
     await tester.scrollUntilVisible(find.text('Salary'), 300);
     expect(find.text('Salary'), findsOneWidget);
     expect(find.text('5000.00 HKD'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.textContaining('Manual balance totals: 123.45 HKD'),
+      300,
+    );
     expect(
       find.textContaining('Manual balance totals: 123.45 HKD'),
       findsOneWidget,
@@ -528,14 +539,16 @@ SettleoraManualFinanceSummary sampleSummary({
             expectedManualIncomeTotal: '5000.00',
             recurringExpectedManualIncomeTotal: '1000.00',
             upcomingOneTimeFutureBillObligationTotal: '250.00',
+            groupOneTimeFutureBillObligationTotal: '100.00',
             recurringObligationEstimateTotal: '500.00',
-            estimatedAvailableAmount: '5373.45',
+            groupRecurringObligationEstimateTotal: '50.00',
+            estimatedAvailableAmount: '5223.45',
             warnings: [
               'doesNotConvertCurrency',
               'includesSafeRecurringManualIncomeInWindow',
               'includesPersonalRecurringBillProjectionInWindow',
-              'groupFutureBillsNotIncluded',
-              'groupRecurringBillsNotIncluded',
+              'includesSafeGroupFutureBillProjectionInWindow',
+              'includesSafeGroupRecurringBillProjectionInWindow',
             ],
           ),
         ],
@@ -544,8 +557,8 @@ SettleoraManualFinanceSummary sampleSummary({
       'doesNotConvertCurrency',
       'includesSafeRecurringManualIncomeInWindow',
       'includesPersonalRecurringBillProjectionInWindow',
-      'groupFutureBillsNotIncluded',
-      'groupRecurringBillsNotIncluded',
+      'includesSafeGroupFutureBillProjectionInWindow',
+      'includesSafeGroupRecurringBillProjectionInWindow',
     ],
   );
 }

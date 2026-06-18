@@ -13,6 +13,8 @@ internal sealed record ManualFinanceSummaryCurrencyRowResponse(
     string ExpectedManualIncomeTotal,
     string RecurringExpectedManualIncomeTotal,
     string UpcomingOneTimeFutureBillObligationTotal,
+    string GroupOneTimeFutureBillObligationTotal,
     string RecurringObligationEstimateTotal,
+    string GroupRecurringObligationEstimateTotal,
     string EstimatedAvailableAmount,
     IReadOnlyList<string> Warnings);

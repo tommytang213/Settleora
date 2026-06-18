@@ -5,6 +5,8 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Finance;
 using Settleora.Api.Domain.RecurringBills;
+using Settleora.Api.Domain.Users;
+using Settleora.Api.Expenses.RecurringBills;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
 
@@ -53,6 +55,7 @@ internal static class ManualFinanceEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillCalculationService calculationService,
         RecurringBillScheduleService recurringBillScheduleService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -121,6 +124,20 @@ internal static class ManualFinanceEndpoints
             .Select(bill => new CurrencyAmount(bill.TotalCurrency, bill.TotalAmount))
             .ToListAsync(cancellationToken);
 
+        var groupFutureBills = await VisibleGroupOneTimeFutureBills(dbContext, actor.UserProfileId)
+            .Where(bill => bill.BillDate >= window.StartDate
+                && bill.BillDate <= window.EndDate)
+            .Select(bill => new GroupFutureBillProjectionSource(
+                bill.Id,
+                bill.Participants
+                    .Where(participant => participant.UserProfileId == actor.UserProfileId)
+                    .Select(participant => new GroupFutureBillProjectionShare(
+                        participant.ResolvedShareCurrency,
+                        participant.ResolvedShareAmount))
+                    .ToArray()))
+            .ToListAsync(cancellationToken);
+        var groupFutureBillProjection = ProjectGroupFutureBillRows(groupFutureBills);
+
         var recurringBillTemplates = await VisiblePersonalRecurringBillTemplates(dbContext, actor.UserProfileId)
             .Where(template => template.Status == RecurringBillTemplateStatuses.Active
                 && template.ArchivedAtUtc == null
@@ -142,15 +159,66 @@ internal static class ManualFinanceEndpoints
             window.StartDate,
             window.EndDate);
 
+        var groupRecurringBillTemplates = await VisibleGroupRecurringBillTemplates(dbContext, actor.UserProfileId)
+            .Where(template => template.Status == RecurringBillTemplateStatuses.Active
+                && template.ArchivedAtUtc == null
+                && (template.EndDate == null || template.EndDate >= window.StartDate)
+                && template.StartDate <= window.EndDate)
+            .Select(template => new GroupRecurringBillProjectionSource(
+                template.Id,
+                template.OwnerUserProfileId,
+                template.GroupId!.Value,
+                template.MerchantName,
+                template.PayloadJson,
+                template.ScheduleType,
+                template.IntervalCount,
+                template.IntervalDays,
+                template.StartDate,
+                template.EndDate,
+                template.DueOffsetDays))
+            .ToListAsync(cancellationToken);
+        var groupRecurringBillProjection = ProjectGroupRecurringBillRows(
+            groupRecurringBillTemplates,
+            actor.UserProfileId,
+            calculationService,
+            recurringBillScheduleService,
+            timeProvider.GetUtcNow(),
+            window.StartDate,
+            window.EndDate);
+
         var currencies = accountRows
             .Concat(incomeRows)
             .Concat(recurringIncomeRows)
             .Concat(futureBillRows)
+            .Concat(groupFutureBillProjection.Rows)
             .Concat(recurringBillRows)
+            .Concat(groupRecurringBillProjection.Rows)
             .Select(row => row.Currency)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(currency => currency, StringComparer.Ordinal)
             .ToArray();
+
+        var responseWarnings = new List<string>
+        {
+            "doesNotIncludeBankSync",
+            "doesNotConvertCurrency",
+            "includesOnlyActiveManualAccounts",
+            "includesOnlyOneTimeManualIncomeInWindow",
+            "includesSafeRecurringManualIncomeInWindow",
+            "includesOnlyPersonalOneTimeFutureBillDraftsInWindow",
+            "includesPersonalRecurringBillProjectionInWindow",
+            "includesSafeGroupFutureBillProjectionInWindow",
+            "includesSafeGroupRecurringBillProjectionInWindow"
+        };
+        if (groupFutureBillProjection.ExcludedUnsupportedCount > 0)
+        {
+            responseWarnings.Add("groupFutureBillsPartiallyExcludedUnsupportedActorShare");
+        }
+
+        if (groupRecurringBillProjection.ExcludedUnsupportedCount > 0)
+        {
+            responseWarnings.Add("groupRecurringBillsPartiallyExcludedUnsupportedActorShare");
+        }
 
         var rows = currencies.Select(currency =>
         {
@@ -158,23 +226,43 @@ internal static class ManualFinanceEndpoints
             var incomeTotal = SumByCurrency(incomeRows, currency);
             var recurringIncomeTotal = SumByCurrency(recurringIncomeRows, currency);
             var obligationTotal = SumByCurrency(futureBillRows, currency);
+            var groupObligationTotal = SumByCurrency(groupFutureBillProjection.Rows, currency);
             var recurringObligationTotal = SumByCurrency(recurringBillRows, currency);
-            var estimatedAvailable = accountTotal + incomeTotal + recurringIncomeTotal - obligationTotal - recurringObligationTotal;
+            var groupRecurringObligationTotal = SumByCurrency(groupRecurringBillProjection.Rows, currency);
+            var estimatedAvailable = accountTotal + incomeTotal + recurringIncomeTotal
+                - obligationTotal
+                - groupObligationTotal
+                - recurringObligationTotal
+                - groupRecurringObligationTotal;
+            var rowWarnings = new List<string>
+            {
+                "doesNotConvertCurrency",
+                "includesSafeRecurringManualIncomeInWindow",
+                "includesPersonalRecurringBillProjectionInWindow",
+                "includesSafeGroupFutureBillProjectionInWindow",
+                "includesSafeGroupRecurringBillProjectionInWindow"
+            };
+            if (groupFutureBillProjection.ExcludedUnsupportedCount > 0)
+            {
+                rowWarnings.Add("groupFutureBillsPartiallyExcludedUnsupportedActorShare");
+            }
+
+            if (groupRecurringBillProjection.ExcludedUnsupportedCount > 0)
+            {
+                rowWarnings.Add("groupRecurringBillsPartiallyExcludedUnsupportedActorShare");
+            }
+
             return new ManualFinanceSummaryCurrencyRowResponse(
                 currency,
                 FormatAmount(accountTotal),
                 FormatAmount(incomeTotal),
                 FormatAmount(recurringIncomeTotal),
                 FormatAmount(obligationTotal),
+                FormatAmount(groupObligationTotal),
                 FormatAmount(recurringObligationTotal),
+                FormatAmount(groupRecurringObligationTotal),
                 FormatAmount(estimatedAvailable),
-                [
-                    "doesNotConvertCurrency",
-                    "includesSafeRecurringManualIncomeInWindow",
-                    "includesPersonalRecurringBillProjectionInWindow",
-                    "groupFutureBillsNotIncluded",
-                    "groupRecurringBillsNotIncluded"
-                ]);
+                rowWarnings);
         }).ToArray();
 
         return Results.Ok(new ManualFinanceSummaryResponse(
@@ -182,17 +270,7 @@ internal static class ManualFinanceEndpoints
             window.StartDate,
             window.EndDate,
             rows,
-            [
-                "doesNotIncludeBankSync",
-                "doesNotConvertCurrency",
-                "includesOnlyActiveManualAccounts",
-                "includesOnlyOneTimeManualIncomeInWindow",
-                "includesSafeRecurringManualIncomeInWindow",
-                "includesOnlyPersonalOneTimeFutureBillDraftsInWindow",
-                "includesPersonalRecurringBillProjectionInWindow",
-                "groupFutureBillsNotIncluded",
-                "groupRecurringBillsNotIncluded"
-            ]));
+            responseWarnings));
     }
 
     private static async Task<IResult> ListAccountsAsync(
@@ -645,6 +723,24 @@ internal static class ManualFinanceEndpoints
                     || bill.Status == ExpenseBillStatuses.PendingConfirmation));
     }
 
+    private static IQueryable<ExpenseBill> VisibleGroupOneTimeFutureBills(
+        SettleoraDbContext dbContext,
+        Guid actorUserProfileId)
+    {
+        return dbContext.Set<ExpenseBill>()
+            .AsNoTracking()
+            .Where(bill => bill.GroupId != null
+                && bill.Group != null
+                && bill.Group.DeletedAtUtc == null
+                && bill.CreatedByUserProfile.DeletedAtUtc == null
+                && bill.ArchivedAtUtc == null
+                && (bill.Status == ExpenseBillStatuses.Draft
+                    || bill.Status == ExpenseBillStatuses.PendingConfirmation)
+                && bill.Group.Memberships.Any(membership => membership.UserProfileId == actorUserProfileId
+                    && membership.Status == GroupMembershipStatuses.Active
+                    && membership.UserProfile.DeletedAtUtc == null));
+    }
+
     private static IQueryable<RecurringBillTemplate> VisiblePersonalRecurringBillTemplates(
         SettleoraDbContext dbContext,
         Guid ownerUserProfileId)
@@ -654,6 +750,21 @@ internal static class ManualFinanceEndpoints
             .Where(template => template.GroupId == null
                 && template.OwnerUserProfileId == ownerUserProfileId
                 && template.OwnerUserProfile.DeletedAtUtc == null);
+    }
+
+    private static IQueryable<RecurringBillTemplate> VisibleGroupRecurringBillTemplates(
+        SettleoraDbContext dbContext,
+        Guid actorUserProfileId)
+    {
+        return dbContext.Set<RecurringBillTemplate>()
+            .AsNoTracking()
+            .Where(template => template.GroupId != null
+                && template.OwnerUserProfile.DeletedAtUtc == null
+                && template.Group != null
+                && template.Group.DeletedAtUtc == null
+                && template.Group.Memberships.Any(membership => membership.UserProfileId == actorUserProfileId
+                    && membership.Status == GroupMembershipStatuses.Active
+                    && membership.UserProfile.DeletedAtUtc == null));
     }
 
     private static IReadOnlyList<CurrencyAmount> ProjectRecurringIncomeRows(
@@ -674,6 +785,28 @@ internal static class ManualFinanceEndpoints
         }
 
         return rows;
+    }
+
+    private static GroupProjectionResult ProjectGroupFutureBillRows(
+        IReadOnlyList<GroupFutureBillProjectionSource> bills)
+    {
+        var rows = new List<CurrencyAmount>();
+        var excludedUnsupportedCount = 0;
+        foreach (var bill in bills)
+        {
+            if (bill.Participants.Count != 1
+                || string.IsNullOrWhiteSpace(bill.Participants[0].ResolvedShareCurrency))
+            {
+                excludedUnsupportedCount++;
+                continue;
+            }
+
+            rows.Add(new CurrencyAmount(
+                bill.Participants[0].ResolvedShareCurrency,
+                bill.Participants[0].ResolvedShareAmount));
+        }
+
+        return new GroupProjectionResult(rows, excludedUnsupportedCount);
     }
 
     private static IReadOnlyList<CurrencyAmount> ProjectRecurringBillRows(
@@ -703,6 +836,105 @@ internal static class ManualFinanceEndpoints
         }
 
         return rows;
+    }
+
+    private static GroupProjectionResult ProjectGroupRecurringBillRows(
+        IReadOnlyList<GroupRecurringBillProjectionSource> sources,
+        Guid actorUserProfileId,
+        ExpenseBillCalculationService calculationService,
+        RecurringBillScheduleService scheduleService,
+        DateTimeOffset now,
+        DateOnly windowStartDate,
+        DateOnly windowEndDate)
+    {
+        var rows = new List<CurrencyAmount>();
+        var excludedUnsupportedCount = 0;
+        foreach (var source in sources)
+        {
+            var payload = RecurringBillTemplatePayloadCodec.Deserialize(source.PayloadJson);
+            if (payload is null)
+            {
+                excludedUnsupportedCount++;
+                continue;
+            }
+
+            var schedule = new RecurringBillSchedule(
+                source.ScheduleType,
+                source.IntervalCount,
+                source.IntervalDays,
+                source.StartDate,
+                source.EndDate,
+                source.DueOffsetDays);
+            var occurrences = scheduleService.GenerateOccurrences(
+                schedule,
+                windowStartDate,
+                windowEndDate,
+                RecurringBillConstraints.MaxForecastOccurrences);
+
+            foreach (var occurrence in occurrences)
+            {
+                var actorShare = CalculateGroupRecurringActorShare(
+                    source,
+                    payload,
+                    actorUserProfileId,
+                    occurrence.OccurrenceDate,
+                    calculationService,
+                    now);
+                if (actorShare is null)
+                {
+                    excludedUnsupportedCount++;
+                    continue;
+                }
+
+                rows.Add(actorShare);
+            }
+        }
+
+        return new GroupProjectionResult(rows, excludedUnsupportedCount);
+    }
+
+    private static CurrencyAmount? CalculateGroupRecurringActorShare(
+        GroupRecurringBillProjectionSource source,
+        RecurringBillTemplatePayload payload,
+        Guid actorUserProfileId,
+        DateOnly occurrenceDate,
+        ExpenseBillCalculationService calculationService,
+        DateTimeOffset now)
+    {
+        var bill = RecurringBillDraftBuilder.CreateDraftBill(
+            source.GroupId,
+            source.OwnerUserProfileId,
+            actorUserProfileId,
+            source.MerchantName,
+            occurrenceDate,
+            payload,
+            now);
+        var initialCalculation = calculationService.Calculate(bill);
+        if (!initialCalculation.Succeeded)
+        {
+            return null;
+        }
+
+        RecurringBillDraftBuilder.ApplyCalculation(bill, initialCalculation);
+        RecurringBillDraftBuilder.AddPayers(
+            bill,
+            actorUserProfileId,
+            actorUserProfileId,
+            payload,
+            initialCalculation.BillTotal!.Amount,
+            initialCalculation.BillTotal.Currency.Value,
+            now);
+        var finalCalculation = calculationService.Calculate(bill);
+        if (!finalCalculation.Succeeded)
+        {
+            return null;
+        }
+
+        var actorShare = finalCalculation.ParticipantShares
+            .SingleOrDefault(participant => participant.UserProfileId == actorUserProfileId);
+        return actorShare is null || string.IsNullOrWhiteSpace(actorShare.ResolvedShareCurrency)
+            ? null
+            : new CurrencyAmount(actorShare.ResolvedShareCurrency, actorShare.ResolvedShareAmount);
     }
 
     private static IEnumerable<DateOnly> GenerateManualIncomeOccurrences(
@@ -1228,6 +1460,14 @@ internal static class ManualFinanceEndpoints
         DateOnly NextExpectedDate,
         DateOnly? EndDate);
 
+    private sealed record GroupFutureBillProjectionSource(
+        Guid Id,
+        IReadOnlyList<GroupFutureBillProjectionShare> Participants);
+
+    private sealed record GroupFutureBillProjectionShare(
+        string ResolvedShareCurrency,
+        decimal ResolvedShareAmount);
+
     private sealed record RecurringBillProjectionSource(
         string Currency,
         decimal Amount,
@@ -1237,6 +1477,23 @@ internal static class ManualFinanceEndpoints
         DateOnly StartDate,
         DateOnly? EndDate,
         int? DueOffsetDays);
+
+    private sealed record GroupRecurringBillProjectionSource(
+        Guid Id,
+        Guid OwnerUserProfileId,
+        Guid GroupId,
+        string? MerchantName,
+        string PayloadJson,
+        string ScheduleType,
+        int? IntervalCount,
+        int? IntervalDays,
+        DateOnly StartDate,
+        DateOnly? EndDate,
+        int? DueOffsetDays);
+
+    private sealed record GroupProjectionResult(
+        IReadOnlyList<CurrencyAmount> Rows,
+        int ExcludedUnsupportedCount);
 
     private sealed record SummaryWindow(DateOnly StartDate, DateOnly EndDate);
 

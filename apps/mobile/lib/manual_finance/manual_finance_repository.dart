@@ -193,7 +193,9 @@ class SettleoraManualFinanceSummaryCurrencyRow {
     required this.expectedManualIncomeTotal,
     required this.recurringExpectedManualIncomeTotal,
     required this.upcomingOneTimeFutureBillObligationTotal,
+    required this.groupOneTimeFutureBillObligationTotal,
     required this.recurringObligationEstimateTotal,
+    required this.groupRecurringObligationEstimateTotal,
     required this.estimatedAvailableAmount,
     required this.warnings,
   });
@@ -203,7 +205,9 @@ class SettleoraManualFinanceSummaryCurrencyRow {
   final String expectedManualIncomeTotal;
   final String recurringExpectedManualIncomeTotal;
   final String upcomingOneTimeFutureBillObligationTotal;
+  final String groupOneTimeFutureBillObligationTotal;
   final String recurringObligationEstimateTotal;
+  final String groupRecurringObligationEstimateTotal;
   final String estimatedAvailableAmount;
   final List<String> warnings;
 }
@@ -319,6 +323,14 @@ String settleoraManualFinanceWarningLabel(String warning) {
       'Recurring manual income included',
     'includesPersonalRecurringBillProjectionInWindow' =>
       'Personal recurring bills included',
+    'includesSafeGroupFutureBillProjectionInWindow' =>
+      'Safe group future bill shares included',
+    'includesSafeGroupRecurringBillProjectionInWindow' =>
+      'Safe group recurring bill shares included',
+    'groupFutureBillsPartiallyExcludedUnsupportedActorShare' =>
+      'Some group future bills need share details',
+    'groupRecurringBillsPartiallyExcludedUnsupportedActorShare' =>
+      'Some group recurring bills need share details',
     'recurringForecastNotIncluded' => 'Recurring forecast not included yet',
     'recurringManualIncomeForecastNotIncluded' =>
       'Recurring manual income forecast not included yet',

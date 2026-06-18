@@ -278,8 +278,31 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Archived personal", "888.00", "USD", "2026-06-20", archived: true);
         await SeedRecurringBillTemplateAsync(testFactory, other.UserProfileId, groupId: null, "Other recurring", "777.00", "USD", "2026-06-20");
         var groupId = await SeedGroupAsync(testFactory, actor.UserProfileId, "Shared Home", actor.UserProfileId, other.UserProfileId);
-        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Group planned utility", "1000.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, groupId: groupId);
-        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId, "Group rent", "600.00", "USD", "2026-06-20");
+        await SeedFutureBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Group planned utility",
+            "1000.00",
+            "USD",
+            "2026-06-30",
+            ExpenseBillStatuses.Draft,
+            groupId: groupId,
+            participantUserProfileId: actor.UserProfileId,
+            participantShareAmount: "400.00");
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Group unsupported share", "111.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, groupId: groupId);
+        await SeedRecurringBillTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId,
+            "Group rent",
+            "600.00",
+            "USD",
+            "2026-06-20",
+            actorShareUserProfileId: actor.UserProfileId,
+            actorShareAmount: "250.00",
+            otherShareUserProfileId: other.UserProfileId,
+            otherShareAmount: "350.00");
+        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId, "Group unsupported rent", "600.00", "USD", "2026-06-20");
 
         using var request = CreateBearerRequest(
             HttpMethod.Get,
@@ -295,13 +318,15 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.Contains("doesNotIncludeBankSync", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesSafeRecurringManualIncomeInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesPersonalRecurringBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupFutureBillsNotIncluded", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupRecurringBillsNotIncluded", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupFutureBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupRecurringBillProjectionInWindow", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("groupFutureBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("groupRecurringBillsPartiallyExcludedUnsupportedActorShare", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
 
         var rows = payload.RootElement.GetProperty("currencies").EnumerateArray().ToDictionary(row => row.GetProperty("currency").GetString()!);
         Assert.Equal(["HKD", "USD"], rows.Keys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
-        AssertSummaryRow(rows["USD"], "100.5", "25.25", "5040", "75.25", "200", "4890.5");
-        AssertSummaryRow(rows["HKD"], "800", "50", "0", "300", "0", "550");
+        AssertSummaryRow(rows["USD"], "100.5", "25.25", "5040", "75.25", "400", "200", "250", "4240.5");
+        AssertSummaryRow(rows["HKD"], "800", "50", "0", "300", "0", "0", "0", "550");
     }
 
     [Fact]
@@ -380,11 +405,13 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string dueDate,
         string status,
         bool archived = false,
-        Guid? groupId = null)
+        Guid? groupId = null,
+        Guid? participantUserProfileId = null,
+        string? participantShareAmount = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
-        dbContext.Set<ExpenseBill>().Add(new ExpenseBill
+        var bill = new ExpenseBill
         {
             Id = Guid.NewGuid(),
             CreatedByUserProfileId = ownerUserProfileId,
@@ -398,7 +425,22 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
             CreatedAtUtc = InitialTimestamp,
             UpdatedAtUtc = InitialTimestamp,
             ArchivedAtUtc = archived ? InitialTimestamp : null
-        });
+        };
+        if (participantUserProfileId is not null && participantShareAmount is not null)
+        {
+            bill.Participants.Add(new ExpenseBillParticipant
+            {
+                ExpenseBillId = bill.Id,
+                UserProfileId = participantUserProfileId.Value,
+                Status = ExpenseBillParticipantStatuses.PendingAcceptance,
+                ResolvedShareAmount = decimal.Parse(participantShareAmount, CultureInfo.InvariantCulture),
+                ResolvedShareCurrency = currency,
+                CreatedAtUtc = InitialTimestamp,
+                UpdatedAtUtc = InitialTimestamp
+            });
+        }
+
+        dbContext.Set<ExpenseBill>().Add(bill);
         await dbContext.SaveChangesAsync();
     }
 
@@ -446,14 +488,37 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string currency,
         string startDate,
         string status = RecurringBillTemplateStatuses.Active,
-        bool archived = false)
+        bool archived = false,
+        Guid? actorShareUserProfileId = null,
+        string? actorShareAmount = null,
+        Guid? otherShareUserProfileId = null,
+        string? otherShareAmount = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var parsedAmount = decimal.Parse(amount, CultureInfo.InvariantCulture);
+        var splits = new List<RecurringBillTemplatePayloadItemSplit>();
+        if (actorShareUserProfileId is not null && actorShareAmount is not null)
+        {
+            splits.Add(new RecurringBillTemplatePayloadItemSplit(
+                actorShareUserProfileId.Value,
+                ExpenseBillItemSplitMethods.ExactAmount,
+                decimal.Parse(actorShareAmount, CultureInfo.InvariantCulture),
+                0));
+        }
+
+        if (otherShareUserProfileId is not null && otherShareAmount is not null)
+        {
+            splits.Add(new RecurringBillTemplatePayloadItemSplit(
+                otherShareUserProfileId.Value,
+                ExpenseBillItemSplitMethods.ExactAmount,
+                decimal.Parse(otherShareAmount, CultureInfo.InvariantCulture),
+                1));
+        }
+
         var payload = new RecurringBillTemplatePayload(
             currency,
-            [new RecurringBillTemplatePayloadItem("Seed recurring item", null, parsedAmount, currency, [])],
+            [new RecurringBillTemplatePayloadItem("Seed recurring item", null, parsedAmount, currency, splits)],
             [],
             []);
         dbContext.Set<RecurringBillTemplate>().Add(new RecurringBillTemplate
@@ -485,19 +550,24 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string incomeTotal,
         string recurringIncomeTotal,
         string obligationTotal,
+        string groupObligationTotal,
         string recurringObligationTotal,
+        string groupRecurringObligationTotal,
         string availableTotal)
     {
         Assert.Equal(accountTotal, row.GetProperty("activeManualAccountBalanceTotal").GetString());
         Assert.Equal(incomeTotal, row.GetProperty("expectedManualIncomeTotal").GetString());
         Assert.Equal(recurringIncomeTotal, row.GetProperty("recurringExpectedManualIncomeTotal").GetString());
         Assert.Equal(obligationTotal, row.GetProperty("upcomingOneTimeFutureBillObligationTotal").GetString());
+        Assert.Equal(groupObligationTotal, row.GetProperty("groupOneTimeFutureBillObligationTotal").GetString());
         Assert.Equal(recurringObligationTotal, row.GetProperty("recurringObligationEstimateTotal").GetString());
+        Assert.Equal(groupRecurringObligationTotal, row.GetProperty("groupRecurringObligationEstimateTotal").GetString());
         Assert.Equal(availableTotal, row.GetProperty("estimatedAvailableAmount").GetString());
         Assert.Contains("doesNotConvertCurrency", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesSafeRecurringManualIncomeInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains("includesPersonalRecurringBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
-        Assert.Contains("groupRecurringBillsNotIncluded", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupFutureBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("includesSafeGroupRecurringBillProjectionInWindow", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
     }
 
     private static async Task<SeededSession> SeedSessionActorAsync(
