@@ -14,6 +14,8 @@ import '../future_bills/future_bill_repository.dart';
 import '../future_bills/generated_future_bill_repository.dart';
 import '../groups/generated_group_repository.dart';
 import '../groups/group_repository.dart';
+import '../manual_finance/generated_manual_finance_repository.dart';
+import '../manual_finance/manual_finance_repository.dart';
 import '../notifications/generated_notification_repository.dart';
 import '../notifications/notification_repository.dart';
 import '../profile/generated_profile_repository.dart';
@@ -93,6 +95,12 @@ typedef SettleoraGroupRepositoryFactory =
       SettleoraAccessTokenProvider accessTokenProvider,
     );
 
+typedef SettleoraManualFinanceRepositoryFactory =
+    SettleoraManualFinanceRepository Function(
+      SettleoraApiConfiguration configuration,
+      SettleoraAccessTokenProvider accessTokenProvider,
+    );
+
 typedef SettleoraNotificationRepositoryFactory =
     SettleoraNotificationRepository Function(
       SettleoraApiConfiguration configuration,
@@ -138,6 +146,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.recurringBillRepositoryFactory,
     this.futureBillRepositoryFactory,
     this.groupRepositoryFactory,
+    this.manualFinanceRepositoryFactory,
     this.notificationRepositoryFactory,
     this.reportRepositoryFactory,
     this.profileRepositoryFactory,
@@ -159,6 +168,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final SettleoraRecurringBillRepositoryFactory? recurringBillRepositoryFactory;
   final SettleoraFutureBillRepositoryFactory? futureBillRepositoryFactory;
   final SettleoraGroupRepositoryFactory? groupRepositoryFactory;
+  final SettleoraManualFinanceRepositoryFactory? manualFinanceRepositoryFactory;
   final SettleoraNotificationRepositoryFactory? notificationRepositoryFactory;
   final SettleoraMonthlyReportRepositoryFactory? reportRepositoryFactory;
   final SettleoraProfileRepositoryFactory? profileRepositoryFactory;
@@ -452,6 +462,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       apiConfiguration,
       tokenProvider,
     );
+    final manualFinanceRepository = _manualFinanceRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
     final notificationRepository = _notificationRepositoryFactory(
       apiConfiguration,
       tokenProvider,
@@ -491,6 +505,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       recurringBillRepository: recurringBillRepository,
       futureBillRepository: futureBillRepository,
       groupRepository: groupRepository,
+      manualFinanceRepository: manualFinanceRepository,
       notificationRepository: notificationRepository,
       reportRepository: reportRepository,
       profileRepository: profileRepository,
@@ -533,6 +548,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
 
   SettleoraGroupRepositoryFactory get _groupRepositoryFactory =>
       widget.groupRepositoryFactory ?? _defaultGroupRepositoryFactory;
+
+  SettleoraManualFinanceRepositoryFactory get _manualFinanceRepositoryFactory =>
+      widget.manualFinanceRepositoryFactory ??
+      _defaultManualFinanceRepositoryFactory;
 
   SettleoraNotificationRepositoryFactory get _notificationRepositoryFactory =>
       widget.notificationRepositoryFactory ??
@@ -695,6 +714,16 @@ SettleoraGroupRepository _defaultGroupRepositoryFactory(
   SettleoraAccessTokenProvider accessTokenProvider,
 ) {
   return GeneratedSettleoraGroupRepository.fromConfiguration(
+    configuration: configuration,
+    accessTokenProvider: accessTokenProvider,
+  );
+}
+
+SettleoraManualFinanceRepository _defaultManualFinanceRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+  SettleoraAccessTokenProvider accessTokenProvider,
+) {
+  return GeneratedSettleoraManualFinanceRepository.fromConfiguration(
     configuration: configuration,
     accessTokenProvider: accessTokenProvider,
   );

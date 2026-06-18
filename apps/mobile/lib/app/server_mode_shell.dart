@@ -12,6 +12,8 @@ import '../bills/bill_sync_controller.dart';
 import '../future_bills/future_bill_repository.dart';
 import '../groups/group_list_screen.dart';
 import '../groups/group_repository.dart';
+import '../manual_finance/manual_finance_repository.dart';
+import '../manual_finance/manual_finance_screen.dart';
 import '../notifications/notification_preferences.dart';
 import '../notifications/notification_repository.dart';
 import '../notifications/notification_screen.dart';
@@ -52,6 +54,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.recurringBillRepository,
     this.futureBillRepository,
     required this.groupRepository,
+    this.manualFinanceRepository,
     required this.notificationRepository,
     required this.reportRepository,
     required this.profileRepository,
@@ -74,6 +77,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraRecurringBillRepository recurringBillRepository;
   final SettleoraFutureBillRepository? futureBillRepository;
   final SettleoraGroupRepository groupRepository;
+  final SettleoraManualFinanceRepository? manualFinanceRepository;
   final SettleoraNotificationRepository notificationRepository;
   final SettleoraMonthlyReportRepository reportRepository;
   final SettleoraProfileRepository profileRepository;
@@ -417,6 +421,21 @@ class _SettleoraAuthenticatedServerShellState
           repository: widget.reportRepository,
           onSessionEnded: widget.onSessionEnded,
         ),
+      ),
+    );
+  }
+
+  Future<void> _openManualFinance() async {
+    final repository = widget.manualFinanceRepository;
+    if (repository == null) {
+      _showSnackBar('Accounts and income are unavailable in this build.');
+      return;
+    }
+
+    await _openDashboardDestination(
+      (_) => SettleoraManualFinanceScreen(
+        repository: repository,
+        defaultCurrency: widget.currentUser.defaultCurrency,
       ),
     );
   }
@@ -813,6 +832,7 @@ class _SettleoraAuthenticatedServerShellState
                               onOpenReceiptReviews: _openReceiptReviews,
                               onOpenSessions: _openSessions,
                               onOpenMonthlyReport: _openMonthlyReport,
+                              onOpenManualFinance: _openManualFinance,
                             ),
                             const SizedBox(height: 16),
                             _DashboardDataSafetySection(
@@ -1552,12 +1572,14 @@ class _DashboardMoreSection extends StatelessWidget {
     required this.onOpenReceiptReviews,
     required this.onOpenSessions,
     required this.onOpenMonthlyReport,
+    required this.onOpenManualFinance,
   });
 
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenReceiptReviews;
   final VoidCallback onOpenSessions;
   final VoidCallback onOpenMonthlyReport;
+  final VoidCallback onOpenManualFinance;
 
   @override
   Widget build(BuildContext context) {
@@ -1584,6 +1606,13 @@ class _DashboardMoreSection extends StatelessWidget {
                   icon: Icons.account_circle_outlined,
                   title: 'Profile',
                   onTap: onOpenProfile,
+                ),
+                _DashboardCompactAction(
+                  key: const Key('server-shell-manual-finance'),
+                  width: width,
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: 'Accounts & income',
+                  onTap: onOpenManualFinance,
                 ),
                 _DashboardCompactAction(
                   key: const Key('server-shell-receipt-reviews'),
