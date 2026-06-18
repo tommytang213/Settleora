@@ -463,6 +463,51 @@ export interface UpdateManualIncomeSourceRequest {
   note?: string | null;
 }
 
+/**
+ * Server-owned read-only manual finance availability projection for the authenticated actor. Amounts are decimal-safe strings and remain grouped by currency without conversion.
+ */
+export interface ManualFinanceSummaryResponse {
+  asOfUtc: string;
+  windowStartDate: string;
+  windowEndDate: string;
+  currencies: ManualFinanceSummaryCurrencyRow[];
+  /**
+   * Stable limitation flags for this projection.
+   */
+  warnings: string[];
+}
+
+/**
+ * One per-currency availability row. Values are not converted or mixed across currencies.
+ */
+export interface ManualFinanceSummaryCurrencyRow {
+  currency: CurrencyCode;
+  /**
+   * Sum of active, non-archived manual account balance snapshots for this currency.
+   */
+  activeManualAccountBalanceTotal: string;
+  /**
+   * Sum of active, non-archived one-time manual income rows expected in the window for this currency.
+   */
+  expectedManualIncomeTotal: string;
+  /**
+   * Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
+   */
+  upcomingOneTimeFutureBillObligationTotal: string;
+  /**
+   * Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+   */
+  recurringObligationEstimateTotal: string;
+  /**
+   * activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+   */
+  estimatedAvailableAmount: string;
+  /**
+   * Stable per-row limitation flags.
+   */
+  warnings: string[];
+}
+
 export interface ManualFinancialAccountListResponse {
   accounts: ManualFinancialAccountResponse[];
 }

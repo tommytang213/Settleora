@@ -1334,6 +1334,95 @@ class UpdateManualIncomeSourceRequest {
   }
 }
 
+/// Server-owned read-only manual finance availability projection for the authenticated actor. Amounts are decimal-safe strings and remain grouped by currency without conversion.
+class ManualFinanceSummaryResponse {
+  const ManualFinanceSummaryResponse({
+    required this.asOfUtc,
+    required this.windowStartDate,
+    required this.windowEndDate,
+    required this.currencies,
+    required this.warnings,
+  });
+
+  final DateTime asOfUtc;
+  final String windowStartDate;
+  final String windowEndDate;
+  final List<ManualFinanceSummaryCurrencyRow> currencies;
+  /// Stable limitation flags for this projection.
+  final List<String> warnings;
+
+  factory ManualFinanceSummaryResponse.fromJson(JsonObject json) {
+    return ManualFinanceSummaryResponse(
+      asOfUtc: DateTime.parse(json["asOfUtc"] as String),
+      windowStartDate: json["windowStartDate"] as String,
+      windowEndDate: json["windowEndDate"] as String,
+      currencies: (json["currencies"] as List<dynamic>).map((item) => ManualFinanceSummaryCurrencyRow.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "asOfUtc": asOfUtc.toUtc().toIso8601String(),
+      "windowStartDate": windowStartDate,
+      "windowEndDate": windowEndDate,
+      "currencies": currencies.map((item) => item.toJson()).toList(growable: false),
+      "warnings": warnings,
+    };
+  }
+}
+
+/// One per-currency availability row. Values are not converted or mixed across currencies.
+class ManualFinanceSummaryCurrencyRow {
+  const ManualFinanceSummaryCurrencyRow({
+    required this.currency,
+    required this.activeManualAccountBalanceTotal,
+    required this.expectedManualIncomeTotal,
+    required this.upcomingOneTimeFutureBillObligationTotal,
+    required this.recurringObligationEstimateTotal,
+    required this.estimatedAvailableAmount,
+    required this.warnings,
+  });
+
+  final CurrencyCode currency;
+  /// Sum of active, non-archived manual account balance snapshots for this currency.
+  final String activeManualAccountBalanceTotal;
+  /// Sum of active, non-archived one-time manual income rows expected in the window for this currency.
+  final String expectedManualIncomeTotal;
+  /// Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
+  final String upcomingOneTimeFutureBillObligationTotal;
+  /// Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+  final String recurringObligationEstimateTotal;
+  /// activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+  final String estimatedAvailableAmount;
+  /// Stable per-row limitation flags.
+  final List<String> warnings;
+
+  factory ManualFinanceSummaryCurrencyRow.fromJson(JsonObject json) {
+    return ManualFinanceSummaryCurrencyRow(
+      currency: json["currency"] as String,
+      activeManualAccountBalanceTotal: json["activeManualAccountBalanceTotal"] as String,
+      expectedManualIncomeTotal: json["expectedManualIncomeTotal"] as String,
+      upcomingOneTimeFutureBillObligationTotal: json["upcomingOneTimeFutureBillObligationTotal"] as String,
+      recurringObligationEstimateTotal: json["recurringObligationEstimateTotal"] as String,
+      estimatedAvailableAmount: json["estimatedAvailableAmount"] as String,
+      warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "currency": currency,
+      "activeManualAccountBalanceTotal": activeManualAccountBalanceTotal,
+      "expectedManualIncomeTotal": expectedManualIncomeTotal,
+      "upcomingOneTimeFutureBillObligationTotal": upcomingOneTimeFutureBillObligationTotal,
+      "recurringObligationEstimateTotal": recurringObligationEstimateTotal,
+      "estimatedAvailableAmount": estimatedAvailableAmount,
+      "warnings": warnings,
+    };
+  }
+}
+
 class ManualFinancialAccountListResponse {
   const ManualFinancialAccountListResponse({
     required this.accounts,

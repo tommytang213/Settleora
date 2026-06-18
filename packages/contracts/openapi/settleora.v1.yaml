@@ -5715,6 +5715,59 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/manual-finance/summary:
+    get:
+      summary: Get manual finance availability summary
+      description: Returns a read-only current-actor manual finance availability projection grouped by currency. The API includes active manual account balance snapshots, active one-time manual income expected inside the requested window, and personal one-time future bill draft/pending obligations inside the requested window. It does not convert currencies, fetch FX rates, claim bank sync, import statements, mutate bills, mutate settlements, or calculate recurring obligations without a shared recurring forecast projection.
+      operationId: getManualFinanceSummary
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: windowStartDate
+          in: query
+          required: false
+          description: Inclusive summary window start date. Defaults to the API current UTC date.
+          schema:
+            type: string
+            format: date
+        - name: windowEndDate
+          in: query
+          required: false
+          description: Inclusive summary window end date. Defaults to 60 days after the window start date. The API rejects windows longer than 366 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Current-actor manual finance availability summary grouped by currency.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFinanceSummaryResponse"
+        "400":
+          description: The submitted summary window request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/manual-financial-accounts:
     get:
       summary: List manual financial accounts
@@ -8494,6 +8547,68 @@ components:
             - type: string
               maxLength: 1000
             - type: "null"
+    ManualFinanceSummaryResponse:
+      type: object
+      description: Server-owned read-only manual finance availability projection for the authenticated actor. Amounts are decimal-safe strings and remain grouped by currency without conversion.
+      required:
+        - asOfUtc
+        - windowStartDate
+        - windowEndDate
+        - currencies
+        - warnings
+      properties:
+        asOfUtc:
+          type: string
+          format: date-time
+        windowStartDate:
+          type: string
+          format: date
+        windowEndDate:
+          type: string
+          format: date
+        currencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualFinanceSummaryCurrencyRow"
+        warnings:
+          type: array
+          description: Stable limitation flags for this projection.
+          items:
+            type: string
+    ManualFinanceSummaryCurrencyRow:
+      type: object
+      description: One per-currency availability row. Values are not converted or mixed across currencies.
+      required:
+        - currency
+        - activeManualAccountBalanceTotal
+        - expectedManualIncomeTotal
+        - upcomingOneTimeFutureBillObligationTotal
+        - recurringObligationEstimateTotal
+        - estimatedAvailableAmount
+        - warnings
+      properties:
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        activeManualAccountBalanceTotal:
+          type: string
+          description: Sum of active, non-archived manual account balance snapshots for this currency.
+        expectedManualIncomeTotal:
+          type: string
+          description: Sum of active, non-archived one-time manual income rows expected in the window for this currency.
+        upcomingOneTimeFutureBillObligationTotal:
+          type: string
+          description: Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
+        recurringObligationEstimateTotal:
+          type: string
+          description: Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+        estimatedAvailableAmount:
+          type: string
+          description: activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+        warnings:
+          type: array
+          description: Stable per-row limitation flags.
+          items:
+            type: string
     ManualFinancialAccountListResponse:
       type: object
       required:

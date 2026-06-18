@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
+using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Finance;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -19,6 +21,7 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
 {
     private const string AccountsPath = "/api/v1/manual-financial-accounts";
     private const string IncomePath = "/api/v1/manual-income-sources";
+    private const string SummaryPath = "/api/v1/manual-finance/summary";
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 6, 18, 6, 35, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset WriteTimestamp = new(2026, 6, 18, 6, 45, 0, TimeSpan.Zero);
     private readonly WebApplicationFactory<Program> factory;
@@ -222,6 +225,91 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task SummaryGroupsAvailableBalanceByCurrencyForCurrentActorOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Summary Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Summary Other");
+        using var client = testFactory.CreateClient();
+
+        await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("USD Bank", "bank_account", "100.50", "USD", "2026-06-18"));
+        var archivedAccountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Archived Cash", "cash", "999.00", "USD", "2026-06-18"));
+        await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("HKD Wallet", "cash", "800.00", "HKD", "2026-06-18"));
+        await CreateAccountAsync(client, other.RawSessionToken, AccountJson("Other USD", "cash", "700.00", "USD", "2026-06-18"));
+        await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("One-time bonus", "25.25", "USD", "one_time", "2026-06-20", null));
+        await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("HKD refund", "50.00", "HKD", "one_time", "2026-06-25", null));
+        await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Recurring salary", "5000.00", "USD", "monthly", "2026-06-30", null));
+        await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Out of window", "40.00", "USD", "one_time", "2026-08-01", null));
+        var archivedIncomeId = await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Archived bonus", "30.00", "USD", "one_time", "2026-06-20", null));
+        await CreateIncomeAsync(client, other.RawSessionToken, IncomeJson("Other bonus", "900.00", "USD", "one_time", "2026-06-20", null));
+
+        using (var archiveAccountRequest = CreateBearerRequest(HttpMethod.Post, $"{AccountsPath}/{archivedAccountId:D}/archive", actor.RawSessionToken))
+        using (var archiveAccountResponse = await client.SendAsync(archiveAccountRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, archiveAccountResponse.StatusCode);
+        }
+
+        using (var archiveIncomeRequest = CreateBearerRequest(HttpMethod.Post, $"{IncomePath}/{archivedIncomeId:D}/archive", actor.RawSessionToken))
+        using (var archiveIncomeResponse = await client.SendAsync(archiveIncomeRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, archiveIncomeResponse.StatusCode);
+        }
+
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Utility", "75.25", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Rent", "300.00", "HKD", "2026-07-01", ExpenseBillStatuses.PendingConfirmation);
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Cancelled", "99.00", "USD", "2026-06-30", ExpenseBillStatuses.Cancelled);
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Archived", "88.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, archived: true);
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Out of window", "77.00", "USD", "2026-08-30", ExpenseBillStatuses.Draft);
+        await SeedFutureBillAsync(testFactory, other.UserProfileId, "Other", "600.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=2026-06-18&windowEndDate=2026-07-18",
+            actor.RawSessionToken);
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(WriteTimestamp, payload.RootElement.GetProperty("asOfUtc").GetDateTimeOffset());
+        Assert.Equal("2026-06-18", payload.RootElement.GetProperty("windowStartDate").GetString());
+        Assert.Equal("2026-07-18", payload.RootElement.GetProperty("windowEndDate").GetString());
+        Assert.Contains("doesNotIncludeBankSync", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("recurringForecastNotIncluded", payload.RootElement.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
+
+        var rows = payload.RootElement.GetProperty("currencies").EnumerateArray().ToDictionary(row => row.GetProperty("currency").GetString()!);
+        Assert.Equal(["HKD", "USD"], rows.Keys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
+        AssertSummaryRow(rows["USD"], "100.5", "25.25", "75.25", "50.5");
+        AssertSummaryRow(rows["HKD"], "800", "50", "300", "550");
+    }
+
+    [Fact]
+    public async Task SummaryHandlesEmptyDataAndInvalidWindowSafely()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Empty Summary Actor");
+        using var client = testFactory.CreateClient();
+
+        using var emptyRequest = CreateBearerRequest(HttpMethod.Get, SummaryPath, actor.RawSessionToken);
+        using var emptyResponse = await client.SendAsync(emptyRequest);
+        Assert.Equal(HttpStatusCode.OK, emptyResponse.StatusCode);
+        using var emptyPayload = JsonDocument.Parse(await emptyResponse.Content.ReadAsStringAsync());
+        Assert.Empty(emptyPayload.RootElement.GetProperty("currencies").EnumerateArray());
+        Assert.Equal("2026-06-18", emptyPayload.RootElement.GetProperty("windowStartDate").GetString());
+        Assert.Equal("2026-08-17", emptyPayload.RootElement.GetProperty("windowEndDate").GetString());
+
+        using var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=2026-07-01&windowEndDate=2026-06-30",
+            actor.RawSessionToken);
+        using var invalidResponse = await client.SendAsync(invalidRequest);
+        var invalidContent = await invalidResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+        Assert.Contains("Window end date must be on or after window start date.", invalidContent);
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -261,6 +349,50 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.True(response.StatusCode == HttpStatusCode.Created, content);
         using var payload = JsonDocument.Parse(content);
         return payload.RootElement.GetProperty("id").GetGuid();
+    }
+
+    private static async Task SeedFutureBillAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid ownerUserProfileId,
+        string merchantName,
+        string amount,
+        string currency,
+        string dueDate,
+        string status,
+        bool archived = false)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        dbContext.Set<ExpenseBill>().Add(new ExpenseBill
+        {
+            Id = Guid.NewGuid(),
+            CreatedByUserProfileId = ownerUserProfileId,
+            BillOwnerUserProfileId = ownerUserProfileId,
+            MerchantName = merchantName,
+            BillDate = DateOnly.Parse(dueDate),
+            Status = status,
+            TotalAmount = decimal.Parse(amount, CultureInfo.InvariantCulture),
+            TotalCurrency = currency,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp,
+            ArchivedAtUtc = archived ? InitialTimestamp : null
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static void AssertSummaryRow(
+        JsonElement row,
+        string accountTotal,
+        string incomeTotal,
+        string obligationTotal,
+        string availableTotal)
+    {
+        Assert.Equal(accountTotal, row.GetProperty("activeManualAccountBalanceTotal").GetString());
+        Assert.Equal(incomeTotal, row.GetProperty("expectedManualIncomeTotal").GetString());
+        Assert.Equal(obligationTotal, row.GetProperty("upcomingOneTimeFutureBillObligationTotal").GetString());
+        Assert.Equal("0", row.GetProperty("recurringObligationEstimateTotal").GetString());
+        Assert.Equal(availableTotal, row.GetProperty("estimatedAvailableAmount").GetString());
+        Assert.Contains("doesNotConvertCurrency", row.GetProperty("warnings").EnumerateArray().Select(item => item.GetString()));
     }
 
     private static async Task<SeededSession> SeedSessionActorAsync(

@@ -936,6 +936,17 @@ class SettleoraApiClient {
     return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<ManualFinanceSummaryResponse> getManualFinanceSummary({String? windowStartDate, String? windowEndDate, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/manual-finance/summary", {"windowStartDate": windowStartDate, "windowEndDate": windowEndDate}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return ManualFinanceSummaryResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<ManualFinancialAccountListResponse> listManualFinancialAccounts({bool? includeArchived, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

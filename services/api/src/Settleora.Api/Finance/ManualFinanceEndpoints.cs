@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
+using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Finance;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -18,6 +19,9 @@ internal static class ManualFinanceEndpoints
     private const string ManualIncomeUnavailableDetail = "The requested manual income source is unavailable.";
     private const string InvalidManualAccountTitle = "Invalid manual financial account request";
     private const string InvalidManualIncomeTitle = "Invalid manual income source request";
+    private const string InvalidManualFinanceSummaryTitle = "Invalid manual finance summary request";
+    private const int DefaultSummaryWindowDays = 60;
+    private const int MaxSummaryWindowDays = 366;
 
     public static WebApplication MapManualFinanceEndpoints(this WebApplication app)
     {
@@ -37,7 +41,110 @@ internal static class ManualFinanceEndpoints
         incomeSources.MapPut("/{incomeSourceId:guid}", UpdateIncomeSourceAsync);
         incomeSources.MapPost("/{incomeSourceId:guid}/archive", ArchiveIncomeSourceAsync);
 
+        var summary = app.MapGroup("/api/v1/manual-finance")
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        summary.MapGet("/summary", GetSummaryAsync);
+
         return app;
+    }
+
+    private static async Task<IResult> GetSummaryAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
+        if (!authorization.Allowed)
+        {
+            return authorization.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
+                ? Unauthenticated()
+                : Results.Problem(
+                    title: "Manual finance summary unavailable",
+                    detail: "The requested manual finance summary is unavailable.",
+                    statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var windowResult = ReadSummaryWindow(request, now);
+        if (!windowResult.Succeeded || windowResult.Window is null)
+        {
+            return InvalidSummary(windowResult.Errors);
+        }
+
+        var window = windowResult.Window;
+        var accountRows = await VisibleAccounts(dbContext, actor.UserProfileId, trackChanges: false)
+            .Where(account => account.ArchivedAtUtc == null
+                && account.Status == ManualFinancialAccountStatuses.Active)
+            .Select(account => new CurrencyAmount(account.CurrentBalanceCurrency, account.CurrentBalanceAmount))
+            .ToListAsync(cancellationToken);
+
+        var incomeRows = await VisibleIncomeSources(dbContext, actor.UserProfileId, trackChanges: false)
+            .Where(income => income.ArchivedAtUtc == null
+                && income.Status == ManualIncomeSourceStatuses.Active
+                && income.Cadence == ManualIncomeCadences.OneTime
+                && income.NextExpectedDate >= window.StartDate
+                && income.NextExpectedDate <= window.EndDate)
+            .Select(income => new CurrencyAmount(income.Currency, income.Amount))
+            .ToListAsync(cancellationToken);
+
+        var futureBillRows = await VisiblePersonalOneTimeFutureBills(dbContext, actor.UserProfileId)
+            .Where(bill => bill.BillDate >= window.StartDate
+                && bill.BillDate <= window.EndDate)
+            .Select(bill => new CurrencyAmount(bill.TotalCurrency, bill.TotalAmount))
+            .ToListAsync(cancellationToken);
+
+        var currencies = accountRows
+            .Concat(incomeRows)
+            .Concat(futureBillRows)
+            .Select(row => row.Currency)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(currency => currency, StringComparer.Ordinal)
+            .ToArray();
+
+        var rows = currencies.Select(currency =>
+        {
+            var accountTotal = SumByCurrency(accountRows, currency);
+            var incomeTotal = SumByCurrency(incomeRows, currency);
+            var obligationTotal = SumByCurrency(futureBillRows, currency);
+            var estimatedAvailable = accountTotal + incomeTotal - obligationTotal;
+            return new ManualFinanceSummaryCurrencyRowResponse(
+                currency,
+                FormatAmount(accountTotal),
+                FormatAmount(incomeTotal),
+                FormatAmount(obligationTotal),
+                FormatAmount(0m),
+                FormatAmount(estimatedAvailable),
+                [
+                    "doesNotConvertCurrency",
+                    "recurringForecastNotIncluded",
+                    "recurringManualIncomeForecastNotIncluded",
+                    "groupFutureBillsNotIncluded"
+                ]);
+        }).ToArray();
+
+        return Results.Ok(new ManualFinanceSummaryResponse(
+            now,
+            window.StartDate,
+            window.EndDate,
+            rows,
+            [
+                "doesNotIncludeBankSync",
+                "doesNotConvertCurrency",
+                "includesOnlyActiveManualAccounts",
+                "includesOnlyOneTimeManualIncomeInWindow",
+                "includesOnlyPersonalOneTimeFutureBillDraftsInWindow",
+                "recurringForecastNotIncluded",
+                "recurringManualIncomeForecastNotIncluded",
+                "groupFutureBillsNotIncluded"
+            ]));
     }
 
     private static async Task<IResult> ListAccountsAsync(
@@ -476,6 +583,20 @@ internal static class ManualFinanceEndpoints
         return trackChanges ? query : query.AsNoTracking();
     }
 
+    private static IQueryable<ExpenseBill> VisiblePersonalOneTimeFutureBills(
+        SettleoraDbContext dbContext,
+        Guid ownerUserProfileId)
+    {
+        return dbContext.Set<ExpenseBill>()
+            .AsNoTracking()
+            .Where(bill => bill.GroupId == null
+                && bill.BillOwnerUserProfileId == ownerUserProfileId
+                && bill.BillOwnerUserProfile.DeletedAtUtc == null
+                && bill.ArchivedAtUtc == null
+                && (bill.Status == ExpenseBillStatuses.Draft
+                    || bill.Status == ExpenseBillStatuses.PendingConfirmation));
+    }
+
     private static async Task<RequestReadResult<AccountCreateRequest>> ReadAccountCreateRequestAsync(
         HttpRequest request,
         CancellationToken cancellationToken)
@@ -555,6 +676,45 @@ internal static class ManualFinanceEndpoints
     private static bool ReadBoolQuery(HttpRequest request, string name)
     {
         return bool.TryParse(request.Query[name], out var value) && value;
+    }
+
+    private static SummaryWindowReadResult ReadSummaryWindow(HttpRequest request, DateTimeOffset now)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var startDate = ReadOptionalQueryDate(request, "windowStartDate", errors) ?? today;
+        var endDate = ReadOptionalQueryDate(request, "windowEndDate", errors) ?? startDate.AddDays(DefaultSummaryWindowDays);
+
+        if (endDate < startDate)
+        {
+            AddError(errors, "windowEndDate", "Window end date must be on or after window start date.");
+        }
+
+        if (startDate.AddDays(MaxSummaryWindowDays) < endDate)
+        {
+            AddError(errors, "windowEndDate", $"Summary window must be no more than {MaxSummaryWindowDays} days.");
+        }
+
+        return errors.Count == 0
+            ? SummaryWindowReadResult.Success(new SummaryWindow(startDate, endDate))
+            : SummaryWindowReadResult.Failed(ToValidationDictionary(errors));
+    }
+
+    private static DateOnly? ReadOptionalQueryDate(HttpRequest request, string name, Dictionary<string, List<string>> errors)
+    {
+        var raw = request.Query[name].ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        if (!DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            AddError(errors, name, $"{name} must be a yyyy-MM-dd date string.");
+            return null;
+        }
+
+        return date;
     }
 
     private static string? ReadBoundedString(JsonElement root, string propertyName, bool required, int maxLength, Dictionary<string, List<string>> errors)
@@ -778,6 +938,13 @@ internal static class ManualFinanceEndpoints
         return amount.ToString("0.####", CultureInfo.InvariantCulture);
     }
 
+    private static decimal SumByCurrency(IEnumerable<CurrencyAmount> rows, string currency)
+    {
+        return rows
+            .Where(row => row.Currency == currency)
+            .Sum(row => row.Amount);
+    }
+
     private static IResult MapAccountAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
     {
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
@@ -831,6 +998,15 @@ internal static class ManualFinanceEndpoints
             errors,
             title: InvalidManualIncomeTitle,
             detail: "The submitted manual income source request is invalid.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult InvalidSummary(IDictionary<string, string[]> errors)
+    {
+        return Results.ValidationProblem(
+            errors,
+            title: InvalidManualFinanceSummaryTitle,
+            detail: "The submitted manual finance summary request is invalid.",
             statusCode: StatusCodes.Status400BadRequest);
     }
 
@@ -894,4 +1070,21 @@ internal static class ManualFinanceEndpoints
         DateOnly? EndDate,
         Guid? ManualFinancialAccountId,
         string? Note);
+
+    private sealed record CurrencyAmount(string Currency, decimal Amount);
+
+    private sealed record SummaryWindow(DateOnly StartDate, DateOnly EndDate);
+
+    private sealed record SummaryWindowReadResult(bool Succeeded, SummaryWindow? Window, Dictionary<string, string[]> Errors)
+    {
+        public static SummaryWindowReadResult Success(SummaryWindow window)
+        {
+            return new SummaryWindowReadResult(true, window, []);
+        }
+
+        public static SummaryWindowReadResult Failed(Dictionary<string, string[]> errors)
+        {
+            return new SummaryWindowReadResult(false, null, errors);
+        }
+    }
 }
