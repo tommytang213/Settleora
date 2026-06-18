@@ -660,6 +660,78 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
     }
 
     [Fact]
+    public async Task RemoveUsesRouteIdentifiersWhenJsonBodySmugglesDifferentTargets()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var routeTarget = await SeedAccountAsync(testFactory, "Route Target", InitialTimestamp.AddMinutes(1));
+        var bodyTarget = await SeedAccountAsync(testFactory, "Body Target", InitialTimestamp.AddMinutes(2));
+        var routeGroupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Route Removal Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(routeTarget.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(bodyTarget.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var bodyGroupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Body Removal Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(routeTarget.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(bodyTarget.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            groupId = bodyGroupId,
+            userProfileId = bodyTarget.UserProfileId
+        });
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Delete,
+            MemberPath(routeGroupId, routeTarget.UserProfileId),
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(
+            GroupMembershipStatuses.Removed,
+            (await ReadMembershipAsync(testFactory, routeGroupId, routeTarget.UserProfileId)).Status);
+        Assert.Equal(
+            GroupMembershipStatuses.Active,
+            (await ReadMembershipAsync(testFactory, routeGroupId, bodyTarget.UserProfileId)).Status);
+        Assert.Equal(
+            GroupMembershipStatuses.Active,
+            (await ReadMembershipAsync(testFactory, bodyGroupId, routeTarget.UserProfileId)).Status);
+        Assert.Equal(
+            GroupMembershipStatuses.Active,
+            (await ReadMembershipAsync(testFactory, bodyGroupId, bodyTarget.UserProfileId)).Status);
+
+        var auditEvent = await AssertSingleGroupMembershipAuditEventAsync(
+            testFactory,
+            GroupMemberRemovedAction,
+            ownerSession.AuthAccountId,
+            routeTarget.AuthAccountId,
+            WriteTimestamp);
+        AssertGroupMembershipAuditMetadata(
+            auditEvent,
+            routeGroupId,
+            routeTarget.UserProfileId,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["previousStatus"] = GroupMembershipStatuses.Active,
+                ["newStatus"] = GroupMembershipStatuses.Removed
+            });
+    }
+
+    [Fact]
     public async Task CannotRemoveLastActiveOwner()
     {
         var testContext = CreateFactory();
