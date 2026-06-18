@@ -453,6 +453,11 @@ public sealed class LocalSignInServiceTests
             NetworkAddressHash: "visible-network-address-hash");
         var result = LocalSignInResult.SignedIn(
             Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Local Sign-In Test User",
+            "USD",
+            [SystemRoles.User],
+            Guid.NewGuid(),
             RawSessionTokenFragment,
             SignInTimestamp.AddMinutes(15),
             RawRefreshCredentialFragment,

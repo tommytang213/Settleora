@@ -157,6 +157,35 @@ class LocalSignInResponse {
   }
 }
 
+/// Local sign-in success response with once-returned raw credential material and bounded current authenticated user metadata. It excludes password material, token hashes, credential IDs, audit internals, provider payloads, and unrelated profiles.
+class LocalSessionSignInResponse {
+  const LocalSessionSignInResponse({
+    required this.session,
+    required this.refreshCredential,
+    required this.currentUser,
+  });
+
+  final RefreshSessionAccessSession session;
+  final RefreshSessionCredential refreshCredential;
+  final CurrentUserResponse currentUser;
+
+  factory LocalSessionSignInResponse.fromJson(JsonObject json) {
+    return LocalSessionSignInResponse(
+      session: RefreshSessionAccessSession.fromJson(JsonObject.from(json["session"] as Map)),
+      refreshCredential: RefreshSessionCredential.fromJson(JsonObject.from(json["refreshCredential"] as Map)),
+      currentUser: CurrentUserResponse.fromJson(JsonObject.from(json["currentUser"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "session": session.toJson(),
+      "refreshCredential": refreshCredential.toJson(),
+      "currentUser": currentUser.toJson(),
+    };
+  }
+}
+
 /// Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.
 class RefreshSessionRequest {
   const RefreshSessionRequest({

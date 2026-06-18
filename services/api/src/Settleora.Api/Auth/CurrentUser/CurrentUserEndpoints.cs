@@ -15,6 +15,8 @@ internal static class CurrentUserEndpoints
     {
         app.MapGet("/api/v1/auth/current-user", GetCurrentUserAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapGet("/api/v1/auth/me", GetCurrentUserAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
     }

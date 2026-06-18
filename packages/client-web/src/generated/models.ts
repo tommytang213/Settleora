@@ -70,6 +70,15 @@ export interface LocalSignInResponse {
 }
 
 /**
+ * Local sign-in success response with once-returned raw credential material and bounded current authenticated user metadata. It excludes password material, token hashes, credential IDs, audit internals, provider payloads, and unrelated profiles.
+ */
+export interface LocalSessionSignInResponse {
+  session: RefreshSessionAccessSession;
+  refreshCredential: RefreshSessionCredential;
+  currentUser: CurrentUserResponse;
+}
+
+/**
  * Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.
  */
 export interface RefreshSessionRequest {

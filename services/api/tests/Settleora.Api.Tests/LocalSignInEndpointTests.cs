@@ -19,8 +19,10 @@ namespace Settleora.Api.Tests;
 public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string SignInPath = "/api/v1/auth/sign-in";
+    private const string LocalSignInPath = "/api/v1/auth/local/sign-in";
     private const string RefreshPath = "/api/v1/auth/refresh";
     private const string CurrentUserPath = "/api/v1/auth/current-user";
+    private const string MePath = "/api/v1/auth/me";
     private const string SubmittedIdentifier = "  LOCAL.User@Example.COM  ";
     private const string NormalizedIdentifier = "local.user@example.com";
     private const string MissingIdentifier = "missing.user@example.com";
@@ -335,6 +337,63 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task LocalSignInAliasReturnsTokenAndBoundedCurrentUserSummary()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(LocalSignInPath, CreateSignInContent());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+
+        var content = await response.Content.ReadAsStringAsync();
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+
+        Assert.Equal(3, root.EnumerateObject().Count());
+        var session = root.GetProperty("session");
+        var sessionId = session.GetProperty("id").GetGuid();
+        var rawToken = session.GetProperty("token").GetString();
+        Assert.NotEqual(Guid.Empty, sessionId);
+        Assert.False(string.IsNullOrWhiteSpace(rawToken));
+        Assert.Equal(
+            InitialTimestamp.AddMinutes(15),
+            session.GetProperty("expiresAtUtc").GetDateTimeOffset());
+
+        var currentUser = root.GetProperty("currentUser");
+        Assert.Equal(seededAccount.AuthAccountId, currentUser.GetProperty("authAccountId").GetGuid());
+        Assert.Equal(
+            seededAccount.UserProfileId,
+            currentUser.GetProperty("userProfile").GetProperty("id").GetGuid());
+        Assert.Equal(
+            "Local Sign-In Endpoint Test User",
+            currentUser.GetProperty("userProfile").GetProperty("displayName").GetString());
+        Assert.Equal("USD", currentUser.GetProperty("userProfile").GetProperty("defaultCurrency").GetString());
+        Assert.Equal(sessionId, currentUser.GetProperty("session").GetProperty("id").GetGuid());
+        Assert.Equal(
+            InitialTimestamp.AddMinutes(15),
+            currentUser.GetProperty("session").GetProperty("expiresAtUtc").GetDateTimeOffset());
+        Assert.Equal(
+            [SystemRoles.User],
+            currentUser.GetProperty("roles").EnumerateArray()
+                .Select(role => role.GetString() ?? throw new InvalidOperationException("Expected role."))
+                .ToArray());
+
+        var sessionTokenHash = await ReadSessionTokenHashAsync(testFactory, sessionId);
+        var lowerContent = content.ToLowerInvariant();
+        Assert.DoesNotContain(sessionTokenHash, content);
+        Assert.DoesNotContain("tokenhash", lowerContent);
+        Assert.DoesNotContain("password", lowerContent);
+        Assert.DoesNotContain("verifier", lowerContent);
+        Assert.DoesNotContain("credentialid", lowerContent);
+        Assert.DoesNotContain("audit", lowerContent);
+    }
+
+    [Fact]
     public async Task SuccessResponseDoesNotExposeCredentialAuditPolicyOrProviderMaterial()
     {
         var testContext = CreateFactory();
@@ -512,6 +571,36 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task ReturnedTokenCanReadAuthMeAlias()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var signInResponse = await client.PostAsync(LocalSignInPath, CreateSignInContent());
+        var signInContent = await signInResponse.Content.ReadAsStringAsync();
+        using var signInPayload = JsonDocument.Parse(signInContent);
+        var rawSessionToken = signInPayload.RootElement
+            .GetProperty("session")
+            .GetProperty("token")
+            .GetString();
+        using var meRequest = new HttpRequestMessage(HttpMethod.Get, MePath);
+        meRequest.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawSessionToken}");
+
+        using var meResponse = await client.SendAsync(meRequest);
+
+        Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
+        await using var meStream = await meResponse.Content.ReadAsStreamAsync();
+        using var mePayload = await JsonDocument.ParseAsync(meStream);
+        Assert.Equal(seededAccount.AuthAccountId, mePayload.RootElement.GetProperty("authAccountId").GetGuid());
+        Assert.Equal(
+            seededAccount.UserProfileId,
+            mePayload.RootElement.GetProperty("userProfile").GetProperty("id").GetGuid());
+    }
+
+    [Fact]
     public void OpenApiContractUsesRefreshCapableLocalSignInSchema()
     {
         var openApiPath = FindRepoFile("packages/contracts/openapi/settleora.v1.yaml");
@@ -520,8 +609,13 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "LocalSignInResponse:");
 
         Assert.Contains("/api/v1/auth/sign-in:", openApi);
+        Assert.Contains("/api/v1/auth/local/sign-in:", openApi);
+        Assert.Contains("/api/v1/auth/me:", openApi);
         Assert.Contains("operationId: signInLocal", openApi);
+        Assert.Contains("operationId: signInLocalSession", openApi);
+        Assert.Contains("operationId: getAuthenticatedSession", openApi);
         Assert.Contains("security: []", ExtractOpenApiPathBlock(openApi, "/api/v1/auth/sign-in:"));
+        Assert.Contains("security: []", ExtractOpenApiPathBlock(openApi, "/api/v1/auth/local/sign-in:"));
         Assert.Contains("identifier:", requestSchema);
         Assert.Contains("password:", requestSchema);
         Assert.Contains("deviceLabel:", requestSchema);
@@ -533,6 +627,8 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         Assert.Contains("#/components/schemas/RefreshSessionCredential", responseSchema);
         Assert.DoesNotContain("authAccountId", responseSchema);
         Assert.DoesNotContain("userProfileId", responseSchema);
+        Assert.Contains("LocalSessionSignInResponse:", openApi);
+        Assert.Contains("currentUser:", ExtractOpenApiSchemaBlock(openApi, "LocalSessionSignInResponse:"));
         Assert.Contains("/api/v1/auth/refresh:", openApi);
         Assert.Contains("RefreshSessionResponse:", openApi);
     }
@@ -605,6 +701,12 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
             ProviderSubject = NormalizedIdentifier,
             CreatedAtUtc = InitialTimestamp,
             UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<SystemRoleAssignment>().Add(new SystemRoleAssignment
+        {
+            AuthAccountId = authAccountId,
+            Role = SystemRoles.User,
+            AssignedAtUtc = InitialTimestamp
         });
 
         await dbContext.SaveChangesAsync();

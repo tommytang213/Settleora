@@ -107,6 +107,27 @@ class SettleoraApiClient {
     return CurrentUserResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<LocalSessionSignInResponse> signInLocalSession(LocalSignInRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/local/sign-in",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return LocalSessionSignInResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<CurrentUserResponse> getAuthenticatedSession({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/me",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return CurrentUserResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<RefreshSessionResponse> refreshSession(RefreshSessionRequest body, {Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

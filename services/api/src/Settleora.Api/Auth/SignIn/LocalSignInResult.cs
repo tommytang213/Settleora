@@ -4,6 +4,11 @@ internal sealed class LocalSignInResult
 {
     private LocalSignInResult(
         LocalSignInStatus status,
+        Guid? authAccountId,
+        Guid? userProfileId,
+        string? userProfileDisplayName,
+        string? userProfileDefaultCurrency,
+        IReadOnlyList<string>? systemRoles,
         Guid? authSessionId,
         string? rawSessionToken,
         DateTimeOffset? sessionExpiresAtUtc,
@@ -13,6 +18,11 @@ internal sealed class LocalSignInResult
         SignInAbusePreCheckStatus? policyStatus)
     {
         Status = status;
+        AuthAccountId = authAccountId;
+        UserProfileId = userProfileId;
+        UserProfileDisplayName = userProfileDisplayName;
+        UserProfileDefaultCurrency = userProfileDefaultCurrency;
+        SystemRoles = systemRoles ?? [];
         AuthSessionId = authSessionId;
         RawSessionToken = rawSessionToken;
         SessionExpiresAtUtc = sessionExpiresAtUtc;
@@ -25,6 +35,16 @@ internal sealed class LocalSignInResult
     public bool Succeeded => Status is LocalSignInStatus.SignedIn;
 
     public LocalSignInStatus Status { get; }
+
+    public Guid? AuthAccountId { get; }
+
+    public Guid? UserProfileId { get; }
+
+    public string? UserProfileDisplayName { get; }
+
+    public string? UserProfileDefaultCurrency { get; }
+
+    public IReadOnlyList<string> SystemRoles { get; }
 
     public Guid? AuthSessionId { get; }
 
@@ -41,6 +61,11 @@ internal sealed class LocalSignInResult
     public SignInAbusePreCheckStatus? PolicyStatus { get; }
 
     public static LocalSignInResult SignedIn(
+        Guid authAccountId,
+        Guid userProfileId,
+        string userProfileDisplayName,
+        string? userProfileDefaultCurrency,
+        IReadOnlyList<string> systemRoles,
         Guid authSessionId,
         string rawSessionToken,
         DateTimeOffset sessionExpiresAtUtc,
@@ -50,6 +75,11 @@ internal sealed class LocalSignInResult
     {
         return new LocalSignInResult(
             LocalSignInStatus.SignedIn,
+            authAccountId,
+            userProfileId,
+            userProfileDisplayName,
+            userProfileDefaultCurrency,
+            systemRoles,
             authSessionId,
             rawSessionToken,
             sessionExpiresAtUtc,
@@ -63,6 +93,11 @@ internal sealed class LocalSignInResult
     {
         return new LocalSignInResult(
             status,
+            authAccountId: null,
+            userProfileId: null,
+            userProfileDisplayName: null,
+            userProfileDefaultCurrency: null,
+            systemRoles: null,
             authSessionId: null,
             rawSessionToken: null,
             sessionExpiresAtUtc: null,
@@ -76,6 +111,11 @@ internal sealed class LocalSignInResult
     {
         return new LocalSignInResult(
             LocalSignInStatus.Throttled,
+            authAccountId: null,
+            userProfileId: null,
+            userProfileDisplayName: null,
+            userProfileDefaultCurrency: null,
+            systemRoles: null,
             authSessionId: null,
             rawSessionToken: null,
             sessionExpiresAtUtc: null,
