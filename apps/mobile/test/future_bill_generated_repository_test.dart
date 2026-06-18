@@ -52,9 +52,11 @@ void main() {
       expect(futureBills.first.totalAmount, '120.00');
       expect(futureBills.first.totalCurrency, 'USD');
       expect(futureBills.first.canCancel, isTrue);
+      expect(futureBills.first.canPost, isTrue);
       expect(futureBills.first.settlementEffective, isFalse);
       expect(futureBills.last.displayName, 'Future bill');
       expect(futureBills.last.canCancel, isFalse);
+      expect(futureBills.last.canPost, isFalse);
       expect(detail.items.single.name, 'Insurance');
       expect(detail.items.single.note, 'Annual premium');
       expect(client.lastStatus, api.FutureBillStatusValues.draft);
@@ -62,6 +64,26 @@ void main() {
       expect(client.lastToDate, '2026-07-01');
       expect(client.lastIncludeArchived, isTrue);
       expect(client.accessTokens, ['redacted', 'redacted']);
+    });
+
+    test('archived draft responses are not locally postable', () async {
+      final client = FakeFutureBillGeneratedClient(
+        futureBills: [
+          sampleApiFutureBill(archivedAtUtc: DateTime.utc(2026, 6, 19)),
+        ],
+      );
+      final repository = GeneratedSettleoraFutureBillRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final futureBills = await repository.listFutureBills(
+        includeArchived: true,
+      );
+
+      expect(futureBills.single.status, api.FutureBillStatusValues.draft);
+      expect(futureBills.single.canCancel, isFalse);
+      expect(futureBills.single.canPost, isFalse);
     });
 
     test('creates, updates, cancels, and posts through generated client', () async {

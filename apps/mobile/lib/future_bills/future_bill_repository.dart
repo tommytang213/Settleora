@@ -99,9 +99,11 @@ class SettleoraFutureBillSummary {
     return trimmed;
   }
 
-  bool get canCancel => status == SettleoraFutureBillStatusValues.draft;
+  bool get canCancel =>
+      status == SettleoraFutureBillStatusValues.draft && archivedAtUtc == null;
 
-  bool get canPost => status == SettleoraFutureBillStatusValues.draft;
+  bool get canPost =>
+      status == SettleoraFutureBillStatusValues.draft && archivedAtUtc == null;
 }
 
 class SettleoraFutureBillDetail extends SettleoraFutureBillSummary {

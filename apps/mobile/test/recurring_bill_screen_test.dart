@@ -119,6 +119,7 @@ void main() {
       SettleoraFutureBillStatusValues.cancelled,
       SettleoraFutureBillStatusValues.confirmed,
       SettleoraFutureBillStatusValues.pendingConfirmation,
+      SettleoraFutureBillStatusValues.rejected,
     ]) {
       final futureBillRepository = FakeFutureBillRepository(
         detail: sampleFutureBillDetail(status: status),
@@ -141,6 +142,25 @@ void main() {
       );
       expect(futureBillRepository.postCalls, 0);
     }
+
+    final archivedDraftRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(
+        archivedAtUtc: DateTime.utc(2026, 6, 19),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: archivedDraftRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('future-bill-detail-post')), findsNothing);
+    expect(archivedDraftRepository.postCalls, 0);
   });
 
   testWidgets('future bill post confirmation uses product-facing copy', (

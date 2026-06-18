@@ -2827,7 +2827,7 @@ class _FutureBillAuthorityPanel extends StatelessWidget {
       icon: Icons.upcoming_outlined,
       title: 'Upcoming obligation',
       message:
-          'This is not recorded as paid yet. This does not affect settlements until you post or confirm it later.',
+          'This is not recorded as paid yet. This does not affect settlements until the API confirms it through the bill workflow.',
       compact: true,
     );
   }
