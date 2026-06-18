@@ -491,15 +491,19 @@ export interface ManualFinanceSummaryCurrencyRow {
    */
   expectedManualIncomeTotal: string;
   /**
+   * Sum of active, non-archived recurring manual income occurrences projected safely inside the window for this currency.
+   */
+  recurringExpectedManualIncomeTotal: string;
+  /**
    * Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
    */
   upcomingOneTimeFutureBillObligationTotal: string;
   /**
-   * Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+   * Sum of active, non-archived personal recurring bill template forecast occurrences projected inside the window for this currency. Group/shared recurring bill templates are excluded until safe current-actor share projection exists.
    */
   recurringObligationEstimateTotal: string;
   /**
-   * activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+   * activeManualAccountBalanceTotal plus expectedManualIncomeTotal plus recurringExpectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
    */
   estimatedAvailableAmount: string;
   /**

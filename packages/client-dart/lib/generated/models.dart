@@ -1378,6 +1378,7 @@ class ManualFinanceSummaryCurrencyRow {
     required this.currency,
     required this.activeManualAccountBalanceTotal,
     required this.expectedManualIncomeTotal,
+    required this.recurringExpectedManualIncomeTotal,
     required this.upcomingOneTimeFutureBillObligationTotal,
     required this.recurringObligationEstimateTotal,
     required this.estimatedAvailableAmount,
@@ -1389,11 +1390,13 @@ class ManualFinanceSummaryCurrencyRow {
   final String activeManualAccountBalanceTotal;
   /// Sum of active, non-archived one-time manual income rows expected in the window for this currency.
   final String expectedManualIncomeTotal;
+  /// Sum of active, non-archived recurring manual income occurrences projected safely inside the window for this currency.
+  final String recurringExpectedManualIncomeTotal;
   /// Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
   final String upcomingOneTimeFutureBillObligationTotal;
-  /// Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+  /// Sum of active, non-archived personal recurring bill template forecast occurrences projected inside the window for this currency. Group/shared recurring bill templates are excluded until safe current-actor share projection exists.
   final String recurringObligationEstimateTotal;
-  /// activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+  /// activeManualAccountBalanceTotal plus expectedManualIncomeTotal plus recurringExpectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
   final String estimatedAvailableAmount;
   /// Stable per-row limitation flags.
   final List<String> warnings;
@@ -1403,6 +1406,7 @@ class ManualFinanceSummaryCurrencyRow {
       currency: json["currency"] as String,
       activeManualAccountBalanceTotal: json["activeManualAccountBalanceTotal"] as String,
       expectedManualIncomeTotal: json["expectedManualIncomeTotal"] as String,
+      recurringExpectedManualIncomeTotal: json["recurringExpectedManualIncomeTotal"] as String,
       upcomingOneTimeFutureBillObligationTotal: json["upcomingOneTimeFutureBillObligationTotal"] as String,
       recurringObligationEstimateTotal: json["recurringObligationEstimateTotal"] as String,
       estimatedAvailableAmount: json["estimatedAvailableAmount"] as String,
@@ -1415,6 +1419,7 @@ class ManualFinanceSummaryCurrencyRow {
       "currency": currency,
       "activeManualAccountBalanceTotal": activeManualAccountBalanceTotal,
       "expectedManualIncomeTotal": expectedManualIncomeTotal,
+      "recurringExpectedManualIncomeTotal": recurringExpectedManualIncomeTotal,
       "upcomingOneTimeFutureBillObligationTotal": upcomingOneTimeFutureBillObligationTotal,
       "recurringObligationEstimateTotal": recurringObligationEstimateTotal,
       "estimatedAvailableAmount": estimatedAvailableAmount,

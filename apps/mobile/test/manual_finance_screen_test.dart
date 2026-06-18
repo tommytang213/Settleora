@@ -18,17 +18,26 @@ void main() {
     expect(find.textContaining('Manual estimate only'), findsOneWidget);
     expect(find.text('Manual account balance'), findsOneWidget);
     expect(find.text('Expected one-time income'), findsOneWidget);
-    expect(find.text('Upcoming future bills'), findsOneWidget);
-    expect(find.text('Estimated available'), findsOneWidget);
-    expect(find.text('250.00 HKD'), findsOneWidget);
-    expect(find.text('4873.45 HKD'), findsOneWidget);
-    expect(find.text('No FX conversion'), findsOneWidget);
-    expect(find.text('Recurring forecast not included yet'), findsOneWidget);
+    expect(find.text('Projected recurring manual income'), findsOneWidget);
+    expect(find.text('Upcoming one-time future bills'), findsOneWidget);
+    expect(find.text('Projected recurring bill obligations'), findsOneWidget);
     expect(
-      find.text('Recurring manual income forecast not included yet'),
+      find.text('Estimated available (server manual estimate)'),
       findsOneWidget,
     );
+    expect(find.text('250.00 HKD'), findsOneWidget);
+    expect(find.text('1000.00 HKD'), findsOneWidget);
+    expect(find.text('500.00 HKD'), findsOneWidget);
+    expect(find.text('5373.45 HKD'), findsOneWidget);
+    expect(find.text('No FX conversion'), findsOneWidget);
+    expect(find.text('Recurring manual income included'), findsOneWidget);
+    expect(find.text('Personal recurring bills included'), findsOneWidget);
     expect(find.text('Group future bills not included yet'), findsOneWidget);
+    expect(find.text('Group recurring bills not included yet'), findsOneWidget);
+    expect(
+      find.text('Recurring manual income forecast not included yet'),
+      findsNothing,
+    );
     expect(find.textContaining('not bank sync'), findsOneWidget);
     expect(find.textContaining('No bank sync'), findsWidgets);
     expect(find.textContaining('payroll sync'), findsWidgets);
@@ -68,6 +77,11 @@ void main() {
       find.textContaining('Add manual accounts, one-time expected income'),
       findsOneWidget,
     );
+    expect(
+      find.text('Estimated available (server manual estimate)'),
+      findsNothing,
+    );
+    expect(find.textContaining('0.00 HKD'), findsNothing);
   });
 
   testWidgets('changes available estimate window', (tester) async {
@@ -512,23 +526,26 @@ SettleoraManualFinanceSummary sampleSummary({
             currency: 'HKD',
             activeManualAccountBalanceTotal: '123.45',
             expectedManualIncomeTotal: '5000.00',
+            recurringExpectedManualIncomeTotal: '1000.00',
             upcomingOneTimeFutureBillObligationTotal: '250.00',
-            recurringObligationEstimateTotal: '0.00',
-            estimatedAvailableAmount: '4873.45',
+            recurringObligationEstimateTotal: '500.00',
+            estimatedAvailableAmount: '5373.45',
             warnings: [
               'doesNotConvertCurrency',
-              'recurringForecastNotIncluded',
-              'recurringManualIncomeForecastNotIncluded',
+              'includesSafeRecurringManualIncomeInWindow',
+              'includesPersonalRecurringBillProjectionInWindow',
               'groupFutureBillsNotIncluded',
+              'groupRecurringBillsNotIncluded',
             ],
           ),
         ],
     warnings: const [
       'doesNotIncludeBankSync',
       'doesNotConvertCurrency',
-      'recurringForecastNotIncluded',
-      'recurringManualIncomeForecastNotIncluded',
+      'includesSafeRecurringManualIncomeInWindow',
+      'includesPersonalRecurringBillProjectionInWindow',
       'groupFutureBillsNotIncluded',
+      'groupRecurringBillsNotIncluded',
     ],
   );
 }

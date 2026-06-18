@@ -61,9 +61,10 @@ void main() {
         expect(summary.windowEndDate, '2026-08-17');
         expect(summary.warnings, contains('doesNotIncludeBankSync'));
         expect(summary.warnings, contains('groupFutureBillsNotIncluded'));
+        expect(summary.warnings, contains('groupRecurringBillsNotIncluded'));
         expect(
           summary.warnings,
-          contains('recurringManualIncomeForecastNotIncluded'),
+          contains('includesSafeRecurringManualIncomeInWindow'),
         );
         expect(summary.currencies.single.currency, 'HKD');
         expect(
@@ -72,17 +73,25 @@ void main() {
         );
         expect(summary.currencies.single.expectedManualIncomeTotal, '5000.00');
         expect(
+          summary.currencies.single.recurringExpectedManualIncomeTotal,
+          '1000.00',
+        );
+        expect(
           summary.currencies.single.upcomingOneTimeFutureBillObligationTotal,
           '250.00',
         );
-        expect(summary.currencies.single.estimatedAvailableAmount, '4873.45');
+        expect(
+          summary.currencies.single.recurringObligationEstimateTotal,
+          '500.00',
+        );
+        expect(summary.currencies.single.estimatedAvailableAmount, '5373.45');
         expect(
           summary.currencies.single.warnings,
-          contains('recurringForecastNotIncluded'),
+          contains('includesPersonalRecurringBillProjectionInWindow'),
         );
         expect(
           summary.currencies.single.warnings,
-          contains('recurringManualIncomeForecastNotIncluded'),
+          contains('groupRecurringBillsNotIncluded'),
         );
         expect(client.lastSummaryWindowStartDate, '2026-06-18');
         expect(client.lastSummaryWindowEndDate, '2026-08-17');
@@ -400,23 +409,26 @@ api.ManualFinanceSummaryResponse sampleSummary({
         currency: 'HKD',
         activeManualAccountBalanceTotal: '123.45',
         expectedManualIncomeTotal: '5000.00',
+        recurringExpectedManualIncomeTotal: '1000.00',
         upcomingOneTimeFutureBillObligationTotal: '250.00',
-        recurringObligationEstimateTotal: '0.00',
-        estimatedAvailableAmount: '4873.45',
+        recurringObligationEstimateTotal: '500.00',
+        estimatedAvailableAmount: '5373.45',
         warnings: [
           'doesNotConvertCurrency',
-          'recurringForecastNotIncluded',
-          'recurringManualIncomeForecastNotIncluded',
+          'includesSafeRecurringManualIncomeInWindow',
+          'includesPersonalRecurringBillProjectionInWindow',
           'groupFutureBillsNotIncluded',
+          'groupRecurringBillsNotIncluded',
         ],
       ),
     ],
     warnings: const [
       'doesNotIncludeBankSync',
       'doesNotConvertCurrency',
-      'recurringForecastNotIncluded',
-      'recurringManualIncomeForecastNotIncluded',
+      'includesSafeRecurringManualIncomeInWindow',
+      'includesPersonalRecurringBillProjectionInWindow',
       'groupFutureBillsNotIncluded',
+      'groupRecurringBillsNotIncluded',
     ],
   );
 }
