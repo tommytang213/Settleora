@@ -64,7 +64,7 @@ void main() {
       expect(client.accessTokens, ['redacted', 'redacted']);
     });
 
-    test('creates, updates, and cancels through generated client', () async {
+    test('creates, updates, cancels, and posts through generated client', () async {
       final client = FakeFutureBillGeneratedClient();
       final repository = GeneratedSettleoraFutureBillRepository(
         client: client,
@@ -88,10 +88,14 @@ void main() {
         ),
       );
       await repository.cancelFutureBill(' $_futureBillId ');
+      final posted = await repository.postFutureBill(' $_futureBillId ');
 
       expect(client.createCalls, 1);
       expect(client.updateCalls, 1);
       expect(client.cancelCalls, 1);
+      expect(client.postCalls, 1);
+      expect(posted.status, api.FutureBillStatusValues.confirmed);
+      expect(posted.settlementEffective, isTrue);
       expect(client.lastCreateRequest?.merchantName, 'Insurance');
       expect(client.lastCreateRequest?.dueDate, '2026-06-19');
       expect(client.lastCreateRequest?.groupId, isNull);
@@ -204,6 +208,7 @@ class FakeFutureBillGeneratedClient
   int createCalls = 0;
   int updateCalls = 0;
   int cancelCalls = 0;
+  int postCalls = 0;
   String? lastStatus;
   String? lastFromDate;
   String? lastToDate;
@@ -280,12 +285,27 @@ class FakeFutureBillGeneratedClient
     lastFutureBillId = futureBillId;
     return sampleApiFutureBill(status: api.FutureBillStatusValues.cancelled);
   }
+
+  @override
+  Future<api.FutureBillResponse> postFutureBill(
+    String futureBillId, {
+    required String accessToken,
+  }) async {
+    postCalls += 1;
+    accessTokens.add(accessToken);
+    lastFutureBillId = futureBillId;
+    return sampleApiFutureBill(
+      status: api.FutureBillStatusValues.confirmed,
+      settlementEffective: true,
+    );
+  }
 }
 
 api.FutureBillResponse sampleApiFutureBill({
   String id = _futureBillId,
   String? merchantName = 'Insurance',
   String status = api.FutureBillStatusValues.draft,
+  bool settlementEffective = false,
   DateTime? archivedAtUtc,
 }) {
   return api.FutureBillResponse(
@@ -295,7 +315,7 @@ api.FutureBillResponse sampleApiFutureBill({
     merchantName: merchantName,
     dueDate: '2026-06-19',
     status: status,
-    settlementEffective: false,
+    settlementEffective: settlementEffective,
     totalAmount: '120.00',
     totalCurrency: 'USD',
     billPayload: api.RecurringBillTemplatePayload(

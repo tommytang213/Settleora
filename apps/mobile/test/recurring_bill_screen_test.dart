@@ -1744,6 +1744,7 @@ class FakeFutureBillRepository implements SettleoraFutureBillRepository {
   int createCalls = 0;
   int updateCalls = 0;
   int cancelCalls = 0;
+  int postCalls = 0;
   SettleoraFutureBillCreateDraft? lastCreateDraft;
   SettleoraFutureBillUpdateDraft? lastUpdateDraft;
   String? lastFutureBillId;
@@ -1813,6 +1814,18 @@ class FakeFutureBillRepository implements SettleoraFutureBillRepository {
     detail = sampleFutureBillDetail(
       status: SettleoraFutureBillStatusValues.cancelled,
       archivedAtUtc: DateTime.utc(2026, 6, 19),
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> postFutureBill(String futureBillId) async {
+    postCalls += 1;
+    lastFutureBillId = futureBillId;
+    detail = sampleFutureBillDetail(
+      status: SettleoraFutureBillStatusValues.confirmed,
+      settlementEffective: true,
     );
     futureBills = [detail];
     return detail;
@@ -2428,6 +2441,7 @@ SettleoraFutureBillSummary sampleFutureBill({
   String? merchantName = 'Insurance',
   String dueDate = '2026-06-19',
   String status = SettleoraFutureBillStatusValues.draft,
+  bool settlementEffective = false,
   String totalAmount = '120.00',
   String totalCurrency = 'USD',
   DateTime? archivedAtUtc,
@@ -2437,7 +2451,7 @@ SettleoraFutureBillSummary sampleFutureBill({
     merchantName: merchantName,
     dueDate: dueDate,
     status: status,
-    settlementEffective: false,
+    settlementEffective: settlementEffective,
     totalAmount: totalAmount,
     totalCurrency: totalCurrency,
     createdAtUtc: _createdAtUtc,
@@ -2452,6 +2466,7 @@ SettleoraFutureBillDetail sampleFutureBillDetail({
   String? merchantName = 'Insurance',
   String dueDate = '2026-06-19',
   String status = SettleoraFutureBillStatusValues.draft,
+  bool settlementEffective = false,
   String totalAmount = '120.00',
   String totalCurrency = 'USD',
   String? note = 'Annual premium',
@@ -2462,6 +2477,7 @@ SettleoraFutureBillDetail sampleFutureBillDetail({
     merchantName: merchantName,
     dueDate: dueDate,
     status: status,
+    settlementEffective: settlementEffective,
     totalAmount: totalAmount,
     totalCurrency: totalCurrency,
     archivedAtUtc: archivedAtUtc,

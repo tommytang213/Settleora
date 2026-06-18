@@ -244,6 +244,10 @@ export class SettleoraApiClient {
     return this.request<FutureBillResponse>("POST", `/api/v1/future-bills/${encodeURIComponent(String(futureBillId))}/cancel`, undefined, options, options.accessToken);
   }
 
+  async postFutureBill(futureBillId: string, options: SettleoraAuthenticatedRequestOptions): Promise<FutureBillResponse> {
+    return this.request<FutureBillResponse>("POST", `/api/v1/future-bills/${encodeURIComponent(String(futureBillId))}/post`, undefined, options, options.accessToken);
+  }
+
   async listGroups(options: SettleoraAuthenticatedRequestOptions): Promise<GroupListResponse> {
     return this.request<GroupListResponse>("GET", "/api/v1/groups", undefined, options, options.accessToken);
   }

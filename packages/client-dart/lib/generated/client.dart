@@ -580,6 +580,17 @@ class SettleoraApiClient {
     return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<FutureBillResponse> postFutureBill(String futureBillId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/future-bills/${Uri.encodeComponent(futureBillId.toString())}/post',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<GroupListResponse> listGroups({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

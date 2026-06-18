@@ -36,6 +36,11 @@ abstract interface class SettleoraFutureBillGeneratedClient {
     String futureBillId, {
     required String accessToken,
   });
+
+  Future<api.FutureBillResponse> postFutureBill(
+    String futureBillId, {
+    required String accessToken,
+  });
 }
 
 class SettleoraGeneratedFutureBillClient
@@ -98,6 +103,14 @@ class SettleoraGeneratedFutureBillClient
     required String accessToken,
   }) {
     return _client.cancelFutureBill(futureBillId, accessToken: accessToken);
+  }
+
+  @override
+  Future<api.FutureBillResponse> postFutureBill(
+    String futureBillId, {
+    required String accessToken,
+  }) {
+    return _client.postFutureBill(futureBillId, accessToken: accessToken);
   }
 }
 
@@ -250,6 +263,28 @@ class GeneratedSettleoraFutureBillRepository
     return _withAccessToken((accessToken) async {
       try {
         final response = await _client.cancelFutureBill(
+          trimmedId,
+          accessToken: accessToken,
+        );
+        return _mapDetail(response);
+      } on SettleoraFutureBillFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> postFutureBill(String futureBillId) {
+    final trimmedId = _requiredId(
+      futureBillId,
+      message: 'Choose a future bill before posting it.',
+    );
+
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.postFutureBill(
           trimmedId,
           accessToken: accessToken,
         );
@@ -462,6 +497,9 @@ String? _optionalStatus(String? value) {
     return null;
   }
   if (trimmed == SettleoraFutureBillStatusValues.draft ||
+      trimmed == SettleoraFutureBillStatusValues.pendingConfirmation ||
+      trimmed == SettleoraFutureBillStatusValues.confirmed ||
+      trimmed == SettleoraFutureBillStatusValues.rejected ||
       trimmed == SettleoraFutureBillStatusValues.cancelled) {
     return trimmed;
   }

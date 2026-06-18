@@ -1412,7 +1412,7 @@ class FutureBillListResponse {
   }
 }
 
-/// Safe one-time future bill response. This is an upcoming draft obligation, not a posted/confirmed settlement-effective expense.
+/// Safe one-time future bill response. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills can become settlement-effective through the normal bill workflow.
 class FutureBillResponse {
   const FutureBillResponse({
     required this.id,
@@ -1436,7 +1436,7 @@ class FutureBillResponse {
   final String? merchantName;
   final String dueDate;
   final FutureBillStatus status;
-  /// Always false for this foundation; posting/confirmation is not implemented by the future-bill API.
+  /// True only when the bill has reached the existing confirmed bill workflow state.
   final bool settlementEffective;
   /// Decimal-safe calculated draft total represented as a string.
   final String totalAmount;
@@ -1788,13 +1788,16 @@ class RecurringBillOccurrenceStatusValues {
   static const Set<RecurringBillOccurrenceStatus> values = {forecasted, draftGenerated, skipped, cancelled};
 }
 
-/// One-time future bill foundation status. Draft future bills are not settlement-effective; cancelled future bills are archived.
+/// One-time future bill status. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills follow existing settlement candidate rules.
 typedef FutureBillStatus = String;
 class FutureBillStatusValues {
   const FutureBillStatusValues._();
   static const FutureBillStatus draft = "draft";
+  static const FutureBillStatus pendingConfirmation = "pending_confirmation";
+  static const FutureBillStatus confirmed = "confirmed";
+  static const FutureBillStatus rejected = "rejected";
   static const FutureBillStatus cancelled = "cancelled";
-  static const Set<FutureBillStatus> values = {draft, cancelled};
+  static const Set<FutureBillStatus> values = {draft, pendingConfirmation, confirmed, rejected, cancelled};
 }
 
 /// Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.

@@ -3,11 +3,14 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Expenses.BillWorkflow;
 using Settleora.Api.Expenses.BillSearch;
 using Settleora.Api.Expenses.GroupBills;
 using Settleora.Api.Expenses.PersonalBills;
 using Settleora.Api.Expenses.RecurringBills;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Expenses.FutureBills;
@@ -27,6 +30,7 @@ internal static class FutureBillEndpoints
     private const string FutureBillCreatedAction = "future_bill.created";
     private const string FutureBillUpdatedAction = "future_bill.updated";
     private const string FutureBillCancelledAction = "future_bill.cancelled";
+    private const string BillSubmittedAction = "bill.submitted";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
 
@@ -40,6 +44,7 @@ internal static class FutureBillEndpoints
         futureBills.MapGet("/{futureBillId:guid}", GetFutureBillAsync);
         futureBills.MapPatch("/{futureBillId:guid}", UpdateFutureBillAsync);
         futureBills.MapPost("/{futureBillId:guid}/cancel", CancelFutureBillAsync);
+        futureBills.MapPost("/{futureBillId:guid}/post", PostFutureBillAsync);
 
         return app;
     }
@@ -304,6 +309,120 @@ internal static class FutureBillEndpoints
         return saveResult ?? Results.Ok(MapResponse(bill));
     }
 
+    private static async Task<IResult> PostFutureBillAsync(
+        Guid futureBillId,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        IExpenseBillWorkflowAuditWriter workflowAuditWriter,
+        IInAppNotificationWriter notificationWriter,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var bill = await VisibleFutureBills(dbContext, actor.UserProfileId, trackChanges: true)
+            .SingleOrDefaultAsync(candidate => candidate.Id == futureBillId, cancellationToken);
+        if (bill is null)
+        {
+            return FutureBillUnavailable();
+        }
+
+        if (bill.GroupId is not null)
+        {
+            var groupAuthorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
+                bill.GroupId.Value,
+                cancellationToken);
+            if (!groupAuthorizationResult.Allowed)
+            {
+                return MapAuthorizationFailure(groupAuthorizationResult);
+            }
+        }
+
+        if (bill.CreatedByUserProfileId != actor.UserProfileId)
+        {
+            return FutureBillUnavailable();
+        }
+
+        if (bill.Status != ExpenseBillStatuses.Draft
+            || bill.ArchivedAtUtc is not null
+            || bill.Participants.Count == 0
+            || !CanResetParticipantStatuses(bill))
+        {
+            return FutureBillConflict();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var previousBillStatus = bill.Status;
+        foreach (var participant in bill.Participants)
+        {
+            if (participant.UserProfileId == actor.UserProfileId)
+            {
+                participant.Status = ExpenseBillParticipantStatuses.Accepted;
+                participant.AcceptedAtUtc = now;
+            }
+            else
+            {
+                participant.Status = ExpenseBillParticipantStatuses.PendingAcceptance;
+                participant.AcceptedAtUtc = null;
+            }
+
+            participant.RejectedAtUtc = null;
+            participant.RejectionReasonCode = null;
+            participant.UpdatedAtUtc = now;
+        }
+
+        bill.Status = bill.Participants.All(participant => participant.Status == ExpenseBillParticipantStatuses.Accepted)
+            ? ExpenseBillStatuses.Confirmed
+            : ExpenseBillStatuses.PendingConfirmation;
+        bill.UpdatedAtUtc = now;
+
+        var counts = CountParticipants(bill);
+        await workflowAuditWriter.WriteAsync(
+            new ExpenseBillWorkflowAuditEvent(
+                BillSubmittedAction,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                bill.Id,
+                bill.GroupId,
+                bill.GroupId is null ? PersonalGroupMode : GroupMode,
+                previousBillStatus,
+                bill.Status,
+                PreviousParticipantStatus: null,
+                NewParticipantStatus: null,
+                ParticipantUserProfileId: null,
+                counts.ParticipantCount,
+                counts.AcceptedCount,
+                counts.RejectedCount,
+                bill.TotalCurrency,
+                bill.TotalAmount,
+                RejectionReasonCode: null,
+                now),
+            cancellationToken);
+        await InAppNotificationEvents.WriteBillPendingParticipantNotificationsAsync(
+            notificationWriter,
+            bill,
+            actor.UserProfileId,
+            BillSubmittedAction,
+            InAppNotificationPriorities.Attention,
+            now,
+            cancellationToken);
+
+        var saveResult = await SaveFutureBillAsync(dbContext, cancellationToken);
+        return saveResult ?? Results.Ok(MapResponse(bill));
+    }
+
     private static ExpenseBill? CreateCalculatedDraftBill(
         Guid? groupId,
         Guid ownerUserProfileId,
@@ -361,7 +480,11 @@ internal static class FutureBillEndpoints
         var today = DateOnly.MinValue;
         var query = dbContext.Set<ExpenseBill>()
             .Where(bill => bill.BillDate > today)
-            .Where(bill => bill.Status == ExpenseBillStatuses.Draft || bill.Status == ExpenseBillStatuses.Cancelled)
+            .Where(bill => bill.Status == ExpenseBillStatuses.Draft
+                || bill.Status == ExpenseBillStatuses.PendingConfirmation
+                || bill.Status == ExpenseBillStatuses.Confirmed
+                || bill.Status == ExpenseBillStatuses.Rejected
+                || bill.Status == ExpenseBillStatuses.Cancelled)
             .Where(bill => bill.CreatedByUserProfile.DeletedAtUtc == null
                 && ((bill.GroupId == null
                         && bill.BillOwnerUserProfileId == actorUserProfileId)
@@ -466,7 +589,7 @@ internal static class FutureBillEndpoints
             bill.MerchantName,
             bill.BillDate,
             bill.Status,
-            SettlementEffective: false,
+            SettlementEffective: bill.Status == ExpenseBillStatuses.Confirmed,
             FormatAmount(bill.TotalAmount),
             bill.TotalCurrency,
             new RecurringBillTemplatePayloadResponse(
@@ -496,6 +619,22 @@ internal static class FutureBillEndpoints
             bill.CreatedAtUtc,
             bill.UpdatedAtUtc,
             bill.ArchivedAtUtc);
+    }
+
+    private static bool CanResetParticipantStatuses(ExpenseBill bill)
+    {
+        return bill.Participants.All(participant => participant.Status is
+            ExpenseBillParticipantStatuses.PendingAcceptance
+            or ExpenseBillParticipantStatuses.Accepted
+            or ExpenseBillParticipantStatuses.Rejected);
+    }
+
+    private static ParticipantCounts CountParticipants(ExpenseBill bill)
+    {
+        return new ParticipantCounts(
+            bill.Participants.Count,
+            bill.Participants.Count(participant => participant.Status == ExpenseBillParticipantStatuses.Accepted),
+            bill.Participants.Count(participant => participant.Status == ExpenseBillParticipantStatuses.Rejected));
     }
 
     private static async Task WriteAuditAsync(
@@ -699,7 +838,12 @@ internal static class FutureBillEndpoints
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var status = ReadOptionalQueryString(request, "status");
-        if (status is not null && status != ExpenseBillStatuses.Draft && status != ExpenseBillStatuses.Cancelled)
+        if (status is not null
+            && status != ExpenseBillStatuses.Draft
+            && status != ExpenseBillStatuses.PendingConfirmation
+            && status != ExpenseBillStatuses.Confirmed
+            && status != ExpenseBillStatuses.Rejected
+            && status != ExpenseBillStatuses.Cancelled)
         {
             AddError(errors, "status", "Future bill status is not supported.");
         }
@@ -992,6 +1136,11 @@ internal static class FutureBillEndpoints
         DateOnly? FromDate,
         DateOnly? ToDate,
         bool IncludeArchived);
+
+    private sealed record ParticipantCounts(
+        int ParticipantCount,
+        int AcceptedCount,
+        int RejectedCount);
 
     private sealed class FutureBillCreateReadResult
     {

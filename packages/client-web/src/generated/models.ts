@@ -470,7 +470,7 @@ export interface FutureBillListResponse {
 }
 
 /**
- * Safe one-time future bill response. This is an upcoming draft obligation, not a posted/confirmed settlement-effective expense.
+ * Safe one-time future bill response. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills can become settlement-effective through the normal bill workflow.
  */
 export interface FutureBillResponse {
   id: string;
@@ -480,7 +480,7 @@ export interface FutureBillResponse {
   dueDate: string;
   status: FutureBillStatus;
   /**
-   * Always false for this foundation; posting/confirmation is not implemented by the future-bill API.
+   * True only when the bill has reached the existing confirmed bill workflow state.
    */
   settlementEffective: boolean;
   /**
@@ -570,9 +570,9 @@ export type RecurringBillTemplateStatus = "active" | "paused" | "archived";
 export type RecurringBillOccurrenceStatus = "forecasted" | "draft_generated" | "skipped" | "cancelled";
 
 /**
- * One-time future bill foundation status. Draft future bills are not settlement-effective; cancelled future bills are archived.
+ * One-time future bill status. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills follow existing settlement candidate rules.
  */
-export type FutureBillStatus = "draft" | "cancelled";
+export type FutureBillStatus = "draft" | "pending_confirmation" | "confirmed" | "rejected" | "cancelled";
 
 /**
  * Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.

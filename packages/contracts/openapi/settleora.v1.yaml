@@ -6107,6 +6107,62 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/future-bills/{futureBillId}/post:
+    post:
+      summary: Post one-time future bill
+      description: >
+        Explicitly posts one visible draft future bill into the normal bill workflow. The server reuses existing bill workflow semantics:
+        the posting actor is self-accepted, other participants remain pending acceptance, and settlement effectiveness is true only when
+        the resulting bill is confirmed. This action does not let clients author financial status or bypass server-owned authorization,
+        payer, money, currency, participant, or calculation rules.
+      operationId: postFutureBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: futureBillId
+          in: path
+          required: true
+          description: Future bill ID to post.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Future bill posted into the normal bill workflow.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Future bill is missing, unrelated, group-invisible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Future bill is not in a postable draft state or has already entered bill workflow.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Future bill posting could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/recurring-bills/forecast:
     get:
       summary: List recurring bill forecast occurrences
@@ -8046,7 +8102,7 @@ components:
             $ref: "#/components/schemas/FutureBillResponse"
     FutureBillResponse:
       type: object
-      description: Safe one-time future bill response. This is an upcoming draft obligation, not a posted/confirmed settlement-effective expense.
+      description: Safe one-time future bill response. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills can become settlement-effective through the normal bill workflow.
       required:
         - id
         - ownerUserProfileId
@@ -8085,7 +8141,7 @@ components:
           $ref: "#/components/schemas/FutureBillStatus"
         settlementEffective:
           type: boolean
-          description: Always false for this foundation; posting/confirmation is not implemented by the future-bill API.
+          description: True only when the bill has reached the existing confirmed bill workflow state.
         totalAmount:
           type: string
           description: Decimal-safe calculated draft total represented as a string.
@@ -8334,9 +8390,12 @@ components:
         - cancelled
     FutureBillStatus:
       type: string
-      description: One-time future bill foundation status. Draft future bills are not settlement-effective; cancelled future bills are archived.
+      description: One-time future bill status. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills follow existing settlement candidate rules.
       enum:
         - draft
+        - pending_confirmation
+        - confirmed
+        - rejected
         - cancelled
     CreatePersonalBillRequest:
       type: object

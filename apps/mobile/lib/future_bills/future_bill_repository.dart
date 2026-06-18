@@ -4,6 +4,9 @@ class SettleoraFutureBillStatusValues {
   const SettleoraFutureBillStatusValues._();
 
   static const draft = 'draft';
+  static const pendingConfirmation = 'pending_confirmation';
+  static const confirmed = 'confirmed';
+  static const rejected = 'rejected';
   static const cancelled = 'cancelled';
 }
 
@@ -188,11 +191,17 @@ abstract interface class SettleoraFutureBillRepository {
   });
 
   Future<SettleoraFutureBillDetail> cancelFutureBill(String futureBillId);
+
+  Future<SettleoraFutureBillDetail> postFutureBill(String futureBillId);
 }
 
 String settleoraFutureBillStatusLabel(SettleoraFutureBillStatus status) {
   return switch (status) {
     SettleoraFutureBillStatusValues.draft => 'Draft',
+    SettleoraFutureBillStatusValues.pendingConfirmation =>
+      'Pending confirmation',
+    SettleoraFutureBillStatusValues.confirmed => 'Confirmed',
+    SettleoraFutureBillStatusValues.rejected => 'Rejected',
     SettleoraFutureBillStatusValues.cancelled => 'Cancelled',
     _ =>
       status

@@ -83,6 +83,124 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
+    public async Task PostPersonalFutureBillConfirmsSelfOnlyBillThroughWorkflow()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Post Actor");
+        using var client = testFactory.CreateClient();
+        var futureBillId = await CreateFutureBillAsync(client, actor.RawSessionToken, CreatePersonalFutureBillJson("2026-06-20", "120.00"));
+
+        using var draftCandidatesRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/bills/{futureBillId:D}/settlement-candidates",
+            actor.RawSessionToken);
+        using var draftCandidatesResponse = await client.SendAsync(draftCandidatesRequest);
+        Assert.Equal(HttpStatusCode.Conflict, draftCandidatesResponse.StatusCode);
+
+        using var postRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{futureBillId:D}/post", actor.RawSessionToken);
+        using var postResponse = await client.SendAsync(postRequest);
+
+        var content = await postResponse.Content.ReadAsStringAsync();
+        Assert.True(postResponse.StatusCode == HttpStatusCode.OK, content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, payload.RootElement.GetProperty("status").GetString());
+        Assert.True(payload.RootElement.GetProperty("settlementEffective").GetBoolean());
+
+        var bill = await ReadBillAsync(testFactory, futureBillId);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, bill.Status);
+        var participant = Assert.Single(bill.Participants);
+        Assert.Equal(actor.UserProfileId, participant.UserProfileId);
+        Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status);
+        Assert.Equal(WriteTimestamp, participant.AcceptedAtUtc);
+    }
+
+    [Fact]
+    public async Task PostGroupFutureBillSelfAcceptsActorAndLeavesOtherParticipantPending()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Group Post Owner");
+        var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Group Post Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(member.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        var futureBillId = await CreateFutureBillAsync(
+            client,
+            owner.RawSessionToken,
+            CreateGroupFutureBillJson(groupId, owner.UserProfileId, member.UserProfileId));
+
+        using var nonCreatorPostRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{futureBillId:D}/post", member.RawSessionToken);
+        using var nonCreatorPostResponse = await client.SendAsync(nonCreatorPostRequest);
+        await AssertFutureBillUnavailableProblemAsync(nonCreatorPostResponse);
+
+        using var postRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{futureBillId:D}/post", owner.RawSessionToken);
+        using var postResponse = await client.SendAsync(postRequest);
+
+        var content = await postResponse.Content.ReadAsStringAsync();
+        Assert.True(postResponse.StatusCode == HttpStatusCode.OK, content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(ExpenseBillStatuses.PendingConfirmation, payload.RootElement.GetProperty("status").GetString());
+        Assert.False(payload.RootElement.GetProperty("settlementEffective").GetBoolean());
+
+        var bill = await ReadBillAsync(testFactory, futureBillId);
+        Assert.Equal(ExpenseBillStatuses.PendingConfirmation, bill.Status);
+        Assert.Contains(
+            bill.Participants,
+            participant => participant.UserProfileId == owner.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.Accepted
+                && participant.AcceptedAtUtc == WriteTimestamp);
+        Assert.Contains(
+            bill.Participants,
+            participant => participant.UserProfileId == member.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
+                && participant.AcceptedAtUtc == null);
+
+        using var candidatesRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{groupId:D}/bills/{futureBillId:D}/settlement-candidates",
+            owner.RawSessionToken);
+        using var candidatesResponse = await client.SendAsync(candidatesRequest);
+        Assert.Equal(HttpStatusCode.Conflict, candidatesResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostFutureBillRejectsCancelledAlreadyPostedAndUnavailableBills()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Invalid Post Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Invalid Post Other");
+        using var client = testFactory.CreateClient();
+        var cancelledFutureBillId = await CreateFutureBillAsync(client, actor.RawSessionToken, CreatePersonalFutureBillJson("2026-06-20", "120.00"));
+        var postedFutureBillId = await CreateFutureBillAsync(client, actor.RawSessionToken, CreatePersonalFutureBillJson("2026-06-21", "80.00"));
+        var otherFutureBillId = await CreateFutureBillAsync(client, other.RawSessionToken, CreatePersonalFutureBillJson("2026-06-22", "40.00"));
+
+        using var cancelRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{cancelledFutureBillId:D}/cancel", actor.RawSessionToken);
+        using var cancelResponse = await client.SendAsync(cancelRequest);
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        using var postRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{postedFutureBillId:D}/post", actor.RawSessionToken);
+        using var postResponse = await client.SendAsync(postRequest);
+        Assert.Equal(HttpStatusCode.OK, postResponse.StatusCode);
+
+        using var cancelledPostRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{cancelledFutureBillId:D}/post", actor.RawSessionToken);
+        using var cancelledPostResponse = await client.SendAsync(cancelledPostRequest);
+        await AssertFutureBillConflictProblemAsync(cancelledPostResponse);
+
+        using var alreadyPostedRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{postedFutureBillId:D}/post", actor.RawSessionToken);
+        using var alreadyPostedResponse = await client.SendAsync(alreadyPostedRequest);
+        await AssertFutureBillConflictProblemAsync(alreadyPostedResponse);
+
+        using var unavailableRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{otherFutureBillId:D}/post", actor.RawSessionToken);
+        using var unavailableResponse = await client.SendAsync(unavailableRequest);
+        await AssertFutureBillUnavailableProblemAsync(unavailableResponse);
+    }
+
+    [Fact]
     public async Task UpdateFutureBillChangesSupportedDraftFields()
     {
         var testContext = CreateFactory();
@@ -434,6 +552,14 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("\"title\":\"Future bill unavailable\"", content);
+    }
+
+    private static async Task AssertFutureBillConflictProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("\"title\":\"Future bill conflict\"", content);
     }
 
     private sealed record FactoryTestContext(WebApplicationFactory<Program> Factory, EndpointTestTimeProvider TimeProvider);
