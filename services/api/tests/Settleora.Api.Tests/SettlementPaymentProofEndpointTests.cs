@@ -461,6 +461,74 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
     }
 
     [Fact]
+    public async Task ProofContentAndRemoveRequireRoutePaymentFileCoupling()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Route Coupling Proof Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Route Coupling Proof Creditor", InitialTimestamp.AddMinutes(1));
+        var creditorSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, creditor);
+        var settlementId = await SeedBasicSettlementAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            SettlementRequestStatuses.PartiallyPaid);
+        var firstPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            10m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(2));
+        var secondPaymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            15m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(3));
+        var firstPaymentProofFileId = await SeedProofAttachmentAsync(
+            testFactory,
+            testContext.StorageProvider,
+            firstPaymentId,
+            debtorSession.UserProfileId,
+            ValidPngBytes,
+            "image/png",
+            FileObjectPurposes.SettlementProof,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        using (var wrongRouteReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            ProofContentPath(secondPaymentId, firstPaymentProofFileId),
+            creditorSession.RawSessionToken))
+        using (var wrongRouteReadResponse = await client.SendAsync(wrongRouteReadRequest))
+        {
+            await AssertSettlementPaymentUnavailableProblemAsync(wrongRouteReadResponse);
+        }
+
+        using (var wrongRouteRemoveRequest = CreateBearerRequest(
+            HttpMethod.Delete,
+            ProofFilePath(secondPaymentId, firstPaymentProofFileId),
+            debtorSession.RawSessionToken))
+        using (var wrongRouteRemoveResponse = await client.SendAsync(wrongRouteRemoveRequest))
+        {
+            await AssertSettlementPaymentUnavailableProblemAsync(wrongRouteRemoveResponse);
+        }
+
+        var attachment = await ReadProofAttachmentAsync(testFactory, firstPaymentId, firstPaymentProofFileId);
+        Assert.Null(attachment.RemovedAtUtc);
+        var fileObject = await ReadFileObjectAsync(testFactory, firstPaymentProofFileId);
+        Assert.Equal(FileObjectStatuses.Active, fileObject.Status);
+        Assert.Null(fileObject.DeletedAtUtc);
+        Assert.Equal(ValidPngBytes, testContext.StorageProvider.ReadStoredBytes(fileObject.StorageObjectKey));
+        Assert.Empty(await ReadSettlementProofAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task InvalidUploadsAreRejectedWithoutProofRowsOrSensitiveEcho()
     {
         var testContext = CreateFactory();
