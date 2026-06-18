@@ -13,7 +13,7 @@ working_directory: apps/mobile
 The root `codemagic.yaml` defines:
 
 - `mobile-ios-validation`: safe Flutter validation only.
-- `mobile-ios-testflight-internal`: manual internal TestFlight upload through the confirmed Codemagic Apple Developer Portal integration.
+- `mobile-ios-testflight-internal`: manual internal TestFlight-oriented App Store Connect upload through the confirmed Codemagic Apple Developer Portal integration.
 
 Codemagic validates the whole YAML when detecting configuration, including workflows that are run manually. Keep the root file parse-safe and do not commit signing material, App Store Connect API keys, provisioning profiles, certificates, `.p8` files, passwords, or other secrets.
 
@@ -50,18 +50,18 @@ Use Codemagic's Apple Developer Portal integration for certificates and provisio
 
 ## Apple Setup Required
 
-Real TestFlight upload still requires:
+Real App Store Connect upload still requires:
 
 - Apple Developer Program membership.
 - A real App Store Connect app record.
 - A registered bundle ID matching the iOS app configuration and Codemagic signing configuration: `com.tommytang213.settleora`.
 - App Store distribution signing credentials and provisioning profile available through the Codemagic integration.
 - App Store Connect access through the `settleora-app-store-connect` Codemagic integration.
-- Internal TestFlight group `Internal Testers` in App Store Connect.
+- Internal testers configured in App Store Connect when the maintainer wants tester access to processed builds.
 
 ## Internal TestFlight Workflow
 
-Run `Mobile iOS internal TestFlight` manually only after the setup above is complete.
+Run `Mobile iOS internal TestFlight` manually only after the setup above is complete. This workflow is upload-only from the repository side: it uploads the signed IPA to App Store Connect and avoids Codemagic post-processing distribution to beta groups.
 
 The active internal workflow:
 
@@ -72,23 +72,37 @@ The active internal workflow:
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
 - Builds a signed iOS IPA with `flutter build ipa --release`.
 - Publishes to App Store Connect with `auth: integration`.
-- Sets `submit_to_testflight: true`.
-- Uses only the internal beta group `Internal Testers`.
+- Sets `submit_to_testflight: false` so Codemagic does not submit the build to TestFlight beta review.
+- Does not set `beta_groups`.
 - Keeps `submit_to_app_store: false`.
 
+Do not configure `beta_groups: Internal Testers`. App Store Connect internal tester groups are not valid Codemagic `beta_groups` assignment targets, and using that wiring can fail after the build has already uploaded and processed. If a future workflow adds external beta tester distribution, keep it explicitly external-only, require beta review intentionally, and never include the internal `Internal Testers` group in `beta_groups`.
+
 No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
+
+## Finding Uploaded Builds
+
+Uploaded builds appear in App Store Connect, not in Apple Developer certificate/member pages. After Codemagic reports a successful upload, wait for Apple processing, then check:
+
+1. App Store Connect.
+2. My Apps.
+3. Settleora.
+4. TestFlight or Builds.
+
+Internal tester access may still require manual Apple-side setup, depending on current App Store Connect and Codemagic behavior. Configure testers and any internal availability in App Store Connect after the uploaded build is processed.
 
 ## What Codex Cannot Verify
 
 Codex cannot verify a real Codemagic cloud build or TestFlight upload unless the maintainer manually triggers the workflow and provides the result. Local validation only proves repository syntax, docs, and repo-safe checks.
 
-Codemagic cloud build success, Apple signing success, App Store Connect processing, and real iPhone install through TestFlight remain external/manual evidence until a maintainer runs the workflow and records the result.
+Codemagic cloud build success, Apple signing success, App Store Connect upload/processing, manual internal tester availability, and real iPhone install through TestFlight remain external/manual evidence until a maintainer runs the workflow and records the result.
 
 ## Recommended Order
 
 1. Merge the Codemagic/TestFlight repository setup.
 2. In Codemagic, confirm the branch with root `codemagic.yaml` is detected.
 3. Run `Mobile iOS validation`.
-4. Confirm Apple Developer Program, App Store Connect app record, registered bundle ID `com.tommytang213.settleora`, internal TestFlight group `Internal Testers`, and Codemagic integration `settleora-app-store-connect`.
-5. Manually run `Mobile iOS internal TestFlight` only when signing and App Store Connect setup are ready.
-6. Record Codemagic build logs, App Store Connect processing status, and TestFlight install evidence in the Day 1 acceptance package when available.
+4. Confirm Apple Developer Program, App Store Connect app record, registered bundle ID `com.tommytang213.settleora`, internal tester access needs, and Codemagic integration `settleora-app-store-connect`.
+5. Manually run `Mobile iOS internal TestFlight` only at a milestone or release gate when signing and App Store Connect setup are ready.
+6. After upload processing, check App Store Connect > My Apps > Settleora > TestFlight / Builds and perform any manual internal tester setup needed in App Store Connect.
+7. Record Codemagic build logs, App Store Connect processing status, and TestFlight install evidence in the Day 1 acceptance package when available.
