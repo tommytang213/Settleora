@@ -64,24 +64,30 @@ void main() {
       expect(session.refreshAbsoluteExpiresAtUtc, _refreshAbsoluteExpiresAt);
       expect(session.toString(), isNot(contains(_accessToken)));
       expect(session.toString(), isNot(contains(_refreshCredential)));
+      expect(session.toJson().keys, isNot(contains('currentUser')));
+      expect(session.toJson().keys, isNot(contains('authAccountId')));
+      expect(session.toJson().keys, isNot(contains('userProfileId')));
     });
 
-    test('bootstraps current user with a trimmed access token', () async {
-      final client = FakeAuthGeneratedClient();
-      final repository = GeneratedSettleoraAuthRepository(client: client);
+    test(
+      'bootstraps authenticated session with a trimmed access token',
+      () async {
+        final client = FakeAuthGeneratedClient();
+        final repository = GeneratedSettleoraAuthRepository(client: client);
 
-      final currentUser = await repository.currentUser(
-        accessToken: '  $_accessToken  ',
-      );
+        final currentUser = await repository.currentUser(
+          accessToken: '  $_accessToken  ',
+        );
 
-      expect(client.currentUserCalls, 1);
-      expect(client.lastAccessToken, _accessToken);
-      expect(currentUser.userProfileId, 'user-profile-id-not-displayed');
-      expect(currentUser.displayName, 'Taylor');
-      expect(currentUser.defaultCurrency, 'USD');
-      expect(currentUser.sessionExpiresAtUtc, _accessExpiresAt);
-      expect(currentUser.toString(), isNot(contains(_accessToken)));
-    });
+        expect(client.currentUserCalls, 1);
+        expect(client.lastAccessToken, _accessToken);
+        expect(currentUser.userProfileId, 'user-profile-id-not-displayed');
+        expect(currentUser.displayName, 'Taylor');
+        expect(currentUser.defaultCurrency, 'USD');
+        expect(currentUser.sessionExpiresAtUtc, _accessExpiresAt);
+        expect(currentUser.toString(), isNot(contains(_accessToken)));
+      },
+    );
 
     test(
       'refresh rotates session material through the generated client',
@@ -257,7 +263,7 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
     this.currentUserFailure,
     this.refreshFailure,
     this.sessionOperationFailure,
-    api.LocalSignInResponse? signInResponse,
+    api.LocalSessionSignInResponse? signInResponse,
     api.CurrentUserResponse? currentUserResponse,
     api.RefreshSessionResponse? refreshResponse,
     api.SessionListResponse? sessionListResponse,
@@ -270,7 +276,7 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
   final Object? currentUserFailure;
   final Object? refreshFailure;
   final Object? sessionOperationFailure;
-  final api.LocalSignInResponse signInResponse;
+  final api.LocalSessionSignInResponse signInResponse;
   final api.CurrentUserResponse currentUserResponse;
   final api.RefreshSessionResponse refreshResponse;
   final api.SessionListResponse sessionListResponse;
@@ -287,7 +293,7 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
   String? lastRevokedSessionId;
 
   @override
-  Future<api.LocalSignInResponse> signInLocal(
+  Future<api.LocalSessionSignInResponse> signInLocalSession(
     api.LocalSignInRequest request,
   ) async {
     signInCalls += 1;
@@ -301,7 +307,7 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
   }
 
   @override
-  Future<api.CurrentUserResponse> getCurrentUser({
+  Future<api.CurrentUserResponse> getAuthenticatedSession({
     required String accessToken,
   }) async {
     currentUserCalls += 1;
@@ -373,8 +379,8 @@ class FakeAuthGeneratedClient implements SettleoraAuthGeneratedClient {
   }
 }
 
-api.LocalSignInResponse sampleSignInResponse() {
-  return api.LocalSignInResponse(
+api.LocalSessionSignInResponse sampleSignInResponse() {
+  return api.LocalSessionSignInResponse(
     session: api.RefreshSessionAccessSession(
       id: 'session-id-not-stored',
       token: _accessToken,
@@ -385,6 +391,7 @@ api.LocalSignInResponse sampleSignInResponse() {
       idleExpiresAtUtc: _refreshIdleExpiresAt,
       absoluteExpiresAtUtc: _refreshAbsoluteExpiresAt,
     ),
+    currentUser: sampleCurrentUserResponse(),
   );
 }
 

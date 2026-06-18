@@ -205,9 +205,13 @@ abstract interface class SettleoraAuthRepository {
 }
 
 abstract interface class SettleoraAuthGeneratedClient {
-  Future<api.LocalSignInResponse> signInLocal(api.LocalSignInRequest request);
+  Future<api.LocalSessionSignInResponse> signInLocalSession(
+    api.LocalSignInRequest request,
+  );
 
-  Future<api.CurrentUserResponse> getCurrentUser({required String accessToken});
+  Future<api.CurrentUserResponse> getAuthenticatedSession({
+    required String accessToken,
+  });
 
   Future<api.RefreshSessionResponse> refreshSession(
     api.RefreshSessionRequest request,
@@ -233,15 +237,17 @@ class SettleoraGeneratedAuthClient implements SettleoraAuthGeneratedClient {
   final api.SettleoraApiClient _client;
 
   @override
-  Future<api.LocalSignInResponse> signInLocal(api.LocalSignInRequest request) {
-    return _client.signInLocal(request);
+  Future<api.LocalSessionSignInResponse> signInLocalSession(
+    api.LocalSignInRequest request,
+  ) {
+    return _client.signInLocalSession(request);
   }
 
   @override
-  Future<api.CurrentUserResponse> getCurrentUser({
+  Future<api.CurrentUserResponse> getAuthenticatedSession({
     required String accessToken,
   }) {
-    return _client.getCurrentUser(accessToken: accessToken);
+    return _client.getAuthenticatedSession(accessToken: accessToken);
   }
 
   @override
@@ -308,7 +314,7 @@ class GeneratedSettleoraAuthRepository implements SettleoraAuthRepository {
     }
 
     try {
-      final response = await client.signInLocal(
+      final response = await client.signInLocalSession(
         api.LocalSignInRequest(
           identifier: identifier,
           password: submission.password,
@@ -347,7 +353,9 @@ class GeneratedSettleoraAuthRepository implements SettleoraAuthRepository {
     }
 
     try {
-      final response = await client.getCurrentUser(accessToken: trimmed);
+      final response = await client.getAuthenticatedSession(
+        accessToken: trimmed,
+      );
 
       return SettleoraCurrentUser(
         userProfileId: response.userProfile.id,
