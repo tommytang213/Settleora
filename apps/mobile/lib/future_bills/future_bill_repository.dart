@@ -141,6 +141,8 @@ class SettleoraFutureBillCreateDraft {
     required this.currency,
     required this.dueDate,
     required this.note,
+    this.groupId,
+    this.participantUserProfileIds = const [],
   });
 
   final String? merchantName;
@@ -148,6 +150,10 @@ class SettleoraFutureBillCreateDraft {
   final String currency;
   final String dueDate;
   final String? note;
+  final String? groupId;
+  final List<String> participantUserProfileIds;
+
+  bool get isGroupScoped => groupId?.trim().isNotEmpty == true;
 }
 
 class SettleoraFutureBillUpdateDraft {

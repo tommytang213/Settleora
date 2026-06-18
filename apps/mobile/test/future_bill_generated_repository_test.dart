@@ -94,6 +94,7 @@ void main() {
       expect(client.cancelCalls, 1);
       expect(client.lastCreateRequest?.merchantName, 'Insurance');
       expect(client.lastCreateRequest?.dueDate, '2026-06-19');
+      expect(client.lastCreateRequest?.groupId, isNull);
       expect(client.lastCreateRequest?.billPayload.currency, 'USD');
       expect(
         client.lastCreateRequest?.billPayload.items.single.name,
@@ -110,6 +111,42 @@ void main() {
       expect(client.lastUpdateRequest?.merchantName, 'Insurance v2');
       expect(client.lastUpdateRequest?.dueDate, '2026-06-20');
       expect(client.lastFutureBillId, _futureBillId);
+    });
+
+    test('creates group future bill with equal participant splits', () async {
+      final client = FakeFutureBillGeneratedClient();
+      final repository = GeneratedSettleoraFutureBillRepository(
+        client: client,
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      await repository.createFutureBill(
+        const SettleoraFutureBillCreateDraft(
+          merchantName: ' Group trip ',
+          amount: ' 90.00 ',
+          currency: ' usd ',
+          dueDate: ' 2026-06-21 ',
+          note: ' Later ',
+          groupId: ' group-1 ',
+          participantUserProfileIds: [
+            ' member-alex ',
+            'member-taylor',
+            'member-alex',
+          ],
+        ),
+      );
+
+      final request = client.lastCreateRequest;
+      final splits = request?.billPayload.items.single.splits;
+      expect(request?.groupId, 'group-1');
+      expect(splits, hasLength(2));
+      expect(splits?.map((split) => split.userProfileId), [
+        'member-alex',
+        'member-taylor',
+      ]);
+      expect(splits?.map((split) => split.splitMethod), ['equal', 'equal']);
+      expect(splits?.every((split) => split.basisValue == null), isTrue);
+      expect(request?.billPayload.payers, isNull);
     });
 
     test('maps generated API errors to bounded failure kinds', () async {

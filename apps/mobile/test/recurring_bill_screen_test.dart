@@ -150,6 +150,106 @@ void main() {
     expect(futureBillRepository.lastCreateDraft?.note, 'Annual premium');
   });
 
+  testWidgets('future bill create form saves group equal split participants', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: const [],
+    );
+    final groupRepository = FakeGroupRepository(
+      groups: [
+        SettleoraGroup(
+          id: 'group-trip-id',
+          name: 'Trip crew',
+          currentUserRole: SettleoraGroupRoleValues.member,
+          currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      ],
+      members: [
+        SettleoraGroupMember(
+          userProfileId: 'member-alex-id',
+          displayName: 'Alex',
+          role: SettleoraGroupRoleValues.member,
+          status: SettleoraGroupMembershipStatusValues.active,
+          joinedAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+        SettleoraGroupMember(
+          userProfileId: 'member-taylor-id',
+          displayName: 'Taylor',
+          role: SettleoraGroupRoleValues.owner,
+          status: SettleoraGroupMembershipStatusValues.active,
+          joinedAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+          groupRepository: groupRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bill scope and split'), findsOneWidget);
+    expect(find.text('Personal upcoming bill'), findsOneWidget);
+    expect(groupRepository.listGroupsCalls, 1);
+
+    await tester.tap(find.byKey(const Key('future-bill-form-group')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trip crew').last);
+    await tester.pumpAndSettle();
+
+    expect(groupRepository.lastMembersGroupId, 'group-trip-id');
+    expect(find.text('Equal split preview'), findsOneWidget);
+    expect(find.text('Participants (2 selected)'), findsOneWidget);
+    expect(find.text('Alex'), findsOneWidget);
+    expect(find.text('Taylor'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-merchant')),
+      'Hotel',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-amount')),
+      '240.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-note')),
+      'Upcoming stay',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-due-date')),
+      '2026-06-21',
+    );
+    await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
+    await tester.tap(find.byKey(const Key('future-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.createCalls, 1);
+    expect(futureBillRepository.lastCreateDraft?.groupId, 'group-trip-id');
+    expect(futureBillRepository.lastCreateDraft?.participantUserProfileIds, [
+      'member-alex-id',
+      'member-taylor-id',
+    ]);
+    expect(futureBillRepository.lastCreateDraft?.merchantName, 'Hotel');
+    expect(futureBillRepository.lastCreateDraft?.amount, '240.00');
+  });
+
   testWidgets('recurring bill screen renders empty state', (tester) async {
     final repository = FakeRecurringBillRepository(
       templates: const [],
@@ -1915,9 +2015,18 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({this.groups = const [], this.members = const []});
+
+  final List<SettleoraGroup> groups;
+  final List<SettleoraGroupMember> members;
+  int listGroupsCalls = 0;
+  int listMembersCalls = 0;
+  String? lastMembersGroupId;
+
   @override
   Future<List<SettleoraGroup>> listGroups() async {
-    return const [];
+    listGroupsCalls += 1;
+    return groups;
   }
 
   @override
@@ -1939,8 +2048,10 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) {
-    throw UnimplementedError();
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMembersCalls += 1;
+    lastMembersGroupId = groupId;
+    return members;
   }
 
   @override

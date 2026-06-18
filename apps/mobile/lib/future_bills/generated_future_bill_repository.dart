@@ -302,8 +302,23 @@ api.CreateFutureBillRequest _createRequest(
     fieldName: 'name',
   );
   final itemName = name == null || name.isEmpty ? 'Future bill' : name;
+  final groupId = _optionalId(draft.groupId);
+  final participantIds = _participantIds(draft.participantUserProfileIds);
+  if (groupId == null && participantIds.isNotEmpty) {
+    throw const SettleoraFutureBillFailure(
+      kind: SettleoraFutureBillFailureKind.validation,
+      message: 'Choose a group before adding future bill participants.',
+    );
+  }
+  if (groupId != null && participantIds.isEmpty) {
+    throw const SettleoraFutureBillFailure(
+      kind: SettleoraFutureBillFailureKind.validation,
+      message: 'Choose at least one group member for the equal split.',
+    );
+  }
 
   return api.CreateFutureBillRequest(
+    groupId: groupId,
     merchantName: name,
     dueDate: _requiredIsoDate(draft.dueDate),
     billPayload: api.RecurringBillTemplatePayload(
@@ -318,6 +333,15 @@ api.CreateFutureBillRequest _createRequest(
           ),
           amount: amount,
           currency: currency,
+          splits: participantIds.isEmpty
+              ? null
+              : [
+                  for (final participantId in participantIds)
+                    api.RecurringBillTemplatePayloadItemSplit(
+                      userProfileId: participantId,
+                      splitMethod: 'equal',
+                    ),
+                ],
         ),
       ],
     ),
@@ -463,6 +487,21 @@ String _requiredId(String? value, {required String message}) {
 String? _optionalId(String? value) {
   final trimmed = value?.trim();
   return trimmed == null || trimmed.isEmpty ? null : trimmed;
+}
+
+List<String> _participantIds(List<String> values) {
+  final seen = <String>{};
+  final ids = <String>[];
+  for (final value in values) {
+    final id = _optionalId(value);
+    if (id == null || seen.contains(id)) {
+      continue;
+    }
+    seen.add(id);
+    ids.add(id);
+  }
+
+  return ids;
 }
 
 String _requiredIsoDate(String value) {

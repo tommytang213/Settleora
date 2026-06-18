@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../future_bills/future_bill_repository.dart';
+import '../groups/group_repository.dart';
 import '../ui/settleora_form_fields.dart';
 import 'recurring_bill_repository.dart';
 
@@ -9,11 +10,13 @@ class SettleoraRecurringBillScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.futureBillRepository,
+    this.groupRepository,
     this.openNeedsDraftOnStart = false,
   });
 
   final SettleoraRecurringBillRepository repository;
   final SettleoraFutureBillRepository? futureBillRepository;
+  final SettleoraGroupRepository? groupRepository;
   final bool openNeedsDraftOnStart;
 
   @override
@@ -163,6 +166,7 @@ class _SettleoraRecurringBillScreenState
       MaterialPageRoute<bool>(
         builder: (_) => SettleoraFutureBillFormScreen.create(
           repository: futureBillRepository,
+          groupRepository: widget.groupRepository,
         ),
       ),
     );
@@ -2043,15 +2047,17 @@ class SettleoraFutureBillFormScreen extends StatefulWidget {
   const SettleoraFutureBillFormScreen.create({
     super.key,
     required this.repository,
+    this.groupRepository,
   }) : futureBill = null;
 
   const SettleoraFutureBillFormScreen.edit({
     super.key,
     required this.repository,
     required this.futureBill,
-  });
+  }) : groupRepository = null;
 
   final SettleoraFutureBillRepository repository;
+  final SettleoraGroupRepository? groupRepository;
   final SettleoraFutureBillDetail? futureBill;
 
   bool get isEditing => futureBill != null;
@@ -2069,8 +2075,15 @@ class _SettleoraFutureBillFormScreenState
   late final TextEditingController _noteController;
   late final TextEditingController _dueDateController;
   String _currency = 'USD';
+  String _selectedGroupId = '';
+  bool _isLoadingGroups = false;
+  bool _isLoadingMembers = false;
+  List<SettleoraGroup> _groups = const [];
+  List<SettleoraGroupMember> _members = const [];
+  Set<String> _selectedParticipantIds = <String>{};
   bool _isSaving = false;
   SettleoraFutureBillFailure? _failure;
+  SettleoraGroupFailure? _groupFailure;
 
   @override
   void initState() {
@@ -2089,6 +2102,9 @@ class _SettleoraFutureBillFormScreenState
     );
     _dueDateController = TextEditingController(text: futureBill?.dueDate ?? '');
     _currency = futureBill?.totalCurrency ?? 'USD';
+    if (!widget.isEditing && widget.groupRepository != null) {
+      Future<void>.microtask(_loadGroups);
+    }
   }
 
   @override
@@ -2098,6 +2114,118 @@ class _SettleoraFutureBillFormScreenState
     _noteController.dispose();
     _dueDateController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadGroups() async {
+    final groupRepository = widget.groupRepository;
+    if (groupRepository == null || widget.isEditing) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingGroups = true;
+      _groupFailure = null;
+    });
+
+    try {
+      final groups = await groupRepository.listGroups();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groups = groups
+            .where(
+              (group) =>
+                  group.currentUserStatus ==
+                  SettleoraGroupMembershipStatusValues.active,
+            )
+            .toList(growable: false);
+        _isLoadingGroups = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groupFailure = SettleoraGroupFailure.from(error);
+        _isLoadingGroups = false;
+      });
+    }
+  }
+
+  Future<void> _selectGroup(String groupId) async {
+    if (_isSaving || _selectedGroupId == groupId) {
+      return;
+    }
+
+    setState(() {
+      _selectedGroupId = groupId;
+      _members = const [];
+      _selectedParticipantIds = <String>{};
+      _groupFailure = null;
+    });
+
+    if (groupId.trim().isEmpty) {
+      return;
+    }
+
+    await _loadMembers(groupId);
+  }
+
+  Future<void> _loadMembers(String groupId) async {
+    final groupRepository = widget.groupRepository;
+    if (groupRepository == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingMembers = true;
+      _groupFailure = null;
+    });
+
+    try {
+      final members = await groupRepository.listGroupMembers(groupId);
+      if (!mounted) {
+        return;
+      }
+      final activeMembers = members
+          .where(
+            (member) =>
+                member.status == SettleoraGroupMembershipStatusValues.active,
+          )
+          .toList(growable: false);
+      setState(() {
+        _members = activeMembers;
+        _selectedParticipantIds = {
+          for (final member in activeMembers) member.userProfileId,
+        };
+        _isLoadingMembers = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groupFailure = SettleoraGroupFailure.from(error);
+        _isLoadingMembers = false;
+      });
+    }
+  }
+
+  void _toggleParticipant(String userProfileId, bool selected) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      final next = Set<String>.of(_selectedParticipantIds);
+      if (selected) {
+        next.add(userProfileId);
+      } else {
+        next.remove(userProfileId);
+      }
+      _selectedParticipantIds = next;
+    });
   }
 
   Future<void> _pickDueDate() async {
@@ -2124,6 +2252,18 @@ class _SettleoraFutureBillFormScreenState
     if (_isSaving || !_formKey.currentState!.validate()) {
       return;
     }
+    if (!widget.isEditing &&
+        _selectedGroupId.trim().isNotEmpty &&
+        _selectedParticipantIds.isEmpty) {
+      setState(() {
+        _failure = const SettleoraFutureBillFailure(
+          kind: SettleoraFutureBillFailureKind.validation,
+          message:
+              'Choose at least one active group member for this future bill equal split.',
+        );
+      });
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -2147,6 +2287,10 @@ class _SettleoraFutureBillFormScreenState
             currency: _currency,
             dueDate: _dueDateController.text,
             note: _noteController.text,
+            groupId: _selectedGroupId.trim().isEmpty ? null : _selectedGroupId,
+            participantUserProfileIds: _selectedParticipantIds.toList(
+              growable: false,
+            ),
           ),
         );
       }
@@ -2188,12 +2332,25 @@ class _SettleoraFutureBillFormScreenState
                 const _FutureBillAuthorityPanel(),
                 if (!isEditing) ...[
                   const SizedBox(height: 12),
-                  const _StatePanel(
-                    icon: Icons.group_off_outlined,
-                    title: 'Personal one-time bill',
-                    message:
-                        'Group participants and split authoring are not available in this form yet. Do not enter fake people or IDs.',
-                    compact: true,
+                  _FutureBillGroupAuthoringSection(
+                    groups: _groups,
+                    members: _members,
+                    selectedGroupId: _selectedGroupId,
+                    selectedParticipantIds: _selectedParticipantIds,
+                    isLoadingGroups: _isLoadingGroups,
+                    isLoadingMembers: _isLoadingMembers,
+                    groupFailure: _groupFailure,
+                    groupRepositoryAvailable: widget.groupRepository != null,
+                    enabled: !_isSaving,
+                    onGroupSelected: _selectGroup,
+                    onParticipantToggled: _toggleParticipant,
+                    onRetryGroups: _loadGroups,
+                    onRetryMembers: () {
+                      final groupId = _selectedGroupId.trim();
+                      if (groupId.isNotEmpty) {
+                        _loadMembers(groupId);
+                      }
+                    },
                   ),
                 ],
                 if (_failure != null) ...[
@@ -2286,6 +2443,183 @@ class _SettleoraFutureBillFormScreenState
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FutureBillGroupAuthoringSection extends StatelessWidget {
+  const _FutureBillGroupAuthoringSection({
+    required this.groups,
+    required this.members,
+    required this.selectedGroupId,
+    required this.selectedParticipantIds,
+    required this.isLoadingGroups,
+    required this.isLoadingMembers,
+    required this.groupFailure,
+    required this.groupRepositoryAvailable,
+    required this.enabled,
+    required this.onGroupSelected,
+    required this.onParticipantToggled,
+    required this.onRetryGroups,
+    required this.onRetryMembers,
+  });
+
+  final List<SettleoraGroup> groups;
+  final List<SettleoraGroupMember> members;
+  final String selectedGroupId;
+  final Set<String> selectedParticipantIds;
+  final bool isLoadingGroups;
+  final bool isLoadingMembers;
+  final SettleoraGroupFailure? groupFailure;
+  final bool groupRepositoryAvailable;
+  final bool enabled;
+  final ValueChanged<String> onGroupSelected;
+  final void Function(String userProfileId, bool selected) onParticipantToggled;
+  final VoidCallback onRetryGroups;
+  final VoidCallback onRetryMembers;
+
+  bool get _groupSelected => selectedGroupId.trim().isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!groupRepositoryAvailable) {
+      return const _StatePanel(
+        icon: Icons.group_off_outlined,
+        title: 'Personal one-time bill',
+        message:
+            'Group authoring is unavailable because this screen does not have a server-mode group source. Do not enter fake people or IDs.',
+        compact: true,
+      );
+    }
+
+    final failure = groupFailure;
+    return _Section(
+      title: 'Bill scope and split',
+      children: [
+        DropdownButtonFormField<String>(
+          key: const Key('future-bill-form-group'),
+          initialValue: selectedGroupId,
+          decoration: const InputDecoration(
+            labelText: 'Scope',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<String>(
+              value: '',
+              child: Text('Personal future bill'),
+            ),
+            for (final group in groups)
+              DropdownMenuItem<String>(
+                value: group.id,
+                child: Text(group.displayName),
+              ),
+          ],
+          onChanged: enabled && !isLoadingGroups
+              ? (value) => onGroupSelected(value ?? '')
+              : null,
+        ),
+        if (isLoadingGroups) ...[
+          const SizedBox(height: 10),
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Text(
+            'Loading visible groups.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (failure != null) ...[
+          const SizedBox(height: 10),
+          _GroupAuthoringFailure(
+            failure: failure,
+            onRetry: _groupSelected ? onRetryMembers : onRetryGroups,
+          ),
+        ],
+        if (!_groupSelected && !isLoadingGroups && failure == null) ...[
+          const SizedBox(height: 10),
+          const _StatePanel(
+            icon: Icons.person_outline,
+            title: 'Personal upcoming bill',
+            message:
+                'Save this as your own future bill, or choose a visible group to author an equal split among active members.',
+            compact: true,
+          ),
+        ],
+        if (_groupSelected) ...[
+          const SizedBox(height: 12),
+          const _StatePanel(
+            icon: Icons.call_split_outlined,
+            title: 'Equal split preview',
+            message:
+                'Selected active members become equal split participants in the create payload. The server validates group access, membership, money, and payer policy before saving. This is not posted or settlement-effective.',
+            compact: true,
+          ),
+          if (isLoadingMembers) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            Text(
+              'Loading active group members.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ] else if (members.isEmpty && failure == null) ...[
+            const SizedBox(height: 10),
+            const _StatePanel(
+              icon: Icons.group_off_outlined,
+              title: 'No active members',
+              message:
+                  'This group did not return active member data that can safely author a future bill split.',
+              compact: true,
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            Text(
+              'Participants (${selectedParticipantIds.length} selected)',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 6),
+            for (final member in members)
+              CheckboxListTile(
+                key: ValueKey(
+                  'future-bill-form-member-${member.userProfileId}',
+                ),
+                value: selectedParticipantIds.contains(member.userProfileId),
+                onChanged: enabled
+                    ? (selected) => onParticipantToggled(
+                        member.userProfileId,
+                        selected ?? false,
+                      )
+                    : null,
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: Text(member.safeDisplayName),
+                subtitle: Text(settleoraGroupRoleLabel(member.role)),
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupAuthoringFailure extends StatelessWidget {
+  const _GroupAuthoringFailure({required this.failure, required this.onRetry});
+
+  final SettleoraGroupFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.error_outline,
+      title: failure.title,
+      message: failure.message,
+      compact: true,
+      action: OutlinedButton.icon(
+        key: const Key('future-bill-form-group-retry'),
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
       ),
     );
   }

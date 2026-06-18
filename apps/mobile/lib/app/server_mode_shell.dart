@@ -444,6 +444,7 @@ class _SettleoraAuthenticatedServerShellState
       (_) => SettleoraRecurringBillScreen(
         repository: widget.recurringBillRepository,
         futureBillRepository: widget.futureBillRepository,
+        groupRepository: widget.groupRepository,
       ),
     );
   }
@@ -453,6 +454,7 @@ class _SettleoraAuthenticatedServerShellState
       (_) => SettleoraRecurringBillScreen(
         repository: widget.recurringBillRepository,
         futureBillRepository: widget.futureBillRepository,
+        groupRepository: widget.groupRepository,
         openNeedsDraftOnStart: true,
       ),
     );
