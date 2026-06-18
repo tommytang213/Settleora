@@ -258,6 +258,8 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
             Assert.Equal(ValidPngBytes, await readResponse.Content.ReadAsByteArrayAsync());
         }
 
+        var openReadCountBeforeDeniedUpload = testContext.StorageProvider.OpenReadCount;
+        var proofAuditCountBeforeDeniedUpload = (await ReadSettlementProofAuditEventsAsync(testFactory)).Count;
         using (var uploadRequest = CreateProofUploadRequest(
             paymentId,
             creditorSession.RawSessionToken,
@@ -268,6 +270,15 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
         {
             await AssertSettlementPaymentUnavailableProblemAsync(uploadResponse, "creditor-secret.png");
         }
+
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(openReadCountBeforeDeniedUpload, testContext.StorageProvider.OpenReadCount);
+        Assert.DoesNotContain(
+            await ReadFileObjectsAsync(testFactory),
+            fileObject => fileObject.Purpose == FileObjectPurposes.SettlementProof
+                && fileObject.OwnerUserProfileId == creditor.UserProfileId);
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(proofAuditCountBeforeDeniedUpload, (await ReadSettlementProofAuditEventsAsync(testFactory)).Count);
 
         using (var removeRequest = CreateBearerRequest(
             HttpMethod.Delete,
@@ -716,6 +727,9 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
         Assert.Empty(await ReadProofAttachmentsAsync(testFactory));
         Assert.Empty(await ReadFileObjectsAsync(testFactory));
         Assert.Empty(await ReadSettlementProofAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
     }
 
     [Fact]
@@ -1672,6 +1686,10 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
 
         public bool FailWrites { get; set; }
 
+        public int WriteCount { get; private set; }
+
+        public int OpenReadCount { get; private set; }
+
         public string CreateObjectKey(string purpose, Guid fileObjectId, DateTimeOffset createdAtUtc)
         {
             return string.Join(
@@ -1686,6 +1704,8 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
 
         public async Task WriteAsync(string objectKey, Stream content, CancellationToken cancellationToken)
         {
+            WriteCount++;
+
             if (FailWrites)
             {
                 throw new IOException("Simulated proof storage write failure.");
@@ -1698,6 +1718,8 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
 
         public Task<Stream> OpenReadAsync(string objectKey, CancellationToken cancellationToken)
         {
+            OpenReadCount++;
+
             if (!storedObjects.TryGetValue(objectKey, out var bytes))
             {
                 throw new FileNotFoundException("Simulated missing proof object.");
