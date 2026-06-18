@@ -8,6 +8,7 @@ import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
+import 'package:mobile/future_bills/future_bill_repository.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
@@ -55,6 +56,98 @@ void main() {
       findsOneWidget,
     );
     expect(visibleText(tester), isNot(contains(_templateId)));
+  });
+
+  testWidgets('recurring surface shows one-time future bills separately', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: [sampleFutureBill()],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upcoming one-time bills'), findsOneWidget);
+    expect(find.text('Future bill'), findsWidgets);
+    expect(find.text('Insurance'), findsOneWidget);
+    expect(find.text('120.00 USD'), findsOneWidget);
+    expect(
+      find.textContaining('This is not recorded as paid yet.'),
+      findsWidgets,
+    );
+    expect(visibleText(tester), isNot(contains(_futureBillId)));
+    expect(futureBillRepository.listCalls, 1);
+  });
+
+  testWidgets('future bill create form saves upcoming bill draft', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New future bill'), findsOneWidget);
+    expect(find.text('Save upcoming bill'), findsOneWidget);
+    expect(
+      find.textContaining('This does not affect settlements'),
+      findsWidgets,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-merchant')),
+      'Insurance',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-amount')),
+      '120.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-note')),
+      'Annual premium',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-due-date')),
+      '2026-06-19',
+    );
+    await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
+    await tester.tap(find.byKey(const Key('future-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.createCalls, 1);
+    expect(futureBillRepository.lastCreateDraft?.merchantName, 'Insurance');
+    expect(futureBillRepository.lastCreateDraft?.amount, '120.00');
+    expect(futureBillRepository.lastCreateDraft?.currency, 'USD');
+    expect(futureBillRepository.lastCreateDraft?.dueDate, '2026-06-19');
+    expect(futureBillRepository.lastCreateDraft?.note, 'Annual premium');
   });
 
   testWidgets('recurring bill screen renders empty state', (tester) async {
@@ -1537,6 +1630,95 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
   }
 }
 
+class FakeFutureBillRepository implements SettleoraFutureBillRepository {
+  FakeFutureBillRepository({
+    List<SettleoraFutureBillSummary>? futureBills,
+    SettleoraFutureBillDetail? detail,
+  }) : futureBills = futureBills ?? [sampleFutureBill()],
+       detail = detail ?? sampleFutureBillDetail();
+
+  List<SettleoraFutureBillSummary> futureBills;
+  SettleoraFutureBillDetail detail;
+  int listCalls = 0;
+  int getCalls = 0;
+  int createCalls = 0;
+  int updateCalls = 0;
+  int cancelCalls = 0;
+  SettleoraFutureBillCreateDraft? lastCreateDraft;
+  SettleoraFutureBillUpdateDraft? lastUpdateDraft;
+  String? lastFutureBillId;
+
+  @override
+  Future<List<SettleoraFutureBillSummary>> listFutureBills({
+    SettleoraFutureBillStatus? status,
+    String? groupId,
+    String? fromDate,
+    String? toDate,
+    bool includeArchived = false,
+    int maxItems = 100,
+  }) async {
+    listCalls += 1;
+    return futureBills;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> getFutureBill(String futureBillId) async {
+    getCalls += 1;
+    lastFutureBillId = futureBillId;
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> createFutureBill(
+    SettleoraFutureBillCreateDraft draft,
+  ) async {
+    createCalls += 1;
+    lastCreateDraft = draft;
+    detail = sampleFutureBillDetail(
+      merchantName: draft.merchantName,
+      dueDate: draft.dueDate,
+      totalAmount: draft.amount,
+      totalCurrency: draft.currency,
+      note: draft.note,
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> updateFutureBill({
+    required String futureBillId,
+    required SettleoraFutureBillUpdateDraft draft,
+  }) async {
+    updateCalls += 1;
+    lastFutureBillId = futureBillId;
+    lastUpdateDraft = draft;
+    detail = sampleFutureBillDetail(
+      merchantName: draft.merchantName,
+      dueDate: draft.dueDate ?? detail.dueDate,
+      totalAmount: detail.totalAmount,
+      totalCurrency: detail.totalCurrency,
+      note: detail.items.isEmpty ? null : detail.items.first.note,
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> cancelFutureBill(
+    String futureBillId,
+  ) async {
+    cancelCalls += 1;
+    lastFutureBillId = futureBillId;
+    detail = sampleFutureBillDetail(
+      status: SettleoraFutureBillStatusValues.cancelled,
+      archivedAtUtc: DateTime.utc(2026, 6, 19),
+    );
+    futureBills = [detail];
+    return detail;
+  }
+}
+
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
@@ -2130,6 +2312,73 @@ SettleoraRecurringBillDraftResult sampleDraftResult() {
   );
 }
 
+SettleoraFutureBillSummary sampleFutureBill({
+  String id = _futureBillId,
+  String? merchantName = 'Insurance',
+  String dueDate = '2026-06-19',
+  String status = SettleoraFutureBillStatusValues.draft,
+  String totalAmount = '120.00',
+  String totalCurrency = 'USD',
+  DateTime? archivedAtUtc,
+}) {
+  return SettleoraFutureBillSummary(
+    id: id,
+    merchantName: merchantName,
+    dueDate: dueDate,
+    status: status,
+    settlementEffective: false,
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    archivedAtUtc: archivedAtUtc,
+    isGroupScoped: false,
+  );
+}
+
+SettleoraFutureBillDetail sampleFutureBillDetail({
+  String id = _futureBillId,
+  String? merchantName = 'Insurance',
+  String dueDate = '2026-06-19',
+  String status = SettleoraFutureBillStatusValues.draft,
+  String totalAmount = '120.00',
+  String totalCurrency = 'USD',
+  String? note = 'Annual premium',
+  DateTime? archivedAtUtc,
+}) {
+  final summary = sampleFutureBill(
+    id: id,
+    merchantName: merchantName,
+    dueDate: dueDate,
+    status: status,
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
+    archivedAtUtc: archivedAtUtc,
+  );
+  return SettleoraFutureBillDetail(
+    id: summary.id,
+    merchantName: summary.merchantName,
+    dueDate: summary.dueDate,
+    status: summary.status,
+    settlementEffective: summary.settlementEffective,
+    totalAmount: summary.totalAmount,
+    totalCurrency: summary.totalCurrency,
+    createdAtUtc: summary.createdAtUtc,
+    updatedAtUtc: summary.updatedAtUtc,
+    archivedAtUtc: summary.archivedAtUtc,
+    isGroupScoped: summary.isGroupScoped,
+    items: [
+      SettleoraFutureBillItem(
+        name: merchantName ?? 'Future bill',
+        amount: totalAmount,
+        currency: totalCurrency,
+        note: note,
+        splitCount: 0,
+      ),
+    ],
+  );
+}
+
 String visibleText(WidgetTester tester) {
   return tester
       .widgetList<Text>(find.byType(Text))
@@ -2154,5 +2403,6 @@ const _templateId = '11111111-1111-1111-1111-111111111111';
 const _occurrenceId = '22222222-2222-2222-2222-222222222222';
 const _generatedBillId = '33333333-3333-3333-3333-333333333333';
 const _profileId = '44444444-4444-4444-4444-444444444444';
+const _futureBillId = '55555555-5555-5555-5555-555555555555';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);
