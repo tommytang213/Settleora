@@ -24,6 +24,10 @@ void main() {
     expect(find.text('4873.45 HKD'), findsOneWidget);
     expect(find.text('No FX conversion'), findsOneWidget);
     expect(find.text('Recurring forecast not included yet'), findsOneWidget);
+    expect(
+      find.text('Recurring manual income forecast not included yet'),
+      findsOneWidget,
+    );
     expect(find.text('Group future bills not included yet'), findsOneWidget);
     expect(find.textContaining('not bank sync'), findsOneWidget);
     expect(find.textContaining('No bank sync'), findsWidgets);
@@ -158,11 +162,13 @@ void main() {
 
     await pumpScreen(tester, repository);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('manual-finance-edit-account-0')),
-      300,
+    final editAccountButton = find.byKey(
+      const Key('manual-finance-edit-account-0'),
     );
-    await tester.tap(find.byKey(const Key('manual-finance-edit-account-0')));
+    await tester.scrollUntilVisible(editAccountButton, 300);
+    await tester.ensureVisible(editAccountButton);
+    await tester.pumpAndSettle();
+    await tester.tap(editAccountButton);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('manual-account-name')),
@@ -206,11 +212,13 @@ void main() {
 
     await pumpScreen(tester, repository);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('manual-finance-archive-account-0')),
-      300,
+    final archiveAccountButton = find.byKey(
+      const Key('manual-finance-archive-account-0'),
     );
-    await tester.tap(find.byKey(const Key('manual-finance-archive-account-0')));
+    await tester.scrollUntilVisible(archiveAccountButton, 300);
+    await tester.ensureVisible(archiveAccountButton);
+    await tester.pumpAndSettle();
+    await tester.tap(archiveAccountButton);
     await tester.pumpAndSettle();
     expect(find.text('Archive manual account?'), findsOneWidget);
     await tester.tap(find.byKey(const Key('manual-finance-archive-confirm')));
@@ -510,6 +518,7 @@ SettleoraManualFinanceSummary sampleSummary({
             warnings: [
               'doesNotConvertCurrency',
               'recurringForecastNotIncluded',
+              'recurringManualIncomeForecastNotIncluded',
               'groupFutureBillsNotIncluded',
             ],
           ),
@@ -518,6 +527,7 @@ SettleoraManualFinanceSummary sampleSummary({
       'doesNotIncludeBankSync',
       'doesNotConvertCurrency',
       'recurringForecastNotIncluded',
+      'recurringManualIncomeForecastNotIncluded',
       'groupFutureBillsNotIncluded',
     ],
   );

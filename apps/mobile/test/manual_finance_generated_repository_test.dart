@@ -61,6 +61,10 @@ void main() {
         expect(summary.windowEndDate, '2026-08-17');
         expect(summary.warnings, contains('doesNotIncludeBankSync'));
         expect(summary.warnings, contains('groupFutureBillsNotIncluded'));
+        expect(
+          summary.warnings,
+          contains('recurringManualIncomeForecastNotIncluded'),
+        );
         expect(summary.currencies.single.currency, 'HKD');
         expect(
           summary.currencies.single.activeManualAccountBalanceTotal,
@@ -75,6 +79,10 @@ void main() {
         expect(
           summary.currencies.single.warnings,
           contains('recurringForecastNotIncluded'),
+        );
+        expect(
+          summary.currencies.single.warnings,
+          contains('recurringManualIncomeForecastNotIncluded'),
         );
         expect(client.lastSummaryWindowStartDate, '2026-06-18');
         expect(client.lastSummaryWindowEndDate, '2026-08-17');
@@ -398,6 +406,7 @@ api.ManualFinanceSummaryResponse sampleSummary({
         warnings: [
           'doesNotConvertCurrency',
           'recurringForecastNotIncluded',
+          'recurringManualIncomeForecastNotIncluded',
           'groupFutureBillsNotIncluded',
         ],
       ),
@@ -406,6 +415,7 @@ api.ManualFinanceSummaryResponse sampleSummary({
       'doesNotIncludeBankSync',
       'doesNotConvertCurrency',
       'recurringForecastNotIncluded',
+      'recurringManualIncomeForecastNotIncluded',
       'groupFutureBillsNotIncluded',
     ],
   );
