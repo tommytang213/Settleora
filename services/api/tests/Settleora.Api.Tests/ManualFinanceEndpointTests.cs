@@ -278,6 +278,7 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Archived personal", "888.00", "USD", "2026-06-20", archived: true);
         await SeedRecurringBillTemplateAsync(testFactory, other.UserProfileId, groupId: null, "Other recurring", "777.00", "USD", "2026-06-20");
         var groupId = await SeedGroupAsync(testFactory, actor.UserProfileId, "Shared Home", actor.UserProfileId, other.UserProfileId);
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Group planned utility", "1000.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft, groupId: groupId);
         await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId, "Group rent", "600.00", "USD", "2026-06-20");
 
         using var request = CreateBearerRequest(
@@ -378,7 +379,8 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         string currency,
         string dueDate,
         string status,
-        bool archived = false)
+        bool archived = false,
+        Guid? groupId = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -387,6 +389,7 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
             Id = Guid.NewGuid(),
             CreatedByUserProfileId = ownerUserProfileId,
             BillOwnerUserProfileId = ownerUserProfileId,
+            GroupId = groupId,
             MerchantName = merchantName,
             BillDate = DateOnly.Parse(dueDate),
             Status = status,
