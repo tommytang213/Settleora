@@ -80,6 +80,10 @@ void main() {
           summary.currencies.single.upcomingOneTimeFutureBillObligationTotal,
           '250.00',
         );
+        expect(
+          summary.currencies.single.recurringObligationEstimateTotal,
+          '500.00',
+        );
         expect(summary.currencies.single.estimatedAvailableAmount, '5373.45');
         expect(
           summary.currencies.single.warnings,

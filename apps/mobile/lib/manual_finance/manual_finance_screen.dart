@@ -417,12 +417,22 @@ class _AvailableEstimateCurrencyCard extends StatelessWidget {
               currency: row.currency,
             ),
             _SummaryAmountLine(
-              label: 'Upcoming future bills',
+              label: 'Projected recurring manual income',
+              amount: row.recurringExpectedManualIncomeTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Upcoming one-time future bills',
               amount: row.upcomingOneTimeFutureBillObligationTotal,
               currency: row.currency,
             ),
             _SummaryAmountLine(
-              label: 'Estimated available',
+              label: 'Projected recurring bill obligations',
+              amount: row.recurringObligationEstimateTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Estimated available (server manual estimate)',
               amount: row.estimatedAvailableAmount,
               currency: row.currency,
               emphasized: true,
