@@ -8,6 +8,7 @@ import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/bills/bill_sync_controller.dart';
+import 'package:mobile/future_bills/future_bill_repository.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
@@ -55,6 +56,396 @@ void main() {
       findsOneWidget,
     );
     expect(visibleText(tester), isNot(contains(_templateId)));
+  });
+
+  testWidgets('recurring surface shows one-time future bills separately', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: [sampleFutureBill()],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upcoming one-time bills'), findsOneWidget);
+    expect(find.text('Future bill'), findsWidgets);
+    expect(find.text('Insurance'), findsOneWidget);
+    expect(find.text('120.00 USD'), findsOneWidget);
+    expect(
+      find.textContaining('This is not recorded as paid yet.'),
+      findsWidgets,
+    );
+    expect(visibleText(tester), isNot(contains(_futureBillId)));
+    expect(futureBillRepository.listCalls, 1);
+  });
+
+  testWidgets('draft future bill detail shows post action', (tester) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('future-bill-detail-post')), findsOneWidget);
+    expect(find.text('Post future bill'), findsOneWidget);
+    expect(find.byKey(const Key('future-bill-detail-cancel')), findsOneWidget);
+    expect(futureBillRepository.getCalls, 1);
+  });
+
+  testWidgets('non-draft future bill detail hides unsafe post action', (
+    tester,
+  ) async {
+    for (final status in [
+      SettleoraFutureBillStatusValues.cancelled,
+      SettleoraFutureBillStatusValues.confirmed,
+      SettleoraFutureBillStatusValues.pendingConfirmation,
+      SettleoraFutureBillStatusValues.rejected,
+    ]) {
+      final futureBillRepository = FakeFutureBillRepository(
+        detail: sampleFutureBillDetail(status: status),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraFutureBillDetailScreen(
+            repository: futureBillRepository,
+            futureBillId: _futureBillId,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('future-bill-detail-post')),
+        findsNothing,
+        reason: status,
+      );
+      expect(futureBillRepository.postCalls, 0);
+    }
+
+    final archivedDraftRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(
+        archivedAtUtc: DateTime.utc(2026, 6, 19),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: archivedDraftRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('future-bill-detail-post')), findsNothing);
+    expect(archivedDraftRepository.postCalls, 0);
+  });
+
+  testWidgets('future bill post confirmation uses product-facing copy', (
+    tester,
+  ) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Post future bill?'), findsOneWidget);
+    expect(
+      find.textContaining('turns this upcoming bill into the bill workflow'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Personal bills may become confirmed immediately'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('wait for other participants to accept'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Settlement impact only becomes effective'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post-dismiss')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.postCalls, 0);
+  });
+
+  testWidgets('future bill post calls repository once and updates detail', (
+    tester,
+  ) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+      postResult: sampleFutureBillDetail(
+        status: SettleoraFutureBillStatusValues.confirmed,
+        settlementEffective: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('future-bill-detail-post-confirm')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.postCalls, 1);
+    expect(futureBillRepository.lastFutureBillId, _futureBillId);
+    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Settlement-effective'), findsOneWidget);
+    expect(find.byKey(const Key('future-bill-detail-post')), findsNothing);
+    expect(
+      find.text(
+        'Future bill posted and confirmed. It is now settlement-effective.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'shared posted future bill response shows pending confirmation copy',
+    (tester) async {
+      final futureBillRepository = FakeFutureBillRepository(
+        detail: sampleFutureBillDetail(isGroupScoped: true),
+        postResult: sampleFutureBillDetail(
+          status: SettleoraFutureBillStatusValues.pendingConfirmation,
+          settlementEffective: false,
+          isGroupScoped: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraFutureBillDetailScreen(
+            repository: futureBillRepository,
+            futureBillId: _futureBillId,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('future-bill-detail-post-confirm')),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(futureBillRepository.postCalls, 1);
+      expect(find.text('Pending confirmation'), findsOneWidget);
+      expect(find.text('Does not affect settlements'), findsOneWidget);
+      expect(
+        find.text(
+          'Future bill posted and waiting for participant confirmation. It is not settlement-effective yet.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('future bill create form saves upcoming bill draft', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New future bill'), findsOneWidget);
+    expect(find.text('Save upcoming bill'), findsOneWidget);
+    expect(
+      find.textContaining('This does not affect settlements'),
+      findsWidgets,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-merchant')),
+      'Insurance',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-amount')),
+      '120.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-note')),
+      'Annual premium',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-due-date')),
+      '2026-06-19',
+    );
+    await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
+    await tester.tap(find.byKey(const Key('future-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.createCalls, 1);
+    expect(futureBillRepository.lastCreateDraft?.merchantName, 'Insurance');
+    expect(futureBillRepository.lastCreateDraft?.amount, '120.00');
+    expect(futureBillRepository.lastCreateDraft?.currency, 'USD');
+    expect(futureBillRepository.lastCreateDraft?.dueDate, '2026-06-19');
+    expect(futureBillRepository.lastCreateDraft?.note, 'Annual premium');
+  });
+
+  testWidgets('future bill create form saves group equal split participants', (
+    tester,
+  ) async {
+    final recurringRepository = FakeRecurringBillRepository(
+      templates: const [],
+      forecast: const [],
+    );
+    final futureBillRepository = FakeFutureBillRepository(
+      futureBills: const [],
+    );
+    final groupRepository = FakeGroupRepository(
+      groups: [
+        SettleoraGroup(
+          id: 'group-trip-id',
+          name: 'Trip crew',
+          currentUserRole: SettleoraGroupRoleValues.member,
+          currentUserStatus: SettleoraGroupMembershipStatusValues.active,
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      ],
+      members: [
+        SettleoraGroupMember(
+          userProfileId: 'member-alex-id',
+          displayName: 'Alex',
+          role: SettleoraGroupRoleValues.member,
+          status: SettleoraGroupMembershipStatusValues.active,
+          joinedAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+        SettleoraGroupMember(
+          userProfileId: 'member-taylor-id',
+          displayName: 'Taylor',
+          role: SettleoraGroupRoleValues.owner,
+          status: SettleoraGroupMembershipStatusValues.active,
+          joinedAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraRecurringBillScreen(
+          repository: recurringRepository,
+          futureBillRepository: futureBillRepository,
+          groupRepository: groupRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bill scope and split'), findsOneWidget);
+    expect(find.text('Personal upcoming bill'), findsOneWidget);
+    expect(groupRepository.listGroupsCalls, 1);
+
+    await tester.tap(find.byKey(const Key('future-bill-form-group')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trip crew').last);
+    await tester.pumpAndSettle();
+
+    expect(groupRepository.lastMembersGroupId, 'group-trip-id');
+    expect(find.text('Equal split preview'), findsOneWidget);
+    expect(find.text('Participants (2 selected)'), findsOneWidget);
+    expect(find.text('Alex'), findsOneWidget);
+    expect(find.text('Taylor'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-merchant')),
+      'Hotel',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-amount')),
+      '240.00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-note')),
+      'Upcoming stay',
+    );
+    await tester.enterText(
+      find.byKey(const Key('future-bill-form-due-date')),
+      '2026-06-21',
+    );
+    await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
+    await tester.tap(find.byKey(const Key('future-bill-form-save')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.createCalls, 1);
+    expect(futureBillRepository.lastCreateDraft?.groupId, 'group-trip-id');
+    expect(futureBillRepository.lastCreateDraft?.participantUserProfileIds, [
+      'member-alex-id',
+      'member-taylor-id',
+    ]);
+    expect(futureBillRepository.lastCreateDraft?.merchantName, 'Hotel');
+    expect(futureBillRepository.lastCreateDraft?.amount, '240.00');
   });
 
   testWidgets('recurring bill screen renders empty state', (tester) async {
@@ -1024,7 +1415,9 @@ void main() {
   testWidgets('edit form opens with returned values and updates detail', (
     tester,
   ) async {
-    final repository = FakeRecurringBillRepository();
+    final repository = FakeRecurringBillRepository(
+      detail: samplePayloadDetail(),
+    );
 
     await tester.pumpWidget(
       MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
@@ -1044,6 +1437,38 @@ void main() {
           ?.text,
       'Rent',
     );
+    expect(find.text('Safe template payload'), findsOneWidget);
+    expect(
+      find.textContaining('They do not edit generated bills'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('recurring-bill-form-currency')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('recurring-bill-form-item-name')),
+          )
+          .controller
+          ?.text,
+      'Base rent',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('recurring-bill-form-item-amount')),
+          )
+          .controller
+          ?.text,
+      '1200.00',
+    );
+    expect(
+      find.textContaining('Advanced split editing is not available'),
+      findsOneWidget,
+    );
+    expect(find.text('Advanced payload preserved'), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const Key('recurring-bill-form-merchant')),
@@ -1059,6 +1484,26 @@ void main() {
       find.byKey(const Key('recurring-bill-form-start-date')),
       '2026-05-08',
     );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-name'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-name')),
+      'Base rent v2',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-amount'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-amount')),
+      '1250.00',
+    );
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     await tester.ensureVisible(
@@ -1070,8 +1515,67 @@ void main() {
     expect(repository.updateTemplateCalls, 1);
     expect(repository.getTemplateCalls, 2);
     expect(repository.lastUpdateDraft?.merchantName, 'Rent v2');
+    expect(repository.lastUpdateDraft?.billPayload?.currency, 'USD');
+    expect(
+      repository.lastUpdateDraft?.billPayload?.items.single.name,
+      'Base rent v2',
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.items.single.amount,
+      '1250.00',
+    );
+    expect(
+      repository
+          .lastUpdateDraft
+          ?.billPayload
+          ?.items
+          .single
+          .splits
+          .single
+          .userProfileId,
+      _profileId,
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.adjustments.single.amount,
+      '5.00',
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.payers.single.amount,
+      '1205.00',
+    );
     expect(find.text('Rent v2'), findsWidgets);
   });
+
+  testWidgets(
+    'edit form keeps schedule-only save when safe payload is absent',
+    (tester) async {
+      final repository = FakeRecurringBillRepository(detail: sampleDetail());
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('recurring-bill-detail-edit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Payload editing unavailable'), findsOneWidget);
+      expect(
+        find.textContaining('without replacing unknown bill payload structure'),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('recurring-bill-form-save')),
+      );
+      await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.updateTemplateCalls, 1);
+      expect(repository.lastUpdateDraft?.billPayload, isNull);
+    },
+  );
 
   testWidgets('pause resume and archive require confirmation and refresh', (
     tester,
@@ -1338,6 +1842,24 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
         endDate: draft.schedule.endDate?.trim(),
         dueOffsetDays: draft.schedule.dueOffsetDays,
       ),
+      billPayload: draft.billPayload == null
+          ? null
+          : SettleoraRecurringBillTemplatePayload(
+              currency: draft.billPayload!.currency,
+              items: draft.billPayload!.items
+                  .map(
+                    (item) => SettleoraRecurringBillTemplatePayloadItem(
+                      name: item.name,
+                      note: item.note,
+                      amount: item.amount,
+                      currency: item.currency ?? draft.billPayload!.currency,
+                      splits: item.splits,
+                    ),
+                  )
+                  .toList(growable: false),
+              adjustments: draft.billPayload!.adjustments,
+              payers: draft.billPayload!.payers,
+            ),
     );
     templates = [detail];
     return detail;
@@ -1403,6 +1925,112 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
       ),
     ];
     return sampleDraftResult();
+  }
+}
+
+class FakeFutureBillRepository implements SettleoraFutureBillRepository {
+  FakeFutureBillRepository({
+    List<SettleoraFutureBillSummary>? futureBills,
+    SettleoraFutureBillDetail? detail,
+    this.postResult,
+  }) : futureBills = futureBills ?? [sampleFutureBill()],
+       detail = detail ?? sampleFutureBillDetail();
+
+  List<SettleoraFutureBillSummary> futureBills;
+  SettleoraFutureBillDetail detail;
+  SettleoraFutureBillDetail? postResult;
+  int listCalls = 0;
+  int getCalls = 0;
+  int createCalls = 0;
+  int updateCalls = 0;
+  int cancelCalls = 0;
+  int postCalls = 0;
+  SettleoraFutureBillCreateDraft? lastCreateDraft;
+  SettleoraFutureBillUpdateDraft? lastUpdateDraft;
+  String? lastFutureBillId;
+
+  @override
+  Future<List<SettleoraFutureBillSummary>> listFutureBills({
+    SettleoraFutureBillStatus? status,
+    String? groupId,
+    String? fromDate,
+    String? toDate,
+    bool includeArchived = false,
+    int maxItems = 100,
+  }) async {
+    listCalls += 1;
+    return futureBills;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> getFutureBill(String futureBillId) async {
+    getCalls += 1;
+    lastFutureBillId = futureBillId;
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> createFutureBill(
+    SettleoraFutureBillCreateDraft draft,
+  ) async {
+    createCalls += 1;
+    lastCreateDraft = draft;
+    detail = sampleFutureBillDetail(
+      merchantName: draft.merchantName,
+      dueDate: draft.dueDate,
+      totalAmount: draft.amount,
+      totalCurrency: draft.currency,
+      note: draft.note,
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> updateFutureBill({
+    required String futureBillId,
+    required SettleoraFutureBillUpdateDraft draft,
+  }) async {
+    updateCalls += 1;
+    lastFutureBillId = futureBillId;
+    lastUpdateDraft = draft;
+    detail = sampleFutureBillDetail(
+      merchantName: draft.merchantName,
+      dueDate: draft.dueDate ?? detail.dueDate,
+      totalAmount: detail.totalAmount,
+      totalCurrency: detail.totalCurrency,
+      note: detail.items.isEmpty ? null : detail.items.first.note,
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> cancelFutureBill(
+    String futureBillId,
+  ) async {
+    cancelCalls += 1;
+    lastFutureBillId = futureBillId;
+    detail = sampleFutureBillDetail(
+      status: SettleoraFutureBillStatusValues.cancelled,
+      archivedAtUtc: DateTime.utc(2026, 6, 19),
+    );
+    futureBills = [detail];
+    return detail;
+  }
+
+  @override
+  Future<SettleoraFutureBillDetail> postFutureBill(String futureBillId) async {
+    postCalls += 1;
+    lastFutureBillId = futureBillId;
+    detail =
+        postResult ??
+        sampleFutureBillDetail(
+          status: SettleoraFutureBillStatusValues.confirmed,
+          settlementEffective: true,
+        );
+    futureBills = [detail];
+    return detail;
   }
 }
 
@@ -1602,9 +2230,18 @@ class FakeSettlementRepository implements SettleoraSettlementRepository {
 }
 
 class FakeGroupRepository implements SettleoraGroupRepository {
+  FakeGroupRepository({this.groups = const [], this.members = const []});
+
+  final List<SettleoraGroup> groups;
+  final List<SettleoraGroupMember> members;
+  int listGroupsCalls = 0;
+  int listMembersCalls = 0;
+  String? lastMembersGroupId;
+
   @override
   Future<List<SettleoraGroup>> listGroups() async {
-    return const [];
+    listGroupsCalls += 1;
+    return groups;
   }
 
   @override
@@ -1626,8 +2263,10 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   }
 
   @override
-  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) {
-    throw UnimplementedError();
+  Future<List<SettleoraGroupMember>> listGroupMembers(String groupId) async {
+    listMembersCalls += 1;
+    lastMembersGroupId = groupId;
+    return members;
   }
 
   @override
@@ -1876,6 +2515,7 @@ SettleoraRecurringBillTemplateDetail sampleDetail({
   String? nextOccurrenceDate = '2026-06-01',
   bool isGroupScoped = false,
   SettleoraRecurringBillSchedule? schedule,
+  SettleoraRecurringBillTemplatePayload? billPayload,
 }) {
   final template = sampleTemplate(
     merchantName: merchantName,
@@ -1898,6 +2538,49 @@ SettleoraRecurringBillTemplateDetail sampleDetail({
     archivedAtUtc: template.archivedAtUtc,
     isGroupScoped: template.isGroupScoped,
     payloadVersion: 1,
+    billPayload: billPayload,
+  );
+}
+
+SettleoraRecurringBillTemplateDetail samplePayloadDetail() {
+  return sampleDetail(
+    billPayload: const SettleoraRecurringBillTemplatePayload(
+      currency: 'USD',
+      items: [
+        SettleoraRecurringBillTemplatePayloadItem(
+          name: 'Base rent',
+          note: 'Apartment',
+          amount: '1200.00',
+          currency: 'USD',
+          splits: [
+            SettleoraRecurringBillTemplatePayloadItemSplit(
+              userProfileId: _profileId,
+              splitMethod: 'exact_amount',
+              basisValue: '1200.00',
+              allocationOrder: 0,
+            ),
+          ],
+        ),
+      ],
+      adjustments: [
+        SettleoraRecurringBillTemplatePayloadAdjustment(
+          type: 'service_charge',
+          direction: 'charge',
+          allocationMethod: 'proportional_by_item_subtotal',
+          amount: '5.00',
+          currency: 'USD',
+          reasonNote: 'Template fee',
+        ),
+      ],
+      payers: [
+        SettleoraRecurringBillTemplatePayloadPayer(
+          userProfileId: _profileId,
+          amount: '1205.00',
+          currency: 'USD',
+          paymentMethodLabelSnapshot: 'Card',
+        ),
+      ],
+    ),
   );
 }
 
@@ -1955,6 +2638,79 @@ SettleoraRecurringBillDraftResult sampleDraftResult() {
   );
 }
 
+SettleoraFutureBillSummary sampleFutureBill({
+  String id = _futureBillId,
+  String? merchantName = 'Insurance',
+  String dueDate = '2026-06-19',
+  String status = SettleoraFutureBillStatusValues.draft,
+  bool settlementEffective = false,
+  String totalAmount = '120.00',
+  String totalCurrency = 'USD',
+  DateTime? archivedAtUtc,
+  bool isGroupScoped = false,
+}) {
+  return SettleoraFutureBillSummary(
+    id: id,
+    merchantName: merchantName,
+    dueDate: dueDate,
+    status: status,
+    settlementEffective: settlementEffective,
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
+    createdAtUtc: _createdAtUtc,
+    updatedAtUtc: _updatedAtUtc,
+    archivedAtUtc: archivedAtUtc,
+    isGroupScoped: isGroupScoped,
+  );
+}
+
+SettleoraFutureBillDetail sampleFutureBillDetail({
+  String id = _futureBillId,
+  String? merchantName = 'Insurance',
+  String dueDate = '2026-06-19',
+  String status = SettleoraFutureBillStatusValues.draft,
+  bool settlementEffective = false,
+  String totalAmount = '120.00',
+  String totalCurrency = 'USD',
+  String? note = 'Annual premium',
+  DateTime? archivedAtUtc,
+  bool isGroupScoped = false,
+}) {
+  final summary = sampleFutureBill(
+    id: id,
+    merchantName: merchantName,
+    dueDate: dueDate,
+    status: status,
+    settlementEffective: settlementEffective,
+    totalAmount: totalAmount,
+    totalCurrency: totalCurrency,
+    archivedAtUtc: archivedAtUtc,
+    isGroupScoped: isGroupScoped,
+  );
+  return SettleoraFutureBillDetail(
+    id: summary.id,
+    merchantName: summary.merchantName,
+    dueDate: summary.dueDate,
+    status: summary.status,
+    settlementEffective: summary.settlementEffective,
+    totalAmount: summary.totalAmount,
+    totalCurrency: summary.totalCurrency,
+    createdAtUtc: summary.createdAtUtc,
+    updatedAtUtc: summary.updatedAtUtc,
+    archivedAtUtc: summary.archivedAtUtc,
+    isGroupScoped: summary.isGroupScoped,
+    items: [
+      SettleoraFutureBillItem(
+        name: merchantName ?? 'Future bill',
+        amount: totalAmount,
+        currency: totalCurrency,
+        note: note,
+        splitCount: 0,
+      ),
+    ],
+  );
+}
+
 String visibleText(WidgetTester tester) {
   return tester
       .widgetList<Text>(find.byType(Text))
@@ -1979,5 +2735,6 @@ const _templateId = '11111111-1111-1111-1111-111111111111';
 const _occurrenceId = '22222222-2222-2222-2222-222222222222';
 const _generatedBillId = '33333333-3333-3333-3333-333333333333';
 const _profileId = '44444444-4444-4444-4444-444444444444';
+const _futureBillId = '55555555-5555-5555-5555-555555555555';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

@@ -9,6 +9,7 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
+import '../future_bills/future_bill_repository.dart';
 import '../groups/group_list_screen.dart';
 import '../groups/group_repository.dart';
 import '../notifications/notification_preferences.dart';
@@ -49,6 +50,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     this.billRevisionRepository,
     required this.settlementRepository,
     required this.recurringBillRepository,
+    this.futureBillRepository,
     required this.groupRepository,
     required this.notificationRepository,
     required this.reportRepository,
@@ -70,6 +72,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSettlementRepository settlementRepository;
   final SettleoraRecurringBillRepository recurringBillRepository;
+  final SettleoraFutureBillRepository? futureBillRepository;
   final SettleoraGroupRepository groupRepository;
   final SettleoraNotificationRepository notificationRepository;
   final SettleoraMonthlyReportRepository reportRepository;
@@ -440,6 +443,8 @@ class _SettleoraAuthenticatedServerShellState
     await _openDashboardDestination(
       (_) => SettleoraRecurringBillScreen(
         repository: widget.recurringBillRepository,
+        futureBillRepository: widget.futureBillRepository,
+        groupRepository: widget.groupRepository,
       ),
     );
   }
@@ -448,6 +453,8 @@ class _SettleoraAuthenticatedServerShellState
     await _openDashboardDestination(
       (_) => SettleoraRecurringBillScreen(
         repository: widget.recurringBillRepository,
+        futureBillRepository: widget.futureBillRepository,
+        groupRepository: widget.groupRepository,
         openNeedsDraftOnStart: true,
       ),
     );

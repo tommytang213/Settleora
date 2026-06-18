@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../future_bills/future_bill_repository.dart';
+import '../groups/group_repository.dart';
 import '../ui/settleora_form_fields.dart';
 import 'recurring_bill_repository.dart';
 
@@ -7,10 +9,14 @@ class SettleoraRecurringBillScreen extends StatefulWidget {
   const SettleoraRecurringBillScreen({
     super.key,
     required this.repository,
+    this.futureBillRepository,
+    this.groupRepository,
     this.openNeedsDraftOnStart = false,
   });
 
   final SettleoraRecurringBillRepository repository;
+  final SettleoraFutureBillRepository? futureBillRepository;
+  final SettleoraGroupRepository? groupRepository;
   final bool openNeedsDraftOnStart;
 
   @override
@@ -23,13 +29,17 @@ class _SettleoraRecurringBillScreenState
   late final TextEditingController _searchController;
   bool _isLoading = true;
   String? _generatingKey;
+  String? _futureBillCancellingId;
   List<SettleoraRecurringBillTemplateSummary> _templates = const [];
   List<SettleoraRecurringBillForecastOccurrence> _forecast = const [];
+  List<SettleoraFutureBillSummary> _futureBills = const [];
   _RecurringTemplateFilter _templateFilter = _RecurringTemplateFilter.all;
   _RecurringForecastFilter _forecastFilter = _RecurringForecastFilter.all;
   String _searchQuery = '';
   SettleoraRecurringBillFailure? _failure;
   SettleoraRecurringBillFailure? _actionFailure;
+  SettleoraFutureBillFailure? _futureBillFailure;
+  SettleoraFutureBillFailure? _futureBillActionFailure;
   SettleoraRecurringBillDraftResult? _lastDraftResult;
   String? _draftRefreshWarning;
 
@@ -67,12 +77,26 @@ class _SettleoraRecurringBillScreenState
       _isLoading = true;
       _failure = null;
       _actionFailure = null;
+      _futureBillFailure = null;
+      _futureBillActionFailure = null;
       _draftRefreshWarning = null;
     });
 
     try {
       final templates = await widget.repository.listTemplates(maxItems: 100);
       final forecast = await widget.repository.listForecast(limit: 30);
+      final futureBillRepository = widget.futureBillRepository;
+      var futureBills = const <SettleoraFutureBillSummary>[];
+      SettleoraFutureBillFailure? futureBillFailure;
+      if (futureBillRepository != null) {
+        try {
+          futureBills = await futureBillRepository.listFutureBills(
+            maxItems: 100,
+          );
+        } catch (error) {
+          futureBillFailure = SettleoraFutureBillFailure.from(error);
+        }
+      }
       if (!mounted) {
         return;
       }
@@ -80,6 +104,8 @@ class _SettleoraRecurringBillScreenState
       setState(() {
         _templates = templates;
         _forecast = forecast;
+        _futureBills = futureBills;
+        _futureBillFailure = futureBillFailure;
         _isLoading = false;
         _lastDraftResult = _reconciledDraftResult(_lastDraftResult, forecast);
       });
@@ -92,6 +118,7 @@ class _SettleoraRecurringBillScreenState
         _failure = SettleoraRecurringBillFailure.from(error);
         _templates = const [];
         _forecast = const [];
+        _futureBills = const [];
         _isLoading = false;
       });
     }
@@ -126,6 +153,109 @@ class _SettleoraRecurringBillScreenState
     if (mounted && changed == true) {
       _showSnackBar('Recurring bill saved. Refreshing server state.');
       await _load();
+    }
+  }
+
+  Future<void> _openCreateFutureBill() async {
+    final futureBillRepository = widget.futureBillRepository;
+    if (futureBillRepository == null) {
+      return;
+    }
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SettleoraFutureBillFormScreen.create(
+          repository: futureBillRepository,
+          groupRepository: widget.groupRepository,
+        ),
+      ),
+    );
+
+    if (mounted && changed == true) {
+      _showSnackBar('Upcoming bill saved. Refreshing server state.');
+      await _load();
+    }
+  }
+
+  Future<void> _openFutureBill(SettleoraFutureBillSummary futureBill) async {
+    final futureBillRepository = widget.futureBillRepository;
+    if (futureBillRepository == null) {
+      return;
+    }
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: futureBill.id,
+        ),
+      ),
+    );
+
+    if (mounted && changed == true) {
+      await _load();
+    }
+  }
+
+  Future<void> _cancelFutureBill(SettleoraFutureBillSummary futureBill) async {
+    final futureBillRepository = widget.futureBillRepository;
+    if (futureBillRepository == null ||
+        _futureBillCancellingId != null ||
+        !futureBill.canCancel) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel future bill?'),
+        content: const Text(
+          'This archives the draft upcoming bill. It does not record it as paid or affect settlements.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('future-bill-cancel-dismiss'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            key: const Key('future-bill-cancel-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cancel future bill'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _futureBillCancellingId = futureBill.id;
+      _futureBillActionFailure = null;
+    });
+
+    try {
+      await futureBillRepository.cancelFutureBill(futureBill.id);
+      if (!mounted) {
+        return;
+      }
+      _showSnackBar('Future bill cancelled.');
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _futureBillActionFailure = SettleoraFutureBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _futureBillCancellingId = null;
+        });
+      }
     }
   }
 
@@ -354,6 +484,79 @@ class _SettleoraRecurringBillScreenState
                     ),
                     const SizedBox(height: 12),
                   ],
+                  if (widget.futureBillRepository != null) ...[
+                    _Section(
+                      title: 'Upcoming one-time bills',
+                      trailing: FilledButton.icon(
+                        key: const Key('future-bill-create'),
+                        onPressed: _openCreateFutureBill,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Save upcoming bill'),
+                      ),
+                      children: [
+                        const _StatePanel(
+                          icon: Icons.event_available_outlined,
+                          title: 'Future bill',
+                          message:
+                              'This is not recorded as paid yet. This does not affect settlements until you post or confirm it later.',
+                          compact: true,
+                        ),
+                        if (_futureBillFailure != null) ...[
+                          const SizedBox(height: 10),
+                          _FutureBillInlineFailure(
+                            failure: _futureBillFailure!,
+                          ),
+                        ],
+                        if (_futureBillActionFailure != null) ...[
+                          const SizedBox(height: 10),
+                          _FutureBillInlineFailure(
+                            failure: _futureBillActionFailure!,
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        if (_futureBills.isEmpty)
+                          const _StatePanel(
+                            icon: Icons.receipt_long_outlined,
+                            title: 'No upcoming one-time bills',
+                            message:
+                                'One-time future bills visible to this account will appear here.',
+                            compact: true,
+                          )
+                        else if (_visibleFutureBills.isEmpty)
+                          const _StatePanel(
+                            icon: Icons.search_off_outlined,
+                            title: 'No matching one-time bills',
+                            message:
+                                'No loaded one-time future bills match this search. Clear search to review loaded server rows.',
+                            compact: true,
+                          )
+                        else
+                          for (
+                            var index = 0;
+                            index < _visibleFutureBills.length;
+                            index += 1
+                          )
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _FutureBillTile(
+                                futureBill: _visibleFutureBills[index],
+                                cancelButtonKey: ValueKey(
+                                  'future-bill-cancel-$index',
+                                ),
+                                isCancelling:
+                                    _futureBillCancellingId ==
+                                    _visibleFutureBills[index].id,
+                                onTap: () =>
+                                    _openFutureBill(_visibleFutureBills[index]),
+                                onCancel: () => _cancelFutureBill(
+                                  _visibleFutureBills[index],
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                  ],
                   _Section(
                     title: 'Templates',
                     children: [
@@ -476,6 +679,26 @@ class _SettleoraRecurringBillScreenState
           }
 
           final searchText = _forecastSearchText(occurrence);
+          return queryTerms.every(searchText.contains);
+        })
+        .toList(growable: false);
+  }
+
+  List<SettleoraFutureBillSummary> get _visibleFutureBills {
+    final queryTerms = _searchTerms(_searchQuery);
+    return _futureBills
+        .where((futureBill) {
+          if (queryTerms.isEmpty) {
+            return true;
+          }
+
+          final searchText = [
+            futureBill.displayName,
+            futureBill.dueDate,
+            futureBill.status,
+            futureBill.totalAmount,
+            futureBill.totalCurrency,
+          ].join(' ').toLowerCase();
           return queryTerms.every(searchText.contains);
         })
         .toList(growable: false);
@@ -973,9 +1196,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
   late final TextEditingController _intervalController;
   late final TextEditingController _dueOffsetController;
   late final TextEditingController _currencyController;
-  late final TextEditingController _itemNameController;
-  late final TextEditingController _itemAmountController;
-  late final TextEditingController _itemNoteController;
+  late final List<_PayloadItemControllers> _itemControllers;
   String _scheduleType = SettleoraRecurringBillScheduleTypeValues.monthly;
   bool _isSaving = false;
   SettleoraRecurringBillFailure? _failure;
@@ -1010,10 +1231,15 @@ class _SettleoraRecurringBillTemplateFormScreenState
     _dueOffsetController = TextEditingController(
       text: schedule?.dueOffsetDays?.toString() ?? '0',
     );
-    _currencyController = TextEditingController(text: 'USD');
-    _itemNameController = TextEditingController();
-    _itemAmountController = TextEditingController();
-    _itemNoteController = TextEditingController();
+    _currencyController = TextEditingController(
+      text: template?.billPayload?.currency ?? 'USD',
+    );
+    final payloadItems = template?.billPayload?.items;
+    _itemControllers = payloadItems == null || payloadItems.isEmpty
+        ? [_PayloadItemControllers.empty()]
+        : payloadItems
+              .map(_PayloadItemControllers.fromPayloadItem)
+              .toList(growable: false);
   }
 
   @override
@@ -1026,9 +1252,9 @@ class _SettleoraRecurringBillTemplateFormScreenState
     _intervalController.dispose();
     _dueOffsetController.dispose();
     _currencyController.dispose();
-    _itemNameController.dispose();
-    _itemAmountController.dispose();
-    _itemNoteController.dispose();
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
     super.dispose();
   }
 
@@ -1053,6 +1279,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
             merchantName: _merchantController.text,
             description: _descriptionController.text,
             schedule: _scheduleDraft(),
+            billPayload: _editablePayloadDraft(),
           ),
         );
       } else {
@@ -1063,13 +1290,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
             description: _descriptionController.text,
             schedule: _scheduleDraft(),
             currency: _currencyController.text,
-            items: [
-              SettleoraRecurringBillTemplatePayloadItemDraft(
-                name: _itemNameController.text,
-                amount: _itemAmountController.text,
-                note: _itemNoteController.text,
-              ),
-            ],
+            items: _payloadItemDrafts(),
           ),
         );
       }
@@ -1131,6 +1352,34 @@ class _SettleoraRecurringBillTemplateFormScreenState
       endDate: _endDateController.text,
       dueOffsetDays: dueOffset,
     );
+  }
+
+  SettleoraRecurringBillTemplatePayloadDraft? _editablePayloadDraft() {
+    final payload = widget.template?.billPayload;
+    if (payload == null) {
+      return null;
+    }
+
+    return SettleoraRecurringBillTemplatePayloadDraft(
+      currency: _currencyController.text,
+      items: _payloadItemDrafts(),
+      adjustments: payload.adjustments,
+      payers: payload.payers,
+    );
+  }
+
+  List<SettleoraRecurringBillTemplatePayloadItemDraft> _payloadItemDrafts() {
+    return _itemControllers
+        .map(
+          (item) => SettleoraRecurringBillTemplatePayloadItemDraft(
+            name: item.nameController.text,
+            amount: item.amountController.text,
+            note: item.noteController.text,
+            currency: widget.isEditing ? item.currencyController.text : null,
+            splits: item.splits,
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -1296,11 +1545,15 @@ class _SettleoraRecurringBillTemplateFormScreenState
                     ),
                   ],
                 ),
-                if (!isEditing) ...[
+                if (!isEditing || widget.template?.billPayload != null) ...[
                   const SizedBox(height: 20),
                   _Section(
-                    title: 'Bill Payload',
+                    title: 'Template Payload',
                     children: [
+                      if (isEditing) ...[
+                        const _EditablePayloadNotice(),
+                        const SizedBox(height: 12),
+                      ],
                       CurrencySelector(
                         key: const Key('recurring-bill-form-currency'),
                         value: _currencyController.text,
@@ -1315,42 +1568,27 @@ class _SettleoraRecurringBillTemplateFormScreenState
                         },
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-name'),
-                        controller: _itemNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Item name',
-                          border: OutlineInputBorder(),
+                      for (
+                        var index = 0;
+                        index < _itemControllers.length;
+                        index += 1
+                      )
+                        _RecurringPayloadItemFields(
+                          index: index,
+                          item: _itemControllers[index],
+                          enabled: !_isSaving,
+                          showItemCurrency: isEditing,
                         ),
-                        validator: (value) =>
-                            _requiredTextValidator(value, 'item name', 240),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-amount'),
-                        controller: _itemAmountController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                      if (isEditing) ...[
+                        _PayloadUnsupportedState(
+                          payload: widget.template!.billPayload!,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'Item amount',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: _amountValidator,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-note'),
-                        controller: _itemNoteController,
-                        decoration: const InputDecoration(
-                          labelText: 'Item note',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) =>
-                            _maxLengthValidator(value, 1000, 'item note'),
-                      ),
+                      ],
                     ],
                   ),
+                ] else if (isEditing) ...[
+                  const SizedBox(height: 20),
+                  const _UnsupportedPayloadShapePanel(),
                 ],
                 const SizedBox(height: 22),
                 FilledButton.icon(
@@ -1367,6 +1605,1279 @@ class _SettleoraRecurringBillTemplateFormScreenState
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PayloadItemControllers {
+  _PayloadItemControllers({
+    required this.nameController,
+    required this.amountController,
+    required this.noteController,
+    required this.currencyController,
+    required this.splits,
+  });
+
+  factory _PayloadItemControllers.empty() {
+    return _PayloadItemControllers(
+      nameController: TextEditingController(),
+      amountController: TextEditingController(),
+      noteController: TextEditingController(),
+      currencyController: TextEditingController(text: 'USD'),
+      splits: const [],
+    );
+  }
+
+  factory _PayloadItemControllers.fromPayloadItem(
+    SettleoraRecurringBillTemplatePayloadItem item,
+  ) {
+    return _PayloadItemControllers(
+      nameController: TextEditingController(text: item.name),
+      amountController: TextEditingController(text: item.amount),
+      noteController: TextEditingController(text: item.note ?? ''),
+      currencyController: TextEditingController(text: item.currency),
+      splits: item.splits,
+    );
+  }
+
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+  final TextEditingController noteController;
+  final TextEditingController currencyController;
+  final List<SettleoraRecurringBillTemplatePayloadItemSplit> splits;
+
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+    noteController.dispose();
+    currencyController.dispose();
+  }
+}
+
+class _RecurringPayloadItemFields extends StatelessWidget {
+  const _RecurringPayloadItemFields({
+    required this.index,
+    required this.item,
+    required this.enabled,
+    required this.showItemCurrency,
+  });
+
+  final int index;
+  final _PayloadItemControllers item;
+  final bool enabled;
+  final bool showItemCurrency;
+
+  @override
+  Widget build(BuildContext context) {
+    final keySuffix = index == 0 ? '' : '-$index';
+    return Padding(
+      padding: EdgeInsets.only(bottom: showItemCurrency ? 16 : 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showItemCurrency) ...[
+            Text(
+              'Item ${index + 1}',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 10),
+          ],
+          TextFormField(
+            key: Key('recurring-bill-form-item-name$keySuffix'),
+            controller: item.nameController,
+            enabled: enabled,
+            decoration: const InputDecoration(
+              labelText: 'Item name',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) =>
+                _requiredTextValidator(value, 'item name', 240),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: Key('recurring-bill-form-item-amount$keySuffix'),
+            controller: item.amountController,
+            enabled: enabled,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Item amount',
+              border: OutlineInputBorder(),
+            ),
+            validator: _amountValidator,
+          ),
+          const SizedBox(height: 12),
+          if (showItemCurrency) ...[
+            CurrencySelector(
+              key: Key('recurring-bill-form-item-currency$keySuffix'),
+              value: item.currencyController.text,
+              label: 'Item currency',
+              validator: _currencyValidator,
+              enabled: enabled,
+              semanticLabel: 'Recurring bill item currency selector',
+              onChanged: (currency) {
+                item.currencyController.text = currency ?? '';
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+          TextFormField(
+            key: Key('recurring-bill-form-item-note$keySuffix'),
+            controller: item.noteController,
+            enabled: enabled,
+            decoration: const InputDecoration(
+              labelText: 'Item note',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) => _maxLengthValidator(value, 1000, 'item note'),
+          ),
+          if (item.splits.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${item.splits.length} existing split ${item.splits.length == 1 ? 'row is' : 'rows are'} preserved on save. Advanced split editing is not available for this template yet.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EditablePayloadNotice extends StatelessWidget {
+  const _EditablePayloadNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.edit_note_outlined,
+      title: 'Safe template payload',
+      message:
+          'These fields update the recurring template only. They do not edit generated bills, paid bills, settlements, forecast truth, or draft-generation history.',
+      compact: true,
+    );
+  }
+}
+
+class _PayloadUnsupportedState extends StatelessWidget {
+  const _PayloadUnsupportedState({required this.payload});
+
+  final SettleoraRecurringBillTemplatePayload payload;
+
+  @override
+  Widget build(BuildContext context) {
+    final splitCount = payload.items.fold<int>(
+      0,
+      (sum, item) => sum + item.splits.length,
+    );
+    final adjustmentCount = payload.adjustments.length;
+    final payerCount = payload.payers.length;
+    if (splitCount == 0 && adjustmentCount == 0 && payerCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return _StatePanel(
+      icon: Icons.account_tree_outlined,
+      title: 'Advanced payload preserved',
+      message:
+          'This template includes $splitCount split row(s), $payerCount payer row(s), and $adjustmentCount adjustment row(s). Mobile preserves those supported details on save, but advanced split, payer, and adjustment editing is not available yet.',
+      compact: true,
+    );
+  }
+}
+
+class _UnsupportedPayloadShapePanel extends StatelessWidget {
+  const _UnsupportedPayloadShapePanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.lock_outline,
+      title: 'Payload editing unavailable',
+      message:
+          'The server did not return a safe editable payload for this recurring template. Schedule and template text can still be saved without replacing unknown bill payload structure.',
+      compact: true,
+    );
+  }
+}
+
+class SettleoraFutureBillDetailScreen extends StatefulWidget {
+  const SettleoraFutureBillDetailScreen({
+    super.key,
+    required this.repository,
+    required this.futureBillId,
+  });
+
+  final SettleoraFutureBillRepository repository;
+  final String futureBillId;
+
+  @override
+  State<SettleoraFutureBillDetailScreen> createState() =>
+      _SettleoraFutureBillDetailScreenState();
+}
+
+class _SettleoraFutureBillDetailScreenState
+    extends State<SettleoraFutureBillDetailScreen> {
+  bool _isLoading = true;
+  bool _isCancelling = false;
+  bool _isPosting = false;
+  SettleoraFutureBillDetail? _futureBill;
+  SettleoraFutureBillFailure? _failure;
+  SettleoraFutureBillFailure? _actionFailure;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _failure = null;
+      _actionFailure = null;
+    });
+
+    try {
+      final futureBill = await widget.repository.getFutureBill(
+        widget.futureBillId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _futureBill = futureBill;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _failure = SettleoraFutureBillFailure.from(error);
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _openEdit() async {
+    final futureBill = _futureBill;
+    if (futureBill == null || !futureBill.canCancel) {
+      return;
+    }
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SettleoraFutureBillFormScreen.edit(
+          repository: widget.repository,
+          futureBill: futureBill,
+        ),
+      ),
+    );
+
+    if (mounted && changed == true) {
+      await _load();
+    }
+  }
+
+  Future<void> _cancel() async {
+    final futureBill = _futureBill;
+    if (futureBill == null ||
+        _isCancelling ||
+        _isPosting ||
+        !futureBill.canCancel) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel future bill?'),
+        content: const Text(
+          'This archives the draft upcoming bill. It does not record it as paid or affect settlements.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('future-bill-detail-cancel-dismiss'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            key: const Key('future-bill-detail-cancel-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cancel future bill'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _isCancelling = true;
+      _actionFailure = null;
+    });
+
+    try {
+      final updated = await widget.repository.cancelFutureBill(futureBill.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _futureBill = updated;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Future bill cancelled.')));
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = SettleoraFutureBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCancelling = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _post() async {
+    final futureBill = _futureBill;
+    if (futureBill == null ||
+        _isPosting ||
+        _isCancelling ||
+        !futureBill.canPost) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Post future bill?'),
+        content: const Text(
+          'Posting turns this upcoming bill into the bill workflow. Personal bills may become confirmed immediately. Shared or group bills may move to pending confirmation and wait for other participants to accept. Settlement impact only becomes effective after confirmation.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('future-bill-detail-post-dismiss'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton.icon(
+            key: const Key('future-bill-detail-post-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.publish_outlined),
+            label: const Text('Post future bill'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _isPosting = true;
+      _actionFailure = null;
+    });
+
+    try {
+      final updated = await widget.repository.postFutureBill(futureBill.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _futureBill = updated;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_postSuccessMessage(updated))));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = SettleoraFutureBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPosting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final futureBill = _futureBill;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Future bill'),
+        actions: [
+          if (futureBill != null && futureBill.canCancel)
+            IconButton(
+              key: const Key('future-bill-detail-edit'),
+              tooltip: 'Edit future bill',
+              onPressed: _isLoading || _isCancelling || _isPosting
+                  ? null
+                  : _openEdit,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          IconButton(
+            key: const Key('future-bill-detail-refresh'),
+            tooltip: 'Refresh',
+            onPressed: _isLoading ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Builder(
+          builder: (context) {
+            if (_isLoading) {
+              return const _LoadingPanel(label: 'Loading future bill');
+            }
+            final failure = _failure;
+            if (failure != null) {
+              return _FutureBillFailurePanel(failure: failure, onRetry: _load);
+            }
+            if (futureBill == null) {
+              return _FutureBillFailurePanel(
+                failure: const SettleoraFutureBillFailure(
+                  kind: SettleoraFutureBillFailureKind.unavailable,
+                  message: 'The future bill is no longer available.',
+                ),
+                onRetry: _load,
+              );
+            }
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              children: [
+                _FutureBillHeader(futureBill: futureBill),
+                const SizedBox(height: 16),
+                const _FutureBillAuthorityPanel(),
+                if (_actionFailure != null) ...[
+                  const SizedBox(height: 12),
+                  _FutureBillInlineFailure(failure: _actionFailure!),
+                ],
+                const SizedBox(height: 20),
+                if (futureBill.canPost) ...[
+                  FilledButton.icon(
+                    key: const Key('future-bill-detail-post'),
+                    onPressed: _isPosting ? null : _post,
+                    icon: _isPosting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.publish_outlined),
+                    label: Text(_isPosting ? 'Posting' : 'Post future bill'),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (futureBill.canCancel)
+                  OutlinedButton.icon(
+                    key: const Key('future-bill-detail-cancel'),
+                    onPressed: _isCancelling || _isPosting ? null : _cancel,
+                    icon: _isCancelling
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.archive_outlined),
+                    label: Text(
+                      _isCancelling ? 'Cancelling' : 'Cancel future bill',
+                    ),
+                  ),
+                const SizedBox(height: 20),
+                _Section(
+                  title: 'Items',
+                  children: [
+                    if (futureBill.items.isEmpty)
+                      const _StatePanel(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'No item rows',
+                        message:
+                            'The server did not return item detail rows for this future bill.',
+                        compact: true,
+                      )
+                    else
+                      for (final item in futureBill.items)
+                        _KeyValueText(
+                          label: item.name,
+                          value: _money(item.amount, item.currency),
+                        ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+String _postSuccessMessage(SettleoraFutureBillDetail futureBill) {
+  if (futureBill.status == SettleoraFutureBillStatusValues.confirmed &&
+      futureBill.settlementEffective) {
+    return 'Future bill posted and confirmed. It is now settlement-effective.';
+  }
+  if (futureBill.status ==
+          SettleoraFutureBillStatusValues.pendingConfirmation &&
+      !futureBill.settlementEffective) {
+    return 'Future bill posted and waiting for participant confirmation. It is not settlement-effective yet.';
+  }
+
+  final settlementCopy = futureBill.settlementEffective
+      ? 'Settlement-effective.'
+      : 'Not settlement-effective yet.';
+  return 'Future bill posted. ${settleoraFutureBillStatusLabel(futureBill.status)}. $settlementCopy';
+}
+
+class SettleoraFutureBillFormScreen extends StatefulWidget {
+  const SettleoraFutureBillFormScreen.create({
+    super.key,
+    required this.repository,
+    this.groupRepository,
+  }) : futureBill = null;
+
+  const SettleoraFutureBillFormScreen.edit({
+    super.key,
+    required this.repository,
+    required this.futureBill,
+  }) : groupRepository = null;
+
+  final SettleoraFutureBillRepository repository;
+  final SettleoraGroupRepository? groupRepository;
+  final SettleoraFutureBillDetail? futureBill;
+
+  bool get isEditing => futureBill != null;
+
+  @override
+  State<SettleoraFutureBillFormScreen> createState() =>
+      _SettleoraFutureBillFormScreenState();
+}
+
+class _SettleoraFutureBillFormScreenState
+    extends State<SettleoraFutureBillFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _merchantController;
+  late final TextEditingController _amountController;
+  late final TextEditingController _noteController;
+  late final TextEditingController _dueDateController;
+  String _currency = 'USD';
+  String _selectedGroupId = '';
+  bool _isLoadingGroups = false;
+  bool _isLoadingMembers = false;
+  List<SettleoraGroup> _groups = const [];
+  List<SettleoraGroupMember> _members = const [];
+  Set<String> _selectedParticipantIds = <String>{};
+  bool _isSaving = false;
+  SettleoraFutureBillFailure? _failure;
+  SettleoraGroupFailure? _groupFailure;
+
+  @override
+  void initState() {
+    super.initState();
+    final futureBill = widget.futureBill;
+    _merchantController = TextEditingController(
+      text: futureBill?.merchantName ?? '',
+    );
+    _amountController = TextEditingController(
+      text: futureBill?.totalAmount ?? '',
+    );
+    _noteController = TextEditingController(
+      text: futureBill?.items.isNotEmpty == true
+          ? futureBill!.items.first.note ?? ''
+          : '',
+    );
+    _dueDateController = TextEditingController(text: futureBill?.dueDate ?? '');
+    _currency = futureBill?.totalCurrency ?? 'USD';
+    if (!widget.isEditing && widget.groupRepository != null) {
+      Future<void>.microtask(_loadGroups);
+    }
+  }
+
+  @override
+  void dispose() {
+    _merchantController.dispose();
+    _amountController.dispose();
+    _noteController.dispose();
+    _dueDateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadGroups() async {
+    final groupRepository = widget.groupRepository;
+    if (groupRepository == null || widget.isEditing) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingGroups = true;
+      _groupFailure = null;
+    });
+
+    try {
+      final groups = await groupRepository.listGroups();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groups = groups
+            .where(
+              (group) =>
+                  group.currentUserStatus ==
+                  SettleoraGroupMembershipStatusValues.active,
+            )
+            .toList(growable: false);
+        _isLoadingGroups = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groupFailure = SettleoraGroupFailure.from(error);
+        _isLoadingGroups = false;
+      });
+    }
+  }
+
+  Future<void> _selectGroup(String groupId) async {
+    if (_isSaving || _selectedGroupId == groupId) {
+      return;
+    }
+
+    setState(() {
+      _selectedGroupId = groupId;
+      _members = const [];
+      _selectedParticipantIds = <String>{};
+      _groupFailure = null;
+    });
+
+    if (groupId.trim().isEmpty) {
+      return;
+    }
+
+    await _loadMembers(groupId);
+  }
+
+  Future<void> _loadMembers(String groupId) async {
+    final groupRepository = widget.groupRepository;
+    if (groupRepository == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingMembers = true;
+      _groupFailure = null;
+    });
+
+    try {
+      final members = await groupRepository.listGroupMembers(groupId);
+      if (!mounted) {
+        return;
+      }
+      final activeMembers = members
+          .where(
+            (member) =>
+                member.status == SettleoraGroupMembershipStatusValues.active,
+          )
+          .toList(growable: false);
+      setState(() {
+        _members = activeMembers;
+        _selectedParticipantIds = {
+          for (final member in activeMembers) member.userProfileId,
+        };
+        _isLoadingMembers = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _groupFailure = SettleoraGroupFailure.from(error);
+        _isLoadingMembers = false;
+      });
+    }
+  }
+
+  void _toggleParticipant(String userProfileId, bool selected) {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      final next = Set<String>.of(_selectedParticipantIds);
+      if (selected) {
+        next.add(userProfileId);
+      } else {
+        next.remove(userProfileId);
+      }
+      _selectedParticipantIds = next;
+    });
+  }
+
+  Future<void> _pickDueDate() async {
+    final currentValue = _parseIsoDate(_dueDateController.text.trim());
+    final now = DateTime.now();
+    final initialDate =
+        currentValue ?? DateTime(now.year, now.month, now.day + 1);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _dueDateController.text = _formatIsoDate(selected);
+    });
+  }
+
+  Future<void> _save() async {
+    if (_isSaving || !_formKey.currentState!.validate()) {
+      return;
+    }
+    if (!widget.isEditing &&
+        _selectedGroupId.trim().isNotEmpty &&
+        _selectedParticipantIds.isEmpty) {
+      setState(() {
+        _failure = const SettleoraFutureBillFailure(
+          kind: SettleoraFutureBillFailureKind.validation,
+          message:
+              'Choose at least one active group member for this future bill equal split.',
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _failure = null;
+    });
+
+    try {
+      if (widget.isEditing) {
+        await widget.repository.updateFutureBill(
+          futureBillId: widget.futureBill!.id,
+          draft: SettleoraFutureBillUpdateDraft(
+            merchantName: _merchantController.text,
+            dueDate: _dueDateController.text,
+          ),
+        );
+      } else {
+        await widget.repository.createFutureBill(
+          SettleoraFutureBillCreateDraft(
+            merchantName: _merchantController.text,
+            amount: _amountController.text,
+            currency: _currency,
+            dueDate: _dueDateController.text,
+            note: _noteController.text,
+            groupId: _selectedGroupId.trim().isEmpty ? null : _selectedGroupId,
+            participantUserProfileIds: _selectedParticipantIds.toList(
+              growable: false,
+            ),
+          ),
+        );
+      }
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _failure = SettleoraFutureBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.isEditing;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit future bill' : 'New future bill'),
+      ),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _FutureBillAuthorityPanel(),
+                if (!isEditing) ...[
+                  const SizedBox(height: 12),
+                  _FutureBillGroupAuthoringSection(
+                    groups: _groups,
+                    members: _members,
+                    selectedGroupId: _selectedGroupId,
+                    selectedParticipantIds: _selectedParticipantIds,
+                    isLoadingGroups: _isLoadingGroups,
+                    isLoadingMembers: _isLoadingMembers,
+                    groupFailure: _groupFailure,
+                    groupRepositoryAvailable: widget.groupRepository != null,
+                    enabled: !_isSaving,
+                    onGroupSelected: _selectGroup,
+                    onParticipantToggled: _toggleParticipant,
+                    onRetryGroups: _loadGroups,
+                    onRetryMembers: () {
+                      final groupId = _selectedGroupId.trim();
+                      if (groupId.isNotEmpty) {
+                        _loadMembers(groupId);
+                      }
+                    },
+                  ),
+                ],
+                if (_failure != null) ...[
+                  const SizedBox(height: 12),
+                  _FutureBillInlineFailure(failure: _failure!),
+                ],
+                const SizedBox(height: 18),
+                TextFormField(
+                  key: const Key('future-bill-form-merchant'),
+                  controller: _merchantController,
+                  enabled: !_isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'Merchant or name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) => _maxLengthValidator(value, 200, 'name'),
+                ),
+                const SizedBox(height: 12),
+                if (!isEditing) ...[
+                  MoneyAmountCurrencyField(
+                    amountKey: const Key('future-bill-form-amount'),
+                    currencyKey: const Key('future-bill-form-currency'),
+                    amountController: _amountController,
+                    currencyValue: _currency,
+                    onCurrencyChanged: (currency) {
+                      setState(() {
+                        _currency = currency ?? '';
+                      });
+                    },
+                    amountLabel: 'Amount',
+                    currencyLabel: 'Currency',
+                    enabled: !_isSaving,
+                    amountValidator: _amountValidator,
+                    currencyValidator: _currencyValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const Key('future-bill-form-note'),
+                    controller: _noteController,
+                    enabled: !_isSaving,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Note',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) =>
+                        _maxLengthValidator(value, 1000, 'note'),
+                  ),
+                  const SizedBox(height: 12),
+                ] else
+                  _StatePanel(
+                    icon: Icons.lock_outline,
+                    title: 'Amount editing unavailable',
+                    message:
+                        'This future bill API currently supports name and due date updates only. Amount, currency, participants, and split changes are follow-up work.',
+                    compact: true,
+                  ),
+                if (isEditing) const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('future-bill-form-due-date'),
+                  controller: _dueDateController,
+                  enabled: !_isSaving,
+                  decoration: InputDecoration(
+                    labelText: 'Due date (YYYY-MM-DD)',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      key: const Key('future-bill-form-due-date-picker'),
+                      tooltip: 'Pick due date',
+                      onPressed: _isSaving ? null : _pickDueDate,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                    ),
+                  ),
+                  validator: (value) =>
+                      _isoDateValidator(value, required: true),
+                ),
+                const SizedBox(height: 22),
+                FilledButton.icon(
+                  key: const Key('future-bill-form-save'),
+                  onPressed: _isSaving ? null : _save,
+                  icon: _isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(_isSaving ? 'Saving' : 'Save upcoming bill'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FutureBillGroupAuthoringSection extends StatelessWidget {
+  const _FutureBillGroupAuthoringSection({
+    required this.groups,
+    required this.members,
+    required this.selectedGroupId,
+    required this.selectedParticipantIds,
+    required this.isLoadingGroups,
+    required this.isLoadingMembers,
+    required this.groupFailure,
+    required this.groupRepositoryAvailable,
+    required this.enabled,
+    required this.onGroupSelected,
+    required this.onParticipantToggled,
+    required this.onRetryGroups,
+    required this.onRetryMembers,
+  });
+
+  final List<SettleoraGroup> groups;
+  final List<SettleoraGroupMember> members;
+  final String selectedGroupId;
+  final Set<String> selectedParticipantIds;
+  final bool isLoadingGroups;
+  final bool isLoadingMembers;
+  final SettleoraGroupFailure? groupFailure;
+  final bool groupRepositoryAvailable;
+  final bool enabled;
+  final ValueChanged<String> onGroupSelected;
+  final void Function(String userProfileId, bool selected) onParticipantToggled;
+  final VoidCallback onRetryGroups;
+  final VoidCallback onRetryMembers;
+
+  bool get _groupSelected => selectedGroupId.trim().isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!groupRepositoryAvailable) {
+      return const _StatePanel(
+        icon: Icons.group_off_outlined,
+        title: 'Personal one-time bill',
+        message:
+            'Group authoring is unavailable because this screen does not have a server-mode group source. Do not enter fake people or IDs.',
+        compact: true,
+      );
+    }
+
+    final failure = groupFailure;
+    return _Section(
+      title: 'Bill scope and split',
+      children: [
+        DropdownButtonFormField<String>(
+          key: const Key('future-bill-form-group'),
+          initialValue: selectedGroupId,
+          decoration: const InputDecoration(
+            labelText: 'Scope',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<String>(
+              value: '',
+              child: Text('Personal future bill'),
+            ),
+            for (final group in groups)
+              DropdownMenuItem<String>(
+                value: group.id,
+                child: Text(group.displayName),
+              ),
+          ],
+          onChanged: enabled && !isLoadingGroups
+              ? (value) => onGroupSelected(value ?? '')
+              : null,
+        ),
+        if (isLoadingGroups) ...[
+          const SizedBox(height: 10),
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Text(
+            'Loading visible groups.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (failure != null) ...[
+          const SizedBox(height: 10),
+          _GroupAuthoringFailure(
+            failure: failure,
+            onRetry: _groupSelected ? onRetryMembers : onRetryGroups,
+          ),
+        ],
+        if (!_groupSelected && !isLoadingGroups && failure == null) ...[
+          const SizedBox(height: 10),
+          const _StatePanel(
+            icon: Icons.person_outline,
+            title: 'Personal upcoming bill',
+            message:
+                'Save this as your own future bill, or choose a visible group to author an equal split among active members.',
+            compact: true,
+          ),
+        ],
+        if (_groupSelected) ...[
+          const SizedBox(height: 12),
+          const _StatePanel(
+            icon: Icons.call_split_outlined,
+            title: 'Equal split preview',
+            message:
+                'Selected active members become equal split participants in the create payload. The server validates group access, membership, money, and payer policy before saving. This is not posted or settlement-effective.',
+            compact: true,
+          ),
+          if (isLoadingMembers) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            Text(
+              'Loading active group members.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ] else if (members.isEmpty && failure == null) ...[
+            const SizedBox(height: 10),
+            const _StatePanel(
+              icon: Icons.group_off_outlined,
+              title: 'No active members',
+              message:
+                  'This group did not return active member data that can safely author a future bill split.',
+              compact: true,
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            Text(
+              'Participants (${selectedParticipantIds.length} selected)',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 6),
+            for (final member in members)
+              CheckboxListTile(
+                key: ValueKey(
+                  'future-bill-form-member-${member.userProfileId}',
+                ),
+                value: selectedParticipantIds.contains(member.userProfileId),
+                onChanged: enabled
+                    ? (selected) => onParticipantToggled(
+                        member.userProfileId,
+                        selected ?? false,
+                      )
+                    : null,
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: Text(member.safeDisplayName),
+                subtitle: Text(settleoraGroupRoleLabel(member.role)),
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupAuthoringFailure extends StatelessWidget {
+  const _GroupAuthoringFailure({required this.failure, required this.onRetry});
+
+  final SettleoraGroupFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.error_outline,
+      title: failure.title,
+      message: failure.message,
+      compact: true,
+      action: OutlinedButton.icon(
+        key: const Key('future-bill-form-group-retry'),
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
+      ),
+    );
+  }
+}
+
+class _FutureBillTile extends StatelessWidget {
+  const _FutureBillTile({
+    required this.futureBill,
+    required this.cancelButtonKey,
+    required this.isCancelling,
+    required this.onTap,
+    required this.onCancel,
+  });
+
+  final SettleoraFutureBillSummary futureBill;
+  final Key cancelButtonKey;
+  final bool isCancelling;
+  final VoidCallback onTap;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        leading: const CircleAvatar(child: Icon(Icons.event_available)),
+        title: Text(futureBill.displayName),
+        subtitle: Text(
+          'Due ${futureBill.dueDate} - ${settleoraFutureBillStatusLabel(futureBill.status)} - Not paid yet',
+        ),
+        trailing: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(_money(futureBill.totalAmount, futureBill.totalCurrency)),
+            if (futureBill.canCancel)
+              IconButton(
+                key: cancelButtonKey,
+                tooltip: 'Cancel future bill',
+                onPressed: isCancelling ? null : onCancel,
+                icon: isCancelling
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.archive_outlined),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FutureBillHeader extends StatelessWidget {
+  const _FutureBillHeader({required this.futureBill});
+
+  final SettleoraFutureBillDetail futureBill;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          futureBill.displayName,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 10),
+        _KeyValueText(
+          label: 'Amount',
+          value: _money(futureBill.totalAmount, futureBill.totalCurrency),
+        ),
+        _KeyValueText(label: 'Due date', value: futureBill.dueDate),
+        _KeyValueText(
+          label: 'Status',
+          value: settleoraFutureBillStatusLabel(futureBill.status),
+        ),
+        _KeyValueText(
+          label: 'Settlements',
+          value: futureBill.settlementEffective
+              ? 'Settlement-effective'
+              : 'Does not affect settlements',
+        ),
+      ],
+    );
+  }
+}
+
+class _FutureBillAuthorityPanel extends StatelessWidget {
+  const _FutureBillAuthorityPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.upcoming_outlined,
+      title: 'Upcoming obligation',
+      message:
+          'This is not recorded as paid yet. This does not affect settlements until the API confirms it through the bill workflow.',
+      compact: true,
+    );
+  }
+}
+
+class _FutureBillFailurePanel extends StatelessWidget {
+  const _FutureBillFailurePanel({required this.failure, required this.onRetry});
+
+  final SettleoraFutureBillFailure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StatePanel(
+      icon: Icons.error_outline,
+      title: failure.title,
+      message: failure.message,
+      action: OutlinedButton.icon(
+        key: const Key('future-bill-retry'),
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
+      ),
+    );
+  }
+}
+
+class _FutureBillInlineFailure extends StatelessWidget {
+  const _FutureBillInlineFailure({required this.failure});
+
+  final SettleoraFutureBillFailure failure;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(failure.message)),
+          ],
         ),
       ),
     );
@@ -2250,17 +3761,28 @@ class _LoadingPanel extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
+  const _Section({required this.title, required this.children, this.trailing});
 
   final String title;
   final List<Widget> children;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
         const SizedBox(height: 10),
         ...children,
       ],

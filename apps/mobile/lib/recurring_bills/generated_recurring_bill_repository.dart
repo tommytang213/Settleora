@@ -506,6 +506,31 @@ api.UpdateRecurringBillTemplateRequest _updateRequest(
       fieldName: 'description',
     ),
     schedule: _scheduleRequest(draft.schedule),
+    billPayload: draft.billPayload == null
+        ? null
+        : _payloadRequest(draft.billPayload!),
+  );
+}
+
+api.RecurringBillTemplatePayload _payloadRequest(
+  SettleoraRecurringBillTemplatePayloadDraft draft,
+) {
+  final currency = _requiredCurrency(draft.currency);
+  final items = draft.items.map(_payloadItemRequest).toList(growable: false);
+  if (items.isEmpty) {
+    throw const SettleoraRecurringBillFailure(
+      kind: SettleoraRecurringBillFailureKind.validation,
+      message: 'Add at least one recurring bill item.',
+    );
+  }
+
+  return api.RecurringBillTemplatePayload(
+    currency: currency,
+    items: items,
+    adjustments: draft.adjustments
+        .map(_payloadAdjustmentRequest)
+        .toList(growable: false),
+    payers: draft.payers.map(_payloadPayerRequest).toList(growable: false),
   );
 }
 
@@ -573,6 +598,77 @@ api.RecurringBillTemplatePayloadItem _payloadItemRequest(
       fieldName: 'item note',
     ),
     amount: _requiredDecimal(draft.amount),
+    currency: draft.currency == null
+        ? null
+        : _requiredCurrency(draft.currency!),
+    splits: draft.splits.map(_payloadSplitRequest).toList(growable: false),
+  );
+}
+
+api.RecurringBillTemplatePayloadItemSplit _payloadSplitRequest(
+  SettleoraRecurringBillTemplatePayloadItemSplit draft,
+) {
+  return api.RecurringBillTemplatePayloadItemSplit(
+    userProfileId: _requiredId(
+      draft.userProfileId,
+      message: 'Refresh recurring bills before preserving split details.',
+    ),
+    splitMethod: _requiredBoundedText(
+      draft.splitMethod,
+      maxLength: 80,
+      fieldName: 'split method',
+    ),
+    basisValue: draft.basisValue == null
+        ? null
+        : _requiredDecimal(draft.basisValue!),
+    allocationOrder: draft.allocationOrder,
+  );
+}
+
+api.RecurringBillTemplatePayloadAdjustment _payloadAdjustmentRequest(
+  SettleoraRecurringBillTemplatePayloadAdjustment draft,
+) {
+  return api.RecurringBillTemplatePayloadAdjustment(
+    type: _requiredBoundedText(
+      draft.type,
+      maxLength: 80,
+      fieldName: 'adjustment type',
+    ),
+    direction: _requiredBoundedText(
+      draft.direction,
+      maxLength: 80,
+      fieldName: 'adjustment direction',
+    ),
+    allocationMethod: _requiredBoundedText(
+      draft.allocationMethod,
+      maxLength: 120,
+      fieldName: 'adjustment allocation method',
+    ),
+    amount: _requiredDecimal(draft.amount),
+    currency: _requiredCurrency(draft.currency),
+    reasonNote: _optionalBoundedText(
+      draft.reasonNote,
+      maxLength: 1000,
+      fieldName: 'adjustment reason',
+    ),
+  );
+}
+
+api.RecurringBillTemplatePayloadPayer _payloadPayerRequest(
+  SettleoraRecurringBillTemplatePayloadPayer draft,
+) {
+  return api.RecurringBillTemplatePayloadPayer(
+    userProfileId: _requiredId(
+      draft.userProfileId,
+      message: 'Refresh recurring bills before preserving payer details.',
+    ),
+    amount: _requiredDecimal(draft.amount),
+    currency: _requiredCurrency(draft.currency),
+    paymentMethodLabelSnapshot: _optionalBoundedText(
+      draft.paymentMethodLabelSnapshot,
+      maxLength: 120,
+      fieldName: 'payment method label',
+    ),
   );
 }
 
@@ -612,6 +708,61 @@ SettleoraRecurringBillTemplateDetail _mapTemplateDetail(
     archivedAtUtc: response.archivedAtUtc?.toUtc(),
     isGroupScoped: response.groupId != null,
     payloadVersion: response.payloadVersion,
+    billPayload: _mapTemplatePayload(response.billPayload),
+  );
+}
+
+SettleoraRecurringBillTemplatePayload? _mapTemplatePayload(
+  api.RecurringBillTemplatePayload? response,
+) {
+  if (response == null) {
+    return null;
+  }
+
+  return SettleoraRecurringBillTemplatePayload(
+    currency: response.currency,
+    items: response.items
+        .map(
+          (item) => SettleoraRecurringBillTemplatePayloadItem(
+            name: item.name,
+            note: item.note,
+            amount: item.amount,
+            currency: item.currency ?? response.currency,
+            splits: (item.splits ?? const [])
+                .map(
+                  (split) => SettleoraRecurringBillTemplatePayloadItemSplit(
+                    userProfileId: split.userProfileId,
+                    splitMethod: split.splitMethod,
+                    basisValue: split.basisValue,
+                    allocationOrder: split.allocationOrder ?? 0,
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        )
+        .toList(growable: false),
+    adjustments: (response.adjustments ?? const [])
+        .map(
+          (adjustment) => SettleoraRecurringBillTemplatePayloadAdjustment(
+            type: adjustment.type,
+            direction: adjustment.direction,
+            allocationMethod: adjustment.allocationMethod,
+            amount: adjustment.amount,
+            currency: adjustment.currency ?? response.currency,
+            reasonNote: adjustment.reasonNote,
+          ),
+        )
+        .toList(growable: false),
+    payers: (response.payers ?? const [])
+        .map(
+          (payer) => SettleoraRecurringBillTemplatePayloadPayer(
+            userProfileId: payer.userProfileId,
+            amount: payer.amount,
+            currency: payer.currency ?? response.currency,
+            paymentMethodLabelSnapshot: payer.paymentMethodLabelSnapshot,
+          ),
+        )
+        .toList(growable: false),
   );
 }
 

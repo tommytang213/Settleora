@@ -361,6 +361,39 @@ export interface UpdateRecurringBillTemplateRequest {
 }
 
 /**
+ * One-time future bill creation request. Actor, owner, authorization identity, draft status, totals, and settlement non-effectiveness are derived server-side.
+ */
+export interface CreateFutureBillRequest {
+  /**
+   * Optional group ID for a group future bill. The authenticated actor must be an active group member.
+   */
+  groupId?: string | null;
+  /**
+   * Optional merchant/display name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Future due date. The API rejects current or past dates.
+   */
+  dueDate: string;
+  billPayload: RecurringBillTemplatePayload;
+}
+
+/**
+ * One-time future bill draft update request. This foundation supports merchant name and future due date only; payload replacement and posting/confirmation are follow-up work.
+ */
+export interface UpdateFutureBillRequest {
+  /**
+   * Optional merchant/display name after server-side trimming.
+   */
+  merchantName?: string | null;
+  /**
+   * Updated future due date. The API rejects current or past dates.
+   */
+  dueDate?: string;
+}
+
+/**
  * Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
  */
 export interface RecurringBillScheduleRequest {
@@ -432,6 +465,35 @@ export interface RecurringBillTemplateListResponse {
   templates: RecurringBillTemplateResponse[];
 }
 
+export interface FutureBillListResponse {
+  futureBills: FutureBillResponse[];
+}
+
+/**
+ * Safe one-time future bill response. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills can become settlement-effective through the normal bill workflow.
+ */
+export interface FutureBillResponse {
+  id: string;
+  ownerUserProfileId: string;
+  groupId: string | null;
+  merchantName: string | null;
+  dueDate: string;
+  status: FutureBillStatus;
+  /**
+   * True only when the bill has reached the existing confirmed bill workflow state.
+   */
+  settlementEffective: boolean;
+  /**
+   * Decimal-safe calculated draft total represented as a string.
+   */
+  totalAmount: string;
+  totalCurrency: CurrencyCode;
+  billPayload: RecurringBillTemplatePayload;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  archivedAtUtc: string | null;
+}
+
 /**
  * Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
  */
@@ -448,6 +510,10 @@ export interface RecurringBillTemplateResponse {
    */
   forecastAmount: string;
   forecastCurrency: CurrencyCode;
+  /**
+   * Safe, bounded editable template bill payload. This is an API-authored view of supported template fields, not raw stored payload JSON.
+   */
+  billPayload: RecurringBillTemplatePayload | null;
   nextOccurrenceDate: string | null;
   payloadVersion: number;
   createdAtUtc: string;
@@ -502,6 +568,11 @@ export type RecurringBillScheduleType = "weekly" | "monthly" | "yearly" | "custo
 export type RecurringBillTemplateStatus = "active" | "paused" | "archived";
 
 export type RecurringBillOccurrenceStatus = "forecasted" | "draft_generated" | "skipped" | "cancelled";
+
+/**
+ * One-time future bill status. Draft and pending-confirmation future bills are not settlement-effective; confirmed posted future bills follow existing settlement candidate rules.
+ */
+export type FutureBillStatus = "draft" | "pending_confirmation" | "confirmed" | "rejected" | "cancelled";
 
 /**
  * Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.

@@ -96,6 +96,17 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         using var getRequest = CreateBearerRequest(HttpMethod.Get, $"{RecurringBillsPath}/{templateId:D}", actor.RawSessionToken);
         using var getResponse = await client.SendAsync(getRequest);
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var getPayload = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
+        var editablePayload = getPayload.RootElement.GetProperty("billPayload");
+        Assert.Equal("USD", editablePayload.GetProperty("currency").GetString());
+        var editableItem = Assert.Single(editablePayload.GetProperty("items").EnumerateArray());
+        Assert.Equal("Monthly Rent", editableItem.GetProperty("name").GetString());
+        Assert.Equal("Sensitive note", editableItem.GetProperty("note").GetString());
+        Assert.Equal("100", editableItem.GetProperty("amount").GetString());
+        Assert.Equal("USD", editableItem.GetProperty("currency").GetString());
+        Assert.Empty(editableItem.GetProperty("splits").EnumerateArray());
+        Assert.Empty(editablePayload.GetProperty("adjustments").EnumerateArray());
+        Assert.Empty(editablePayload.GetProperty("payers").EnumerateArray());
 
         var template = await ReadTemplateAsync(testFactory, templateId);
         Assert.Null(template.GroupId);
@@ -160,6 +171,101 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task UpdateGroupRecurringTemplatePayloadPersistsSafeEditableFields()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Update Group Owner");
+        var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Update Group Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            "Update Group",
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(member.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var templateId = await SeedGroupTemplateAsync(
+            testFactory,
+            owner.UserProfileId,
+            groupId,
+            "Old Group Template",
+            [owner.UserProfileId, member.UserProfileId]);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{RecurringBillsPath}/{templateId:D}",
+            member.RawSessionToken,
+            CreateGroupTemplatePatchJson(owner.UserProfileId, member.UserProfileId));
+
+        using var response = await client.SendAsync(request);
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, content);
+        using var responsePayload = JsonDocument.Parse(content);
+        var root = responsePayload.RootElement;
+        Assert.Equal("Updated Internet", root.GetProperty("merchantName").GetString());
+        Assert.Equal("200", root.GetProperty("forecastAmount").GetString());
+        Assert.Equal("USD", root.GetProperty("forecastCurrency").GetString());
+        var billPayload = root.GetProperty("billPayload");
+        Assert.Equal("USD", billPayload.GetProperty("currency").GetString());
+        var item = Assert.Single(billPayload.GetProperty("items").EnumerateArray());
+        Assert.Equal("Fiber Internet", item.GetProperty("name").GetString());
+        Assert.Equal("Shared plan", item.GetProperty("note").GetString());
+        Assert.Equal("200", item.GetProperty("amount").GetString());
+        var splits = item.GetProperty("splits").EnumerateArray().ToArray();
+        Assert.Equal(2, splits.Length);
+        Assert.Equal(owner.UserProfileId, splits[0].GetProperty("userProfileId").GetGuid());
+        Assert.Equal("120", splits[0].GetProperty("basisValue").GetString());
+        Assert.Equal(member.UserProfileId, splits[1].GetProperty("userProfileId").GetGuid());
+        Assert.Equal("80", splits[1].GetProperty("basisValue").GetString());
+
+        var template = await ReadTemplateAsync(testFactory, templateId);
+        Assert.Equal("Updated Internet", template.MerchantName);
+        Assert.Equal(200m, template.ForecastAmount);
+        var storedPayload = RecurringBillTemplatePayloadCodec.Deserialize(template.PayloadJson);
+        Assert.NotNull(storedPayload);
+        Assert.Equal("Fiber Internet", Assert.Single(storedPayload.Items).Name);
+        Assert.Equal([owner.UserProfileId, member.UserProfileId], storedPayload.Items[0].Splits.Select(split => split.UserProfileId).ToArray());
+
+        var auditEvent = await AssertSingleAuditEventAsync(testFactory, "recurring_bill.template_updated");
+        Assert.DoesNotContain("Fiber Internet", auditEvent.SafeMetadataJson);
+        Assert.DoesNotContain("Shared plan", auditEvent.SafeMetadataJson);
+    }
+
+    [Fact]
+    public async Task UpdateRejectsUnsupportedPayloadFieldsWithoutOverwritingTemplate()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Unsafe Payload Actor");
+        var templateId = await SeedTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Safe Template");
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{RecurringBillsPath}/{templateId:D}",
+            actor.RawSessionToken,
+            """
+            {
+              "billPayload": {
+                "currency": "USD",
+                "rawPayloadJson": { "serverOwned": true },
+                "items": [{ "name": "Unsafe overwrite", "amount": "999.00" }]
+              }
+            }
+            """);
+
+        using var response = await client.SendAsync(request);
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        var template = await ReadTemplateAsync(testFactory, templateId);
+        Assert.Equal("Safe Template", template.MerchantName);
+        Assert.Equal(100m, template.ForecastAmount);
+        Assert.DoesNotContain("Unsafe overwrite", template.PayloadJson);
+    }
+
+    [Fact]
     public async Task MissingInvalidCrossUserAndRemovedMemberAccessFailSafely()
     {
         var testContext = CreateFactory();
@@ -191,6 +297,21 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         using var removedMemberRequest = CreateBearerRequest(HttpMethod.Get, $"{RecurringBillsPath}/{groupTemplateId:D}", removed.RawSessionToken);
         using var removedMemberResponse = await client.SendAsync(removedMemberRequest);
         await AssertRecurringBillUnavailableProblemAsync(removedMemberResponse);
+
+        using var removedMemberPatchRequest = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{RecurringBillsPath}/{groupTemplateId:D}",
+            removed.RawSessionToken,
+            """
+            {
+              "billPayload": {
+                "currency": "USD",
+                "items": [{ "name": "Removed member edit", "amount": "200.00" }]
+              }
+            }
+            """);
+        using var removedMemberPatchResponse = await client.SendAsync(removedMemberPatchRequest);
+        await AssertRecurringBillUnavailableProblemAsync(removedMemberPatchResponse);
     }
 
     [Fact]
@@ -653,6 +774,46 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
                                 userProfileId = memberUserProfileId,
                                 splitMethod = ExpenseBillItemSplitMethods.ExactAmount,
                                 basisValue = "50.00",
+                                allocationOrder = 1
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private static string CreateGroupTemplatePatchJson(
+        Guid ownerUserProfileId,
+        Guid memberUserProfileId)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            merchantName = "Updated Internet",
+            billPayload = new
+            {
+                currency = "USD",
+                items = new[]
+                {
+                    new
+                    {
+                        name = "Fiber Internet",
+                        note = "Shared plan",
+                        amount = "200.00",
+                        splits = new[]
+                        {
+                            new
+                            {
+                                userProfileId = ownerUserProfileId,
+                                splitMethod = ExpenseBillItemSplitMethods.ExactAmount,
+                                basisValue = "120.00",
+                                allocationOrder = 0
+                            },
+                            new
+                            {
+                                userProfileId = memberUserProfileId,
+                                splitMethod = ExpenseBillItemSplitMethods.ExactAmount,
+                                basisValue = "80.00",
                                 allocationOrder = 1
                             }
                         }

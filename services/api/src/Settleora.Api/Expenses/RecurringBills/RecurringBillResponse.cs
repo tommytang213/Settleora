@@ -13,11 +13,45 @@ internal sealed record RecurringBillTemplateResponse(
     RecurringBillScheduleResponse Schedule,
     string ForecastAmount,
     string ForecastCurrency,
+    RecurringBillTemplatePayloadResponse? BillPayload,
     DateOnly? NextOccurrenceDate,
     int PayloadVersion,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     DateTimeOffset? ArchivedAtUtc);
+
+internal sealed record RecurringBillTemplatePayloadResponse(
+    string Currency,
+    IReadOnlyList<RecurringBillTemplatePayloadItemResponse> Items,
+    IReadOnlyList<RecurringBillTemplatePayloadAdjustmentResponse> Adjustments,
+    IReadOnlyList<RecurringBillTemplatePayloadPayerResponse> Payers);
+
+internal sealed record RecurringBillTemplatePayloadItemResponse(
+    string Name,
+    string? Note,
+    string Amount,
+    string Currency,
+    IReadOnlyList<RecurringBillTemplatePayloadItemSplitResponse> Splits);
+
+internal sealed record RecurringBillTemplatePayloadItemSplitResponse(
+    Guid UserProfileId,
+    string SplitMethod,
+    string? BasisValue,
+    int AllocationOrder);
+
+internal sealed record RecurringBillTemplatePayloadAdjustmentResponse(
+    string Type,
+    string Direction,
+    string AllocationMethod,
+    string Amount,
+    string Currency,
+    string? ReasonNote);
+
+internal sealed record RecurringBillTemplatePayloadPayerResponse(
+    Guid UserProfileId,
+    string Amount,
+    string Currency,
+    string? PaymentMethodLabelSnapshot);
 
 internal sealed record RecurringBillScheduleResponse(
     string Type,
