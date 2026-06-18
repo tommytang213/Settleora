@@ -609,6 +609,106 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
+    public async Task GroupParticipantRoutesUseRouteActorAndRejectBodySmuggledIdentity()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Route Participant");
+        var otherMember = await SeedAccountAsync(testFactory, "Group Route Other", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            participantSession.UserProfileId,
+            "Group Route Authority",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(participantSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(otherMember.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var wrongGroupId = await SeedGroupAsync(
+            testFactory,
+            participantSession.UserProfileId,
+            "Group Route Smuggled",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(participantSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(otherMember.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            otherMember.UserProfileId,
+            groupId,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(otherMember.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Group Route Bill",
+            InitialTimestamp);
+        var bodyTargetBillId = await SeedBillAsync(
+            testFactory,
+            otherMember.UserProfileId,
+            wrongGroupId,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(otherMember.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Group Body Target Bill",
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using (var acceptRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            GroupAcceptPath(groupId, routeBillId, participantSession.UserProfileId),
+            participantSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                groupId = wrongGroupId,
+                billId = bodyTargetBillId,
+                userProfileId = otherMember.UserProfileId
+            })))
+        using (var acceptResponse = await client.SendAsync(acceptRequest))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, acceptResponse.StatusCode);
+        }
+
+        var routeBillAfterAccept = await ReadBillAsync(testFactory, routeBillId);
+        Assert.Contains(
+            routeBillAfterAccept.Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.Accepted);
+        Assert.Contains(
+            (await ReadBillAsync(testFactory, bodyTargetBillId)).Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance);
+
+        var rejectBillId = await SeedBillAsync(
+            testFactory,
+            otherMember.UserProfileId,
+            groupId,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(otherMember.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Group Reject Route Bill",
+            InitialTimestamp);
+        using (var rejectRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            GroupRejectPath(groupId, rejectBillId, participantSession.UserProfileId),
+            participantSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                reasonCode = ExpenseBillParticipantRejectionReasonCodes.WrongAmount,
+                userProfileId = otherMember.UserProfileId,
+                billId = bodyTargetBillId,
+                groupId = wrongGroupId
+            })))
+        using (var rejectResponse = await client.SendAsync(rejectRequest))
+        {
+            var rejectContent = await rejectResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillWorkflowRequestProblemAsync(rejectResponse, rejectContent);
+            Assert.Contains("Unsupported fields are not allowed.", rejectContent);
+        }
+
+        Assert.Contains(
+            (await ReadBillAsync(testFactory, rejectBillId)).Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
+                && participant.RejectionReasonCode is null);
+        Assert.Equal([BillParticipantAcceptedAction], (await ReadWorkflowAuditEventsAsync(testFactory)).Select(audit => audit.Action).ToArray());
+    }
+
+    [Fact]
     public async Task RejectRequiresSupportedReasonPersistsReasonAndWritesSafeAudit()
     {
         var testContext = CreateFactory();
@@ -1279,6 +1379,11 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
     private static string GroupAcceptPath(Guid groupId, Guid billId, Guid userProfileId)
     {
         return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/participants/{userProfileId:D}/accept";
+    }
+
+    private static string GroupRejectPath(Guid groupId, Guid billId, Guid userProfileId)
+    {
+        return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/participants/{userProfileId:D}/reject";
     }
 
     private static async Task AssertInvalidBillWorkflowRequestProblemAsync(
