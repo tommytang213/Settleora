@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Settleora.Api.Auth.CurrentUser;
 
 namespace Settleora.Api.Auth.SignIn;
 
@@ -13,14 +14,40 @@ internal static class LocalSignInEndpoints
 
     public static WebApplication MapLocalSignInEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/sign-in", SignInAsync);
+        app.MapPost("/api/v1/auth/sign-in", SignInLegacyAsync);
+        app.MapPost("/api/v1/auth/local/sign-in", SignInWithCurrentUserAsync);
 
         return app;
+    }
+
+    private static async Task<IResult> SignInLegacyAsync(
+        HttpRequest request,
+        ILocalSignInService localSignInService,
+        CancellationToken cancellationToken)
+    {
+        return await SignInAsync(
+            request,
+            localSignInService,
+            TryMapLegacySuccess,
+            cancellationToken);
+    }
+
+    private static async Task<IResult> SignInWithCurrentUserAsync(
+        HttpRequest request,
+        ILocalSignInService localSignInService,
+        CancellationToken cancellationToken)
+    {
+        return await SignInAsync(
+            request,
+            localSignInService,
+            TryMapCurrentUserSuccess,
+            cancellationToken);
     }
 
     private static async Task<IResult> SignInAsync(
         HttpRequest request,
         ILocalSignInService localSignInService,
+        SignInSuccessMapper responseMapper,
         CancellationToken cancellationToken)
     {
         if (!request.HasJsonContentType())
@@ -38,7 +65,7 @@ internal static class LocalSignInEndpoints
         var result = await localSignInService.SignInAsync(signInRequest, cancellationToken);
         return result.Status switch
         {
-            LocalSignInStatus.SignedIn when TryMapSuccess(result, out var response) => Results.Ok(response),
+            LocalSignInStatus.SignedIn when responseMapper(result, out var response) => Results.Ok(response),
             LocalSignInStatus.Throttled => TooManyAttempts(),
             _ => SignInFailed()
         };
@@ -78,9 +105,9 @@ internal static class LocalSignInEndpoints
         return true;
     }
 
-    private static bool TryMapSuccess(
+    private static bool TryMapLegacySuccess(
         LocalSignInResult result,
-        out LocalSignInResponse response)
+        out object response)
     {
         response = default!;
         if (result.AuthSessionId is not { } authSessionId
@@ -102,6 +129,36 @@ internal static class LocalSignInEndpoints
                 result.RawRefreshCredential,
                 refreshCredentialIdleExpiresAtUtc,
                 refreshCredentialAbsoluteExpiresAtUtc));
+        return true;
+    }
+
+    private static bool TryMapCurrentUserSuccess(
+        LocalSignInResult result,
+        out object response)
+    {
+        response = default!;
+        if (!TryMapLegacySuccess(result, out var legacyResponse)
+            || legacyResponse is not LocalSignInResponse localSignInResponse
+            || result.AuthAccountId is not { } authAccountId
+            || result.UserProfileId is not { } userProfileId
+            || result.UserProfileDisplayName is null)
+        {
+            return false;
+        }
+
+        response = new LocalSessionSignInResponse(
+            localSignInResponse.Session,
+            localSignInResponse.RefreshCredential,
+            new CurrentUserResponse(
+                authAccountId,
+                new CurrentUserProfileResponse(
+                    userProfileId,
+                    result.UserProfileDisplayName,
+                    result.UserProfileDefaultCurrency),
+                new CurrentUserSessionResponse(
+                    localSignInResponse.Session.Id,
+                    localSignInResponse.Session.ExpiresAtUtc),
+                result.SystemRoles));
         return true;
     }
 
@@ -139,4 +196,8 @@ internal static class LocalSignInEndpoints
             detail: TooManyAttemptsDetail,
             statusCode: StatusCodes.Status429TooManyRequests);
     }
+
+    private delegate bool SignInSuccessMapper(
+        LocalSignInResult result,
+        out object response);
 }

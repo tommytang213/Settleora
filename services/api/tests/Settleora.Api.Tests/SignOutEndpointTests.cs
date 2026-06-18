@@ -21,6 +21,7 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
     private const string SignOutPath = "/api/v1/auth/sign-out";
     private const string SignInPath = "/api/v1/auth/sign-in";
     private const string CurrentUserPath = "/api/v1/auth/current-user";
+    private const string MePath = "/api/v1/auth/me";
     private const string WrongRawToken = "visible-wrong-session-token";
     private const string SubmittedIdentifier = "  LOCAL.User@Example.COM  ";
     private const string NormalizedIdentifier = "local.user@example.com";
@@ -180,6 +181,24 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
         using var currentUserResponse = await client.SendAsync(currentUserRequest);
 
         await AssertUnauthenticatedProblemAsync(currentUserResponse, seededSession.RawSessionToken);
+    }
+
+    [Fact]
+    public async Task RevokedSessionCannotReadAuthMeAfterSignOut()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+
+        using var signOutRequest = CreateSignOutRequest(seededSession.RawSessionToken);
+        using var signOutResponse = await client.SendAsync(signOutRequest);
+        await AssertNoContentAsync(signOutResponse);
+
+        using var meRequest = CreateMeRequest(seededSession.RawSessionToken);
+        using var meResponse = await client.SendAsync(meRequest);
+
+        await AssertUnauthenticatedProblemAsync(meResponse, seededSession.RawSessionToken);
     }
 
     [Fact]
@@ -515,6 +534,14 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
     private static HttpRequestMessage CreateCurrentUserRequest(string rawSessionToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, CurrentUserPath);
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawSessionToken}");
+
+        return request;
+    }
+
+    private static HttpRequestMessage CreateMeRequest(string rawSessionToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, MePath);
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawSessionToken}");
 
         return request;

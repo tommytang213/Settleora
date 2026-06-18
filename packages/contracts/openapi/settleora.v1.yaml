@@ -273,6 +273,43 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/local/sign-in:
+    post:
+      summary: Local session sign-in
+      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus bounded current authenticated user/profile/session metadata.
+      operationId: signInLocalSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalSignInRequest"
+      responses:
+        "200":
+          description: Local sign-in succeeded and returned new credential material plus current user metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalSessionSignInResponse"
+        "401":
+          description: Sign-in failed without revealing account, credential, or policy state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many sign-in attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/auth/refresh:
     post:
       summary: Refresh session
@@ -427,6 +464,32 @@ paths:
       summary: Current authenticated user
       description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary.
       operationId: getCurrentUser
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Current authenticated user summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUserResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/me:
+    get:
+      summary: Current authenticated session
+      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary.
+      operationId: getAuthenticatedSession
       security:
         - SessionBearerAuth: []
       responses:
@@ -7847,6 +7910,20 @@ components:
           $ref: "#/components/schemas/RefreshSessionAccessSession"
         refreshCredential:
           $ref: "#/components/schemas/RefreshSessionCredential"
+    LocalSessionSignInResponse:
+      type: object
+      description: Local sign-in success response with once-returned raw credential material and bounded current authenticated user metadata. It excludes password material, token hashes, credential IDs, audit internals, provider payloads, and unrelated profiles.
+      required:
+        - session
+        - refreshCredential
+        - currentUser
+      properties:
+        session:
+          $ref: "#/components/schemas/RefreshSessionAccessSession"
+        refreshCredential:
+          $ref: "#/components/schemas/RefreshSessionCredential"
+        currentUser:
+          $ref: "#/components/schemas/CurrentUserResponse"
     RefreshSessionRequest:
       type: object
       description: Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.

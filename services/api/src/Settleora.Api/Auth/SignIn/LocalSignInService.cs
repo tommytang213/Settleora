@@ -146,6 +146,11 @@ internal sealed class LocalSignInService : ILocalSignInService
             policyResult.Status,
             cancellationToken);
         return LocalSignInResult.SignedIn(
+            authAccount.Id,
+            authAccount.UserProfileId,
+            authAccount.UserProfile.DisplayName,
+            authAccount.UserProfile.DefaultCurrency,
+            SortSystemRoles(authAccount.RoleAssignments.Select(roleAssignment => roleAssignment.Role)),
             sessionResult.AuthSessionId.Value,
             sessionResult.RawAccessSessionToken,
             sessionResult.AccessSessionExpiresAtUtc.Value,
@@ -160,6 +165,9 @@ internal sealed class LocalSignInService : ILocalSignInService
     {
         return await dbContext.Set<AuthIdentity>()
             .Include(identity => identity.AuthAccount)
+                .ThenInclude(account => account.UserProfile)
+            .Include(identity => identity.AuthAccount)
+                .ThenInclude(account => account.RoleAssignments)
             .SingleOrDefaultAsync(
                 identity => identity.ProviderType == AuthIdentityProviderTypes.Local
                     && identity.ProviderName == LocalProviderName
@@ -174,8 +182,32 @@ internal sealed class LocalSignInService : ILocalSignInService
         {
             Status: AuthAccountStatuses.Active,
             DisabledAtUtc: null,
-            DeletedAtUtc: null
+            DeletedAtUtc: null,
+            UserProfile.DeletedAtUtc: null
         };
+    }
+
+    private static IReadOnlyList<string> SortSystemRoles(IEnumerable<string> roles)
+    {
+        var roleSet = roles.ToHashSet(StringComparer.Ordinal);
+        var orderedRoles = new List<string>(capacity: 3);
+
+        AddRoleIfPresent(roleSet, orderedRoles, SystemRoles.Owner);
+        AddRoleIfPresent(roleSet, orderedRoles, SystemRoles.Admin);
+        AddRoleIfPresent(roleSet, orderedRoles, SystemRoles.User);
+
+        return orderedRoles;
+    }
+
+    private static void AddRoleIfPresent(
+        ISet<string> roleSet,
+        ICollection<string> orderedRoles,
+        string role)
+    {
+        if (roleSet.Contains(role))
+        {
+            orderedRoles.Add(role);
+        }
     }
 
     private void RecordAttempt(
