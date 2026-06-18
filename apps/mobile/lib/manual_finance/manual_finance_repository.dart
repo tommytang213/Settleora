@@ -191,6 +191,7 @@ class SettleoraManualFinanceSummaryCurrencyRow {
     required this.currency,
     required this.activeManualAccountBalanceTotal,
     required this.expectedManualIncomeTotal,
+    required this.recurringExpectedManualIncomeTotal,
     required this.upcomingOneTimeFutureBillObligationTotal,
     required this.recurringObligationEstimateTotal,
     required this.estimatedAvailableAmount,
@@ -200,6 +201,7 @@ class SettleoraManualFinanceSummaryCurrencyRow {
   final String currency;
   final String activeManualAccountBalanceTotal;
   final String expectedManualIncomeTotal;
+  final String recurringExpectedManualIncomeTotal;
   final String upcomingOneTimeFutureBillObligationTotal;
   final String recurringObligationEstimateTotal;
   final String estimatedAvailableAmount;
@@ -313,10 +315,16 @@ String settleoraManualFinanceWarningLabel(String warning) {
   return switch (warning) {
     'doesNotIncludeBankSync' => 'No bank sync',
     'doesNotConvertCurrency' => 'No FX conversion',
+    'includesSafeRecurringManualIncomeInWindow' =>
+      'Recurring manual income included',
+    'includesPersonalRecurringBillProjectionInWindow' =>
+      'Personal recurring bills included',
     'recurringForecastNotIncluded' => 'Recurring forecast not included yet',
     'recurringManualIncomeForecastNotIncluded' =>
       'Recurring manual income forecast not included yet',
     'groupFutureBillsNotIncluded' => 'Group future bills not included yet',
+    'groupRecurringBillsNotIncluded' =>
+      'Group recurring bills not included yet',
     'includesOnlyActiveManualAccounts' =>
       'Only active manual accounts are included',
     'includesOnlyOneTimeManualIncomeInWindow' =>

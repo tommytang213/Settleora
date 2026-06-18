@@ -5718,7 +5718,7 @@ paths:
   /api/v1/manual-finance/summary:
     get:
       summary: Get manual finance availability summary
-      description: Returns a read-only current-actor manual finance availability projection grouped by currency. The API includes active manual account balance snapshots, active one-time manual income expected inside the requested window, and personal one-time future bill draft/pending obligations inside the requested window. It does not convert currencies, fetch FX rates, claim bank sync, import statements, mutate bills, mutate settlements, or calculate recurring obligations without a shared recurring forecast projection.
+      description: Returns a read-only current-actor manual finance availability projection grouped by currency. The API includes active manual account balance snapshots, active one-time manual income expected inside the requested window, safe recurring manual income occurrences inside the requested window, personal one-time future bill draft/pending obligations inside the requested window, and personal recurring bill obligation projections inside the requested window. It does not convert currencies, fetch FX rates, claim bank sync, import statements, mutate bills, mutate settlements, create recurring occurrence rows, or include group/shared future or recurring obligation math.
       operationId: getManualFinanceSummary
       security:
         - SessionBearerAuth: []
@@ -8582,6 +8582,7 @@ components:
         - currency
         - activeManualAccountBalanceTotal
         - expectedManualIncomeTotal
+        - recurringExpectedManualIncomeTotal
         - upcomingOneTimeFutureBillObligationTotal
         - recurringObligationEstimateTotal
         - estimatedAvailableAmount
@@ -8595,15 +8596,18 @@ components:
         expectedManualIncomeTotal:
           type: string
           description: Sum of active, non-archived one-time manual income rows expected in the window for this currency.
+        recurringExpectedManualIncomeTotal:
+          type: string
+          description: Sum of active, non-archived recurring manual income occurrences projected safely inside the window for this currency.
         upcomingOneTimeFutureBillObligationTotal:
           type: string
           description: Sum of current actor personal one-time future bill draft/pending obligations in the window for this currency, excluding archived/cancelled rows.
         recurringObligationEstimateTotal:
           type: string
-          description: Zero in this foundation because no shared recurring obligation projection is integrated into manual finance availability yet.
+          description: Sum of active, non-archived personal recurring bill template forecast occurrences projected inside the window for this currency. Group/shared recurring bill templates are excluded until safe current-actor share projection exists.
         estimatedAvailableAmount:
           type: string
-          description: activeManualAccountBalanceTotal plus expectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
+          description: activeManualAccountBalanceTotal plus expectedManualIncomeTotal plus recurringExpectedManualIncomeTotal minus upcomingOneTimeFutureBillObligationTotal minus recurringObligationEstimateTotal.
         warnings:
           type: array
           description: Stable per-row limitation flags.

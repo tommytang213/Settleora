@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Finance;
+using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
 
@@ -52,6 +53,7 @@ internal static class ManualFinanceEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        RecurringBillScheduleService recurringBillScheduleService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -95,15 +97,56 @@ internal static class ManualFinanceEndpoints
             .Select(income => new CurrencyAmount(income.Currency, income.Amount))
             .ToListAsync(cancellationToken);
 
+        var recurringIncomeSources = await VisibleIncomeSources(dbContext, actor.UserProfileId, trackChanges: false)
+            .Where(income => income.ArchivedAtUtc == null
+                && income.Status == ManualIncomeSourceStatuses.Active
+                && income.Cadence != ManualIncomeCadences.OneTime
+                && (income.EndDate == null || income.EndDate >= window.StartDate)
+                && income.NextExpectedDate <= window.EndDate)
+            .Select(income => new ManualIncomeProjectionSource(
+                income.Currency,
+                income.Amount,
+                income.Cadence,
+                income.NextExpectedDate,
+                income.EndDate))
+            .ToListAsync(cancellationToken);
+        var recurringIncomeRows = ProjectRecurringIncomeRows(
+            recurringIncomeSources,
+            window.StartDate,
+            window.EndDate);
+
         var futureBillRows = await VisiblePersonalOneTimeFutureBills(dbContext, actor.UserProfileId)
             .Where(bill => bill.BillDate >= window.StartDate
                 && bill.BillDate <= window.EndDate)
             .Select(bill => new CurrencyAmount(bill.TotalCurrency, bill.TotalAmount))
             .ToListAsync(cancellationToken);
 
+        var recurringBillTemplates = await VisiblePersonalRecurringBillTemplates(dbContext, actor.UserProfileId)
+            .Where(template => template.Status == RecurringBillTemplateStatuses.Active
+                && template.ArchivedAtUtc == null
+                && (template.EndDate == null || template.EndDate >= window.StartDate)
+                && template.StartDate <= window.EndDate)
+            .Select(template => new RecurringBillProjectionSource(
+                template.ForecastCurrency,
+                template.ForecastAmount,
+                template.ScheduleType,
+                template.IntervalCount,
+                template.IntervalDays,
+                template.StartDate,
+                template.EndDate,
+                template.DueOffsetDays))
+            .ToListAsync(cancellationToken);
+        var recurringBillRows = ProjectRecurringBillRows(
+            recurringBillTemplates,
+            recurringBillScheduleService,
+            window.StartDate,
+            window.EndDate);
+
         var currencies = accountRows
             .Concat(incomeRows)
+            .Concat(recurringIncomeRows)
             .Concat(futureBillRows)
+            .Concat(recurringBillRows)
             .Select(row => row.Currency)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(currency => currency, StringComparer.Ordinal)
@@ -113,20 +156,24 @@ internal static class ManualFinanceEndpoints
         {
             var accountTotal = SumByCurrency(accountRows, currency);
             var incomeTotal = SumByCurrency(incomeRows, currency);
+            var recurringIncomeTotal = SumByCurrency(recurringIncomeRows, currency);
             var obligationTotal = SumByCurrency(futureBillRows, currency);
-            var estimatedAvailable = accountTotal + incomeTotal - obligationTotal;
+            var recurringObligationTotal = SumByCurrency(recurringBillRows, currency);
+            var estimatedAvailable = accountTotal + incomeTotal + recurringIncomeTotal - obligationTotal - recurringObligationTotal;
             return new ManualFinanceSummaryCurrencyRowResponse(
                 currency,
                 FormatAmount(accountTotal),
                 FormatAmount(incomeTotal),
+                FormatAmount(recurringIncomeTotal),
                 FormatAmount(obligationTotal),
-                FormatAmount(0m),
+                FormatAmount(recurringObligationTotal),
                 FormatAmount(estimatedAvailable),
                 [
                     "doesNotConvertCurrency",
-                    "recurringForecastNotIncluded",
-                    "recurringManualIncomeForecastNotIncluded",
-                    "groupFutureBillsNotIncluded"
+                    "includesSafeRecurringManualIncomeInWindow",
+                    "includesPersonalRecurringBillProjectionInWindow",
+                    "groupFutureBillsNotIncluded",
+                    "groupRecurringBillsNotIncluded"
                 ]);
         }).ToArray();
 
@@ -140,10 +187,11 @@ internal static class ManualFinanceEndpoints
                 "doesNotConvertCurrency",
                 "includesOnlyActiveManualAccounts",
                 "includesOnlyOneTimeManualIncomeInWindow",
+                "includesSafeRecurringManualIncomeInWindow",
                 "includesOnlyPersonalOneTimeFutureBillDraftsInWindow",
-                "recurringForecastNotIncluded",
-                "recurringManualIncomeForecastNotIncluded",
-                "groupFutureBillsNotIncluded"
+                "includesPersonalRecurringBillProjectionInWindow",
+                "groupFutureBillsNotIncluded",
+                "groupRecurringBillsNotIncluded"
             ]));
     }
 
@@ -595,6 +643,106 @@ internal static class ManualFinanceEndpoints
                 && bill.ArchivedAtUtc == null
                 && (bill.Status == ExpenseBillStatuses.Draft
                     || bill.Status == ExpenseBillStatuses.PendingConfirmation));
+    }
+
+    private static IQueryable<RecurringBillTemplate> VisiblePersonalRecurringBillTemplates(
+        SettleoraDbContext dbContext,
+        Guid ownerUserProfileId)
+    {
+        return dbContext.Set<RecurringBillTemplate>()
+            .AsNoTracking()
+            .Where(template => template.GroupId == null
+                && template.OwnerUserProfileId == ownerUserProfileId
+                && template.OwnerUserProfile.DeletedAtUtc == null);
+    }
+
+    private static IReadOnlyList<CurrencyAmount> ProjectRecurringIncomeRows(
+        IReadOnlyList<ManualIncomeProjectionSource> sources,
+        DateOnly windowStartDate,
+        DateOnly windowEndDate)
+    {
+        var rows = new List<CurrencyAmount>();
+        foreach (var source in sources)
+        {
+            foreach (var expectedDate in GenerateManualIncomeOccurrences(source, windowStartDate, windowEndDate))
+            {
+                if (expectedDate >= windowStartDate && expectedDate <= windowEndDate)
+                {
+                    rows.Add(new CurrencyAmount(source.Currency, source.Amount));
+                }
+            }
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<CurrencyAmount> ProjectRecurringBillRows(
+        IReadOnlyList<RecurringBillProjectionSource> sources,
+        RecurringBillScheduleService scheduleService,
+        DateOnly windowStartDate,
+        DateOnly windowEndDate)
+    {
+        var rows = new List<CurrencyAmount>();
+        foreach (var source in sources)
+        {
+            var schedule = new RecurringBillSchedule(
+                source.ScheduleType,
+                source.IntervalCount,
+                source.IntervalDays,
+                source.StartDate,
+                source.EndDate,
+                source.DueOffsetDays);
+            foreach (var occurrence in scheduleService.GenerateOccurrences(
+                schedule,
+                windowStartDate,
+                windowEndDate,
+                RecurringBillConstraints.MaxForecastOccurrences))
+            {
+                rows.Add(new CurrencyAmount(source.Currency, source.Amount));
+            }
+        }
+
+        return rows;
+    }
+
+    private static IEnumerable<DateOnly> GenerateManualIncomeOccurrences(
+        ManualIncomeProjectionSource source,
+        DateOnly windowStartDate,
+        DateOnly windowEndDate)
+    {
+        var occurrenceDate = source.NextExpectedDate;
+        var iterationCount = 0;
+        while (occurrenceDate <= windowEndDate
+            && (source.EndDate is null || occurrenceDate <= source.EndDate.Value)
+            && iterationCount < RecurringBillConstraints.MaxScheduleIterations)
+        {
+            if (occurrenceDate >= windowStartDate)
+            {
+                yield return occurrenceDate;
+            }
+
+            var nextOccurrenceDate = NextManualIncomeOccurrenceDate(source.Cadence, occurrenceDate);
+            if (nextOccurrenceDate is null || nextOccurrenceDate.Value <= occurrenceDate)
+            {
+                yield break;
+            }
+
+            occurrenceDate = nextOccurrenceDate.Value;
+            iterationCount++;
+        }
+    }
+
+    private static DateOnly? NextManualIncomeOccurrenceDate(string cadence, DateOnly occurrenceDate)
+    {
+        return cadence switch
+        {
+            ManualIncomeCadences.Weekly => occurrenceDate.AddDays(7),
+            ManualIncomeCadences.Biweekly => occurrenceDate.AddDays(14),
+            ManualIncomeCadences.Monthly => occurrenceDate.AddMonths(1),
+            ManualIncomeCadences.Quarterly => occurrenceDate.AddMonths(3),
+            ManualIncomeCadences.Yearly => occurrenceDate.AddYears(1),
+            _ => null
+        };
     }
 
     private static async Task<RequestReadResult<AccountCreateRequest>> ReadAccountCreateRequestAsync(
@@ -1072,6 +1220,23 @@ internal static class ManualFinanceEndpoints
         string? Note);
 
     private sealed record CurrencyAmount(string Currency, decimal Amount);
+
+    private sealed record ManualIncomeProjectionSource(
+        string Currency,
+        decimal Amount,
+        string Cadence,
+        DateOnly NextExpectedDate,
+        DateOnly? EndDate);
+
+    private sealed record RecurringBillProjectionSource(
+        string Currency,
+        decimal Amount,
+        string ScheduleType,
+        int? IntervalCount,
+        int? IntervalDays,
+        DateOnly StartDate,
+        DateOnly? EndDate,
+        int? DueOffsetDays);
 
     private sealed record SummaryWindow(DateOnly StartDate, DateOnly EndDate);
 

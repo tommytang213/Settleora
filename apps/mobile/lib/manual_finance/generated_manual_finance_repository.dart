@@ -477,6 +477,8 @@ SettleoraManualFinanceSummaryCurrencyRow _mapSummaryRow(
     currency: response.currency,
     activeManualAccountBalanceTotal: response.activeManualAccountBalanceTotal,
     expectedManualIncomeTotal: response.expectedManualIncomeTotal,
+    recurringExpectedManualIncomeTotal:
+        response.recurringExpectedManualIncomeTotal,
     upcomingOneTimeFutureBillObligationTotal:
         response.upcomingOneTimeFutureBillObligationTotal,
     recurringObligationEstimateTotal: response.recurringObligationEstimateTotal,

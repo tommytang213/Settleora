@@ -11,6 +11,7 @@ internal sealed record ManualFinanceSummaryCurrencyRowResponse(
     string Currency,
     string ActiveManualAccountBalanceTotal,
     string ExpectedManualIncomeTotal,
+    string RecurringExpectedManualIncomeTotal,
     string UpcomingOneTimeFutureBillObligationTotal,
     string RecurringObligationEstimateTotal,
     string EstimatedAvailableAmount,
