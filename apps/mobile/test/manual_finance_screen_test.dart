@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/manual_finance/manual_finance_repository.dart';
@@ -12,17 +14,78 @@ void main() {
     await pumpScreen(tester, repository);
 
     expect(find.text('Accounts & income'), findsOneWidget);
-    expect(find.text('Cash Wallet'), findsOneWidget);
-    expect(find.text('123.45 HKD'), findsOneWidget);
-    expect(find.text('Salary'), findsOneWidget);
-    expect(find.text('5000.00 HKD'), findsOneWidget);
+    expect(find.text('Available estimate'), findsOneWidget);
+    expect(find.textContaining('Manual estimate only'), findsOneWidget);
+    expect(find.text('Manual account balance'), findsOneWidget);
+    expect(find.text('Expected one-time income'), findsOneWidget);
+    expect(find.text('Upcoming future bills'), findsOneWidget);
+    expect(find.text('Estimated available'), findsOneWidget);
+    expect(find.text('250.00 HKD'), findsOneWidget);
+    expect(find.text('4873.45 HKD'), findsOneWidget);
+    expect(find.text('No FX conversion'), findsOneWidget);
+    expect(find.text('Recurring forecast not included yet'), findsOneWidget);
+    expect(find.text('Group future bills not included yet'), findsOneWidget);
     expect(find.textContaining('not bank sync'), findsOneWidget);
-    expect(find.textContaining('payroll sync'), findsOneWidget);
+    expect(find.textContaining('No bank sync'), findsWidgets);
+    expect(find.textContaining('payroll sync'), findsWidgets);
     expect(find.textContaining('available-spend math'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Cash Wallet'), 300);
+    expect(find.text('Cash Wallet'), findsOneWidget);
+    expect(find.text('123.45 HKD'), findsWidgets);
+    await tester.scrollUntilVisible(find.text('Salary'), 300);
+    expect(find.text('Salary'), findsOneWidget);
+    expect(find.text('5000.00 HKD'), findsWidgets);
     expect(
       find.textContaining('Manual balance totals: 123.45 HKD'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('shows loading and empty summary states', (tester) async {
+    final completer = Completer<SettleoraManualFinanceSummary>();
+    final loadingRepository = FakeManualFinanceRepository(
+      summaryCompleter: completer,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraManualFinanceScreen(repository: loadingRepository),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Loading available estimate'), findsOneWidget);
+
+    completer.complete(sampleSummary(currencies: const []));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Available estimate'), findsOneWidget);
+    expect(
+      find.textContaining('Add manual accounts, one-time expected income'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('changes available estimate window', (tester) async {
+    final repository = FakeManualFinanceRepository();
+
+    await pumpScreen(tester, repository);
+
+    expect(repository.summaryCalls, 1);
+    expect(repository.lastWindowStartDate, isNull);
+    expect(repository.lastWindowEndDate, isNull);
+
+    await tester.tap(find.text('90d'));
+    await tester.pumpAndSettle();
+
+    expect(repository.summaryCalls, 2);
+    expect(repository.lastWindowStartDate, isNotNull);
+    expect(repository.lastWindowEndDate, isNotNull);
+    expect(
+      find.textContaining(repository.lastWindowStartDate!),
+      findsOneWidget,
+    );
+    expect(find.textContaining(repository.lastWindowEndDate!), findsOneWidget);
   });
 
   testWidgets('creates account and income source', (tester) async {
@@ -33,6 +96,10 @@ void main() {
 
     await pumpScreen(tester, repository);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-finance-add-account')),
+      300,
+    );
     await tester.tap(find.byKey(const Key('manual-finance-add-account')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -57,6 +124,10 @@ void main() {
     expect(repository.createdAccountDraft?.displayName, 'Bank');
     expect(find.text('Bank'), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-finance-add-income')),
+      300,
+    );
     await tester.tap(find.byKey(const Key('manual-finance-add-income')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -87,6 +158,10 @@ void main() {
 
     await pumpScreen(tester, repository);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-finance-edit-account-0')),
+      300,
+    );
     await tester.tap(find.byKey(const Key('manual-finance-edit-account-0')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -131,6 +206,10 @@ void main() {
 
     await pumpScreen(tester, repository);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-finance-archive-account-0')),
+      300,
+    );
     await tester.tap(find.byKey(const Key('manual-finance-archive-account-0')));
     await tester.pumpAndSettle();
     expect(find.text('Archive manual account?'), findsOneWidget);
@@ -140,6 +219,10 @@ void main() {
     expect(repository.archiveAccountCalls, 1);
     expect(find.text('Cash Wallet'), findsNothing);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-finance-archive-income-0')),
+      300,
+    );
     await tester.tap(find.byKey(const Key('manual-finance-archive-income-0')));
     await tester.pumpAndSettle();
     expect(find.text('Archive income source?'), findsOneWidget);
@@ -173,6 +256,8 @@ Future<void> pumpScreen(
   WidgetTester tester,
   FakeManualFinanceRepository repository,
 ) async {
+  await tester.binding.setSurfaceSize(const Size(430, 1200));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MaterialApp(
       home: SettleoraManualFinanceScreen(
@@ -189,6 +274,7 @@ class FakeManualFinanceRepository implements SettleoraManualFinanceRepository {
     List<SettleoraManualFinancialAccount>? accounts,
     List<SettleoraManualIncomeSource>? incomeSources,
     this.listFailure,
+    this.summaryCompleter,
   }) : accounts = [...?accounts, if (accounts == null) sampleAccount()],
        incomeSources = [
          ...?incomeSources,
@@ -198,6 +284,8 @@ class FakeManualFinanceRepository implements SettleoraManualFinanceRepository {
   final List<SettleoraManualFinancialAccount> accounts;
   final List<SettleoraManualIncomeSource> incomeSources;
   final Object? listFailure;
+  final Completer<SettleoraManualFinanceSummary>? summaryCompleter;
+  int summaryCalls = 0;
   int createAccountCalls = 0;
   int updateAccountCalls = 0;
   int archiveAccountCalls = 0;
@@ -208,6 +296,30 @@ class FakeManualFinanceRepository implements SettleoraManualFinanceRepository {
   SettleoraManualFinancialAccountDraft? updatedAccountDraft;
   SettleoraManualIncomeSourceDraft? createdIncomeDraft;
   SettleoraManualIncomeSourceDraft? updatedIncomeDraft;
+  String? lastWindowStartDate;
+  String? lastWindowEndDate;
+
+  @override
+  Future<SettleoraManualFinanceSummary> getSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+  }) async {
+    final failure = listFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    summaryCalls += 1;
+    lastWindowStartDate = windowStartDate;
+    lastWindowEndDate = windowEndDate;
+    final completer = summaryCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
+    return sampleSummary(
+      windowStartDate: windowStartDate ?? '2026-06-18',
+      windowEndDate: windowEndDate ?? '2026-08-17',
+    );
+  }
 
   @override
   Future<List<SettleoraManualFinancialAccount>> listAccounts({
@@ -373,5 +485,40 @@ SettleoraManualIncomeSource sampleIncome({
     createdAtUtc: DateTime.utc(2026, 6, 18),
     updatedAtUtc: DateTime.utc(2026, 6, 18, 1),
     archivedAtUtc: archivedAtUtc,
+  );
+}
+
+SettleoraManualFinanceSummary sampleSummary({
+  String windowStartDate = '2026-06-18',
+  String windowEndDate = '2026-08-17',
+  List<SettleoraManualFinanceSummaryCurrencyRow>? currencies,
+}) {
+  return SettleoraManualFinanceSummary(
+    asOfUtc: DateTime.utc(2026, 6, 18, 1),
+    windowStartDate: windowStartDate,
+    windowEndDate: windowEndDate,
+    currencies:
+        currencies ??
+        const [
+          SettleoraManualFinanceSummaryCurrencyRow(
+            currency: 'HKD',
+            activeManualAccountBalanceTotal: '123.45',
+            expectedManualIncomeTotal: '5000.00',
+            upcomingOneTimeFutureBillObligationTotal: '250.00',
+            recurringObligationEstimateTotal: '0.00',
+            estimatedAvailableAmount: '4873.45',
+            warnings: [
+              'doesNotConvertCurrency',
+              'recurringForecastNotIncluded',
+              'groupFutureBillsNotIncluded',
+            ],
+          ),
+        ],
+    warnings: const [
+      'doesNotIncludeBankSync',
+      'doesNotConvertCurrency',
+      'recurringForecastNotIncluded',
+      'groupFutureBillsNotIncluded',
+    ],
   );
 }

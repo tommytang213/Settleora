@@ -43,6 +43,45 @@ void main() {
       expect(client.accessTokens, ['redacted', 'redacted']);
     });
 
+    test(
+      'maps summary endpoint and warning flags into mobile models',
+      () async {
+        final client = FakeManualFinanceGeneratedClient();
+        final repository = GeneratedSettleoraManualFinanceRepository(
+          client: client,
+          accessTokenProvider: FakeAccessTokenProvider(' redacted '),
+        );
+
+        final summary = await repository.getSummary(
+          windowStartDate: ' 2026-06-18 ',
+          windowEndDate: ' 2026-08-17 ',
+        );
+
+        expect(summary.windowStartDate, '2026-06-18');
+        expect(summary.windowEndDate, '2026-08-17');
+        expect(summary.warnings, contains('doesNotIncludeBankSync'));
+        expect(summary.warnings, contains('groupFutureBillsNotIncluded'));
+        expect(summary.currencies.single.currency, 'HKD');
+        expect(
+          summary.currencies.single.activeManualAccountBalanceTotal,
+          '123.45',
+        );
+        expect(summary.currencies.single.expectedManualIncomeTotal, '5000.00');
+        expect(
+          summary.currencies.single.upcomingOneTimeFutureBillObligationTotal,
+          '250.00',
+        );
+        expect(summary.currencies.single.estimatedAvailableAmount, '4873.45');
+        expect(
+          summary.currencies.single.warnings,
+          contains('recurringForecastNotIncluded'),
+        );
+        expect(client.lastSummaryWindowStartDate, '2026-06-18');
+        expect(client.lastSummaryWindowEndDate, '2026-08-17');
+        expect(client.accessTokens, ['redacted']);
+      },
+    );
+
     test('creates, updates, and archives manual account and income', () async {
       final client = FakeManualFinanceGeneratedClient();
       final repository = GeneratedSettleoraManualFinanceRepository(
@@ -162,6 +201,7 @@ class FakeManualFinanceGeneratedClient
   final Object? listAccountError;
   final accessTokens = <String>[];
   int listAccountCalls = 0;
+  int getSummaryCalls = 0;
   int createAccountCalls = 0;
   int updateAccountCalls = 0;
   int archiveAccountCalls = 0;
@@ -171,12 +211,30 @@ class FakeManualFinanceGeneratedClient
   int archiveIncomeCalls = 0;
   bool? lastIncludeArchivedAccounts;
   bool? lastIncludeArchivedIncome;
+  String? lastSummaryWindowStartDate;
+  String? lastSummaryWindowEndDate;
   String? lastAccountId;
   String? lastIncomeId;
   api.CreateManualFinancialAccountRequest? lastCreateAccount;
   api.UpdateManualFinancialAccountRequest? lastUpdateAccount;
   api.CreateManualIncomeSourceRequest? lastCreateIncome;
   api.UpdateManualIncomeSourceRequest? lastUpdateIncome;
+
+  @override
+  Future<api.ManualFinanceSummaryResponse> getManualFinanceSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+    required String accessToken,
+  }) async {
+    getSummaryCalls += 1;
+    accessTokens.add(accessToken);
+    lastSummaryWindowStartDate = windowStartDate;
+    lastSummaryWindowEndDate = windowEndDate;
+    return sampleSummary(
+      windowStartDate: windowStartDate ?? '2026-06-18',
+      windowEndDate: windowEndDate ?? '2026-08-17',
+    );
+  }
 
   @override
   Future<api.ManualFinancialAccountListResponse> listManualFinancialAccounts({
@@ -318,6 +376,38 @@ api.ManualIncomeSourceResponse sampleIncome({
     archivedAtUtc: status == api.ManualIncomeSourceStatusValues.archived
         ? DateTime.utc(2026, 6, 19)
         : null,
+  );
+}
+
+api.ManualFinanceSummaryResponse sampleSummary({
+  String windowStartDate = '2026-06-18',
+  String windowEndDate = '2026-08-17',
+}) {
+  return api.ManualFinanceSummaryResponse(
+    asOfUtc: DateTime.utc(2026, 6, 18, 1),
+    windowStartDate: windowStartDate,
+    windowEndDate: windowEndDate,
+    currencies: const [
+      api.ManualFinanceSummaryCurrencyRow(
+        currency: 'HKD',
+        activeManualAccountBalanceTotal: '123.45',
+        expectedManualIncomeTotal: '5000.00',
+        upcomingOneTimeFutureBillObligationTotal: '250.00',
+        recurringObligationEstimateTotal: '0.00',
+        estimatedAvailableAmount: '4873.45',
+        warnings: [
+          'doesNotConvertCurrency',
+          'recurringForecastNotIncluded',
+          'groupFutureBillsNotIncluded',
+        ],
+      ),
+    ],
+    warnings: const [
+      'doesNotIncludeBankSync',
+      'doesNotConvertCurrency',
+      'recurringForecastNotIncluded',
+      'groupFutureBillsNotIncluded',
+    ],
   );
 }
 

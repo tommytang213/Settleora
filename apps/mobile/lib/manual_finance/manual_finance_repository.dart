@@ -170,6 +170,42 @@ class SettleoraManualIncomeSource {
       archivedAtUtc != null;
 }
 
+class SettleoraManualFinanceSummary {
+  const SettleoraManualFinanceSummary({
+    required this.asOfUtc,
+    required this.windowStartDate,
+    required this.windowEndDate,
+    required this.currencies,
+    required this.warnings,
+  });
+
+  final DateTime asOfUtc;
+  final String windowStartDate;
+  final String windowEndDate;
+  final List<SettleoraManualFinanceSummaryCurrencyRow> currencies;
+  final List<String> warnings;
+}
+
+class SettleoraManualFinanceSummaryCurrencyRow {
+  const SettleoraManualFinanceSummaryCurrencyRow({
+    required this.currency,
+    required this.activeManualAccountBalanceTotal,
+    required this.expectedManualIncomeTotal,
+    required this.upcomingOneTimeFutureBillObligationTotal,
+    required this.recurringObligationEstimateTotal,
+    required this.estimatedAvailableAmount,
+    required this.warnings,
+  });
+
+  final String currency;
+  final String activeManualAccountBalanceTotal;
+  final String expectedManualIncomeTotal;
+  final String upcomingOneTimeFutureBillObligationTotal;
+  final String recurringObligationEstimateTotal;
+  final String estimatedAvailableAmount;
+  final List<String> warnings;
+}
+
 class SettleoraManualFinancialAccountDraft {
   const SettleoraManualFinancialAccountDraft({
     required this.displayName,
@@ -211,6 +247,11 @@ class SettleoraManualIncomeSourceDraft {
 }
 
 abstract interface class SettleoraManualFinanceRepository {
+  Future<SettleoraManualFinanceSummary> getSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+  });
+
   Future<List<SettleoraManualFinancialAccount>> listAccounts({
     bool includeArchived = false,
   });
@@ -265,6 +306,24 @@ String settleoraManualIncomeCadenceLabel(SettleoraManualIncomeCadence cadence) {
     SettleoraManualIncomeCadenceValues.quarterly => 'Quarterly',
     SettleoraManualIncomeCadenceValues.yearly => 'Yearly',
     _ => _labelFromToken(cadence),
+  };
+}
+
+String settleoraManualFinanceWarningLabel(String warning) {
+  return switch (warning) {
+    'doesNotIncludeBankSync' => 'No bank sync',
+    'doesNotConvertCurrency' => 'No FX conversion',
+    'recurringForecastNotIncluded' => 'Recurring forecast not included yet',
+    'recurringManualIncomeForecastNotIncluded' =>
+      'Recurring manual income forecast not included yet',
+    'groupFutureBillsNotIncluded' => 'Group future bills not included yet',
+    'includesOnlyActiveManualAccounts' =>
+      'Only active manual accounts are included',
+    'includesOnlyOneTimeManualIncomeInWindow' =>
+      'Only one-time manual income in this window is included',
+    'includesOnlyPersonalOneTimeFutureBillDraftsInWindow' =>
+      'Only personal one-time future bills in this window are included',
+    _ => _labelFromToken(warning),
   };
 }
 

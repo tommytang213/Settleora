@@ -26,7 +26,9 @@ class _SettleoraManualFinanceScreenState
     extends State<SettleoraManualFinanceScreen> {
   bool _isLoading = true;
   bool _showArchived = false;
+  int _summaryWindowDays = 60;
   SettleoraManualFinanceFailure? _failure;
+  SettleoraManualFinanceSummary? _summary;
   List<SettleoraManualFinancialAccount> _accounts = const [];
   List<SettleoraManualIncomeSource> _incomeSources = const [];
 
@@ -43,7 +45,12 @@ class _SettleoraManualFinanceScreenState
     });
 
     try {
+      final window = _summaryWindow();
       final results = await Future.wait<Object>([
+        widget.repository.getSummary(
+          windowStartDate: window.$1,
+          windowEndDate: window.$2,
+        ),
         widget.repository.listAccounts(includeArchived: _showArchived),
         widget.repository.listIncomeSources(includeArchived: _showArchived),
       ]);
@@ -52,8 +59,9 @@ class _SettleoraManualFinanceScreenState
       }
 
       setState(() {
-        _accounts = results[0] as List<SettleoraManualFinancialAccount>;
-        _incomeSources = results[1] as List<SettleoraManualIncomeSource>;
+        _summary = results[0] as SettleoraManualFinanceSummary;
+        _accounts = results[1] as List<SettleoraManualFinancialAccount>;
+        _incomeSources = results[2] as List<SettleoraManualIncomeSource>;
         _isLoading = false;
       });
     } catch (error) {
@@ -66,6 +74,27 @@ class _SettleoraManualFinanceScreenState
         _isLoading = false;
       });
     }
+  }
+
+  (String?, String?) _summaryWindow() {
+    if (_summaryWindowDays == 60) {
+      return (null, null);
+    }
+
+    final start = DateTime.now().toUtc();
+    final end = start.add(Duration(days: _summaryWindowDays));
+    return (_isoDate(start), _isoDate(end));
+  }
+
+  Future<void> _setSummaryWindowDays(int days) async {
+    if (_summaryWindowDays == days) {
+      return;
+    }
+
+    setState(() {
+      _summaryWindowDays = days;
+    });
+    await _load();
   }
 
   Future<void> _setShowArchived(bool value) async {
@@ -222,12 +251,18 @@ class _SettleoraManualFinanceScreenState
                 const SizedBox(height: 32),
                 const Center(child: CircularProgressIndicator()),
                 const SizedBox(height: 12),
-                const Center(child: Text('Loading accounts and income')),
+                const Center(child: Text('Loading available estimate')),
               ] else if (_failure != null) ...[
                 const SizedBox(height: 12),
                 _ManualFinanceFailureCard(failure: _failure!, onRetry: _load),
               ] else ...[
                 const SizedBox(height: 12),
+                _AvailableEstimateSection(
+                  summary: _summary!,
+                  selectedWindowDays: _summaryWindowDays,
+                  onWindowChanged: _setSummaryWindowDays,
+                ),
+                const SizedBox(height: 16),
                 _ManualAccountsSection(
                   accounts: _accounts,
                   onCreate: () => _openAccountForm(),
@@ -246,6 +281,191 @@ class _SettleoraManualFinanceScreenState
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AvailableEstimateSection extends StatelessWidget {
+  const _AvailableEstimateSection({
+    required this.summary,
+    required this.selectedWindowDays,
+    required this.onWindowChanged,
+  });
+
+  final SettleoraManualFinanceSummary summary;
+  final int selectedWindowDays;
+  final ValueChanged<int> onWindowChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final warningLabels = summary.warnings
+        .map(settleoraManualFinanceWarningLabel)
+        .toSet()
+        .toList(growable: false);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Available estimate',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Manual estimate only - ${summary.windowStartDate} to ${summary.windowEndDate}',
+                      style: TextStyle(
+                        color: context.settleoraColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SegmentedButton<int>(
+                key: const Key('manual-finance-summary-window'),
+                segments: const [
+                  ButtonSegment(value: 30, label: Text('30d')),
+                  ButtonSegment(value: 60, label: Text('60d')),
+                  ButtonSegment(value: 90, label: Text('90d')),
+                ],
+                selected: {selectedWindowDays},
+                onSelectionChanged: (values) => onWindowChanged(values.single),
+                showSelectedIcon: false,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'No bank sync. This is not a payroll sync, bank balance, or available-to-spend guarantee.',
+            style: TextStyle(color: context.settleoraColors.textMuted),
+          ),
+          const SizedBox(height: 12),
+          if (summary.currencies.isEmpty)
+            const Text(
+              'Add manual accounts, one-time expected income, and upcoming future bills to make this estimate useful.',
+            )
+          else
+            for (var index = 0; index < summary.currencies.length; index += 1)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == summary.currencies.length - 1 ? 0 : 10,
+                ),
+                child: _AvailableEstimateCurrencyCard(
+                  row: summary.currencies[index],
+                ),
+              ),
+          if (warningLabels.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final label in warningLabels)
+                  Chip(
+                    label: Text(label),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AvailableEstimateCurrencyCard extends StatelessWidget {
+  const _AvailableEstimateCurrencyCard({required this.row});
+
+  final SettleoraManualFinanceSummaryCurrencyRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final rowWarnings = row.warnings
+        .map(settleoraManualFinanceWarningLabel)
+        .toSet()
+        .toList(growable: false);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: context.settleoraColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(row.currency, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _SummaryAmountLine(
+              label: 'Manual account balance',
+              amount: row.activeManualAccountBalanceTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Expected one-time income',
+              amount: row.expectedManualIncomeTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Upcoming future bills',
+              amount: row.upcomingOneTimeFutureBillObligationTotal,
+              currency: row.currency,
+            ),
+            _SummaryAmountLine(
+              label: 'Estimated available',
+              amount: row.estimatedAvailableAmount,
+              currency: row.currency,
+              emphasized: true,
+            ),
+            if (rowWarnings.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                rowWarnings.join(' - '),
+                style: TextStyle(color: context.settleoraColors.textMuted),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryAmountLine extends StatelessWidget {
+  const _SummaryAmountLine({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = emphasized
+        ? Theme.of(context).textTheme.titleMedium
+        : Theme.of(context).textTheme.bodyMedium;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text('$amount $currency', style: style),
+        ],
       ),
     );
   }
@@ -1074,8 +1294,12 @@ String? _linkedAccountName(
 }
 
 String _todayIsoDate() {
-  final now = DateTime.now();
-  return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  return _isoDate(DateTime.now().toUtc());
+}
+
+String _isoDate(DateTime value) {
+  final utc = value.toUtc();
+  return '${utc.year.toString().padLeft(4, '0')}-${utc.month.toString().padLeft(2, '0')}-${utc.day.toString().padLeft(2, '0')}';
 }
 
 String? _required(String? value) {

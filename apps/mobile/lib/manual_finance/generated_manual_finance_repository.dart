@@ -7,6 +7,12 @@ import '../api/settleora_api_client.dart';
 import 'manual_finance_repository.dart';
 
 abstract interface class SettleoraManualFinanceGeneratedClient {
+  Future<api.ManualFinanceSummaryResponse> getManualFinanceSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+    required String accessToken,
+  });
+
   Future<api.ManualFinancialAccountListResponse> listManualFinancialAccounts({
     bool? includeArchived,
     required String accessToken,
@@ -55,6 +61,19 @@ class SettleoraGeneratedManualFinanceClient
   const SettleoraGeneratedManualFinanceClient(this._client);
 
   final api.SettleoraApiClient _client;
+
+  @override
+  Future<api.ManualFinanceSummaryResponse> getManualFinanceSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+    required String accessToken,
+  }) {
+    return _client.getManualFinanceSummary(
+      windowStartDate: windowStartDate,
+      windowEndDate: windowEndDate,
+      accessToken: accessToken,
+    );
+  }
 
   @override
   Future<api.ManualFinancialAccountListResponse> listManualFinancialAccounts({
@@ -167,6 +186,28 @@ class GeneratedSettleoraManualFinanceRepository
 
   final SettleoraManualFinanceGeneratedClient _client;
   final SettleoraAccessTokenProvider _accessTokenProvider;
+
+  @override
+  Future<SettleoraManualFinanceSummary> getSummary({
+    String? windowStartDate,
+    String? windowEndDate,
+  }) {
+    return _withAccessToken((accessToken) async {
+      try {
+        return _mapSummary(
+          await _client.getManualFinanceSummary(
+            windowStartDate: _optionalIsoDate(windowStartDate),
+            windowEndDate: _optionalIsoDate(windowEndDate),
+            accessToken: accessToken,
+          ),
+        );
+      } on SettleoraManualFinanceFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
 
   @override
   Future<List<SettleoraManualFinancialAccount>> listAccounts({
@@ -414,6 +455,33 @@ api.UpdateManualIncomeSourceRequest _incomeUpdateRequest(
     endDate: _optionalIsoDate(draft.endDate),
     manualFinancialAccountId: _optionalId(draft.manualFinancialAccountId),
     note: _optionalText(draft.note),
+  );
+}
+
+SettleoraManualFinanceSummary _mapSummary(
+  api.ManualFinanceSummaryResponse response,
+) {
+  return SettleoraManualFinanceSummary(
+    asOfUtc: response.asOfUtc,
+    windowStartDate: response.windowStartDate,
+    windowEndDate: response.windowEndDate,
+    currencies: response.currencies.map(_mapSummaryRow).toList(growable: false),
+    warnings: response.warnings,
+  );
+}
+
+SettleoraManualFinanceSummaryCurrencyRow _mapSummaryRow(
+  api.ManualFinanceSummaryCurrencyRow response,
+) {
+  return SettleoraManualFinanceSummaryCurrencyRow(
+    currency: response.currency,
+    activeManualAccountBalanceTotal: response.activeManualAccountBalanceTotal,
+    expectedManualIncomeTotal: response.expectedManualIncomeTotal,
+    upcomingOneTimeFutureBillObligationTotal:
+        response.upcomingOneTimeFutureBillObligationTotal,
+    recurringObligationEstimateTotal: response.recurringObligationEstimateTotal,
+    estimatedAvailableAmount: response.estimatedAvailableAmount,
+    warnings: response.warnings,
   );
 }
 
