@@ -1315,6 +1315,7 @@ class RecurringBillTemplateResponse {
     required this.schedule,
     required this.forecastAmount,
     required this.forecastCurrency,
+    required this.billPayload,
     required this.nextOccurrenceDate,
     required this.payloadVersion,
     required this.createdAtUtc,
@@ -1332,6 +1333,8 @@ class RecurringBillTemplateResponse {
   /// Decimal-safe forecast estimate represented as a string.
   final String forecastAmount;
   final CurrencyCode forecastCurrency;
+  /// Safe, bounded editable template bill payload. This is an API-authored view of supported template fields, not raw stored payload JSON.
+  final RecurringBillTemplatePayload? billPayload;
   final String? nextOccurrenceDate;
   final int payloadVersion;
   final DateTime createdAtUtc;
@@ -1349,6 +1352,7 @@ class RecurringBillTemplateResponse {
       schedule: RecurringBillScheduleResponse.fromJson(JsonObject.from(json["schedule"] as Map)),
       forecastAmount: json["forecastAmount"] as String,
       forecastCurrency: json["forecastCurrency"] as String,
+      billPayload: json["billPayload"] == null ? null : RecurringBillTemplatePayload.fromJson(JsonObject.from(json["billPayload"] as Map)),
       nextOccurrenceDate: json["nextOccurrenceDate"] == null ? null : json["nextOccurrenceDate"] as String,
       payloadVersion: (json["payloadVersion"] as num).toInt(),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
@@ -1361,6 +1365,7 @@ class RecurringBillTemplateResponse {
     final groupIdJsonValue = groupId;
     final merchantNameJsonValue = merchantName;
     final descriptionJsonValue = description;
+    final billPayloadJsonValue = billPayload;
     final nextOccurrenceDateJsonValue = nextOccurrenceDate;
     final archivedAtUtcJsonValue = archivedAtUtc;
 
@@ -1374,6 +1379,7 @@ class RecurringBillTemplateResponse {
       "schedule": schedule.toJson(),
       "forecastAmount": forecastAmount,
       "forecastCurrency": forecastCurrency,
+      "billPayload": billPayloadJsonValue == null ? null : billPayloadJsonValue.toJson(),
       "nextOccurrenceDate": nextOccurrenceDateJsonValue,
       "payloadVersion": payloadVersion,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),

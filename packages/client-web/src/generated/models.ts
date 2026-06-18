@@ -448,6 +448,10 @@ export interface RecurringBillTemplateResponse {
    */
   forecastAmount: string;
   forecastCurrency: CurrencyCode;
+  /**
+   * Safe, bounded editable template bill payload. This is an API-authored view of supported template fields, not raw stored payload JSON.
+   */
+  billPayload: RecurringBillTemplatePayload | null;
   nextOccurrenceDate: string | null;
   payloadVersion: number;
   createdAtUtc: string;

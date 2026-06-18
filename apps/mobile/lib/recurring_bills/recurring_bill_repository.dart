@@ -156,9 +156,87 @@ class SettleoraRecurringBillTemplateDetail
     required super.archivedAtUtc,
     required super.isGroupScoped,
     required this.payloadVersion,
+    this.billPayload,
   });
 
   final int payloadVersion;
+  final SettleoraRecurringBillTemplatePayload? billPayload;
+}
+
+class SettleoraRecurringBillTemplatePayload {
+  const SettleoraRecurringBillTemplatePayload({
+    required this.currency,
+    required this.items,
+    required this.adjustments,
+    required this.payers,
+  });
+
+  final String currency;
+  final List<SettleoraRecurringBillTemplatePayloadItem> items;
+  final List<SettleoraRecurringBillTemplatePayloadAdjustment> adjustments;
+  final List<SettleoraRecurringBillTemplatePayloadPayer> payers;
+}
+
+class SettleoraRecurringBillTemplatePayloadItem {
+  const SettleoraRecurringBillTemplatePayloadItem({
+    required this.name,
+    required this.note,
+    required this.amount,
+    required this.currency,
+    required this.splits,
+  });
+
+  final String name;
+  final String? note;
+  final String amount;
+  final String currency;
+  final List<SettleoraRecurringBillTemplatePayloadItemSplit> splits;
+}
+
+class SettleoraRecurringBillTemplatePayloadItemSplit {
+  const SettleoraRecurringBillTemplatePayloadItemSplit({
+    required this.userProfileId,
+    required this.splitMethod,
+    required this.basisValue,
+    required this.allocationOrder,
+  });
+
+  final String userProfileId;
+  final String splitMethod;
+  final String? basisValue;
+  final int allocationOrder;
+}
+
+class SettleoraRecurringBillTemplatePayloadAdjustment {
+  const SettleoraRecurringBillTemplatePayloadAdjustment({
+    required this.type,
+    required this.direction,
+    required this.allocationMethod,
+    required this.amount,
+    required this.currency,
+    required this.reasonNote,
+  });
+
+  final String type;
+  final String direction;
+  final String allocationMethod;
+  final String amount;
+  final String currency;
+  final String? reasonNote;
+}
+
+class SettleoraRecurringBillTemplatePayloadPayer {
+  const SettleoraRecurringBillTemplatePayloadPayer({
+    required this.userProfileId,
+    required this.amount,
+    required this.currency,
+    required this.paymentMethodLabelSnapshot,
+  });
+
+  final String userProfileId;
+  final String amount;
+  final String currency;
+  final String? paymentMethodLabelSnapshot;
 }
 
 class SettleoraRecurringBillForecastOccurrence {

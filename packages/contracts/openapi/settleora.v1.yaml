@@ -7730,6 +7730,7 @@ components:
         - schedule
         - forecastAmount
         - forecastCurrency
+        - billPayload
         - nextOccurrenceDate
         - payloadVersion
         - createdAtUtc
@@ -7766,6 +7767,11 @@ components:
           description: Decimal-safe forecast estimate represented as a string.
         forecastCurrency:
           $ref: "#/components/schemas/CurrencyCode"
+        billPayload:
+          oneOf:
+            - $ref: "#/components/schemas/RecurringBillTemplatePayload"
+            - type: "null"
+          description: Safe, bounded editable template bill payload. This is an API-authored view of supported template fields, not raw stored payload JSON.
         nextOccurrenceDate:
           oneOf:
             - type: string

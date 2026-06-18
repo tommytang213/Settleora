@@ -612,6 +612,61 @@ SettleoraRecurringBillTemplateDetail _mapTemplateDetail(
     archivedAtUtc: response.archivedAtUtc?.toUtc(),
     isGroupScoped: response.groupId != null,
     payloadVersion: response.payloadVersion,
+    billPayload: _mapTemplatePayload(response.billPayload),
+  );
+}
+
+SettleoraRecurringBillTemplatePayload? _mapTemplatePayload(
+  api.RecurringBillTemplatePayload? response,
+) {
+  if (response == null) {
+    return null;
+  }
+
+  return SettleoraRecurringBillTemplatePayload(
+    currency: response.currency,
+    items: response.items
+        .map(
+          (item) => SettleoraRecurringBillTemplatePayloadItem(
+            name: item.name,
+            note: item.note,
+            amount: item.amount,
+            currency: item.currency ?? response.currency,
+            splits: (item.splits ?? const [])
+                .map(
+                  (split) => SettleoraRecurringBillTemplatePayloadItemSplit(
+                    userProfileId: split.userProfileId,
+                    splitMethod: split.splitMethod,
+                    basisValue: split.basisValue,
+                    allocationOrder: split.allocationOrder ?? 0,
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        )
+        .toList(growable: false),
+    adjustments: (response.adjustments ?? const [])
+        .map(
+          (adjustment) => SettleoraRecurringBillTemplatePayloadAdjustment(
+            type: adjustment.type,
+            direction: adjustment.direction,
+            allocationMethod: adjustment.allocationMethod,
+            amount: adjustment.amount,
+            currency: adjustment.currency ?? response.currency,
+            reasonNote: adjustment.reasonNote,
+          ),
+        )
+        .toList(growable: false),
+    payers: (response.payers ?? const [])
+        .map(
+          (payer) => SettleoraRecurringBillTemplatePayloadPayer(
+            userProfileId: payer.userProfileId,
+            amount: payer.amount,
+            currency: payer.currency ?? response.currency,
+            paymentMethodLabelSnapshot: payer.paymentMethodLabelSnapshot,
+          ),
+        )
+        .toList(growable: false),
   );
 }
 

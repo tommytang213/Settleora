@@ -273,8 +273,23 @@ internal static class RecurringBillEndpoints
         }
 
         var patchRequest = patchResult.Request;
+        RecurringBillTemplatePayload? patchPayload = null;
+        if (patchRequest.BillPayloadElement is not null)
+        {
+            var payloadReadResult = RecurringBillTemplatePayloadReader.Read(
+                patchRequest.BillPayloadElement.Value,
+                template.GroupId is not null,
+                new Dictionary<string, List<string>>(StringComparer.Ordinal));
+            if (!payloadReadResult.Succeeded || payloadReadResult.Payload is null)
+            {
+                return InvalidRecurringBillRequest(payloadReadResult.Errors);
+            }
+
+            patchPayload = payloadReadResult.Payload;
+        }
+
         var nextSchedule = patchRequest.Schedule ?? CreateSchedule(template);
-        var nextPayload = patchRequest.Payload ?? existingPayload;
+        var nextPayload = patchPayload ?? existingPayload;
         var activeMemberIds = template.GroupId is null
             ? null
             : await LoadActiveGroupMemberIdsAsync(dbContext, template.GroupId.Value, cancellationToken);
@@ -860,11 +875,54 @@ internal static class RecurringBillEndpoints
                 template.DueOffsetDays),
             FormatAmount(template.ForecastAmount),
             template.ForecastCurrency,
+            MapPayloadResponse(template.PayloadJson),
             template.NextOccurrenceDate,
             template.PayloadVersion,
             template.CreatedAtUtc,
             template.UpdatedAtUtc,
             template.ArchivedAtUtc);
+    }
+
+    private static RecurringBillTemplatePayloadResponse? MapPayloadResponse(string payloadJson)
+    {
+        var payload = RecurringBillTemplatePayloadCodec.Deserialize(payloadJson);
+        return payload is null ? null : MapPayloadResponse(payload);
+    }
+
+    private static RecurringBillTemplatePayloadResponse MapPayloadResponse(RecurringBillTemplatePayload payload)
+    {
+        return new RecurringBillTemplatePayloadResponse(
+            payload.Currency,
+            payload.Items
+                .Select(item => new RecurringBillTemplatePayloadItemResponse(
+                    item.Name,
+                    item.Note,
+                    FormatAmount(item.Amount),
+                    item.Currency,
+                    item.Splits
+                        .Select(split => new RecurringBillTemplatePayloadItemSplitResponse(
+                            split.UserProfileId,
+                            split.SplitMethod,
+                            split.BasisValue is null ? null : FormatAmount(split.BasisValue.Value),
+                            split.AllocationOrder))
+                        .ToArray()))
+                .ToArray(),
+            payload.Adjustments
+                .Select(adjustment => new RecurringBillTemplatePayloadAdjustmentResponse(
+                    adjustment.Type,
+                    adjustment.Direction,
+                    adjustment.AllocationMethod,
+                    FormatAmount(adjustment.Amount),
+                    adjustment.Currency,
+                    adjustment.ReasonNote))
+                .ToArray(),
+            payload.Payers
+                .Select(payer => new RecurringBillTemplatePayloadPayerResponse(
+                    payer.UserProfileId,
+                    FormatAmount(payer.Amount),
+                    payer.Currency,
+                    payer.PaymentMethodLabelSnapshot))
+                .ToArray());
     }
 
     private static RecurringBillGenerateDraftResponse MapGenerateDraftResponse(
@@ -1028,7 +1086,7 @@ internal static class RecurringBillEndpoints
             string? description = null;
             var descriptionSpecified = false;
             RecurringBillSchedule? schedule = null;
-            RecurringBillTemplatePayload? payload = null;
+            JsonElement? billPayloadElement = null;
             var hasAnySupportedField = false;
 
             foreach (var property in document.RootElement.EnumerateObject())
@@ -1061,9 +1119,7 @@ internal static class RecurringBillEndpoints
                         break;
                     case "billPayload":
                         hasAnySupportedField = true;
-                        payload = RecurringBillTemplatePayloadReader
-                            .Read(property.Value, isGroupTemplate: false, errors)
-                            .Payload;
+                        billPayloadElement = property.Value.Clone();
                         break;
                     default:
                         AddUnsupportedFieldError(errors);
@@ -1083,7 +1139,7 @@ internal static class RecurringBillEndpoints
                     descriptionSpecified,
                     description,
                     schedule,
-                    payload))
+                    billPayloadElement))
                 : TemplatePatchReadResult.Invalid(ToErrorDictionary(errors));
         }
     }
@@ -1592,7 +1648,7 @@ internal static class RecurringBillEndpoints
         bool DescriptionSpecified,
         string? Description,
         RecurringBillSchedule? Schedule,
-        RecurringBillTemplatePayload? Payload);
+        JsonElement? BillPayloadElement);
 
     private sealed record TemplateListFilter(
         string? Status,

@@ -114,6 +114,20 @@ void main() {
       expect(detail.id, _templateId);
       expect(detail.payloadVersion, 1);
       expect(detail.schedule.startDate, '2026-05-01');
+      expect(detail.billPayload?.currency, 'USD');
+      expect(detail.billPayload?.items.single.name, 'Base rent');
+      expect(detail.billPayload?.items.single.amount, '1200.00');
+      expect(detail.billPayload?.items.single.currency, 'USD');
+      expect(
+        detail.billPayload?.items.single.splits.single.userProfileId,
+        _ownerProfileId,
+      );
+      expect(
+        detail.billPayload?.items.single.splits.single.basisValue,
+        '1200.00',
+      );
+      expect(detail.billPayload?.adjustments.single.amount, '5.00');
+      expect(detail.billPayload?.payers.single.userProfileId, _ownerProfileId);
       expect(draft.generatedBillId, _generatedBillId);
       expect(draft.totalAmount, '1200.00');
       expect(draft.totalCurrency, 'USD');
@@ -529,6 +543,45 @@ api.RecurringBillTemplateResponse sampleApiTemplate({
     ),
     forecastAmount: '1200.00',
     forecastCurrency: 'USD',
+    billPayload: api.RecurringBillTemplatePayload(
+      currency: 'USD',
+      items: [
+        api.RecurringBillTemplatePayloadItem(
+          name: 'Base rent',
+          note: 'Apartment',
+          amount: '1200.00',
+          currency: null,
+          splits: [
+            api.RecurringBillTemplatePayloadItemSplit(
+              userProfileId: _ownerProfileId,
+              splitMethod: api.ExpenseBillItemSplitMethodValues.exactAmount,
+              basisValue: '1200.00',
+              allocationOrder: null,
+            ),
+          ],
+        ),
+      ],
+      adjustments: [
+        api.RecurringBillTemplatePayloadAdjustment(
+          type: api.ExpenseBillAdjustmentTypeValues.serviceCharge,
+          direction: api.ExpenseBillAdjustmentDirectionValues.charge,
+          allocationMethod: api
+              .PersonalBillAdjustmentAllocationMethodValues
+              .proportionalByItemSubtotal,
+          amount: '5.00',
+          currency: null,
+          reasonNote: 'Template fee',
+        ),
+      ],
+      payers: [
+        api.RecurringBillTemplatePayloadPayer(
+          userProfileId: _ownerProfileId,
+          amount: '1205.00',
+          currency: null,
+          paymentMethodLabelSnapshot: 'Card',
+        ),
+      ],
+    ),
     nextOccurrenceDate: '2026-06-01',
     payloadVersion: 1,
     createdAtUtc: _createdAtUtc,
