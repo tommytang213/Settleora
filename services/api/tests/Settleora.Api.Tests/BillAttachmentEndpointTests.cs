@@ -269,6 +269,103 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
+    public async Task GroupAttachmentRoutesRequireRouteBillFileCouplingWithoutStorageReadOrAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Attachment Route Owner");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Attachment Route Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var otherGroupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Attachment Body Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var otherBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            otherGroupId,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(3));
+        var routeFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            testContext.StorageProvider,
+            routeBillId,
+            ownerSession.UserProfileId,
+            ValidPngBytes,
+            "image/png",
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var otherFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            testContext.StorageProvider,
+            otherBillId,
+            ownerSession.UserProfileId,
+            ValidPngBytes,
+            "image/png",
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        using (var crossFileReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupAttachmentContentPath(groupId, routeBillId, otherFileId),
+            ownerSession.RawSessionToken))
+        using (var crossFileReadResponse = await client.SendAsync(crossFileReadRequest))
+        {
+            await AssertBillUnavailableProblemAsync(crossFileReadResponse);
+        }
+
+        using (var crossGroupReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupAttachmentContentPath(otherGroupId, routeBillId, routeFileId),
+            ownerSession.RawSessionToken))
+        using (var crossGroupReadResponse = await client.SendAsync(crossGroupReadRequest))
+        {
+            await AssertBillUnavailableProblemAsync(crossGroupReadResponse);
+        }
+
+        using (var crossFileRemoveRequest = CreateBearerRequest(
+            HttpMethod.Delete,
+            GroupAttachmentFilePath(groupId, routeBillId, otherFileId),
+            ownerSession.RawSessionToken))
+        using (var crossFileRemoveResponse = await client.SendAsync(crossFileRemoveRequest))
+        {
+            await AssertBillUnavailableProblemAsync(crossFileRemoveResponse);
+        }
+
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, routeBillId, routeFileId)).RemovedAtUtc);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, otherBillId, otherFileId)).RemovedAtUtc);
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, routeFileId)).Status);
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, otherFileId)).Status);
+        Assert.Empty(await ReadBillAttachmentAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task UnrelatedActorsRemovedGroupMembersAndVisibleParticipantsWithoutWritePermissionFailClosed()
     {
         var testContext = CreateFactory();
