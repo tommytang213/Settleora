@@ -1024,7 +1024,9 @@ void main() {
   testWidgets('edit form opens with returned values and updates detail', (
     tester,
   ) async {
-    final repository = FakeRecurringBillRepository();
+    final repository = FakeRecurringBillRepository(
+      detail: samplePayloadDetail(),
+    );
 
     await tester.pumpWidget(
       MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
@@ -1044,6 +1046,38 @@ void main() {
           ?.text,
       'Rent',
     );
+    expect(find.text('Safe template payload'), findsOneWidget);
+    expect(
+      find.textContaining('They do not edit generated bills'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('recurring-bill-form-currency')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('recurring-bill-form-item-name')),
+          )
+          .controller
+          ?.text,
+      'Base rent',
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('recurring-bill-form-item-amount')),
+          )
+          .controller
+          ?.text,
+      '1200.00',
+    );
+    expect(
+      find.textContaining('Advanced split editing is not available'),
+      findsOneWidget,
+    );
+    expect(find.text('Advanced payload preserved'), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const Key('recurring-bill-form-merchant')),
@@ -1059,6 +1093,26 @@ void main() {
       find.byKey(const Key('recurring-bill-form-start-date')),
       '2026-05-08',
     );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-name'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-name')),
+      'Base rent v2',
+    );
+    await tester.ensureVisible(
+      find.byKey(
+        const Key('recurring-bill-form-item-amount'),
+        skipOffstage: false,
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('recurring-bill-form-item-amount')),
+      '1250.00',
+    );
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     await tester.ensureVisible(
@@ -1070,8 +1124,67 @@ void main() {
     expect(repository.updateTemplateCalls, 1);
     expect(repository.getTemplateCalls, 2);
     expect(repository.lastUpdateDraft?.merchantName, 'Rent v2');
+    expect(repository.lastUpdateDraft?.billPayload?.currency, 'USD');
+    expect(
+      repository.lastUpdateDraft?.billPayload?.items.single.name,
+      'Base rent v2',
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.items.single.amount,
+      '1250.00',
+    );
+    expect(
+      repository
+          .lastUpdateDraft
+          ?.billPayload
+          ?.items
+          .single
+          .splits
+          .single
+          .userProfileId,
+      _profileId,
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.adjustments.single.amount,
+      '5.00',
+    );
+    expect(
+      repository.lastUpdateDraft?.billPayload?.payers.single.amount,
+      '1205.00',
+    );
     expect(find.text('Rent v2'), findsWidgets);
   });
+
+  testWidgets(
+    'edit form keeps schedule-only save when safe payload is absent',
+    (tester) async {
+      final repository = FakeRecurringBillRepository(detail: sampleDetail());
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraRecurringBillScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('recurring-bill-template-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('recurring-bill-detail-edit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Payload editing unavailable'), findsOneWidget);
+      expect(
+        find.textContaining('without replacing unknown bill payload structure'),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('recurring-bill-form-save')),
+      );
+      await tester.tap(find.byKey(const Key('recurring-bill-form-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.updateTemplateCalls, 1);
+      expect(repository.lastUpdateDraft?.billPayload, isNull);
+    },
+  );
 
   testWidgets('pause resume and archive require confirmation and refresh', (
     tester,
@@ -1338,6 +1451,24 @@ class FakeRecurringBillRepository implements SettleoraRecurringBillRepository {
         endDate: draft.schedule.endDate?.trim(),
         dueOffsetDays: draft.schedule.dueOffsetDays,
       ),
+      billPayload: draft.billPayload == null
+          ? null
+          : SettleoraRecurringBillTemplatePayload(
+              currency: draft.billPayload!.currency,
+              items: draft.billPayload!.items
+                  .map(
+                    (item) => SettleoraRecurringBillTemplatePayloadItem(
+                      name: item.name,
+                      note: item.note,
+                      amount: item.amount,
+                      currency: item.currency ?? draft.billPayload!.currency,
+                      splits: item.splits,
+                    ),
+                  )
+                  .toList(growable: false),
+              adjustments: draft.billPayload!.adjustments,
+              payers: draft.billPayload!.payers,
+            ),
     );
     templates = [detail];
     return detail;
@@ -1876,6 +2007,7 @@ SettleoraRecurringBillTemplateDetail sampleDetail({
   String? nextOccurrenceDate = '2026-06-01',
   bool isGroupScoped = false,
   SettleoraRecurringBillSchedule? schedule,
+  SettleoraRecurringBillTemplatePayload? billPayload,
 }) {
   final template = sampleTemplate(
     merchantName: merchantName,
@@ -1898,6 +2030,49 @@ SettleoraRecurringBillTemplateDetail sampleDetail({
     archivedAtUtc: template.archivedAtUtc,
     isGroupScoped: template.isGroupScoped,
     payloadVersion: 1,
+    billPayload: billPayload,
+  );
+}
+
+SettleoraRecurringBillTemplateDetail samplePayloadDetail() {
+  return sampleDetail(
+    billPayload: const SettleoraRecurringBillTemplatePayload(
+      currency: 'USD',
+      items: [
+        SettleoraRecurringBillTemplatePayloadItem(
+          name: 'Base rent',
+          note: 'Apartment',
+          amount: '1200.00',
+          currency: 'USD',
+          splits: [
+            SettleoraRecurringBillTemplatePayloadItemSplit(
+              userProfileId: _profileId,
+              splitMethod: 'exact_amount',
+              basisValue: '1200.00',
+              allocationOrder: 0,
+            ),
+          ],
+        ),
+      ],
+      adjustments: [
+        SettleoraRecurringBillTemplatePayloadAdjustment(
+          type: 'service_charge',
+          direction: 'charge',
+          allocationMethod: 'proportional_by_item_subtotal',
+          amount: '5.00',
+          currency: 'USD',
+          reasonNote: 'Template fee',
+        ),
+      ],
+      payers: [
+        SettleoraRecurringBillTemplatePayloadPayer(
+          userProfileId: _profileId,
+          amount: '1205.00',
+          currency: 'USD',
+          paymentMethodLabelSnapshot: 'Card',
+        ),
+      ],
+    ),
   );
 }
 

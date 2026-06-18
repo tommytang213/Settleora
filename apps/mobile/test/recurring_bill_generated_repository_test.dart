@@ -183,6 +183,46 @@ void main() {
               endDate: '2026-06-08',
               dueOffsetDays: 0,
             ),
+            billPayload: SettleoraRecurringBillTemplatePayloadDraft(
+              currency: ' hkd ',
+              items: [
+                SettleoraRecurringBillTemplatePayloadItemDraft(
+                  name: ' Base rent v2 ',
+                  amount: ' 1250.00 ',
+                  note: ' Apartment v2 ',
+                  currency: ' hkd ',
+                  splits: [
+                    SettleoraRecurringBillTemplatePayloadItemSplit(
+                      userProfileId: _ownerProfileId,
+                      splitMethod:
+                          api.ExpenseBillItemSplitMethodValues.exactAmount,
+                      basisValue: '1250.00',
+                      allocationOrder: 0,
+                    ),
+                  ],
+                ),
+              ],
+              adjustments: [
+                SettleoraRecurringBillTemplatePayloadAdjustment(
+                  type: api.ExpenseBillAdjustmentTypeValues.serviceCharge,
+                  direction: api.ExpenseBillAdjustmentDirectionValues.charge,
+                  allocationMethod: api
+                      .PersonalBillAdjustmentAllocationMethodValues
+                      .proportionalByItemSubtotal,
+                  amount: '5.00',
+                  currency: 'hkd',
+                  reasonNote: 'Template fee',
+                ),
+              ],
+              payers: [
+                SettleoraRecurringBillTemplatePayloadPayer(
+                  userProfileId: _ownerProfileId,
+                  amount: '1255.00',
+                  currency: 'hkd',
+                  paymentMethodLabelSnapshot: 'Card',
+                ),
+              ],
+            ),
           ),
         );
         await repository.pauseTemplate(' $_templateId ');
@@ -210,6 +250,38 @@ void main() {
         expect(client.lastUpdateRequest?.merchantName, 'Rent v2');
         expect(client.lastUpdateRequest?.description, isNull);
         expect(client.lastUpdateRequest?.schedule?.type, 'weekly');
+        expect(client.lastUpdateRequest?.billPayload?.currency, 'HKD');
+        expect(
+          client.lastUpdateRequest?.billPayload?.items.single.name,
+          'Base rent v2',
+        );
+        expect(
+          client.lastUpdateRequest?.billPayload?.items.single.amount,
+          '1250.00',
+        );
+        expect(
+          client.lastUpdateRequest?.billPayload?.items.single.currency,
+          'HKD',
+        );
+        expect(
+          client
+              .lastUpdateRequest
+              ?.billPayload
+              ?.items
+              .single
+              .splits
+              ?.single
+              .basisValue,
+          '1250.00',
+        );
+        expect(
+          client.lastUpdateRequest?.billPayload?.adjustments?.single.amount,
+          '5.00',
+        );
+        expect(
+          client.lastUpdateRequest?.billPayload?.payers?.single.amount,
+          '1255.00',
+        );
         expect(client.lastTemplateId, _templateId);
         expect(client.accessTokens, [
           'redacted',

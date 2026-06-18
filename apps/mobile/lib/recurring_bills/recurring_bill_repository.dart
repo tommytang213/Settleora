@@ -328,11 +328,29 @@ class SettleoraRecurringBillTemplatePayloadItemDraft {
     required this.name,
     required this.amount,
     required this.note,
+    this.currency,
+    this.splits = const [],
   });
 
   final String name;
   final String amount;
   final String? note;
+  final String? currency;
+  final List<SettleoraRecurringBillTemplatePayloadItemSplit> splits;
+}
+
+class SettleoraRecurringBillTemplatePayloadDraft {
+  const SettleoraRecurringBillTemplatePayloadDraft({
+    required this.currency,
+    required this.items,
+    this.adjustments = const [],
+    this.payers = const [],
+  });
+
+  final String currency;
+  final List<SettleoraRecurringBillTemplatePayloadItemDraft> items;
+  final List<SettleoraRecurringBillTemplatePayloadAdjustment> adjustments;
+  final List<SettleoraRecurringBillTemplatePayloadPayer> payers;
 }
 
 class SettleoraRecurringBillCreateDraft {
@@ -358,11 +376,13 @@ class SettleoraRecurringBillUpdateDraft {
     required this.merchantName,
     required this.description,
     required this.schedule,
+    this.billPayload,
   });
 
   final String? merchantName;
   final String? description;
   final SettleoraRecurringBillScheduleDraft schedule;
+  final SettleoraRecurringBillTemplatePayloadDraft? billPayload;
 }
 
 abstract interface class SettleoraRecurringBillRepository {

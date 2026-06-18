@@ -973,9 +973,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
   late final TextEditingController _intervalController;
   late final TextEditingController _dueOffsetController;
   late final TextEditingController _currencyController;
-  late final TextEditingController _itemNameController;
-  late final TextEditingController _itemAmountController;
-  late final TextEditingController _itemNoteController;
+  late final List<_PayloadItemControllers> _itemControllers;
   String _scheduleType = SettleoraRecurringBillScheduleTypeValues.monthly;
   bool _isSaving = false;
   SettleoraRecurringBillFailure? _failure;
@@ -1010,10 +1008,15 @@ class _SettleoraRecurringBillTemplateFormScreenState
     _dueOffsetController = TextEditingController(
       text: schedule?.dueOffsetDays?.toString() ?? '0',
     );
-    _currencyController = TextEditingController(text: 'USD');
-    _itemNameController = TextEditingController();
-    _itemAmountController = TextEditingController();
-    _itemNoteController = TextEditingController();
+    _currencyController = TextEditingController(
+      text: template?.billPayload?.currency ?? 'USD',
+    );
+    final payloadItems = template?.billPayload?.items;
+    _itemControllers = payloadItems == null || payloadItems.isEmpty
+        ? [_PayloadItemControllers.empty()]
+        : payloadItems
+              .map(_PayloadItemControllers.fromPayloadItem)
+              .toList(growable: false);
   }
 
   @override
@@ -1026,9 +1029,9 @@ class _SettleoraRecurringBillTemplateFormScreenState
     _intervalController.dispose();
     _dueOffsetController.dispose();
     _currencyController.dispose();
-    _itemNameController.dispose();
-    _itemAmountController.dispose();
-    _itemNoteController.dispose();
+    for (final item in _itemControllers) {
+      item.dispose();
+    }
     super.dispose();
   }
 
@@ -1053,6 +1056,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
             merchantName: _merchantController.text,
             description: _descriptionController.text,
             schedule: _scheduleDraft(),
+            billPayload: _editablePayloadDraft(),
           ),
         );
       } else {
@@ -1063,13 +1067,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
             description: _descriptionController.text,
             schedule: _scheduleDraft(),
             currency: _currencyController.text,
-            items: [
-              SettleoraRecurringBillTemplatePayloadItemDraft(
-                name: _itemNameController.text,
-                amount: _itemAmountController.text,
-                note: _itemNoteController.text,
-              ),
-            ],
+            items: _payloadItemDrafts(),
           ),
         );
       }
@@ -1131,6 +1129,34 @@ class _SettleoraRecurringBillTemplateFormScreenState
       endDate: _endDateController.text,
       dueOffsetDays: dueOffset,
     );
+  }
+
+  SettleoraRecurringBillTemplatePayloadDraft? _editablePayloadDraft() {
+    final payload = widget.template?.billPayload;
+    if (payload == null) {
+      return null;
+    }
+
+    return SettleoraRecurringBillTemplatePayloadDraft(
+      currency: _currencyController.text,
+      items: _payloadItemDrafts(),
+      adjustments: payload.adjustments,
+      payers: payload.payers,
+    );
+  }
+
+  List<SettleoraRecurringBillTemplatePayloadItemDraft> _payloadItemDrafts() {
+    return _itemControllers
+        .map(
+          (item) => SettleoraRecurringBillTemplatePayloadItemDraft(
+            name: item.nameController.text,
+            amount: item.amountController.text,
+            note: item.noteController.text,
+            currency: widget.isEditing ? item.currencyController.text : null,
+            splits: item.splits,
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -1296,11 +1322,15 @@ class _SettleoraRecurringBillTemplateFormScreenState
                     ),
                   ],
                 ),
-                if (!isEditing) ...[
+                if (!isEditing || widget.template?.billPayload != null) ...[
                   const SizedBox(height: 20),
                   _Section(
-                    title: 'Bill Payload',
+                    title: 'Template Payload',
                     children: [
+                      if (isEditing) ...[
+                        const _EditablePayloadNotice(),
+                        const SizedBox(height: 12),
+                      ],
                       CurrencySelector(
                         key: const Key('recurring-bill-form-currency'),
                         value: _currencyController.text,
@@ -1315,42 +1345,27 @@ class _SettleoraRecurringBillTemplateFormScreenState
                         },
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-name'),
-                        controller: _itemNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Item name',
-                          border: OutlineInputBorder(),
+                      for (
+                        var index = 0;
+                        index < _itemControllers.length;
+                        index += 1
+                      )
+                        _RecurringPayloadItemFields(
+                          index: index,
+                          item: _itemControllers[index],
+                          enabled: !_isSaving,
+                          showItemCurrency: isEditing,
                         ),
-                        validator: (value) =>
-                            _requiredTextValidator(value, 'item name', 240),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-amount'),
-                        controller: _itemAmountController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                      if (isEditing) ...[
+                        _PayloadUnsupportedState(
+                          payload: widget.template!.billPayload!,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'Item amount',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: _amountValidator,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        key: const Key('recurring-bill-form-item-note'),
-                        controller: _itemNoteController,
-                        decoration: const InputDecoration(
-                          labelText: 'Item note',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) =>
-                            _maxLengthValidator(value, 1000, 'item note'),
-                      ),
+                      ],
                     ],
                   ),
+                ] else if (isEditing) ...[
+                  const SizedBox(height: 20),
+                  const _UnsupportedPayloadShapePanel(),
                 ],
                 const SizedBox(height: 22),
                 FilledButton.icon(
@@ -1369,6 +1384,199 @@ class _SettleoraRecurringBillTemplateFormScreenState
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PayloadItemControllers {
+  _PayloadItemControllers({
+    required this.nameController,
+    required this.amountController,
+    required this.noteController,
+    required this.currencyController,
+    required this.splits,
+  });
+
+  factory _PayloadItemControllers.empty() {
+    return _PayloadItemControllers(
+      nameController: TextEditingController(),
+      amountController: TextEditingController(),
+      noteController: TextEditingController(),
+      currencyController: TextEditingController(text: 'USD'),
+      splits: const [],
+    );
+  }
+
+  factory _PayloadItemControllers.fromPayloadItem(
+    SettleoraRecurringBillTemplatePayloadItem item,
+  ) {
+    return _PayloadItemControllers(
+      nameController: TextEditingController(text: item.name),
+      amountController: TextEditingController(text: item.amount),
+      noteController: TextEditingController(text: item.note ?? ''),
+      currencyController: TextEditingController(text: item.currency),
+      splits: item.splits,
+    );
+  }
+
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+  final TextEditingController noteController;
+  final TextEditingController currencyController;
+  final List<SettleoraRecurringBillTemplatePayloadItemSplit> splits;
+
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+    noteController.dispose();
+    currencyController.dispose();
+  }
+}
+
+class _RecurringPayloadItemFields extends StatelessWidget {
+  const _RecurringPayloadItemFields({
+    required this.index,
+    required this.item,
+    required this.enabled,
+    required this.showItemCurrency,
+  });
+
+  final int index;
+  final _PayloadItemControllers item;
+  final bool enabled;
+  final bool showItemCurrency;
+
+  @override
+  Widget build(BuildContext context) {
+    final keySuffix = index == 0 ? '' : '-$index';
+    return Padding(
+      padding: EdgeInsets.only(bottom: showItemCurrency ? 16 : 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showItemCurrency) ...[
+            Text(
+              'Item ${index + 1}',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 10),
+          ],
+          TextFormField(
+            key: Key('recurring-bill-form-item-name$keySuffix'),
+            controller: item.nameController,
+            enabled: enabled,
+            decoration: const InputDecoration(
+              labelText: 'Item name',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) =>
+                _requiredTextValidator(value, 'item name', 240),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: Key('recurring-bill-form-item-amount$keySuffix'),
+            controller: item.amountController,
+            enabled: enabled,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Item amount',
+              border: OutlineInputBorder(),
+            ),
+            validator: _amountValidator,
+          ),
+          const SizedBox(height: 12),
+          if (showItemCurrency) ...[
+            CurrencySelector(
+              key: Key('recurring-bill-form-item-currency$keySuffix'),
+              value: item.currencyController.text,
+              label: 'Item currency',
+              validator: _currencyValidator,
+              enabled: enabled,
+              semanticLabel: 'Recurring bill item currency selector',
+              onChanged: (currency) {
+                item.currencyController.text = currency ?? '';
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+          TextFormField(
+            key: Key('recurring-bill-form-item-note$keySuffix'),
+            controller: item.noteController,
+            enabled: enabled,
+            decoration: const InputDecoration(
+              labelText: 'Item note',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) => _maxLengthValidator(value, 1000, 'item note'),
+          ),
+          if (item.splits.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${item.splits.length} existing split ${item.splits.length == 1 ? 'row is' : 'rows are'} preserved on save. Advanced split editing is not available for this template yet.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EditablePayloadNotice extends StatelessWidget {
+  const _EditablePayloadNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.edit_note_outlined,
+      title: 'Safe template payload',
+      message:
+          'These fields update the recurring template only. They do not edit generated bills, paid bills, settlements, forecast truth, or draft-generation history.',
+      compact: true,
+    );
+  }
+}
+
+class _PayloadUnsupportedState extends StatelessWidget {
+  const _PayloadUnsupportedState({required this.payload});
+
+  final SettleoraRecurringBillTemplatePayload payload;
+
+  @override
+  Widget build(BuildContext context) {
+    final splitCount = payload.items.fold<int>(
+      0,
+      (sum, item) => sum + item.splits.length,
+    );
+    final adjustmentCount = payload.adjustments.length;
+    final payerCount = payload.payers.length;
+    if (splitCount == 0 && adjustmentCount == 0 && payerCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return _StatePanel(
+      icon: Icons.account_tree_outlined,
+      title: 'Advanced payload preserved',
+      message:
+          'This template includes $splitCount split row(s), $payerCount payer row(s), and $adjustmentCount adjustment row(s). Mobile preserves those supported details on save, but advanced split, payer, and adjustment editing is not available yet.',
+      compact: true,
+    );
+  }
+}
+
+class _UnsupportedPayloadShapePanel extends StatelessWidget {
+  const _UnsupportedPayloadShapePanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _StatePanel(
+      icon: Icons.lock_outline,
+      title: 'Payload editing unavailable',
+      message:
+          'The server did not return a safe editable payload for this recurring template. Schedule and template text can still be saved without replacing unknown bill payload structure.',
+      compact: true,
     );
   }
 }
