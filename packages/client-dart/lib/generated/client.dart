@@ -525,6 +525,61 @@ class SettleoraApiClient {
     );
   }
 
+  Future<FutureBillListResponse> listFutureBills({FutureBillStatus? status, String? groupId, String? fromDate, String? toDate, bool? includeArchived, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/future-bills", {"status": status, "groupId": groupId, "fromDate": fromDate, "toDate": toDate, "includeArchived": includeArchived}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<FutureBillResponse> createFutureBill(CreateFutureBillRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/future-bills",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<FutureBillResponse> getFutureBill(String futureBillId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/future-bills/${Uri.encodeComponent(futureBillId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<FutureBillResponse> updateFutureBill(String futureBillId, UpdateFutureBillRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/future-bills/${Uri.encodeComponent(futureBillId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<FutureBillResponse> cancelFutureBill(String futureBillId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/future-bills/${Uri.encodeComponent(futureBillId.toString())}/cancel',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return FutureBillResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<GroupListResponse> listGroups({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

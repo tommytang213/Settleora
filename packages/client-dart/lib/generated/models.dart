@@ -990,6 +990,95 @@ class UpdateRecurringBillTemplateRequest {
   }
 }
 
+/// One-time future bill creation request. Actor, owner, authorization identity, draft status, totals, and settlement non-effectiveness are derived server-side.
+class CreateFutureBillRequest {
+  static const Object _unsetGroupId = Object();
+  static const Object _unsetMerchantName = Object();
+
+  CreateFutureBillRequest({
+    Object? groupId = _unsetGroupId,
+    Object? merchantName = _unsetMerchantName,
+    required this.dueDate,
+    required this.billPayload,
+  })
+      : groupId = identical(groupId, _unsetGroupId) ? null : groupId as String?,
+        _hasGroupId = !identical(groupId, _unsetGroupId),
+        merchantName = identical(merchantName, _unsetMerchantName) ? null : merchantName as String?,
+        _hasMerchantName = !identical(merchantName, _unsetMerchantName);
+
+  /// Optional group ID for a group future bill. The authenticated actor must be an active group member.
+  final String? groupId;
+  final bool _hasGroupId;
+  /// Optional merchant/display name after server-side trimming.
+  final String? merchantName;
+  final bool _hasMerchantName;
+  /// Future due date. The API rejects current or past dates.
+  final String dueDate;
+  final RecurringBillTemplatePayload billPayload;
+
+  factory CreateFutureBillRequest.fromJson(JsonObject json) {
+    return CreateFutureBillRequest(
+      groupId: json.containsKey("groupId")
+          ? json["groupId"] == null ? null : json["groupId"] as String
+          : _unsetGroupId,
+      merchantName: json.containsKey("merchantName")
+          ? json["merchantName"] == null ? null : json["merchantName"] as String
+          : _unsetMerchantName,
+      dueDate: json["dueDate"] as String,
+      billPayload: RecurringBillTemplatePayload.fromJson(JsonObject.from(json["billPayload"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantNameJsonValue = merchantName;
+
+    return {
+      if (_hasGroupId) "groupId": groupIdJsonValue,
+      if (_hasMerchantName) "merchantName": merchantNameJsonValue,
+      "dueDate": dueDate,
+      "billPayload": billPayload.toJson(),
+    };
+  }
+}
+
+/// One-time future bill draft update request. This foundation supports merchant name and future due date only; payload replacement and posting/confirmation are follow-up work.
+class UpdateFutureBillRequest {
+  static const Object _unsetMerchantName = Object();
+
+  UpdateFutureBillRequest({
+    Object? merchantName = _unsetMerchantName,
+    this.dueDate,
+  })
+      : merchantName = identical(merchantName, _unsetMerchantName) ? null : merchantName as String?,
+        _hasMerchantName = !identical(merchantName, _unsetMerchantName);
+
+  /// Optional merchant/display name after server-side trimming.
+  final String? merchantName;
+  final bool _hasMerchantName;
+  /// Updated future due date. The API rejects current or past dates.
+  final String? dueDate;
+
+  factory UpdateFutureBillRequest.fromJson(JsonObject json) {
+    return UpdateFutureBillRequest(
+      merchantName: json.containsKey("merchantName")
+          ? json["merchantName"] == null ? null : json["merchantName"] as String
+          : _unsetMerchantName,
+      dueDate: json["dueDate"] == null ? null : json["dueDate"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final merchantNameJsonValue = merchantName;
+    final dueDateJsonValue = dueDate;
+
+    return {
+      if (_hasMerchantName) "merchantName": merchantNameJsonValue,
+      if (dueDateJsonValue != null) "dueDate": dueDateJsonValue,
+    };
+  }
+}
+
 /// Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
 class RecurringBillScheduleRequest {
   static const Object _unsetIntervalCount = Object();
@@ -1303,6 +1392,101 @@ class RecurringBillTemplateListResponse {
   }
 }
 
+class FutureBillListResponse {
+  const FutureBillListResponse({
+    required this.futureBills,
+  });
+
+  final List<FutureBillResponse> futureBills;
+
+  factory FutureBillListResponse.fromJson(JsonObject json) {
+    return FutureBillListResponse(
+      futureBills: (json["futureBills"] as List<dynamic>).map((item) => FutureBillResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "futureBills": futureBills.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe one-time future bill response. This is an upcoming draft obligation, not a posted/confirmed settlement-effective expense.
+class FutureBillResponse {
+  const FutureBillResponse({
+    required this.id,
+    required this.ownerUserProfileId,
+    required this.groupId,
+    required this.merchantName,
+    required this.dueDate,
+    required this.status,
+    required this.settlementEffective,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.billPayload,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.archivedAtUtc,
+  });
+
+  final String id;
+  final String ownerUserProfileId;
+  final String? groupId;
+  final String? merchantName;
+  final String dueDate;
+  final FutureBillStatus status;
+  /// Always false for this foundation; posting/confirmation is not implemented by the future-bill API.
+  final bool settlementEffective;
+  /// Decimal-safe calculated draft total represented as a string.
+  final String totalAmount;
+  final CurrencyCode totalCurrency;
+  final RecurringBillTemplatePayload billPayload;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? archivedAtUtc;
+
+  factory FutureBillResponse.fromJson(JsonObject json) {
+    return FutureBillResponse(
+      id: json["id"] as String,
+      ownerUserProfileId: json["ownerUserProfileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      merchantName: json["merchantName"] == null ? null : json["merchantName"] as String,
+      dueDate: json["dueDate"] as String,
+      status: json["status"] as String,
+      settlementEffective: json["settlementEffective"] as bool,
+      totalAmount: json["totalAmount"] as String,
+      totalCurrency: json["totalCurrency"] as String,
+      billPayload: RecurringBillTemplatePayload.fromJson(JsonObject.from(json["billPayload"] as Map)),
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final merchantNameJsonValue = merchantName;
+    final archivedAtUtcJsonValue = archivedAtUtc;
+
+    return {
+      "id": id,
+      "ownerUserProfileId": ownerUserProfileId,
+      "groupId": groupIdJsonValue,
+      "merchantName": merchantNameJsonValue,
+      "dueDate": dueDate,
+      "status": status,
+      "settlementEffective": settlementEffective,
+      "totalAmount": totalAmount,
+      "totalCurrency": totalCurrency,
+      "billPayload": billPayload.toJson(),
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
 class RecurringBillTemplateResponse {
   const RecurringBillTemplateResponse({
@@ -1602,6 +1786,15 @@ class RecurringBillOccurrenceStatusValues {
   static const RecurringBillOccurrenceStatus skipped = "skipped";
   static const RecurringBillOccurrenceStatus cancelled = "cancelled";
   static const Set<RecurringBillOccurrenceStatus> values = {forecasted, draftGenerated, skipped, cancelled};
+}
+
+/// One-time future bill foundation status. Draft future bills are not settlement-effective; cancelled future bills are archived.
+typedef FutureBillStatus = String;
+class FutureBillStatusValues {
+  const FutureBillStatusValues._();
+  static const FutureBillStatus draft = "draft";
+  static const FutureBillStatus cancelled = "cancelled";
+  static const Set<FutureBillStatus> values = {draft, cancelled};
 }
 
 /// Minimal personal bill creation request. Creator, group, participant, payer, profile, account, file, and authorization identity are derived server-side and cannot be submitted by clients.

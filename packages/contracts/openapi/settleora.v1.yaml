@@ -5830,6 +5830,283 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/future-bills:
+    post:
+      summary: Create one-time future bill
+      description: Creates a one-time future bill draft/upcoming obligation for the authenticated actor. The server derives actor identity, validates future due date, money, currency, participants, payers, group membership, and bill calculation, and stores the obligation as a draft that is not settlement-effective. This does not post, confirm, settle, or record the obligation as an already-effective expense.
+      operationId: createFutureBill
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFutureBillRequest"
+      responses:
+        "201":
+          description: Future bill draft/upcoming obligation created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillResponse"
+        "400":
+          description: The submitted future bill request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile, group, or submitted participant context is unavailable or not visible to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Future bill creation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: List one-time future bills
+      description: Lists one-time future bill drafts/upcoming obligations visible to the authenticated actor. Personal future bills are owner-only; group future bills require active group membership. This read does not post, confirm, settle, or create settlement balances.
+      operationId: listFutureBills
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Optional future bill status filter.
+          schema:
+            $ref: "#/components/schemas/FutureBillStatus"
+        - name: groupId
+          in: query
+          required: false
+          description: Optional group filter.
+          schema:
+            type: string
+            format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive due-date range start.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive due-date range end.
+          schema:
+            type: string
+            format: date
+        - name: includeArchived
+          in: query
+          required: false
+          description: Include cancelled/archived future bills when true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Future bills visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillListResponse"
+        "400":
+          description: The submitted future bill list filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/future-bills/{futureBillId}:
+    get:
+      summary: Get one-time future bill
+      description: Returns one visible one-time future bill draft/upcoming obligation. The response is a bounded server-authored view and explicitly marks the draft as not settlement-effective.
+      operationId: getFutureBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: futureBillId
+          in: path
+          required: true
+          description: Future bill ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Future bill visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Future bill is missing, unrelated, group-invisible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update one-time future bill
+      description: Updates supported metadata/date fields for a visible draft future bill. This foundation supports merchant name and future due-date updates only; payload replacement and posting/confirmation remain explicit follow-up work. Updating a future bill does not post, confirm, settle, or create settlement balances.
+      operationId: updateFutureBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: futureBillId
+          in: path
+          required: true
+          description: Future bill ID to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFutureBillRequest"
+      responses:
+        "200":
+          description: Future bill updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillResponse"
+        "400":
+          description: The submitted future bill update request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Future bill is missing, unrelated, group-invisible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Future bill is not in a mutable draft state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Future bill update could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/future-bills/{futureBillId}/cancel:
+    post:
+      summary: Cancel one-time future bill
+      description: Cancels and archives one visible draft future bill. Cancellation does not delete rows, post an expense, create settlement balances, or mutate settlement/payment state.
+      operationId: cancelFutureBill
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: futureBillId
+          in: path
+          required: true
+          description: Future bill ID to cancel.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Future bill cancelled and archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FutureBillResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Future bill is missing, unrelated, group-invisible, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Future bill is not in a cancellable draft state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Future bill cancellation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/recurring-bills/forecast:
     get:
       summary: List recurring bill forecast occurrences
@@ -7556,6 +7833,47 @@ components:
           $ref: "#/components/schemas/RecurringBillScheduleRequest"
         billPayload:
           $ref: "#/components/schemas/RecurringBillTemplatePayload"
+    CreateFutureBillRequest:
+      type: object
+      description: One-time future bill creation request. Actor, owner, authorization identity, draft status, totals, and settlement non-effectiveness are derived server-side.
+      additionalProperties: false
+      required:
+        - dueDate
+        - billPayload
+      properties:
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional group ID for a group future bill. The authenticated actor must be an active group member.
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+          description: Optional merchant/display name after server-side trimming.
+        dueDate:
+          type: string
+          format: date
+          description: Future due date. The API rejects current or past dates.
+        billPayload:
+          $ref: "#/components/schemas/RecurringBillTemplatePayload"
+    UpdateFutureBillRequest:
+      type: object
+      description: One-time future bill draft update request. This foundation supports merchant name and future due date only; payload replacement and posting/confirmation are follow-up work.
+      additionalProperties: false
+      properties:
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+          description: Optional merchant/display name after server-side trimming.
+        dueDate:
+          type: string
+          format: date
+          description: Updated future due date. The API rejects current or past dates.
     RecurringBillScheduleRequest:
       type: object
       description: Date-based recurrence schedule. The first foundation intentionally avoids time-zone-heavy behavior.
@@ -7717,6 +8035,75 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RecurringBillTemplateResponse"
+    FutureBillListResponse:
+      type: object
+      required:
+        - futureBills
+      properties:
+        futureBills:
+          type: array
+          items:
+            $ref: "#/components/schemas/FutureBillResponse"
+    FutureBillResponse:
+      type: object
+      description: Safe one-time future bill response. This is an upcoming draft obligation, not a posted/confirmed settlement-effective expense.
+      required:
+        - id
+        - ownerUserProfileId
+        - groupId
+        - merchantName
+        - dueDate
+        - status
+        - settlementEffective
+        - totalAmount
+        - totalCurrency
+        - billPayload
+        - createdAtUtc
+        - updatedAtUtc
+        - archivedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerUserProfileId:
+          type: string
+          format: uuid
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        merchantName:
+          oneOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/FutureBillStatus"
+        settlementEffective:
+          type: boolean
+          description: Always false for this foundation; posting/confirmation is not implemented by the future-bill API.
+        totalAmount:
+          type: string
+          description: Decimal-safe calculated draft total represented as a string.
+        totalCurrency:
+          $ref: "#/components/schemas/CurrencyCode"
+        billPayload:
+          $ref: "#/components/schemas/RecurringBillTemplatePayload"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        archivedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     RecurringBillTemplateResponse:
       type: object
       description: Safe recurring bill template response. It excludes raw template payload JSON, auth account IDs, session material, storage internals, and unrelated profile details.
@@ -7944,6 +8331,12 @@ components:
         - forecasted
         - draft_generated
         - skipped
+        - cancelled
+    FutureBillStatus:
+      type: string
+      description: One-time future bill foundation status. Draft future bills are not settlement-effective; cancelled future bills are archived.
+      enum:
+        - draft
         - cancelled
     CreatePersonalBillRequest:
       type: object
