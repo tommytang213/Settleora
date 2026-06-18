@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -278,14 +279,39 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
         testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
         using var client = testFactory.CreateClient();
 
-        using (var archiveRequest = CreateBearerRequest(
+        using (var memberArchiveRequest = CreateBearerRequest(
             HttpMethod.Post,
             GroupArchivePath(groupId, billId),
             memberSession.RawSessionToken))
-        using (var archiveResponse = await client.SendAsync(archiveRequest))
+        using (var memberArchiveResponse = await client.SendAsync(memberArchiveRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(memberArchiveResponse);
+        }
+
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, billId)).ArchivedAtUtc);
+
+        using (var removedArchiveRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupArchivePath(groupId, billId),
+            removedSession.RawSessionToken))
+        using (var removedArchiveResponse = await client.SendAsync(removedArchiveRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(removedArchiveResponse);
+        }
+
+        var beforeArchive = await ReadBillSnapshotAsync(testFactory, billId);
+        Assert.Null(beforeArchive.ArchivedAtUtc);
+        Assert.Equal(InitialTimestamp, beforeArchive.UpdatedAtUtc);
+        Assert.Empty(await ReadLifecycleAuditEventsAsync(testFactory));
+
+        using (var ownerArchiveRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupArchivePath(groupId, billId),
+            ownerSession.RawSessionToken))
+        using (var ownerArchiveResponse = await client.SendAsync(ownerArchiveRequest))
         {
             await AssertLifecycleResponseAsync(
-                archiveResponse,
+                ownerArchiveResponse,
                 billId,
                 groupId,
                 ExpenseBillStatuses.Rejected,
@@ -293,6 +319,22 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
                 ArchiveTimestamp,
                 ArchiveTimestamp);
         }
+
+        var archivedSnapshot = await ReadBillSnapshotAsync(testFactory, billId);
+        Assert.Equal(ArchiveTimestamp, archivedSnapshot.ArchivedAtUtc);
+        Assert.Equal(ArchiveTimestamp, archivedSnapshot.UpdatedAtUtc);
+
+        using (var memberRestoreRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupRestorePath(groupId, billId),
+            memberSession.RawSessionToken))
+        using (var memberRestoreResponse = await client.SendAsync(memberRestoreRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(memberRestoreResponse);
+        }
+
+        Assert.Equal(archivedSnapshot, await ReadBillSnapshotAsync(testFactory, billId));
+        Assert.Equal([BillArchivedAction], (await ReadLifecycleAuditEventsAsync(testFactory)).Select(auditEvent => auditEvent.Action).ToArray());
 
         using (var defaultListRequest = CreateBearerRequest(
             HttpMethod.Get,
@@ -321,6 +363,9 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
             await AssertGroupBillUnavailableProblemAsync(removedRestoreResponse);
         }
 
+        Assert.Equal(archivedSnapshot, await ReadBillSnapshotAsync(testFactory, billId));
+        Assert.Equal([BillArchivedAction], (await ReadLifecycleAuditEventsAsync(testFactory)).Select(auditEvent => auditEvent.Action).ToArray());
+
         using (var outsideArchiveRequest = CreateBearerRequest(
             HttpMethod.Post,
             GroupArchivePath(groupId, billId),
@@ -338,6 +383,9 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
         {
             await AssertGroupBillUnavailableProblemAsync(wrongGroupRestoreResponse);
         }
+
+        Assert.Equal(archivedSnapshot, await ReadBillSnapshotAsync(testFactory, billId));
+        Assert.Equal([BillArchivedAction], (await ReadLifecycleAuditEventsAsync(testFactory)).Select(auditEvent => auditEvent.Action).ToArray());
 
         testContext.TimeProvider.SetUtcNow(RestoreTimestamp);
         using (var restoreRequest = CreateBearerRequest(
@@ -358,6 +406,110 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
 
         var auditEvents = await ReadLifecycleAuditEventsAsync(testFactory);
         Assert.Equal([BillArchivedAction, BillRestoredAction], auditEvents.Select(auditEvent => auditEvent.Action).ToArray());
+    }
+
+    [Fact]
+    public async Task GroupBillLifecycleUsesRouteTargetAndIgnoresBodySuppliedIds()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Route Target Creator");
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Route Target Owner");
+        var memberSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Route Target Member");
+        var routeGroupId = await SeedGroupAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            "Route Target Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(creatorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(memberSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var bodyGroupId = await SeedGroupAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            "Body Smuggled Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(creatorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            routeGroupId,
+            [creatorSession.UserProfileId, ownerSession.UserProfileId, memberSession.UserProfileId],
+            ExpenseBillStatuses.Draft,
+            "Route Target Merchant",
+            InitialTimestamp,
+            billOwnerProfileId: ownerSession.UserProfileId);
+        var bodyBillId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            bodyGroupId,
+            [creatorSession.UserProfileId, ownerSession.UserProfileId],
+            ExpenseBillStatuses.Draft,
+            "Body Smuggled Merchant",
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using (var memberArchiveRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            GroupArchivePath(routeGroupId, routeBillId),
+            memberSession.RawSessionToken))
+        using (var memberArchiveResponse = await client.SendAsync(memberArchiveRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(memberArchiveResponse);
+        }
+
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, routeBillId)).ArchivedAtUtc);
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, bodyBillId)).ArchivedAtUtc);
+        Assert.Empty(await ReadLifecycleAuditEventsAsync(testFactory));
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
+        using (var ownerArchiveRequest = CreateBearerJsonRequest(
+            HttpMethod.Post,
+            GroupArchivePath(routeGroupId, routeBillId),
+            ownerSession.RawSessionToken,
+            $$"""
+            {
+              "groupId": "{{bodyGroupId:D}}",
+              "billId": "{{bodyBillId:D}}"
+            }
+            """))
+        using (var ownerArchiveResponse = await client.SendAsync(ownerArchiveRequest))
+        {
+            await AssertLifecycleResponseAsync(
+                ownerArchiveResponse,
+                routeBillId,
+                routeGroupId,
+                ExpenseBillStatuses.Draft,
+                "archived",
+                ArchiveTimestamp,
+                ArchiveTimestamp);
+        }
+
+        var routeArchivedSnapshot = await ReadBillSnapshotAsync(testFactory, routeBillId);
+        Assert.Equal(ArchiveTimestamp, routeArchivedSnapshot.ArchivedAtUtc);
+        Assert.Equal(ArchiveTimestamp, routeArchivedSnapshot.UpdatedAtUtc);
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, bodyBillId)).ArchivedAtUtc);
+
+        using (var wrongRouteArchiveRequest = CreateBearerJsonRequest(
+            HttpMethod.Post,
+            GroupArchivePath(routeGroupId, bodyBillId),
+            ownerSession.RawSessionToken,
+            $$"""
+            {
+              "groupId": "{{bodyGroupId:D}}",
+              "billId": "{{bodyBillId:D}}"
+            }
+            """))
+        using (var wrongRouteArchiveResponse = await client.SendAsync(wrongRouteArchiveRequest))
+        {
+            await AssertGroupBillUnavailableProblemAsync(wrongRouteArchiveResponse);
+        }
+
+        Assert.Null((await ReadBillSnapshotAsync(testFactory, bodyBillId)).ArchivedAtUtc);
+        Assert.Equal([BillArchivedAction], (await ReadLifecycleAuditEventsAsync(testFactory)).Select(auditEvent => auditEvent.Action).ToArray());
     }
 
     [Fact]
@@ -578,7 +730,8 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
         string merchantName,
         DateTimeOffset createdAtUtc,
         DateTimeOffset? archivedAtUtc = null,
-        bool includeAttachmentAndOcr = false)
+        bool includeAttachmentAndOcr = false,
+        Guid? billOwnerProfileId = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -590,7 +743,7 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
         {
             Id = billId,
             CreatedByUserProfileId = creatorProfileId,
-            BillOwnerUserProfileId = creatorProfileId,
+            BillOwnerUserProfileId = billOwnerProfileId ?? creatorProfileId,
             GroupId = groupId,
             MerchantName = merchantName,
             BillDate = DateOnly.FromDateTime(createdAtUtc.UtcDateTime),
@@ -955,6 +1108,18 @@ public sealed class BillLifecycleEndpointTests : IClassFixture<WebApplicationFac
     {
         var request = new HttpRequestMessage(method, path);
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawSessionToken}");
+
+        return request;
+    }
+
+    private static HttpRequestMessage CreateBearerJsonRequest(
+        HttpMethod method,
+        string path,
+        string rawSessionToken,
+        string json)
+    {
+        var request = CreateBearerRequest(method, path, rawSessionToken);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         return request;
     }
