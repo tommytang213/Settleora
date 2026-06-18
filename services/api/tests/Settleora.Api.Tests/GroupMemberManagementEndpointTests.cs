@@ -379,6 +379,92 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
+    [Theory]
+    [InlineData("add")]
+    [InlineData("update")]
+    [InlineData("remove")]
+    public async Task RemovedMembershipCannotMutateGroupMembers(string operation)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var removedSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Removed Actor");
+        var owner = await SeedAccountAsync(testFactory, "Owner Actor", InitialTimestamp);
+        var target = await SeedAccountAsync(testFactory, "Target Member", InitialTimestamp.AddMinutes(1));
+        var newMember = await SeedAccountAsync(testFactory, "New Member", InitialTimestamp.AddMinutes(2));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            "Removed Actor Cannot Mutate",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(
+                removedSession.UserProfileId,
+                GroupMembershipRoles.Owner,
+                GroupMembershipStatuses.Removed),
+            new MembershipSeed(target.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        using var request = operation switch
+        {
+            "add" => CreateJsonRequest(
+                HttpMethod.Post,
+                MembersPath(groupId),
+                removedSession.RawSessionToken,
+                CreateAddMemberContent(newMember.UserProfileId, GroupMembershipRoles.Member)),
+            "update" => CreateJsonRequest(
+                HttpMethod.Patch,
+                MemberPath(groupId, target.UserProfileId),
+                removedSession.RawSessionToken,
+                JsonSerializer.Serialize(new { role = GroupMembershipRoles.Owner })),
+            "remove" => CreateBearerRequest(
+                HttpMethod.Delete,
+                MemberPath(groupId, target.UserProfileId),
+                removedSession.RawSessionToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported operation.")
+        };
+
+        using var response = await client.SendAsync(request);
+
+        await AssertGroupMemberUnavailableProblemAsync(response);
+        Assert.Equal(0, await CountMembershipsAsync(testFactory, groupId, newMember.UserProfileId));
+        var targetMembership = await ReadMembershipAsync(testFactory, groupId, target.UserProfileId);
+        Assert.Equal(GroupMembershipRoles.Member, targetMembership.Role);
+        Assert.Equal(GroupMembershipStatuses.Active, targetMembership.Status);
+        var removedMembership = await ReadMembershipAsync(testFactory, groupId, removedSession.UserProfileId);
+        Assert.Equal(GroupMembershipStatuses.Removed, removedMembership.Status);
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
+    public async Task AddRejectsRouteBodyGroupMismatchWithoutMutatingEitherGroup()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var target = await SeedAccountAsync(testFactory, "Target Member", InitialTimestamp.AddMinutes(1));
+        var routeGroupId = await SeedGroupWithOwnerAsync(testFactory, ownerSession.UserProfileId);
+        var bodyGroupId = await SeedGroupWithOwnerAsync(testFactory, ownerSession.UserProfileId);
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            groupId = bodyGroupId,
+            userProfileId = target.UserProfileId,
+            role = GroupMembershipRoles.Member
+        });
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            MembersPath(routeGroupId),
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidGroupMemberRequestProblemAsync(response);
+        Assert.Equal(0, await CountMembershipsAsync(testFactory, routeGroupId, target.UserProfileId));
+        Assert.Equal(0, await CountMembershipsAsync(testFactory, bodyGroupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
+    }
+
     [Fact]
     public async Task OwnerCanUpdateMemberRole()
     {
@@ -460,6 +546,48 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         await AssertGroupMemberPermissionDeniedProblemAsync(response);
         var membership = await ReadMembershipAsync(testFactory, groupId, target.UserProfileId);
         Assert.Equal(GroupMembershipRoles.Member, membership.Role);
+    }
+
+    [Fact]
+    public async Task UpdateRejectsRouteBodyUserProfileMismatchWithoutMutatingEitherMember()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var routeTarget = await SeedAccountAsync(testFactory, "Route Target", InitialTimestamp.AddMinutes(1));
+        var bodyTarget = await SeedAccountAsync(testFactory, "Body Target", InitialTimestamp.AddMinutes(2));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Route Body Mismatch Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(
+                routeTarget.UserProfileId,
+                GroupMembershipRoles.Member,
+                GroupMembershipStatuses.Active),
+            new MembershipSeed(bodyTarget.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var requestBody = JsonSerializer.Serialize(new
+        {
+            userProfileId = bodyTarget.UserProfileId,
+            role = GroupMembershipRoles.Owner
+        });
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonRequest(
+            HttpMethod.Patch,
+            MemberPath(groupId, routeTarget.UserProfileId),
+            ownerSession.RawSessionToken,
+            requestBody);
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidGroupMemberRequestProblemAsync(response);
+        var routeTargetMembership = await ReadMembershipAsync(testFactory, groupId, routeTarget.UserProfileId);
+        var bodyTargetMembership = await ReadMembershipAsync(testFactory, groupId, bodyTarget.UserProfileId);
+        Assert.Equal(GroupMembershipRoles.Member, routeTargetMembership.Role);
+        Assert.Equal(GroupMembershipRoles.Member, bodyTargetMembership.Role);
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
     }
 
     [Fact]
