@@ -100,6 +100,8 @@ class SettleoraFutureBillSummary {
   }
 
   bool get canCancel => status == SettleoraFutureBillStatusValues.draft;
+
+  bool get canPost => status == SettleoraFutureBillStatusValues.draft;
 }
 
 class SettleoraFutureBillDetail extends SettleoraFutureBillSummary {

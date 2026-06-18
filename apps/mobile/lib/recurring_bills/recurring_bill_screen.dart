@@ -1823,6 +1823,7 @@ class _SettleoraFutureBillDetailScreenState
     extends State<SettleoraFutureBillDetailScreen> {
   bool _isLoading = true;
   bool _isCancelling = false;
+  bool _isPosting = false;
   SettleoraFutureBillDetail? _futureBill;
   SettleoraFutureBillFailure? _failure;
   SettleoraFutureBillFailure? _actionFailure;
@@ -1884,7 +1885,10 @@ class _SettleoraFutureBillDetailScreenState
 
   Future<void> _cancel() async {
     final futureBill = _futureBill;
-    if (futureBill == null || _isCancelling || !futureBill.canCancel) {
+    if (futureBill == null ||
+        _isCancelling ||
+        _isPosting ||
+        !futureBill.canCancel) {
       return;
     }
 
@@ -1947,6 +1951,74 @@ class _SettleoraFutureBillDetailScreenState
     }
   }
 
+  Future<void> _post() async {
+    final futureBill = _futureBill;
+    if (futureBill == null ||
+        _isPosting ||
+        _isCancelling ||
+        !futureBill.canPost) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Post future bill?'),
+        content: const Text(
+          'Posting turns this upcoming bill into the bill workflow. Personal bills may become confirmed immediately. Shared or group bills may move to pending confirmation and wait for other participants to accept. Settlement impact only becomes effective after confirmation.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('future-bill-detail-post-dismiss'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton.icon(
+            key: const Key('future-bill-detail-post-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.publish_outlined),
+            label: const Text('Post future bill'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _isPosting = true;
+      _actionFailure = null;
+    });
+
+    try {
+      final updated = await widget.repository.postFutureBill(futureBill.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _futureBill = updated;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_postSuccessMessage(updated))));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = SettleoraFutureBillFailure.from(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPosting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final futureBill = _futureBill;
@@ -1958,7 +2030,9 @@ class _SettleoraFutureBillDetailScreenState
             IconButton(
               key: const Key('future-bill-detail-edit'),
               tooltip: 'Edit future bill',
-              onPressed: _isLoading || _isCancelling ? null : _openEdit,
+              onPressed: _isLoading || _isCancelling || _isPosting
+                  ? null
+                  : _openEdit,
               icon: const Icon(Icons.edit_outlined),
             ),
           IconButton(
@@ -2000,10 +2074,24 @@ class _SettleoraFutureBillDetailScreenState
                   _FutureBillInlineFailure(failure: _actionFailure!),
                 ],
                 const SizedBox(height: 20),
+                if (futureBill.canPost) ...[
+                  FilledButton.icon(
+                    key: const Key('future-bill-detail-post'),
+                    onPressed: _isPosting ? null : _post,
+                    icon: _isPosting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.publish_outlined),
+                    label: Text(_isPosting ? 'Posting' : 'Post future bill'),
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 if (futureBill.canCancel)
                   OutlinedButton.icon(
                     key: const Key('future-bill-detail-cancel'),
-                    onPressed: _isCancelling ? null : _cancel,
+                    onPressed: _isCancelling || _isPosting ? null : _cancel,
                     icon: _isCancelling
                         ? const SizedBox.square(
                             dimension: 18,
@@ -2041,6 +2129,23 @@ class _SettleoraFutureBillDetailScreenState
       ),
     );
   }
+}
+
+String _postSuccessMessage(SettleoraFutureBillDetail futureBill) {
+  if (futureBill.status == SettleoraFutureBillStatusValues.confirmed &&
+      futureBill.settlementEffective) {
+    return 'Future bill posted and confirmed. It is now settlement-effective.';
+  }
+  if (futureBill.status ==
+          SettleoraFutureBillStatusValues.pendingConfirmation &&
+      !futureBill.settlementEffective) {
+    return 'Future bill posted and waiting for participant confirmation. It is not settlement-effective yet.';
+  }
+
+  final settlementCopy = futureBill.settlementEffective
+      ? 'Settlement-effective.'
+      : 'Not settlement-effective yet.';
+  return 'Future bill posted. ${settleoraFutureBillStatusLabel(futureBill.status)}. $settlementCopy';
 }
 
 class SettleoraFutureBillFormScreen extends StatefulWidget {

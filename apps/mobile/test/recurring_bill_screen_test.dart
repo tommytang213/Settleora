@@ -91,6 +91,184 @@ void main() {
     expect(futureBillRepository.listCalls, 1);
   });
 
+  testWidgets('draft future bill detail shows post action', (tester) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('future-bill-detail-post')), findsOneWidget);
+    expect(find.text('Post future bill'), findsOneWidget);
+    expect(find.byKey(const Key('future-bill-detail-cancel')), findsOneWidget);
+    expect(futureBillRepository.getCalls, 1);
+  });
+
+  testWidgets('non-draft future bill detail hides unsafe post action', (
+    tester,
+  ) async {
+    for (final status in [
+      SettleoraFutureBillStatusValues.cancelled,
+      SettleoraFutureBillStatusValues.confirmed,
+      SettleoraFutureBillStatusValues.pendingConfirmation,
+    ]) {
+      final futureBillRepository = FakeFutureBillRepository(
+        detail: sampleFutureBillDetail(status: status),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraFutureBillDetailScreen(
+            repository: futureBillRepository,
+            futureBillId: _futureBillId,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('future-bill-detail-post')),
+        findsNothing,
+        reason: status,
+      );
+      expect(futureBillRepository.postCalls, 0);
+    }
+  });
+
+  testWidgets('future bill post confirmation uses product-facing copy', (
+    tester,
+  ) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Post future bill?'), findsOneWidget);
+    expect(
+      find.textContaining('turns this upcoming bill into the bill workflow'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Personal bills may become confirmed immediately'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('wait for other participants to accept'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Settlement impact only becomes effective'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post-dismiss')));
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.postCalls, 0);
+  });
+
+  testWidgets('future bill post calls repository once and updates detail', (
+    tester,
+  ) async {
+    final futureBillRepository = FakeFutureBillRepository(
+      detail: sampleFutureBillDetail(),
+      postResult: sampleFutureBillDetail(
+        status: SettleoraFutureBillStatusValues.confirmed,
+        settlementEffective: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraFutureBillDetailScreen(
+          repository: futureBillRepository,
+          futureBillId: _futureBillId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('future-bill-detail-post-confirm')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(futureBillRepository.postCalls, 1);
+    expect(futureBillRepository.lastFutureBillId, _futureBillId);
+    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Settlement-effective'), findsOneWidget);
+    expect(find.byKey(const Key('future-bill-detail-post')), findsNothing);
+    expect(
+      find.text(
+        'Future bill posted and confirmed. It is now settlement-effective.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'shared posted future bill response shows pending confirmation copy',
+    (tester) async {
+      final futureBillRepository = FakeFutureBillRepository(
+        detail: sampleFutureBillDetail(isGroupScoped: true),
+        postResult: sampleFutureBillDetail(
+          status: SettleoraFutureBillStatusValues.pendingConfirmation,
+          settlementEffective: false,
+          isGroupScoped: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraFutureBillDetailScreen(
+            repository: futureBillRepository,
+            futureBillId: _futureBillId,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('future-bill-detail-post')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('future-bill-detail-post-confirm')),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(futureBillRepository.postCalls, 1);
+      expect(find.text('Pending confirmation'), findsOneWidget);
+      expect(find.text('Does not affect settlements'), findsOneWidget);
+      expect(
+        find.text(
+          'Future bill posted and waiting for participant confirmation. It is not settlement-effective yet.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('future bill create form saves upcoming bill draft', (
     tester,
   ) async {
@@ -1734,11 +1912,13 @@ class FakeFutureBillRepository implements SettleoraFutureBillRepository {
   FakeFutureBillRepository({
     List<SettleoraFutureBillSummary>? futureBills,
     SettleoraFutureBillDetail? detail,
+    this.postResult,
   }) : futureBills = futureBills ?? [sampleFutureBill()],
        detail = detail ?? sampleFutureBillDetail();
 
   List<SettleoraFutureBillSummary> futureBills;
   SettleoraFutureBillDetail detail;
+  SettleoraFutureBillDetail? postResult;
   int listCalls = 0;
   int getCalls = 0;
   int createCalls = 0;
@@ -1823,10 +2003,12 @@ class FakeFutureBillRepository implements SettleoraFutureBillRepository {
   Future<SettleoraFutureBillDetail> postFutureBill(String futureBillId) async {
     postCalls += 1;
     lastFutureBillId = futureBillId;
-    detail = sampleFutureBillDetail(
-      status: SettleoraFutureBillStatusValues.confirmed,
-      settlementEffective: true,
-    );
+    detail =
+        postResult ??
+        sampleFutureBillDetail(
+          status: SettleoraFutureBillStatusValues.confirmed,
+          settlementEffective: true,
+        );
     futureBills = [detail];
     return detail;
   }
@@ -2445,6 +2627,7 @@ SettleoraFutureBillSummary sampleFutureBill({
   String totalAmount = '120.00',
   String totalCurrency = 'USD',
   DateTime? archivedAtUtc,
+  bool isGroupScoped = false,
 }) {
   return SettleoraFutureBillSummary(
     id: id,
@@ -2457,7 +2640,7 @@ SettleoraFutureBillSummary sampleFutureBill({
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
     archivedAtUtc: archivedAtUtc,
-    isGroupScoped: false,
+    isGroupScoped: isGroupScoped,
   );
 }
 
@@ -2471,6 +2654,7 @@ SettleoraFutureBillDetail sampleFutureBillDetail({
   String totalCurrency = 'USD',
   String? note = 'Annual premium',
   DateTime? archivedAtUtc,
+  bool isGroupScoped = false,
 }) {
   final summary = sampleFutureBill(
     id: id,
@@ -2481,6 +2665,7 @@ SettleoraFutureBillDetail sampleFutureBillDetail({
     totalAmount: totalAmount,
     totalCurrency: totalCurrency,
     archivedAtUtc: archivedAtUtc,
+    isGroupScoped: isGroupScoped,
   );
   return SettleoraFutureBillDetail(
     id: summary.id,
