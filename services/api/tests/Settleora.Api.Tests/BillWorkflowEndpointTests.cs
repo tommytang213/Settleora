@@ -709,6 +709,92 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
+    public async Task PersonalParticipantRoutesUseRouteActorAndRejectBodySmuggledIdentity()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal Route Participant");
+        var other = await SeedAccountAsync(testFactory, "Personal Route Other", InitialTimestamp.AddMinutes(1));
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(other.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Personal Route Bill",
+            InitialTimestamp);
+        var bodyTargetBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(other.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Personal Body Target Bill",
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using (var acceptRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            PersonalAcceptPath(routeBillId, participantSession.UserProfileId),
+            participantSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                billId = bodyTargetBillId,
+                userProfileId = other.UserProfileId,
+                ownerUserProfileId = other.UserProfileId,
+                groupId = Guid.NewGuid()
+            })))
+        using (var acceptResponse = await client.SendAsync(acceptRequest))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, acceptResponse.StatusCode);
+        }
+
+        var routeBillAfterAccept = await ReadBillAsync(testFactory, routeBillId);
+        Assert.Contains(
+            routeBillAfterAccept.Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.Accepted);
+        Assert.Contains(
+            (await ReadBillAsync(testFactory, bodyTargetBillId)).Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance);
+
+        var rejectBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(participantSession.UserProfileId), new ParticipantSeed(other.UserProfileId)],
+            ExpenseBillStatuses.PendingConfirmation,
+            "Personal Reject Route Bill",
+            InitialTimestamp);
+        using (var rejectRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            PersonalRejectPath(rejectBillId, participantSession.UserProfileId),
+            participantSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                reasonCode = ExpenseBillParticipantRejectionReasonCodes.WrongAmount,
+                userProfileId = other.UserProfileId,
+                billId = bodyTargetBillId,
+                ownerUserProfileId = other.UserProfileId,
+                groupId = Guid.NewGuid()
+            })))
+        using (var rejectResponse = await client.SendAsync(rejectRequest))
+        {
+            var rejectContent = await rejectResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillWorkflowRequestProblemAsync(rejectResponse, rejectContent);
+            Assert.Contains("Unsupported fields are not allowed.", rejectContent);
+        }
+
+        Assert.Contains(
+            (await ReadBillAsync(testFactory, rejectBillId)).Participants,
+            participant => participant.UserProfileId == participantSession.UserProfileId
+                && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
+                && participant.RejectionReasonCode is null);
+        Assert.Equal([BillParticipantAcceptedAction], (await ReadWorkflowAuditEventsAsync(testFactory)).Select(audit => audit.Action).ToArray());
+    }
+
+    [Fact]
     public async Task RejectRequiresSupportedReasonPersistsReasonAndWritesSafeAudit()
     {
         var testContext = CreateFactory();

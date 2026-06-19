@@ -1371,6 +1371,74 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task PersonalReceiptOcrReviewRejectsBodySmuggledRouteIdsBeforeSaving()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal OCR Route Body Owner");
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var bodyTargetBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(3));
+        var routeFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            routeBillId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var bodyTargetFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            bodyTargetBillId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+        var body = JsonSerializer.Serialize(new
+        {
+            status = ReceiptOcrReviewStatuses.Reviewed,
+            source = ReceiptOcrReviewSources.ManualEntry,
+            merchantText = "Personal Route Body Cafe",
+            currency = "USD",
+            grandTotalAmount = "10.00",
+            lines = new[] { new { text = "Toast", lineTotalAmount = "10.00" } },
+            groupId = Guid.NewGuid(),
+            billId = bodyTargetBillId,
+            fileId = bodyTargetFileId,
+            userProfileId = Guid.NewGuid(),
+            ownerUserProfileId = ownerSession.UserProfileId
+        });
+
+        using var request = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(routeBillId, routeFileId),
+            ownerSession.RawSessionToken,
+            body);
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidReceiptOcrReviewProblemAsync(response, body);
+        Assert.Empty(await ReadReceiptOcrReviewsAsync(testFactory));
+        Assert.Empty(await ReadReceiptOcrReviewAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task InvalidReceiptOcrReviewPayloadsAreRejectedWithoutPersistingReviewRows()
     {
         var testContext = CreateFactory();
