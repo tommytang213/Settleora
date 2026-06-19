@@ -27,7 +27,7 @@
     "doctor:npm": "node tools/diagnose-npm-env.mjs"
   },
   "devDependencies": {
-    "@redocly/cli": "^2.30.1",
+    "@redocly/cli": "^2.34.0",
     "yaml": "^2.8.3"
   }
 }
