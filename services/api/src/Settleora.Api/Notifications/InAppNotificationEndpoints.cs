@@ -16,6 +16,7 @@ internal static class InAppNotificationEndpoints
     private const string NotificationUnavailableDetail = "The requested notification is unavailable.";
     private const string InvalidNotificationRequestTitle = "Invalid notification request";
     private const string InvalidNotificationRequestDetail = "The submitted notification request is invalid.";
+    private const string InvalidNotificationNoBodyDetail = "This notification action does not accept a request body.";
     private const string NotificationWriteFailedTitle = "Notification write failed";
     private const string NotificationWriteFailedDetail = "Unable to complete notification write.";
 
@@ -102,6 +103,7 @@ internal static class InAppNotificationEndpoints
 
     private static async Task<IResult> MarkNotificationReadAsync(
         Guid notificationId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -110,6 +112,11 @@ internal static class InAppNotificationEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidNotificationNoBody();
         }
 
         var notification = await VisibleNotifications(dbContext, actor.UserProfileId, trackChanges: true)
@@ -133,6 +140,7 @@ internal static class InAppNotificationEndpoints
     }
 
     private static async Task<IResult> MarkAllReadableNotificationsReadAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -141,6 +149,11 @@ internal static class InAppNotificationEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidNotificationNoBody();
         }
 
         var now = timeProvider.GetUtcNow();
@@ -170,6 +183,7 @@ internal static class InAppNotificationEndpoints
 
     private static async Task<IResult> ArchiveNotificationAsync(
         Guid notificationId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -178,6 +192,11 @@ internal static class InAppNotificationEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidNotificationNoBody();
         }
 
         var notification = await VisibleNotifications(dbContext, actor.UserProfileId, trackChanges: true)
@@ -324,12 +343,27 @@ internal static class InAppNotificationEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static IResult InvalidNotificationNoBody()
+    {
+        return Results.Problem(
+            title: InvalidNotificationRequestTitle,
+            detail: InvalidNotificationNoBodyDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
     private static IResult NotificationWriteFailed()
     {
         return Results.Problem(
             title: NotificationWriteFailedTitle,
             detail: NotificationWriteFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static void AddError(

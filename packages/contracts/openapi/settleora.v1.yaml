@@ -5668,6 +5668,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InAppNotificationSummaryResponse"
+        "400":
+          description: Notification read-all does not accept a request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -5689,7 +5695,7 @@ paths:
   /api/v1/notifications/{notificationId}/read:
     post:
       summary: Mark one notification read
-      description: Marks one current-user visible, non-archived notification read. Missing, cross-user, archived, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
+      description: Marks one current-user visible, non-archived notification read. This accepts no request body; route notification ID and authenticated actor context are authoritative. Missing, cross-user, archived, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
       operationId: markNotificationRead
       security:
         - SessionBearerAuth: []
@@ -5708,6 +5714,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InAppNotificationResponse"
+        "400":
+          description: Notification read does not accept a request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -5735,7 +5747,7 @@ paths:
   /api/v1/notifications/{notificationId}/archive:
     post:
       summary: Archive one notification
-      description: Archives one current-user visible notification. Missing, cross-user, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
+      description: Archives one current-user visible notification. This accepts no request body; route notification ID and authenticated actor context are authoritative. Missing, cross-user, deleted-profile, or otherwise unavailable notification IDs fail closed with the same safe not-found response.
       operationId: archiveNotification
       security:
         - SessionBearerAuth: []
@@ -5754,6 +5766,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InAppNotificationResponse"
+        "400":
+          description: Notification archive does not accept a request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
