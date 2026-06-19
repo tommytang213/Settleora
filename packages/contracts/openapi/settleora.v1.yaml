@@ -1287,7 +1287,7 @@ paths:
   /api/v1/bills/{billId}/reconciliation:
     patch:
       summary: Update personal bill reconciliation status
-      description: Updates the manual reconciliation status for a visible personal bill owned by the authenticated actor. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
+      description: Updates the manual reconciliation status for a visible personal bill owned by the authenticated actor. The route billId and authenticated session actor are authoritative; request bodies that include client-submitted owner, actor, account, group, bill, statement, reconciliation-match, settlement, payment, auth, session, file, OCR, storage, or other unsupported fields are rejected. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
       operationId: updatePersonalBillReconciliation
       security:
         - SessionBearerAuth: []
@@ -1313,7 +1313,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
         "400":
-          description: The submitted reconciliation request is invalid.
+          description: The submitted reconciliation request is invalid, including unsupported client-submitted identity, record, or statement/reconciliation fields.
           content:
             application/problem+json:
               schema:
@@ -3433,7 +3433,7 @@ paths:
   /api/v1/groups/{groupId}/bills/{billId}/reconciliation:
     patch:
       summary: Update group bill reconciliation status
-      description: Updates the manual reconciliation status for a bill in the route group when the authenticated actor is an active member authorized to access that group. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
+      description: Updates the manual reconciliation status for a bill in the route group when the authenticated actor is an active member authorized to access that group. The route groupId, route billId, and authenticated session actor are authoritative; request bodies that include client-submitted owner, actor, account, group, bill, statement, reconciliation-match, settlement, payment, auth, session, file, OCR, storage, or other unsupported fields are rejected. This status is recordkeeping only; it does not mutate bill totals, splits, payer state, settlement requests, settlement payments, receipt/OCR state, files, or balances.
       operationId: updateGroupBillReconciliation
       security:
         - SessionBearerAuth: []
@@ -3466,7 +3466,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExpenseBillReconciliationResponse"
         "400":
-          description: The submitted reconciliation request is invalid.
+          description: The submitted reconciliation request is invalid, including unsupported client-submitted identity, record, or statement/reconciliation fields.
           content:
             application/problem+json:
               schema:
