@@ -348,13 +348,6 @@ internal static class InAppNotificationEndpoints
         return false;
     }
 
-    private static bool RequestHasBody(HttpRequest request)
-    {
-        return request.ContentLength.GetValueOrDefault() > 0
-            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
-            && transferEncoding.Count > 0;
-    }
-
     private static int? ReadOptionalQueryInt(
         HttpRequest request,
         string key,
