@@ -424,6 +424,41 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task NoBodyRecurringActionsRejectSmuggledBodiesBeforeMutationOrAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Body Actor");
+        var lifecycleTemplateId = await SeedTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Lifecycle Body Template");
+        var generationTemplateId = await SeedTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Generation Body Template");
+        using var client = testFactory.CreateClient();
+
+        using var pauseRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{lifecycleTemplateId:D}/pause",
+            actor.RawSessionToken,
+            """{ "templateId": "00000000-0000-0000-0000-000000000001", "ownerUserProfileId": "00000000-0000-0000-0000-000000000002" }""");
+        using var pauseResponse = await client.SendAsync(pauseRequest);
+        await AssertInvalidRecurringBillNoBodyProblemAsync(pauseResponse);
+
+        using var generateRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{generationTemplateId:D}/occurrences/2026-06-01/generate-draft",
+            actor.RawSessionToken,
+            """{ "templateId": "00000000-0000-0000-0000-000000000003", "billId": "00000000-0000-0000-0000-000000000004" }""");
+        using var generateResponse = await client.SendAsync(generateRequest);
+        await AssertInvalidRecurringBillNoBodyProblemAsync(generateResponse);
+
+        Assert.Equal(RecurringBillTemplateStatuses.Active, (await ReadTemplateAsync(testFactory, lifecycleTemplateId)).Status);
+        Assert.Equal(RecurringBillTemplateStatuses.Active, (await ReadTemplateAsync(testFactory, generationTemplateId)).Status);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task GenerateDraftCreatesExactlyOneBillAndIsIdempotentForOccurrence()
     {
         var testContext = CreateFactory();
@@ -946,6 +981,15 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("\"title\":\"Recurring bill conflict\"", content);
+    }
+
+    private static async Task AssertInvalidRecurringBillNoBodyProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("\"title\":\"Invalid recurring bill request\"", content);
+        Assert.Contains("does not accept a request body", content);
     }
 
     private sealed record FactoryTestContext(

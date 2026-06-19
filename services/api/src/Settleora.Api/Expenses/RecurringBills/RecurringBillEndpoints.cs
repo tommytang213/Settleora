@@ -354,6 +354,7 @@ internal static class RecurringBillEndpoints
 
     private static async Task<IResult> PauseTemplateAsync(
         Guid templateId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IRecurringBillAuditWriter auditWriter,
         SettleoraDbContext dbContext,
@@ -362,6 +363,7 @@ internal static class RecurringBillEndpoints
     {
         return await ChangeTemplateStatusAsync(
             templateId,
+            request,
             RecurringBillTemplateStatuses.Paused,
             TemplatePausedAction,
             currentActorAccessor,
@@ -373,6 +375,7 @@ internal static class RecurringBillEndpoints
 
     private static async Task<IResult> ResumeTemplateAsync(
         Guid templateId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IRecurringBillAuditWriter auditWriter,
         RecurringBillScheduleService scheduleService,
@@ -383,6 +386,11 @@ internal static class RecurringBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidRecurringBillNoBody();
         }
 
         var template = await VisibleTemplates(dbContext, actor.UserProfileId, trackChanges: true)
@@ -412,6 +420,7 @@ internal static class RecurringBillEndpoints
 
     private static async Task<IResult> ArchiveTemplateAsync(
         Guid templateId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IRecurringBillAuditWriter auditWriter,
         SettleoraDbContext dbContext,
@@ -421,6 +430,11 @@ internal static class RecurringBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidRecurringBillNoBody();
         }
 
         var template = await VisibleTemplates(dbContext, actor.UserProfileId, trackChanges: true)
@@ -518,6 +532,7 @@ internal static class RecurringBillEndpoints
     private static async Task<IResult> GenerateDraftAsync(
         Guid templateId,
         string occurrenceDate,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IRecurringBillAuditWriter auditWriter,
         IInAppNotificationWriter notificationWriter,
@@ -530,6 +545,11 @@ internal static class RecurringBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidRecurringBillNoBody();
         }
 
         if (!DateOnly.TryParseExact(
@@ -707,6 +727,7 @@ internal static class RecurringBillEndpoints
 
     private static async Task<IResult> ChangeTemplateStatusAsync(
         Guid templateId,
+        HttpRequest request,
         string nextStatus,
         string auditAction,
         ICurrentActorAccessor currentActorAccessor,
@@ -718,6 +739,11 @@ internal static class RecurringBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidRecurringBillNoBody();
         }
 
         var template = await VisibleTemplates(dbContext, actor.UserProfileId, trackChanges: true)
@@ -1555,6 +1581,14 @@ internal static class RecurringBillEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static IResult InvalidRecurringBillNoBody()
+    {
+        return InvalidRecurringBillRequest(new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["body"] = ["This recurring bill action does not accept a request body."]
+        });
+    }
+
     private static IResult RecurringBillConflict()
     {
         return Results.Problem(
@@ -1577,6 +1611,13 @@ internal static class RecurringBillEndpoints
             title: RecurringBillReadFailedTitle,
             detail: RecurringBillReadFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static string NormalizeCalculationField(string field)
