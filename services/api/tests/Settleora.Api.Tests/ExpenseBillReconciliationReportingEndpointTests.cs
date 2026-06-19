@@ -959,6 +959,87 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task MonthlyReportRejectsUnsupportedQueryAndBodyFieldsBeforeReportReadsOrAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Smuggled Report Actor");
+        var other = await SeedAccountAsync(testFactory, "Smuggled Report Other", InitialTimestamp.AddMinutes(1));
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 12m)],
+            [new PayerSeed(actorSession.UserProfileId, 12m)],
+            "Visible Smuggled Report Bill",
+            new DateOnly(2026, 5, 4),
+            12m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp);
+        var hiddenBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(other.UserProfileId, 99m)],
+            [new PayerSeed(other.UserProfileId, 99m)],
+            "Hidden Smuggled Report Bill",
+            new DateOnly(2026, 5, 5),
+            99m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(1));
+        var beforeVisibleSnapshot = await ReadFinancialSnapshotAsync(testFactory, visibleBillId);
+        var beforeHiddenSnapshot = await ReadFinancialSnapshotAsync(testFactory, hiddenBillId);
+        using var client = testFactory.CreateClient();
+
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/reports/monthly?month=2026-05&userProfileId={other.UserProfileId:D}&accountId={other.AuthAccountId:D}&billId={hiddenBillId:D}&settlementRequestId={Guid.NewGuid():D}",
+            actorSession.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await queryResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(queryResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Smuggled Report Bill", content);
+            Assert.DoesNotContain("Visible Smuggled Report Bill", content);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=2026-05",
+            actorSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                userProfileId = other.UserProfileId,
+                accountId = other.AuthAccountId,
+                billId = hiddenBillId,
+                groupId = Guid.NewGuid(),
+                paymentId = Guid.NewGuid(),
+                reportOwnerUserProfileId = other.UserProfileId
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(bodyResponse, content);
+            Assert.Contains("Monthly report requests do not accept a body.", content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Smuggled Report Bill", content);
+            Assert.DoesNotContain("Visible Smuggled Report Bill", content);
+        }
+
+        AssertFinancialSnapshotEqual(beforeVisibleSnapshot, await ReadFinancialSnapshotAsync(testFactory, visibleBillId));
+        AssertFinancialSnapshotEqual(beforeHiddenSnapshot, await ReadFinancialSnapshotAsync(testFactory, hiddenBillId));
+        Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task MonthlyGroupReportRequiresMembershipAndKeepsCurrencyBucketsSeparate()
     {
         var testContext = CreateFactory();
@@ -1665,6 +1746,21 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         Assert.Equal(
             "The requested monthly report is unavailable.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertInvalidMonthlyReportRequestProblemAsync(
+        HttpResponseMessage response,
+        string content)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid monthly report request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The submitted monthly report request is invalid.",
+            payload.RootElement.GetProperty("detail").GetString());
+        await Task.CompletedTask;
     }
 
     private static async Task AssertBillExportUnavailableProblemAsync(HttpResponseMessage response)

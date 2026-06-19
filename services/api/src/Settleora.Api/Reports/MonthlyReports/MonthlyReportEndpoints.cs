@@ -25,8 +25,7 @@ internal static class MonthlyReportEndpoints
     }
 
     private static async Task<IResult> GetMonthlyReportAsync(
-        string? month,
-        Guid? groupId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -38,25 +37,27 @@ internal static class MonthlyReportEndpoints
             return Unauthenticated();
         }
 
-        if (!TryReadMonth(month, out var monthStart, out var monthText, out var monthErrors))
+        var requestReadResult = ReadMonthlyReportRequest(request);
+        if (!requestReadResult.Succeeded || requestReadResult.Request is null)
         {
-            return InvalidMonthlyReportRequest(monthErrors);
+            return InvalidMonthlyReportRequest(requestReadResult.Errors);
         }
 
-        var authorizationResult = groupId is null
+        var monthlyReportRequest = requestReadResult.Request;
+        var authorizationResult = monthlyReportRequest.GroupId is null
             ? await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken)
-            : await businessAuthorizationService.CanAccessGroupAsync(groupId.Value, cancellationToken);
+            : await businessAuthorizationService.CanAccessGroupAsync(monthlyReportRequest.GroupId.Value, cancellationToken);
         if (!authorizationResult.Allowed)
         {
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        var monthEnd = monthStart.AddMonths(1);
+        var monthEnd = monthlyReportRequest.MonthStart.AddMonths(1);
         var bills = await VisibleBillsQuery(
                 dbContext,
                 actor.UserProfileId,
-                groupId,
-                monthStart,
+                monthlyReportRequest.GroupId,
+                monthlyReportRequest.MonthStart,
                 monthEnd)
             .OrderBy(bill => bill.BillDate)
             .ThenBy(bill => bill.CreatedAtUtc)
@@ -67,8 +68,8 @@ internal static class MonthlyReportEndpoints
             .ToHashSet();
 
         var response = new MonthlyReportResponse(
-            monthText,
-            groupId,
+            monthlyReportRequest.MonthText,
+            monthlyReportRequest.GroupId,
             timeProvider.GetUtcNow(),
             bills.Count,
             BuildCurrencyTotals(bills.Select(bill => new CurrencyAmount(bill.TotalCurrency, bill.TotalAmount))),
@@ -91,13 +92,13 @@ internal static class MonthlyReportEndpoints
                 dbContext,
                 billIds,
                 actor.UserProfileId,
-                groupId,
+                monthlyReportRequest.GroupId,
                 cancellationToken),
             await BuildSettlementPaymentStatusCountsAsync(
                 dbContext,
                 billIds,
                 actor.UserProfileId,
-                groupId,
+                monthlyReportRequest.GroupId,
                 cancellationToken));
 
         return Results.Ok(response);
@@ -217,6 +218,89 @@ internal static class MonthlyReportEndpoints
             .ToArray();
     }
 
+    private static MonthlyReportRequestReadResult ReadMonthlyReportRequest(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectRequestBody(request, errors);
+        RejectUnsupportedQueryFields(request, errors);
+
+        var submittedMonth = ReadSingleQueryString(request, "month", errors);
+        Guid? groupId = null;
+        var submittedGroupId = ReadSingleQueryString(request, "groupId", errors);
+        if (submittedGroupId is not null)
+        {
+            if (!Guid.TryParse(submittedGroupId, out var parsedGroupId))
+            {
+                AddError(errors, "groupId", "Group ID must be a valid UUID.");
+            }
+            else
+            {
+                groupId = parsedGroupId;
+            }
+        }
+
+        if (!TryReadMonth(submittedMonth, out var monthStart, out var monthText, out var monthErrors))
+        {
+            foreach (var (field, fieldErrors) in monthErrors)
+            {
+                foreach (var fieldError in fieldErrors)
+                {
+                    AddError(errors, field, fieldError);
+                }
+            }
+        }
+
+        return errors.Count == 0
+            ? MonthlyReportRequestReadResult.Valid(new MonthlyReportRequest(monthStart, monthText, groupId))
+            : MonthlyReportRequestReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0)
+        {
+            AddError(errors, "body", "Monthly report requests do not accept a body.");
+        }
+    }
+
+    private static void RejectUnsupportedQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!string.Equals(field, "month", StringComparison.Ordinal)
+                && !string.Equals(field, "groupId", StringComparison.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
+    private static string? ReadSingleQueryString(
+        HttpRequest request,
+        string field,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(field, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, field, "Only one value is supported.");
+            return null;
+        }
+
+        return values.ToString();
+    }
+
     private static bool TryReadMonth(
         string? submittedMonth,
         out DateOnly monthStart,
@@ -243,6 +327,28 @@ internal static class MonthlyReportEndpoints
 
         monthText = monthStart.ToString("yyyy-MM", CultureInfo.InvariantCulture);
         return true;
+    }
+
+    private static void AddError(
+        Dictionary<string, List<string>> errors,
+        string field,
+        string error)
+    {
+        if (!errors.TryGetValue(field, out var fieldErrors))
+        {
+            fieldErrors = [];
+            errors[field] = fieldErrors;
+        }
+
+        fieldErrors.Add(error);
+    }
+
+    private static IDictionary<string, string[]> ToErrorDictionary(Dictionary<string, List<string>> errors)
+    {
+        return errors.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.Distinct(StringComparer.Ordinal).ToArray(),
+            StringComparer.Ordinal);
     }
 
     private static IResult MapAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
@@ -285,6 +391,40 @@ internal static class MonthlyReportEndpoints
     private sealed record CurrencyAmount(
         string Currency,
         decimal Amount);
+
+    private sealed record MonthlyReportRequest(
+        DateOnly MonthStart,
+        string MonthText,
+        Guid? GroupId);
+
+    private sealed class MonthlyReportRequestReadResult
+    {
+        private MonthlyReportRequestReadResult(
+            MonthlyReportRequest? request,
+            IDictionary<string, string[]> errors)
+        {
+            Request = request;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public MonthlyReportRequest? Request { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static MonthlyReportRequestReadResult Valid(MonthlyReportRequest request)
+        {
+            return new MonthlyReportRequestReadResult(
+                request,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static MonthlyReportRequestReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new MonthlyReportRequestReadResult(null, errors);
+        }
+    }
 
     private static class SettlementRequestStatusList
     {
