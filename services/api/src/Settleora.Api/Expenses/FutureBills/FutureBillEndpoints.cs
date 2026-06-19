@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Primitives;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Notifications;
@@ -35,6 +36,7 @@ internal static class FutureBillEndpoints
     private const string BillSubmittedAction = "bill.submitted";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
+    private static readonly string[] SupportedListQueryFields = ["status", "groupId", "fromDate", "toDate", "includeArchived"];
 
     public static WebApplication MapFutureBillEndpoints(this WebApplication app)
     {
@@ -132,6 +134,12 @@ internal static class FutureBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var filterResult = ReadListFilter(request);
+        if (!filterResult.Succeeded || filterResult.Filter is null)
+        {
+            return InvalidFutureBillRequest(filterResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -143,12 +151,6 @@ internal static class FutureBillEndpoints
         if (!authorizationResult.Allowed)
         {
             return MapAuthorizationFailure(authorizationResult);
-        }
-
-        var filterResult = ReadListFilter(request);
-        if (!filterResult.Succeeded || filterResult.Filter is null)
-        {
-            return InvalidFutureBillRequest(filterResult.Errors);
         }
 
         var query = VisibleFutureBills(dbContext, actor.UserProfileId, trackChanges: false);
@@ -172,11 +174,17 @@ internal static class FutureBillEndpoints
 
     private static async Task<IResult> GetFutureBillAsync(
         Guid futureBillId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectFutureBillReadEnvelope(request, out var result))
+        {
+            return result;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -863,7 +871,10 @@ internal static class FutureBillEndpoints
     private static FutureBillListFilterReadResult ReadListFilter(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var status = ReadOptionalQueryString(request, "status");
+        RejectListRequestBody(request, errors);
+        RejectUnsupportedListQueryFields(request, errors);
+
+        var status = ReadOptionalListQueryString(request, "status", errors);
         if (status is not null
             && status != ExpenseBillStatuses.Draft
             && status != ExpenseBillStatuses.PendingConfirmation
@@ -882,10 +893,57 @@ internal static class FutureBillEndpoints
             AddError(errors, "toDate", "To date must be on or after from date.");
         }
 
-        var includeArchived = string.Equals(ReadOptionalQueryString(request, "includeArchived"), "true", StringComparison.OrdinalIgnoreCase);
+        var includeArchived = ReadOptionalQueryBool(request, "includeArchived", errors) ?? false;
         return errors.Count == 0
             ? FutureBillListFilterReadResult.Valid(new FutureBillListFilter(status, groupId, fromDate, toDate, includeArchived))
             : FutureBillListFilterReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectListRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Future bill list requests do not accept a body.");
+        }
+    }
+
+    private static bool TryRejectFutureBillReadEnvelope(HttpRequest request, out IResult result)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (request.Query.Count > 0)
+        {
+            AddError(errors, "query", "Unsupported query fields are not allowed.");
+        }
+
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Future bill read requests do not accept a body.");
+        }
+
+        if (errors.Count == 0)
+        {
+            result = null!;
+            return false;
+        }
+
+        result = InvalidFutureBillRequest(ToErrorDictionary(errors));
+        return true;
+    }
+
+    private static void RejectUnsupportedListQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!SupportedListQueryFields.Contains(field, StringComparer.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
     }
 
     private static async Task<JsonDocument?> ReadJsonDocumentAsync(
@@ -984,7 +1042,7 @@ internal static class FutureBillEndpoints
         string key,
         Dictionary<string, List<string>> errors)
     {
-        var value = ReadOptionalQueryString(request, key);
+        var value = ReadOptionalListQueryString(request, key, errors);
         if (value is null)
         {
             return null;
@@ -1004,7 +1062,7 @@ internal static class FutureBillEndpoints
         string key,
         Dictionary<string, List<string>> errors)
     {
-        var value = ReadOptionalQueryString(request, key);
+        var value = ReadOptionalListQueryString(request, key, errors);
         if (value is null)
         {
             return null;
@@ -1019,11 +1077,48 @@ internal static class FutureBillEndpoints
         return parsed;
     }
 
-    private static string? ReadOptionalQueryString(HttpRequest request, string key)
+    private static bool? ReadOptionalQueryBool(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
     {
-        return request.Query.TryGetValue(key, out var values) && values.Count > 0
-            ? values.ToString()
-            : null;
+        var value = ReadOptionalListQueryString(request, key, errors);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        AddError(errors, key, $"{key} must be true or false.");
+        return null;
+    }
+
+    private static string? ReadOptionalListQueryString(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(key, out var values) || values == StringValues.Empty)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, key, "Only one value is supported.");
+            return null;
+        }
+
+        return values.ToString();
     }
 
     private static string? ReadNullableText(
