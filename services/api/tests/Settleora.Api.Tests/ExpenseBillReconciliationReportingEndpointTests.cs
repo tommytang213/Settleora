@@ -521,6 +521,76 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task ReconciliationListReadEnvelopeRejectsDuplicateStatusAndBodiesBeforeHiddenReads()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Reconciliation Envelope Actor");
+        var other = await SeedAccountAsync(testFactory, "Hidden Reconciliation Envelope Owner", InitialTimestamp.AddMinutes(1));
+        var hiddenGroupId = await SeedGroupAsync(
+            testFactory,
+            other.UserProfileId,
+            "Hidden Reconciliation Envelope Group",
+            InitialTimestamp.AddMinutes(2),
+            deletedAtUtc: null,
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var hiddenBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            hiddenGroupId,
+            [new ParticipantSeed(other.UserProfileId, 99m)],
+            [new PayerSeed(other.UserProfileId, 99m)],
+            "Hidden Reconciliation Envelope Bill",
+            new DateOnly(2026, 5, 18),
+            99m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(3));
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/bills?reconciliationStatus={ExpenseBillReconciliationStatuses.Reconciled}&reconciliationStatus={ExpenseBillReconciliationStatuses.Ignored}",
+            actorSession.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, duplicateResponse.StatusCode);
+            Assert.Contains("\"reconciliationStatus\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain(ExpenseBillReconciliationStatuses.Reconciled, content);
+            Assert.DoesNotContain(ExpenseBillReconciliationStatuses.Ignored, content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Reconciliation Envelope", content);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{hiddenGroupId:D}/bills?reconciliationStatus={ExpenseBillReconciliationStatuses.Reconciled}",
+            actorSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                billId = hiddenBillId,
+                groupId = hiddenGroupId,
+                statementTransactionId = Guid.NewGuid(),
+                reconciliationMatchId = Guid.NewGuid(),
+                selector = "Hidden Reconciliation Envelope Selector"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, bodyResponse.StatusCode);
+            Assert.Contains("Group bill list requests do not accept a body.", content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenGroupId.ToString("D"), content);
+            Assert.DoesNotContain("statementTransactionId", content);
+            Assert.DoesNotContain("reconciliationMatchId", content);
+            Assert.DoesNotContain("Hidden Reconciliation Envelope", content);
+        }
+
+        Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task PersonalBillListUsesSharedSearchFiltersWithoutLeakingCrossUserOrArchivedBills()
     {
         var testContext = CreateFactory();
