@@ -5,6 +5,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 using Settleora.Api.Storage;
 
 namespace Settleora.Api.Expenses.BillAttachments;
@@ -26,6 +27,9 @@ internal static class BillAttachmentEndpoints
     private const string BillAttachmentRemoveFailedDetail = "Unable to complete bill attachment removal.";
     private const string BillAttachmentAccessFailedTitle = "Bill attachment access failed";
     private const string BillAttachmentAccessFailedDetail = "Unable to complete bill attachment access.";
+    private const string InvalidBillAttachmentReadTitle = "Invalid bill attachment read";
+    private const string InvalidBillAttachmentReadDetail = "The submitted bill attachment read request is invalid.";
+    private const string BillAttachmentReadBodyMessage = "GET bill attachment read requests do not accept request bodies.";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
     private const string AttachmentAttachedAction = "bill_attachment.attached";
@@ -315,6 +319,7 @@ internal static class BillAttachmentEndpoints
 
     private static Task<IResult> ListPersonalBillAttachmentsAsync(
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -323,6 +328,7 @@ internal static class BillAttachmentEndpoints
         return ListBillAttachmentsAsync(
             routeGroupId: null,
             billId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -332,6 +338,7 @@ internal static class BillAttachmentEndpoints
     private static Task<IResult> ListGroupBillAttachmentsAsync(
         Guid groupId,
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -340,6 +347,7 @@ internal static class BillAttachmentEndpoints
         return ListBillAttachmentsAsync(
             groupId,
             billId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -349,11 +357,17 @@ internal static class BillAttachmentEndpoints
     private static async Task<IResult> ListBillAttachmentsAsync(
         Guid? routeGroupId,
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectAttachmentReadEnvelope(request, out var envelopeRejection))
+        {
+            return envelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -393,6 +407,7 @@ internal static class BillAttachmentEndpoints
     private static Task<IResult> GetPersonalBillAttachmentContentAsync(
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         HttpResponse response,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -406,6 +421,7 @@ internal static class BillAttachmentEndpoints
             routeGroupId: null,
             billId,
             fileId,
+            request,
             response,
             currentActorAccessor,
             businessAuthorizationService,
@@ -420,6 +436,7 @@ internal static class BillAttachmentEndpoints
         Guid groupId,
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         HttpResponse response,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -433,6 +450,7 @@ internal static class BillAttachmentEndpoints
             groupId,
             billId,
             fileId,
+            request,
             response,
             currentActorAccessor,
             businessAuthorizationService,
@@ -447,6 +465,7 @@ internal static class BillAttachmentEndpoints
         Guid? routeGroupId,
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         HttpResponse response,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -456,6 +475,11 @@ internal static class BillAttachmentEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        if (TryRejectAttachmentReadEnvelope(request, out var envelopeRejection))
+        {
+            return envelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -530,6 +554,16 @@ internal static class BillAttachmentEndpoints
         response.Headers["X-Content-Type-Options"] = "nosniff";
         response.Headers["Content-Disposition"] = "attachment";
         return Results.File(content, attachment.FileObject.ContentType);
+    }
+
+    private static bool TryRejectAttachmentReadEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidBillAttachmentReadTitle,
+            InvalidBillAttachmentReadDetail,
+            BillAttachmentReadBodyMessage,
+            out result);
     }
 
     private static Task<IResult> RemovePersonalBillAttachmentAsync(

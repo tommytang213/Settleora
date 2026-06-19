@@ -184,6 +184,155 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
+    public async Task BillAttachmentReadRoutesRejectQueryAndGetBodiesWithoutStorageReadAuditOrSensitiveEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Attachment Read Envelope Owner");
+        var participant = await SeedAccountAsync(testFactory, "Attachment Read Envelope Participant", InitialTimestamp.AddMinutes(1));
+        var participantSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, participant);
+        var personalBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var personalFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            testContext.StorageProvider,
+            personalBillId,
+            ownerSession.UserProfileId,
+            ValidPngBytes,
+            "image/png",
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Attachment Read Envelope Group",
+            InitialTimestamp.AddMinutes(3),
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(participant.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var groupBillId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(4));
+        var groupFileId = await SeedBillAttachmentAsync(
+            testFactory,
+            testContext.StorageProvider,
+            groupBillId,
+            ownerSession.UserProfileId,
+            ValidPdfBytes,
+            "application/pdf",
+            ExpenseBillAttachmentPurposes.SupportingAttachment,
+            FileObjectPurposes.SupportingAttachment,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        var smuggledUserProfileId = Guid.NewGuid();
+        var smuggledBillId = Guid.NewGuid();
+        var smuggledFileId = Guid.NewGuid();
+        var smuggledQuery = $"?userProfileId={smuggledUserProfileId:D}&billId={smuggledBillId:D}&fileId={smuggledFileId:D}&merchant={Uri.EscapeDataString(HiddenMerchantName)}&filename={Uri.EscapeDataString(HiddenOriginalFilename)}";
+        var smuggledBody = $$"""
+            {
+              "userProfileId": "{{smuggledUserProfileId:D}}",
+              "billId": "{{smuggledBillId:D}}",
+              "fileId": "{{smuggledFileId:D}}",
+              "storageObjectKey": "{{HiddenStorageObjectKey}}",
+              "merchant": "{{HiddenMerchantName}}",
+              "filename": "{{HiddenOriginalFilename}}"
+            }
+            """;
+
+        using (var personalListQueryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalAttachmentPath(personalBillId) + smuggledQuery,
+            participantSession.RawSessionToken))
+        using (var personalListQueryResponse = await client.SendAsync(personalListQueryRequest))
+        {
+            await AssertInvalidBillAttachmentReadProblemAsync(
+                personalListQueryResponse,
+                smuggledUserProfileId,
+                smuggledBillId,
+                smuggledFileId,
+                HiddenMerchantName,
+                HiddenOriginalFilename);
+        }
+
+        using (var personalContentQueryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PersonalAttachmentContentPath(personalBillId, personalFileId) + smuggledQuery,
+            participantSession.RawSessionToken))
+        using (var personalContentQueryResponse = await client.SendAsync(personalContentQueryRequest))
+        {
+            await AssertInvalidBillAttachmentReadProblemAsync(
+                personalContentQueryResponse,
+                smuggledUserProfileId,
+                smuggledBillId,
+                smuggledFileId,
+                HiddenMerchantName,
+                HiddenOriginalFilename);
+        }
+
+        using (var groupListBodyRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupAttachmentPath(groupId, groupBillId),
+            participantSession.RawSessionToken))
+        {
+            groupListBodyRequest.Content = new StringContent(smuggledBody, Encoding.UTF8, "application/json");
+            using var groupListBodyResponse = await client.SendAsync(groupListBodyRequest);
+            await AssertInvalidBillAttachmentReadProblemAsync(
+                groupListBodyResponse,
+                smuggledUserProfileId,
+                smuggledBillId,
+                smuggledFileId,
+                HiddenStorageObjectKey,
+                HiddenMerchantName,
+                HiddenOriginalFilename);
+        }
+
+        using (var groupContentBodyRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            GroupAttachmentContentPath(groupId, groupBillId, groupFileId),
+            participantSession.RawSessionToken))
+        {
+            groupContentBodyRequest.Content = new StringContent(smuggledBody, Encoding.UTF8, "application/json");
+            using var groupContentBodyResponse = await client.SendAsync(groupContentBodyRequest);
+            await AssertInvalidBillAttachmentReadProblemAsync(
+                groupContentBodyResponse,
+                smuggledUserProfileId,
+                smuggledBillId,
+                smuggledFileId,
+                HiddenStorageObjectKey,
+                HiddenMerchantName,
+                HiddenOriginalFilename);
+        }
+
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Empty(await ReadBillAttachmentAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(2, (await ReadBillAttachmentsAsync(testFactory)).Count);
+        Assert.Equal(2, (await ReadFileObjectsAsync(testFactory)).Count);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, personalBillId, personalFileId)).RemovedAtUtc);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, groupBillId, groupFileId)).RemovedAtUtc);
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, personalFileId)).Status);
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, groupFileId)).Status);
+    }
+
+    [Fact]
     public async Task GroupBillOwnerCanUploadParticipantCanReadAndOwnerCanRemoveSupportingAttachment()
     {
         var testContext = CreateFactory();
@@ -1330,6 +1479,33 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
         Assert.Equal("Invalid bill attachment upload", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
         Assert.True(payload.RootElement.TryGetProperty("errors", out _));
+    }
+
+    private static async Task AssertInvalidBillAttachmentReadProblemAsync(
+        HttpResponseMessage response,
+        Guid unexpectedUserProfileId,
+        Guid unexpectedBillId,
+        Guid unexpectedFileId,
+        params string[] unexpectedResponseTexts)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content);
+        Assert.DoesNotContain(unexpectedUserProfileId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(unexpectedBillId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(unexpectedFileId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+        foreach (var unexpectedResponseText in unexpectedResponseTexts)
+        {
+            Assert.DoesNotContain(unexpectedResponseText, content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid bill attachment read", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.True(payload.RootElement.TryGetProperty("errors", out var errors));
+        Assert.True(errors.TryGetProperty("query", out _) || errors.TryGetProperty("body", out _));
     }
 
     private static async Task AssertBillAttachmentConflictProblemAsync(
