@@ -10,6 +10,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.RecurringBills;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
@@ -342,6 +345,164 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
+    public async Task ListAndReadRejectUnsupportedQueryAndGetBodiesBeforeProtectedReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Envelope Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Envelope Other");
+        using var client = testFactory.CreateClient();
+        var visibleFutureBillId = await CreateFutureBillAsync(
+            client,
+            actor.RawSessionToken,
+            CreatePersonalFutureBillJson("2026-06-20", "120.00"));
+        var hiddenFutureBillId = await CreateFutureBillAsync(
+            client,
+            other.RawSessionToken,
+            CreatePersonalFutureBillJson("2026-06-22", "40.00"));
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+        var unsupportedQuery = string.Join(
+            '&',
+            $"futureBillId={hiddenFutureBillId:D}",
+            $"billId={Guid.NewGuid():D}",
+            $"ownerUserProfileId={other.UserProfileId:D}",
+            $"createdByUserProfileId={other.UserProfileId:D}",
+            $"groupId={Guid.NewGuid():D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            "merchantName=Hidden Future Envelope Merchant",
+            "selector=Hidden Future Envelope Selector");
+
+        using (var listRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}?{unsupportedQuery}",
+            actor.RawSessionToken))
+        using (var listResponse = await client.SendAsync(listRequest))
+        {
+            var content = await listResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(listResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertValidationResponseIsBounded(content, hiddenFutureBillId, other.UserProfileId, "Hidden Future Envelope");
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        using (var readRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}/{visibleFutureBillId:D}?{unsupportedQuery}",
+            actor.RawSessionToken))
+        using (var readResponse = await client.SendAsync(readRequest))
+        {
+            var content = await readResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(readResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertValidationResponseIsBounded(content, hiddenFutureBillId, other.UserProfileId, "Hidden Future Envelope");
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        var body = JsonSerializer.Serialize(new
+        {
+            futureBillId = hiddenFutureBillId,
+            ownerUserProfileId = other.UserProfileId,
+            billId = Guid.NewGuid(),
+            settlementId = Guid.NewGuid(),
+            paymentId = Guid.NewGuid(),
+            fileId = Guid.NewGuid(),
+            merchantName = "Hidden Future Envelope Merchant"
+        });
+
+        using (var listBodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}?status={ExpenseBillStatuses.Draft}",
+            actor.RawSessionToken,
+            body))
+        using (var listBodyResponse = await client.SendAsync(listBodyRequest))
+        {
+            var content = await listBodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(listBodyResponse, content);
+            Assert.Contains("Future bill list requests do not accept a body.", content);
+            AssertValidationResponseIsBounded(content, hiddenFutureBillId, other.UserProfileId, "Hidden Future Envelope");
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        using (var readBodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}/{visibleFutureBillId:D}",
+            actor.RawSessionToken,
+            body))
+        using (var readBodyResponse = await client.SendAsync(readBodyRequest))
+        {
+            var content = await readBodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(readBodyResponse, content);
+            Assert.Contains("Future bill read requests do not accept a body.", content);
+            AssertValidationResponseIsBounded(content, hiddenFutureBillId, other.UserProfileId, "Hidden Future Envelope");
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task ListRejectsDuplicateAndInvalidSupportedQueryValuesWithoutRawEchoOrReads()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Filter Actor");
+        using var client = testFactory.CreateClient();
+        var visibleFutureBillId = await CreateFutureBillAsync(
+            client,
+            actor.RawSessionToken,
+            CreatePersonalFutureBillJson("2026-06-20", "120.00"));
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}?status={ExpenseBillStatuses.Draft}&status={ExpenseBillStatuses.Cancelled}&groupId={Guid.NewGuid():D}&groupId={Guid.NewGuid():D}&fromDate=2026-06-01&fromDate=2026-06-02&toDate=2026-06-30&toDate=2026-07-01&includeArchived=true&includeArchived=false",
+            actor.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(duplicateResponse, content);
+            Assert.Contains("\"status\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"groupId\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"fromDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"toDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"includeArchived\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain(ExpenseBillStatuses.Draft, content);
+            Assert.DoesNotContain(ExpenseBillStatuses.Cancelled, content);
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{FutureBillsPath}?status=posted&groupId=not-a-guid&fromDate=2026-99-01&toDate=not-a-date&includeArchived=yes",
+            actor.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await invalidResponse.Content.ReadAsStringAsync();
+            await AssertInvalidFutureBillRequestProblemAsync(invalidResponse, content);
+            Assert.Contains("Future bill status is not supported.", content);
+            Assert.Contains("groupId must be a valid non-empty GUID.", content);
+            Assert.Contains("fromDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("toDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("includeArchived must be true or false.", content);
+            Assert.DoesNotContain("posted", content);
+            Assert.DoesNotContain("not-a-guid", content);
+            Assert.DoesNotContain("2026-99-01", content);
+            Assert.DoesNotContain("not-a-date", content);
+            Assert.DoesNotContain(visibleFutureBillId.ToString("D"), content);
+            Assert.DoesNotContain("Future Rent", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task CreateRejectsInvalidCurrencyAndDueDate()
     {
         var testContext = CreateFactory();
@@ -626,6 +787,32 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
             .ToListAsync();
     }
 
+    private static async Task<ProtectedRowCounts> CountProtectedRowsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return new ProtectedRowCounts(
+            await dbContext.Set<ExpenseBill>().CountAsync(),
+            await dbContext.Set<ExpenseBillItem>().CountAsync(),
+            await dbContext.Set<ExpenseBillItemSplit>().CountAsync(),
+            await dbContext.Set<ExpenseBillParticipant>().CountAsync(),
+            await dbContext.Set<ExpenseBillPayer>().CountAsync(),
+            await dbContext.Set<ExpenseBillAdjustment>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReview>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReviewLine>().CountAsync(),
+            await dbContext.Set<RecurringBillTemplate>().CountAsync(),
+            await dbContext.Set<RecurringBillOccurrence>().CountAsync(),
+            await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementRequestLine>().CountAsync(),
+            await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<SettlementPaymentAllocation>().CountAsync(),
+            await dbContext.Set<SettlementResidual>().CountAsync(),
+            await dbContext.Set<FileObject>().CountAsync(),
+            await dbContext.Set<AuthAuditEvent>()
+                .CountAsync(auditEvent => auditEvent.Action.StartsWith("future_bill.", StringComparison.Ordinal)
+                    || auditEvent.Action == "bill.submitted"));
+    }
+
     private static HttpRequestMessage CreateBearerRequest(HttpMethod method, string path, string rawSessionToken)
     {
         var request = new HttpRequestMessage(method, path);
@@ -665,11 +852,49 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
         Assert.Contains("does not accept a request body", content);
     }
 
+    private static Task AssertInvalidFutureBillRequestProblemAsync(HttpResponseMessage response, string content)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("\"title\":\"Invalid future bill request\"", content);
+        return Task.CompletedTask;
+    }
+
+    private static void AssertValidationResponseIsBounded(
+        string content,
+        Guid hiddenFutureBillId,
+        Guid hiddenUserProfileId,
+        string hiddenTextPrefix)
+    {
+        Assert.DoesNotContain(hiddenFutureBillId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenUserProfileId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenTextPrefix, content);
+    }
+
     private sealed record FactoryTestContext(WebApplicationFactory<Program> Factory, EndpointTestTimeProvider TimeProvider);
 
     private sealed record SeededSession(Guid AuthAccountId, Guid UserProfileId, string RawSessionToken);
 
     private sealed record MembershipSeed(Guid UserProfileId, string Role, string Status);
+
+    private sealed record ProtectedRowCounts(
+        int Bills,
+        int BillItems,
+        int BillItemSplits,
+        int BillParticipants,
+        int BillPayers,
+        int BillAdjustments,
+        int ReceiptOcrReviews,
+        int ReceiptOcrReviewLines,
+        int RecurringTemplates,
+        int RecurringOccurrences,
+        int SettlementRequests,
+        int SettlementRequestLines,
+        int SettlementPayments,
+        int SettlementPaymentAllocations,
+        int SettlementResiduals,
+        int FileObjects,
+        int AuditEvents);
 
     private sealed class EndpointTestTimeProvider : TimeProvider
     {
