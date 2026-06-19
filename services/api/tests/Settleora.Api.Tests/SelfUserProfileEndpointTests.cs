@@ -234,6 +234,33 @@ public sealed class SelfUserProfileEndpointTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
+    public async Task PatchSelfProfileRejectsQueryOwnershipFieldsWithoutMutating()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Patch,
+            $"{ProfilePath}?userProfileId={Guid.NewGuid():D}&accountId={Guid.NewGuid():D}");
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {seededSession.RawSessionToken}");
+        request.Content = new StringContent(
+            "{\"displayName\":\"Should Not Apply\"}",
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidProfileUpdateProblemAsync(response, content);
+        Assert.Contains("Unsupported query fields are not allowed.", content);
+        Assert.DoesNotContain("userProfileId", content);
+        Assert.DoesNotContain("accountId", content);
+        Assert.DoesNotContain("Should Not Apply", content);
+        await AssertProfileUnchangedAsync(testFactory, seededSession.UserProfileId);
+    }
+
+    [Fact]
     public async Task PatchSelfProfileRejectsUnsupportedSecretFieldsWithoutEchoingRequestFieldNamesOrValues()
     {
         var testContext = CreateFactory();

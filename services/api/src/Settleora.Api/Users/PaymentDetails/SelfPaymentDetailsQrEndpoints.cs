@@ -4,6 +4,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 using Settleora.Api.Storage;
 
 namespace Settleora.Api.Users.PaymentDetails;
@@ -55,6 +56,15 @@ internal static partial class SelfPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidPaymentQrUploadTitle,
+            InvalidPaymentQrUploadDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -198,6 +208,7 @@ internal static partial class SelfPaymentDetailsEndpoints
     }
 
     private static async Task<IResult> RemoveSelfPaymentQrAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IPaymentDetailsAuditWriter auditWriter,
@@ -209,6 +220,15 @@ internal static partial class SelfPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidPaymentQrUploadTitle,
+            InvalidPaymentQrUploadDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -269,6 +289,7 @@ internal static partial class SelfPaymentDetailsEndpoints
     }
 
     private static async Task<IResult> GetSelfPaymentQrContentAsync(
+        HttpRequest request,
         HttpResponse response,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -279,6 +300,15 @@ internal static partial class SelfPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidPaymentQrUploadTitle,
+            InvalidPaymentQrUploadDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(

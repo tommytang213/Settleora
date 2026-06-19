@@ -380,6 +380,60 @@ public sealed class SettlementCounterpartyPaymentDetailsEndpointTests : IClassFi
     }
 
     [Fact]
+    public async Task CounterpartyPaymentDetailsRejectsQueryOwnershipFieldsWithoutAuditingOrOpeningQrBytes()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Query Details Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Query Details Creditor", InitialTimestamp.AddMinutes(1));
+        await SeedPaymentProfileWithQrAsync(
+            testFactory,
+            testContext.StorageProvider,
+            creditor.UserProfileId,
+            "Query Method",
+            "query-handle",
+            "query note",
+            UserPaymentProfileVisibilities.SettlementCounterpartiesOnly);
+        var settlementId = await SeedPersonalSettlementForAsync(testFactory, debtorSession.UserProfileId, creditor.UserProfileId);
+
+        using var client = testFactory.CreateClient();
+        using (var detailsRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{PaymentDetailsPath(settlementId, creditor.UserProfileId)}?accountId={Guid.NewGuid():D}&paymentDetailId={Guid.NewGuid():D}&settlementId={Guid.NewGuid():D}",
+            debtorSession.RawSessionToken))
+        using (var detailsResponse = await client.SendAsync(detailsRequest))
+        {
+            var detailsContent = await detailsResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, detailsResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", detailsContent);
+            Assert.DoesNotContain("accountId", detailsContent);
+            Assert.DoesNotContain("paymentDetailId", detailsContent);
+            Assert.DoesNotContain("settlementId", detailsContent);
+            Assert.DoesNotContain("query-handle", detailsContent);
+        }
+
+        using (var qrRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{QrContentPath(settlementId, creditor.UserProfileId)}?ownerUserProfileId={Guid.NewGuid():D}&paymentQrId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}",
+            debtorSession.RawSessionToken))
+        using (var qrResponse = await client.SendAsync(qrRequest))
+        {
+            var qrContent = await qrResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, qrResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", qrContent);
+            Assert.DoesNotContain("ownerUserProfileId", qrContent);
+            Assert.DoesNotContain("paymentQrId", qrContent);
+            Assert.DoesNotContain("fileId", qrContent);
+            Assert.DoesNotContain("query-handle", qrContent);
+        }
+
+        Assert.Empty(await ReadCounterpartyAuditEventsAsync(testFactory));
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+    }
+
+    [Fact]
     public async Task QrContentReadRequiresVisibleCounterpartyActivePaymentQrAndReturnsSafeHeaders()
     {
         var testContext = CreateFactory();
@@ -1215,6 +1269,8 @@ public sealed class SettlementCounterpartyPaymentDetailsEndpointTests : IClassFi
 
         public string ProviderName => StorageProviderNames.Local;
 
+        public int OpenReadCount { get; private set; }
+
         public string CreateObjectKey(string purpose, Guid fileObjectId, DateTimeOffset createdAtUtc)
         {
             return string.Join(
@@ -1234,6 +1290,7 @@ public sealed class SettlementCounterpartyPaymentDetailsEndpointTests : IClassFi
 
         public Task<Stream> OpenReadAsync(string objectKey, CancellationToken cancellationToken)
         {
+            OpenReadCount++;
             if (!storedObjects.TryGetValue(objectKey, out var bytes))
             {
                 throw new FileNotFoundException("Simulated missing counterparty QR object.");
