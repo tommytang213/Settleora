@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -904,6 +905,145 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task BillExportsRejectSmuggledEnvelopesBeforeHiddenReadsWithoutMutationOrRawEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Export Envelope Actor");
+        var other = await SeedAccountAsync(testFactory, "Export Envelope Other", InitialTimestamp.AddMinutes(1));
+        var hiddenGroupId = await SeedGroupAsync(
+            testFactory,
+            other.UserProfileId,
+            "Hidden Export Envelope Group",
+            InitialTimestamp.AddMinutes(2),
+            deletedAtUtc: null,
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 12m)],
+            [new PayerSeed(actorSession.UserProfileId, 12m)],
+            "Visible Export Envelope Bill",
+            new DateOnly(2026, 5, 20),
+            12m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp.AddMinutes(3));
+        var hiddenBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            hiddenGroupId,
+            [new ParticipantSeed(other.UserProfileId, 99m)],
+            [new PayerSeed(other.UserProfileId, 99m)],
+            "Hidden Export Envelope Bill",
+            new DateOnly(2026, 5, 21),
+            99m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(4));
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            visibleBillId,
+            groupId: null,
+            actorSession.UserProfileId,
+            other.UserProfileId,
+            actorSession.UserProfileId,
+            12m,
+            SettlementRequestStatuses.Requested,
+            InitialTimestamp.AddMinutes(5));
+        await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            actorSession.UserProfileId,
+            other.UserProfileId,
+            12m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(6));
+        var beforeVisibleSnapshot = await ReadFinancialSnapshotAsync(testFactory, visibleBillId);
+        var beforeHiddenSnapshot = await ReadFinancialSnapshotAsync(testFactory, hiddenBillId);
+        var beforeSideEffectCounts = await ReadExportSideEffectCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using (var unsupportedRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/bills/export.json?fromDate=2026-05-01&billId={hiddenBillId:D}&groupId={hiddenGroupId:D}&merchant=Hidden%20Export%20Envelope",
+            actorSession.RawSessionToken))
+        using (var unsupportedResponse = await client.SendAsync(unsupportedRequest))
+        {
+            var content = await unsupportedResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillExportRequestProblemAsync(unsupportedResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenGroupId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Export Envelope", content);
+            Assert.DoesNotContain("billId", content);
+            Assert.DoesNotContain("groupId", content);
+        }
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{hiddenGroupId:D}/bills/export.csv?search=ExportNeedleOne&search=ExportNeedleTwo",
+            actorSession.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillExportRequestProblemAsync(duplicateResponse, content);
+            Assert.Contains("\"search\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain("ExportNeedleOne", content);
+            Assert.DoesNotContain("ExportNeedleTwo", content);
+            Assert.DoesNotContain(hiddenGroupId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Export Envelope", content);
+        }
+
+        using (var invalidValueRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export.json?reconciliationStatus=matched&currency=ZZZ",
+            actorSession.RawSessionToken))
+        using (var invalidValueResponse = await client.SendAsync(invalidValueRequest))
+        {
+            var content = await invalidValueResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillExportRequestProblemAsync(invalidValueResponse, content);
+            Assert.Contains("Reconciliation status is not supported.", content);
+            Assert.Contains("Currency is not supported for this operation.", content);
+            Assert.DoesNotContain("matched", content);
+            Assert.DoesNotContain("ZZZ", content);
+            Assert.DoesNotContain("Visible Export Envelope", content);
+            Assert.DoesNotContain("Hidden Export Envelope", content);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export.csv?limit=10",
+            actorSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                billId = hiddenBillId,
+                groupId = hiddenGroupId,
+                settlementRequestId = settlementId,
+                selector = "Hidden Export Envelope Selector",
+                objectKey = "exports/hidden-object-key"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidBillExportRequestProblemAsync(bodyResponse, content);
+            Assert.Contains("Bill export requests do not accept a body.", content);
+            Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenGroupId.ToString("D"), content);
+            Assert.DoesNotContain(settlementId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Export Envelope", content);
+            Assert.DoesNotContain("objectKey", content);
+            Assert.DoesNotContain("exports/hidden-object-key", content);
+        }
+
+        AssertFinancialSnapshotEqual(beforeVisibleSnapshot, await ReadFinancialSnapshotAsync(testFactory, visibleBillId));
+        AssertFinancialSnapshotEqual(beforeHiddenSnapshot, await ReadFinancialSnapshotAsync(testFactory, hiddenBillId));
+        Assert.Equal(beforeSideEffectCounts, await ReadExportSideEffectCountsAsync(testFactory));
+        Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task MonthlyPersonalReportIncludesOnlyActorVisibleBillsByMonthAndBucketsCurrencies()
     {
         var testContext = CreateFactory();
@@ -1603,6 +1743,24 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             await dbContext.Set<SettlementPayment>().CountAsync(payment => payment.SettlementRequest.SourceExpenseBillId == billId));
     }
 
+    private static async Task<ExportSideEffectCounts> ReadExportSideEffectCountsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return new ExportSideEffectCounts(
+            await dbContext.Set<ExpenseBill>().CountAsync(),
+            await dbContext.Set<ExpenseBillRevision>().CountAsync(),
+            await dbContext.Set<ExpenseBillAttachment>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReview>().CountAsync(),
+            await dbContext.Set<RecurringBillTemplate>().CountAsync(),
+            await dbContext.Set<RecurringBillOccurrence>().CountAsync(),
+            await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<AuthAuditEvent>().CountAsync(auditEvent => auditEvent.Action == ReconciliationUpdatedAction));
+    }
+
     private static void AssertFinancialSnapshotEqual(
         FinancialSnapshot expected,
         FinancialSnapshot actual)
@@ -1847,6 +2005,21 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             payload.RootElement.GetProperty("detail").GetString());
     }
 
+    private static async Task AssertInvalidBillExportRequestProblemAsync(
+        HttpResponseMessage response,
+        string content)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid bill export request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The submitted bill export request is invalid.",
+            payload.RootElement.GetProperty("detail").GetString());
+        await Task.CompletedTask;
+    }
+
     private sealed record FactoryTestContext(
         WebApplicationFactory<Program> Factory,
         ReconciliationTestTimeProvider TimeProvider);
@@ -1893,6 +2066,17 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         IReadOnlyList<SplitSnapshot> Splits,
         int SettlementRequestCount,
         int SettlementPaymentCount);
+
+    private sealed record ExportSideEffectCounts(
+        int BillCount,
+        int BillRevisionCount,
+        int BillAttachmentCount,
+        int ReceiptOcrReviewCount,
+        int RecurringBillTemplateCount,
+        int RecurringBillOccurrenceCount,
+        int SettlementRequestCount,
+        int SettlementPaymentCount,
+        int ReconciliationAuditCount);
 
     private sealed record ParticipantSnapshot(
         Guid UserProfileId,
