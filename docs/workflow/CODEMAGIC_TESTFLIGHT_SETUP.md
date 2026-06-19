@@ -19,7 +19,9 @@ Codemagic validates the whole YAML when detecting configuration, including workf
 
 ## Safe Validation Workflow
 
-Run `Mobile iOS validation` first in Codemagic. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
+`Mobile iOS validation` is manual-only in Codemagic to protect hosted macOS minutes. Do not rely on it as an automatic check for routine backend, API, OpenAPI, test-only, docs-only, or security-hardening PRs.
+
+Run `Mobile iOS validation` manually in Codemagic for mobile/iOS changes, Codemagic config changes, mobile build/release docs or scripts, signing/TestFlight/App Store preparation, release branches/tags, or an explicitly requested mobile validation gate. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
 
 ```bash
 flutter pub get

@@ -4,20 +4,13 @@ workflows:
     working_directory: apps/mobile
     instance_type: mac_mini_m2
     max_build_duration: 60
+    # Manual-only to protect hosted macOS minutes. Run this from Codemagic for
+    # mobile/iOS, Codemagic config, signing, TestFlight, or release validation.
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-
-    triggering:
-      events:
-        - pull_request
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: false
-      cancel_previous_builds: true
 
     cache:
       cache_paths:
