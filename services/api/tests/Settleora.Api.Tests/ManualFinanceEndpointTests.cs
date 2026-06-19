@@ -11,8 +11,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Finance;
 using Settleora.Api.Domain.RecurringBills;
+using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Expenses.RecurringBills;
 using Settleora.Api.Persistence;
@@ -648,6 +650,130 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.Contains("Window end date must be on or after window start date.", invalidContent);
     }
 
+    [Fact]
+    public async Task SummaryRejectsSmuggledQueryAndBodyAuthorityFieldsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Summary Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Summary Smuggle Other");
+        using var client = testFactory.CreateClient();
+
+        var visibleAccountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Visible Summary Account", "cash", "100.00", "USD", "2026-06-18"));
+        var hiddenAccountId = await CreateAccountAsync(client, other.RawSessionToken, AccountJson("Hidden Summary Account", "cash", "900.00", "USD", "2026-06-18"));
+        var visibleIncomeId = await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Visible Summary Income", "50.00", "USD", "monthly", "2026-06-30", visibleAccountId));
+        var hiddenIncomeId = await CreateIncomeAsync(client, other.RawSessionToken, IncomeJson("Hidden Summary Income", "500.00", "USD", "monthly", "2026-06-30", hiddenAccountId));
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Visible Summary Bill", "25.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+        await SeedFutureBillAsync(testFactory, other.UserProfileId, "Hidden Summary Bill", "250.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Visible Summary Recurring", "10.00", "USD", "2026-06-20");
+        await SeedRecurringBillTemplateAsync(testFactory, other.UserProfileId, groupId: null, "Hidden Summary Recurring", "100.00", "USD", "2026-06-20");
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+
+        var unsupportedQuery = string.Join(
+            '&',
+            $"accountId={hiddenAccountId:D}",
+            $"manualFinancialAccountId={hiddenAccountId:D}",
+            $"incomeSourceId={hiddenIncomeId:D}",
+            $"userProfileId={other.UserProfileId:D}",
+            $"ownerUserProfileId={other.UserProfileId:D}",
+            $"authAccountId={other.AuthAccountId:D}",
+            $"groupId={Guid.NewGuid():D}",
+            $"billId={Guid.NewGuid():D}",
+            $"futureBillId={Guid.NewGuid():D}",
+            $"recurringBillId={Guid.NewGuid():D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"reportId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            $"ocrJobId={Guid.NewGuid():D}",
+            "hiddenRecordSelector=Hidden Summary Bill");
+        using (var queryRequest = CreateBearerRequest(HttpMethod.Get, $"{SummaryPath}?{unsupportedQuery}", actor.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var queryContent = await queryResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, queryResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", queryContent);
+            Assert.DoesNotContain(hiddenAccountId.ToString("D"), queryContent);
+            Assert.DoesNotContain(hiddenIncomeId.ToString("D"), queryContent);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), queryContent);
+            Assert.DoesNotContain("Hidden Summary", queryContent);
+            Assert.DoesNotContain("Visible Summary", queryContent);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=2026-06-18&windowEndDate=2026-07-18",
+            actor.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                accountId = hiddenAccountId,
+                incomeSourceId = hiddenIncomeId,
+                ownerUserProfileId = other.UserProfileId,
+                groupId = Guid.NewGuid(),
+                billId = Guid.NewGuid(),
+                recurringBillId = Guid.NewGuid(),
+                settlementId = Guid.NewGuid(),
+                paymentId = Guid.NewGuid(),
+                reportId = Guid.NewGuid(),
+                fileId = Guid.NewGuid(),
+                ocrJobId = Guid.NewGuid(),
+                name = "Hidden Summary Body"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var bodyContent = await bodyResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, bodyResponse.StatusCode);
+            Assert.Contains("Manual finance summary requests do not accept a body.", bodyContent);
+            Assert.DoesNotContain(hiddenAccountId.ToString("D"), bodyContent);
+            Assert.DoesNotContain(hiddenIncomeId.ToString("D"), bodyContent);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), bodyContent);
+            Assert.DoesNotContain("Hidden Summary", bodyContent);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task SummaryRejectsDuplicateAndInvalidSupportedQueryValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Summary Query Actor");
+        using var client = testFactory.CreateClient();
+        await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Summary Query Account", "cash", "100.00", "USD", "2026-06-18"));
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=2026-06-18&windowStartDate=2026-06-19&windowEndDate=2026-07-18&windowEndDate=2026-07-19",
+            actor.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, duplicateResponse.StatusCode);
+            Assert.Contains("\"windowStartDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"windowEndDate\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain("Summary Query Account", content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{SummaryPath}?windowStartDate=not-a-date&windowEndDate=2026-13-01",
+            actor.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await invalidResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+            Assert.Contains("windowStartDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("windowEndDate must be a yyyy-MM-dd date string.", content);
+            Assert.DoesNotContain("not-a-date", content);
+            Assert.DoesNotContain("2026-13-01", content);
+            Assert.DoesNotContain("Summary Query Account", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -713,6 +839,22 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
             .Where(income => income.OwnerUserProfileId == ownerUserProfileId)
             .OrderBy(income => income.CreatedAtUtc)
             .ToListAsync();
+    }
+
+    private static async Task<ProtectedRowCounts> CountProtectedRowsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return new ProtectedRowCounts(
+            await dbContext.Set<ManualFinancialAccount>().CountAsync(),
+            await dbContext.Set<ManualIncomeSource>().CountAsync(),
+            await dbContext.Set<ExpenseBill>().CountAsync(),
+            await dbContext.Set<RecurringBillTemplate>().CountAsync(),
+            await dbContext.Set<SettlementRequest>().CountAsync(),
+            await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<FileObject>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReview>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReviewLine>().CountAsync());
     }
 
     private static async Task SeedFutureBillAsync(
@@ -1004,6 +1146,17 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
     }
 
     private sealed record SeededSession(Guid AuthAccountId, Guid UserProfileId, string RawSessionToken);
+
+    private sealed record ProtectedRowCounts(
+        int FinancialAccountCount,
+        int IncomeSourceCount,
+        int ExpenseBillCount,
+        int RecurringBillTemplateCount,
+        int SettlementRequestCount,
+        int SettlementPaymentCount,
+        int FileObjectCount,
+        int ReceiptOcrReviewCount,
+        int ReceiptOcrReviewLineCount);
 
     private sealed record FactoryTestContext(WebApplicationFactory<Program> Factory, EndpointTestTimeProvider TimeProvider);
 

@@ -89,6 +89,13 @@ internal static class ManualFinanceEndpoints
             return Unauthenticated();
         }
 
+        var now = timeProvider.GetUtcNow();
+        var windowResult = ReadSummaryWindow(request, now);
+        if (!windowResult.Succeeded || windowResult.Window is null)
+        {
+            return InvalidSummary(windowResult.Errors);
+        }
+
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
         if (!authorization.Allowed)
         {
@@ -98,13 +105,6 @@ internal static class ManualFinanceEndpoints
                     title: "Manual finance summary unavailable",
                     detail: "The requested manual finance summary is unavailable.",
                     statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var now = timeProvider.GetUtcNow();
-        var windowResult = ReadSummaryWindow(request, now);
-        if (!windowResult.Succeeded || windowResult.Window is null)
-        {
-            return InvalidSummary(windowResult.Errors);
         }
 
         var window = windowResult.Window;
@@ -1099,6 +1099,9 @@ internal static class ManualFinanceEndpoints
     private static SummaryWindowReadResult ReadSummaryWindow(HttpRequest request, DateTimeOffset now)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectSummaryRequestBody(request, errors);
+        RejectUnsupportedSummaryQueryFields(request, errors);
+
         var today = DateOnly.FromDateTime(now.UtcDateTime);
         var startDate = ReadOptionalQueryDate(request, "windowStartDate", errors) ?? today;
         var endDate = ReadOptionalQueryDate(request, "windowEndDate", errors) ?? startDate.AddDays(DefaultSummaryWindowDays);
@@ -1118,9 +1121,45 @@ internal static class ManualFinanceEndpoints
             : SummaryWindowReadResult.Failed(ToValidationDictionary(errors));
     }
 
+    private static void RejectSummaryRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Manual finance summary requests do not accept a body.");
+        }
+    }
+
+    private static void RejectUnsupportedSummaryQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!string.Equals(field, "windowStartDate", StringComparison.Ordinal)
+                && !string.Equals(field, "windowEndDate", StringComparison.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
     private static DateOnly? ReadOptionalQueryDate(HttpRequest request, string name, Dictionary<string, List<string>> errors)
     {
-        var raw = request.Query[name].ToString();
+        if (!request.Query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, name, "Only one value is supported.");
+            return null;
+        }
+
+        var raw = values.ToString();
         if (string.IsNullOrWhiteSpace(raw))
         {
             return null;
