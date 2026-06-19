@@ -171,6 +171,229 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task TemplateListRejectsSmuggledQueryAndBodyFieldsBeforeTemplateReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Template List Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Template List Smuggle Other");
+        var visibleTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            "Visible Template List Smuggle");
+        var hiddenTemplateId = await SeedTemplateAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            "Hidden Template List Smuggle");
+        using var client = testFactory.CreateClient();
+
+        var smuggledQuery = string.Join(
+            '&',
+            "status=active",
+            $"groupId={Guid.NewGuid():D}",
+            "fromDate=2026-06-01",
+            "toDate=2026-06-30",
+            $"accountId={other.AuthAccountId:D}",
+            $"userProfileId={other.UserProfileId:D}",
+            $"ownerUserProfileId={other.UserProfileId:D}",
+            $"templateId={hiddenTemplateId:D}",
+            $"recurringBillId={hiddenTemplateId:D}",
+            $"futureBillId={Guid.NewGuid():D}",
+            $"billId={Guid.NewGuid():D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            "selector=hidden-template");
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}?{smuggledQuery}",
+            actor.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await queryResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(queryResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Template List Smuggle", content);
+            Assert.DoesNotContain("Visible Template List Smuggle", content);
+            Assert.DoesNotContain("hidden-template", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}?status=active",
+            actor.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                accountId = other.AuthAccountId,
+                userProfileId = other.UserProfileId,
+                ownerUserProfileId = other.UserProfileId,
+                templateId = hiddenTemplateId,
+                recurringBillId = hiddenTemplateId,
+                groupId = Guid.NewGuid(),
+                billId = Guid.NewGuid(),
+                futureBillId = Guid.NewGuid(),
+                settlementId = Guid.NewGuid(),
+                fileId = Guid.NewGuid(),
+                merchantName = "Hidden Template List Smuggle",
+                forecastAmount = "999.99"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(bodyResponse, content);
+            Assert.Contains("Recurring bill template list requests do not accept a body.", content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Template List Smuggle", content);
+            Assert.DoesNotContain("999.99", content);
+        }
+
+        var templates = await ReadTemplatesAsync(testFactory);
+        Assert.Equal(2, templates.Count);
+        Assert.Contains(templates, template => template.Id == visibleTemplateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Contains(templates, template => template.Id == hiddenTemplateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TemplateListRejectsDuplicateAndInvalidSupportedQueryValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Template Query Actor");
+        await SeedTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Template Query Template");
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}?status=active&status=paused&groupId={Guid.NewGuid():D}&groupId={Guid.NewGuid():D}&fromDate=2026-06-01&fromDate=2026-06-02&toDate=2026-06-30&toDate=2026-07-01",
+            actor.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(duplicateResponse, content);
+            Assert.Contains("\"status\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"groupId\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"fromDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"toDate\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain("Template Query Template", content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}?status=hidden-template-status&groupId=not-a-guid&fromDate=2026-13-01&toDate=not-a-date",
+            actor.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await invalidResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(invalidResponse, content);
+            Assert.Contains("Recurring template status is not supported.", content);
+            Assert.Contains("groupId must be a valid non-empty GUID.", content);
+            Assert.Contains("fromDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("toDate must be a yyyy-MM-dd date string.", content);
+            Assert.DoesNotContain("hidden-template-status", content);
+            Assert.DoesNotContain("not-a-guid", content);
+            Assert.DoesNotContain("2026-13-01", content);
+            Assert.DoesNotContain("not-a-date", content);
+            Assert.DoesNotContain("Template Query Template", content);
+        }
+
+        Assert.Single(await ReadTemplatesAsync(testFactory));
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TemplateReadRejectsQueryAndBodyEnvelopesBeforeTemplateReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Template Read Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Template Read Smuggle Other");
+        var templateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            "Visible Template Read Smuggle");
+        var hiddenTemplateId = await SeedTemplateAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            "Hidden Template Read Smuggle");
+        using var client = testFactory.CreateClient();
+
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/{templateId:D}?templateId={hiddenTemplateId:D}&userProfileId={other.UserProfileId:D}&selector=hidden-template",
+            actor.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await queryResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(queryResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Template Read Smuggle", content);
+            Assert.DoesNotContain("Visible Template Read Smuggle", content);
+            Assert.DoesNotContain("hidden-template", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/{templateId:D}",
+            actor.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                templateId = hiddenTemplateId,
+                userProfileId = other.UserProfileId,
+                ownerUserProfileId = other.UserProfileId,
+                groupId = Guid.NewGuid(),
+                billId = Guid.NewGuid(),
+                futureBillId = Guid.NewGuid(),
+                settlementId = Guid.NewGuid(),
+                fileId = Guid.NewGuid(),
+                merchantName = "Hidden Template Read Smuggle",
+                scheduleLabel = "secret-cycle"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(bodyResponse, content);
+            Assert.Contains("Recurring bill template read requests do not accept a body.", content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Template Read Smuggle", content);
+            Assert.DoesNotContain("secret-cycle", content);
+        }
+
+        var templates = await ReadTemplatesAsync(testFactory);
+        Assert.Equal(2, templates.Count);
+        Assert.Contains(templates, template => template.Id == templateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Contains(templates, template => template.Id == hiddenTemplateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task UpdateGroupRecurringTemplatePayloadPersistsSafeEditableFields()
     {
         var testContext = CreateFactory();
