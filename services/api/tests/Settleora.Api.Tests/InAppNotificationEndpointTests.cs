@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -271,6 +272,83 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal(InAppNotificationStatuses.Unread, (await ReadNotificationAsync(testFactory, otherId)).Status);
     }
 
+    [Fact]
+    public async Task ReadAndArchiveRejectBodySmuggledIdsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Body Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Body Other");
+        var actorNotificationId = await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.SettlementRequestCreated,
+            InAppNotificationPriorities.Attention,
+            InAppNotificationSubjectTypes.SettlementRequest,
+            InitialTimestamp.AddMinutes(1));
+        var otherNotificationId = await SeedNotificationAsync(
+            testFactory,
+            other.UserProfileId,
+            actor.UserProfileId,
+            InAppNotificationEventTypes.SettlementPaymentConfirmed,
+            InAppNotificationPriorities.Normal,
+            InAppNotificationSubjectTypes.SettlementPayment,
+            InitialTimestamp.AddMinutes(2));
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using var markOneRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"{NotificationsPath}/{actorNotificationId:D}/read",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "notificationId": "{{otherNotificationId:D}}",
+              "recipientId": "{{other.UserProfileId:D}}",
+              "userProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var markOneResponse = await client.SendAsync(markOneRequest);
+        await AssertInvalidNoBodyProblemAsync(markOneResponse, otherNotificationId.ToString("D"), other.UserProfileId.ToString("D"));
+
+        using var markAllRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"{NotificationsPath}/read",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "ownerUserProfileId": "{{other.UserProfileId:D}}",
+              "accountId": "{{other.AuthAccountId:D}}"
+            }
+            """);
+        using var markAllResponse = await client.SendAsync(markAllRequest);
+        await AssertInvalidNoBodyProblemAsync(markAllResponse, other.UserProfileId.ToString("D"), other.AuthAccountId.ToString("D"));
+
+        using var archiveRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"{NotificationsPath}/{actorNotificationId:D}/archive",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "notificationId": "{{otherNotificationId:D}}",
+              "recipientId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var archiveResponse = await client.SendAsync(archiveRequest);
+        await AssertInvalidNoBodyProblemAsync(archiveResponse, otherNotificationId.ToString("D"), other.UserProfileId.ToString("D"));
+
+        var actorNotification = await ReadNotificationAsync(testFactory, actorNotificationId);
+        Assert.Equal(InAppNotificationStatuses.Unread, actorNotification.Status);
+        Assert.Null(actorNotification.ReadAtUtc);
+        Assert.Null(actorNotification.ArchivedAtUtc);
+
+        var otherNotification = await ReadNotificationAsync(testFactory, otherNotificationId);
+        Assert.Equal(InAppNotificationStatuses.Unread, otherNotification.Status);
+        Assert.Null(otherNotification.ReadAtUtc);
+        Assert.Null(otherNotification.ArchivedAtUtc);
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -412,6 +490,17 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         return request;
     }
 
+    private static HttpRequestMessage CreateJsonBearerRequest(
+        HttpMethod method,
+        string path,
+        string rawSessionToken,
+        string json)
+    {
+        var request = CreateBearerRequest(method, path, rawSessionToken);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        return request;
+    }
+
     private static async Task AssertUnauthenticatedProblemAsync(
         HttpResponseMessage response,
         string? unexpectedResponseText = null)
@@ -443,6 +532,30 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         using var payload = JsonDocument.Parse(content);
         Assert.Equal("Notification unavailable", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal(404, payload.RootElement.GetProperty("status").GetInt32());
+    }
+
+    private static async Task AssertInvalidNoBodyProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("auth", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("session", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recipient", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("owner", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("account", content, StringComparison.OrdinalIgnoreCase);
+        foreach (var unexpectedText in unexpectedResponseText)
+        {
+            Assert.DoesNotContain(unexpectedText, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid notification request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal("This notification action does not accept a request body.", payload.RootElement.GetProperty("detail").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
     }
 
     private static void AssertNotificationResponseShape(JsonElement response)
