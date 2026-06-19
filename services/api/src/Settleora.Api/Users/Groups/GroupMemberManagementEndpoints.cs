@@ -4,6 +4,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Users.Groups;
 
@@ -17,6 +18,7 @@ internal static class GroupMemberManagementEndpoints
     private const string GroupMemberPermissionDeniedDetail = "The authenticated actor cannot manage group members.";
     private const string InvalidGroupMemberRequestTitle = "Invalid group member request";
     private const string InvalidGroupMemberRequestDetail = "The submitted group member request is invalid.";
+    private const string GroupMemberReadRequestBodyMessage = "Group member read requests do not accept a body.";
     private const string GroupMemberConflictTitle = "Group member conflict";
     private const string GroupMemberConflictDetail = "The submitted group membership change conflicts with current group membership state.";
     private const string GroupMemberWriteFailedTitle = "Group member write failed";
@@ -40,11 +42,17 @@ internal static class GroupMemberManagementEndpoints
 
     private static async Task<IResult> ListMembersAsync(
         Guid groupId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectGroupMemberReadEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out _))
         {
             return Unauthenticated();
@@ -481,6 +489,18 @@ internal static class GroupMemberManagementEndpoints
         }
 
         return role;
+    }
+
+    private static bool TryRejectGroupMemberReadEnvelope(
+        HttpRequest request,
+        out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidGroupMemberRequestTitle,
+            InvalidGroupMemberRequestDetail,
+            GroupMemberReadRequestBodyMessage,
+            out result);
     }
 
     private static async Task<ActiveProfileWithAccount?> LoadActiveProfileWithAccountAsync(

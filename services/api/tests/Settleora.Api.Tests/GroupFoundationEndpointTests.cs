@@ -300,6 +300,77 @@ public sealed class GroupFoundationEndpointTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
+    public async Task GetGroupReadoutsRejectSmuggledQueryAndBodyFieldsWithoutMutatingRowsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            seededSession.UserProfileId,
+            "Stable Hidden Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(seededSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        var readouts = new[]
+        {
+            (Path: $"{GroupsPath}?userProfileId=visible-smuggled-profile&groupName=HiddenSelector",
+                Forbidden: new[] { "visible-smuggled-profile", "HiddenSelector" }),
+            (Path: $"{GroupsPath}/{groupId:D}?groupId=00000000-0000-0000-0000-000000000001&memberId=visible-member-selector",
+                Forbidden: new[] { "00000000-0000-0000-0000-000000000001", "visible-member-selector" })
+        };
+
+        foreach (var readout in readouts)
+        {
+            using var request = CreateBearerRequest(
+                HttpMethod.Get,
+                readout.Path,
+                seededSession.RawSessionToken);
+
+            using var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            await AssertInvalidGroupRequestProblemAsync(response, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            foreach (var forbidden in readout.Forbidden)
+            {
+                Assert.DoesNotContain(forbidden, content);
+            }
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{GroupsPath}/{groupId:D}",
+            seededSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                groupId = "00000000-0000-0000-0000-000000000002",
+                userProfileId = "visible-body-profile-selector",
+                groupName = "Hidden Body Group"
+            })))
+        {
+            using var bodyResponse = await client.SendAsync(bodyRequest);
+            var bodyContent = await bodyResponse.Content.ReadAsStringAsync();
+
+            await AssertInvalidGroupRequestProblemAsync(bodyResponse, bodyContent);
+            Assert.Contains("Group read requests do not accept a body.", bodyContent);
+            Assert.DoesNotContain("00000000-0000-0000-0000-000000000002", bodyContent);
+            Assert.DoesNotContain("visible-body-profile-selector", bodyContent);
+            Assert.DoesNotContain("Hidden Body Group", bodyContent);
+        }
+
+        await AssertGroupUnchangedAsync(testFactory, groupId, "Stable Hidden Group", InitialTimestamp);
+        await AssertMembershipUnchangedAsync(
+            testFactory,
+            groupId,
+            seededSession.UserProfileId,
+            GroupMembershipRoles.Owner,
+            GroupMembershipStatuses.Active,
+            InitialTimestamp);
+    }
+
+    [Fact]
     public async Task PatchGroupNameSucceedsForActiveOwnerAndUpdatesTimestamp()
     {
         var testContext = CreateFactory();
@@ -700,6 +771,20 @@ public sealed class GroupFoundationEndpointTests : IClassFixture<WebApplicationF
         var group = await ReadGroupAsync(testFactory, groupId);
         Assert.Equal(expectedName, group.Name);
         Assert.Equal(expectedUpdatedAtUtc, group.UpdatedAtUtc);
+    }
+
+    private static async Task AssertMembershipUnchangedAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid groupId,
+        Guid userProfileId,
+        string expectedRole,
+        string expectedStatus,
+        DateTimeOffset expectedUpdatedAtUtc)
+    {
+        var membership = await ReadMembershipAsync(testFactory, groupId, userProfileId);
+        Assert.Equal(expectedRole, membership.Role);
+        Assert.Equal(expectedStatus, membership.Status);
+        Assert.Equal(expectedUpdatedAtUtc, membership.UpdatedAtUtc);
     }
 
     private static HttpRequestMessage CreateBearerRequest(

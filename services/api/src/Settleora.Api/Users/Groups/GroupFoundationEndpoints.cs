@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Users.Groups;
 
@@ -16,6 +17,7 @@ internal static class GroupFoundationEndpoints
     private const string GroupPermissionDeniedDetail = "The authenticated actor cannot manage this group.";
     private const string InvalidGroupRequestTitle = "Invalid group request";
     private const string InvalidGroupRequestDetail = "The submitted group request is invalid.";
+    private const string GroupReadRequestBodyMessage = "Group read requests do not accept a body.";
     private const string GroupWriteFailedTitle = "Group write failed";
     private const string GroupWriteFailedDetail = "Unable to complete group write.";
 
@@ -97,11 +99,17 @@ internal static class GroupFoundationEndpoints
     }
 
     private static async Task<IResult> ListGroupsAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectGroupReadEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -136,11 +144,17 @@ internal static class GroupFoundationEndpoints
 
     private static async Task<IResult> GetGroupAsync(
         Guid groupId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectGroupReadEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -364,6 +378,18 @@ internal static class GroupFoundationEndpoints
         }
 
         return name;
+    }
+
+    private static bool TryRejectGroupReadEnvelope(
+        HttpRequest request,
+        out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidGroupRequestTitle,
+            InvalidGroupRequestDetail,
+            GroupReadRequestBodyMessage,
+            out result);
     }
 
     private static IResult MapAuthorizationFailure(BusinessAuthorizationResult authorizationResult)
