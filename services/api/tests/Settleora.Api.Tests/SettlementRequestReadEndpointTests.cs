@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -852,6 +853,173 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
     }
 
     [Fact]
+    public async Task SettlementReadEndpointsRejectUnsupportedQueryFieldsWithoutSideEffectsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Query Read Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Query Read Creditor", InitialTimestamp.AddMinutes(1));
+        var hiddenProfile = await SeedAccountAsync(testFactory, "Hidden Query Settlement User", InitialTimestamp.AddMinutes(2));
+        await SeedPaymentProfileWithQrAsync(testFactory, creditor.UserProfileId, InitialTimestamp.AddMinutes(3));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditor.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(debtorSession.UserProfileId, 19m), new ParticipantSeed(creditor.UserProfileId, 19m)],
+            [new PayerSeed(creditor.UserProfileId, 38m)],
+            InitialTimestamp);
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            creditor.UserProfileId,
+            19m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(4));
+        var paymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            19m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(5));
+        var proofFileId = await SeedSettlementProofAttachmentAsync(
+            testFactory,
+            paymentId,
+            debtorSession.UserProfileId,
+            InitialTimestamp.AddMinutes(6));
+        var before = await ReadSideEffectCountsAsync(testFactory);
+        var unsupportedQuery = string.Join(
+            "&",
+            $"settlementId={settlementId:D}",
+            $"paymentId={paymentId:D}",
+            $"requestId={Guid.NewGuid():D}",
+            $"groupId={Guid.NewGuid():D}",
+            $"participantUserProfileId={hiddenProfile.UserProfileId:D}",
+            $"fileId={proofFileId:D}",
+            "merchantName=Hidden Query Settlement Merchant",
+            "paymentHandle=hidden-query-settlement-handle",
+            "hiddenSelector=Hidden Query Settlement Selector");
+
+        using var client = testFactory.CreateClient();
+        foreach (var path in new[]
+        {
+            SettlementsPath(),
+            SettlementPath(settlementId),
+            SettlementPaymentsPath(settlementId),
+            SettlementPaymentPath(paymentId)
+        })
+        {
+            using var request = CreateBearerRequest(HttpMethod.Get, $"{path}?{unsupportedQuery}", debtorSession.RawSessionToken);
+            using var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            AssertInvalidSettlementReadProblem(response, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertReadValidationResponseIsBounded(
+                content,
+                settlementId,
+                paymentId,
+                proofFileId,
+                hiddenProfile.UserProfileId,
+                "Hidden Query Settlement",
+                HiddenPaymentHandle,
+                HiddenPaymentNote,
+                HiddenStorageObjectKey,
+                HiddenOriginalFilename);
+        }
+
+        Assert.Equal(before, await ReadSideEffectCountsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task SettlementReadEndpointsRejectGetBodiesWithoutSideEffectsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Body Read Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Body Read Creditor", InitialTimestamp.AddMinutes(1));
+        var hiddenProfile = await SeedAccountAsync(testFactory, "Hidden Body Settlement User", InitialTimestamp.AddMinutes(2));
+        await SeedPaymentProfileWithQrAsync(testFactory, creditor.UserProfileId, InitialTimestamp.AddMinutes(3));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditor.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(debtorSession.UserProfileId, 21m), new ParticipantSeed(creditor.UserProfileId, 21m)],
+            [new PayerSeed(creditor.UserProfileId, 42m)],
+            InitialTimestamp);
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            creditor.UserProfileId,
+            21m,
+            SettlementRequestStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(4));
+        var paymentId = await SeedSettlementPaymentAsync(
+            testFactory,
+            settlementId,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            21m,
+            SettlementPaymentStatuses.MarkedPaid,
+            InitialTimestamp.AddMinutes(5));
+        var proofFileId = await SeedSettlementProofAttachmentAsync(
+            testFactory,
+            paymentId,
+            debtorSession.UserProfileId,
+            InitialTimestamp.AddMinutes(6));
+        var before = await ReadSideEffectCountsAsync(testFactory);
+        var body = JsonSerializer.Serialize(new
+        {
+            settlementId,
+            paymentId,
+            requestId = Guid.NewGuid(),
+            groupId = Guid.NewGuid(),
+            participantUserProfileId = hiddenProfile.UserProfileId,
+            fileId = proofFileId,
+            merchantName = "Hidden Body Settlement Merchant",
+            paymentHandle = "hidden-body-settlement-handle",
+            hiddenSelector = "Hidden Body Settlement Selector"
+        });
+
+        using var client = testFactory.CreateClient();
+        foreach (var scenario in new[]
+        {
+            new { Path = SettlementsPath(), ExpectedMessage = "Settlement list requests do not accept a body." },
+            new { Path = SettlementPath(settlementId), ExpectedMessage = "Settlement read requests do not accept a body." },
+            new { Path = SettlementPaymentsPath(settlementId), ExpectedMessage = "Settlement payment list requests do not accept a body." },
+            new { Path = SettlementPaymentPath(paymentId), ExpectedMessage = "Settlement payment read requests do not accept a body." }
+        })
+        {
+            using var request = CreateJsonBearerRequest(HttpMethod.Get, scenario.Path, debtorSession.RawSessionToken, body);
+            using var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            AssertInvalidSettlementReadProblem(response, content);
+            Assert.Contains(scenario.ExpectedMessage, content);
+            AssertReadValidationResponseIsBounded(
+                content,
+                settlementId,
+                paymentId,
+                proofFileId,
+                hiddenProfile.UserProfileId,
+                "Hidden Body Settlement",
+                HiddenPaymentHandle,
+                HiddenPaymentNote,
+                HiddenStorageObjectKey,
+                HiddenOriginalFilename);
+        }
+
+        Assert.Equal(before, await ReadSideEffectCountsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task InvalidSettlementIdRouteReturnsNotFoundWithoutLeakingSessionValues()
     {
         var testContext = CreateFactory();
@@ -1435,6 +1603,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             await dbContext.Set<SettlementPayment>().CountAsync(),
             await dbContext.Set<SettlementPaymentAllocation>().CountAsync(),
             await dbContext.Set<SettlementProofAttachment>().CountAsync(),
+            await dbContext.Set<ExpenseBill>().CountAsync(),
             await dbContext.Set<FileObject>().CountAsync(),
             await dbContext.Set<UserPaymentProfile>().CountAsync(),
             await dbContext.Set<AuthAuditEvent>().CountAsync(auditEvent =>
@@ -1451,6 +1620,18 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
     {
         var request = new HttpRequestMessage(method, path);
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawSessionToken}");
+
+        return request;
+    }
+
+    private static HttpRequestMessage CreateJsonBearerRequest(
+        HttpMethod method,
+        string path,
+        string rawSessionToken,
+        string body)
+    {
+        var request = CreateBearerRequest(method, path, rawSessionToken);
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
 
         return request;
     }
@@ -1632,6 +1813,17 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
             payload.RootElement.GetProperty("detail").GetString());
     }
 
+    private static void AssertInvalidSettlementReadProblem(
+        HttpResponseMessage response,
+        string content)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+    }
+
     private static async Task AssertUnauthenticatedProblemAsync(
         HttpResponseMessage response,
         string? unexpectedResponseText = null)
@@ -1666,6 +1858,22 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         Assert.DoesNotContain("proof", lowerContent);
         Assert.DoesNotContain("qr", lowerContent);
         Assert.DoesNotContain("filename", lowerContent);
+    }
+
+    private static void AssertReadValidationResponseIsBounded(
+        string content,
+        params object[] forbiddenValues)
+    {
+        foreach (var forbiddenValue in forbiddenValues)
+        {
+            var text = forbiddenValue switch
+            {
+                Guid guid => guid.ToString("D"),
+                _ => forbiddenValue.ToString()
+            };
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.DoesNotContain(text, content, StringComparison.Ordinal);
+        }
     }
 
     private static string FindRepoFile(string relativePath)
@@ -1748,6 +1956,7 @@ public sealed class SettlementRequestReadEndpointTests : IClassFixture<WebApplic
         int SettlementPaymentCount,
         int SettlementPaymentAllocationCount,
         int SettlementProofAttachmentCount,
+        int ExpenseBillCount,
         int FileObjectCount,
         int UserPaymentProfileCount,
         int NonSessionAuditEventCount);
