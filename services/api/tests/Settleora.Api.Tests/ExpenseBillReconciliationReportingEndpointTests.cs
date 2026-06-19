@@ -8,9 +8,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
@@ -1201,6 +1204,7 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             InitialTimestamp.AddMinutes(1));
         var beforeVisibleSnapshot = await ReadFinancialSnapshotAsync(testFactory, visibleBillId);
         var beforeHiddenSnapshot = await ReadFinancialSnapshotAsync(testFactory, hiddenBillId);
+        var beforeSideEffectCounts = await ReadExportSideEffectCountsAsync(testFactory);
         using var client = testFactory.CreateClient();
 
         using (var queryRequest = CreateBearerRequest(
@@ -1246,6 +1250,111 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
 
         AssertFinancialSnapshotEqual(beforeVisibleSnapshot, await ReadFinancialSnapshotAsync(testFactory, visibleBillId));
         AssertFinancialSnapshotEqual(beforeHiddenSnapshot, await ReadFinancialSnapshotAsync(testFactory, hiddenBillId));
+        Assert.Equal(beforeSideEffectCounts, await ReadExportSideEffectCountsAsync(testFactory));
+        Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task MonthlyReportRejectsMalformedEnvelopeBeforeCurrentActorAccessor()
+    {
+        var testContext = CreateFactory(services =>
+        {
+            services.RemoveAll<ICurrentActorAccessor>();
+            services.AddScoped<ICurrentActorAccessor, ThrowingCurrentActorAccessor>();
+        });
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Envelope Guard Actor");
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=2026-05&hiddenProfileId=54aaab03-98df-4672-9571-ff2f8274d9d2",
+            actorSession.RawSessionToken);
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidMonthlyReportRequestProblemAsync(response, content);
+        Assert.Contains("Unsupported query fields are not allowed.", content);
+        Assert.DoesNotContain("54aaab03-98df-4672-9571-ff2f8274d9d2", content);
+    }
+
+    [Fact]
+    public async Task MonthlyReportRejectsDuplicateSingletonsAndInvalidSupportedValuesWithBoundedNoEchoErrors()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Duplicate Report Actor");
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 12m)],
+            [new PayerSeed(actorSession.UserProfileId, 12m)],
+            "Visible Duplicate Report Bill",
+            new DateOnly(2026, 5, 4),
+            12m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp);
+        var beforeVisibleSnapshot = await ReadFinancialSnapshotAsync(testFactory, visibleBillId);
+        var beforeSideEffectCounts = await ReadExportSideEffectCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateMonthRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=2026-05&month=2026-06",
+            actorSession.RawSessionToken))
+        using (var duplicateMonthResponse = await client.SendAsync(duplicateMonthRequest))
+        {
+            var content = await duplicateMonthResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(duplicateMonthResponse, content);
+            Assert.Contains("Only one value is supported.", content);
+            Assert.DoesNotContain("2026-06", content);
+            Assert.DoesNotContain("Visible Duplicate Report Bill", content);
+        }
+
+        using (var duplicateGroupRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=2026-05&groupId=0bd91f3c-bb4d-4920-8e54-17e2f7ec4eb3&groupId=5a084ee5-316a-4243-91d7-05e1d96aa8c5",
+            actorSession.RawSessionToken))
+        using (var duplicateGroupResponse = await client.SendAsync(duplicateGroupRequest))
+        {
+            var content = await duplicateGroupResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(duplicateGroupResponse, content);
+            Assert.Contains("Only one value is supported.", content);
+            Assert.DoesNotContain("0bd91f3c-bb4d-4920-8e54-17e2f7ec4eb3", content);
+            Assert.DoesNotContain("5a084ee5-316a-4243-91d7-05e1d96aa8c5", content);
+            Assert.DoesNotContain("Visible Duplicate Report Bill", content);
+        }
+
+        using (var invalidMonthRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=hidden-2026-05-report-secret",
+            actorSession.RawSessionToken))
+        using (var invalidMonthResponse = await client.SendAsync(invalidMonthRequest))
+        {
+            var content = await invalidMonthResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(invalidMonthResponse, content);
+            Assert.Contains("Month must be a yyyy-MM value.", content);
+            Assert.DoesNotContain("hidden-2026-05-report-secret", content);
+            Assert.DoesNotContain("Visible Duplicate Report Bill", content);
+        }
+
+        using (var invalidGroupRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/reports/monthly?month=2026-05&groupId=hidden-group-secret",
+            actorSession.RawSessionToken))
+        using (var invalidGroupResponse = await client.SendAsync(invalidGroupRequest))
+        {
+            var content = await invalidGroupResponse.Content.ReadAsStringAsync();
+            await AssertInvalidMonthlyReportRequestProblemAsync(invalidGroupResponse, content);
+            Assert.Contains("Group ID must be a valid UUID.", content);
+            Assert.DoesNotContain("hidden-group-secret", content);
+            Assert.DoesNotContain("Visible Duplicate Report Bill", content);
+        }
+
+        AssertFinancialSnapshotEqual(beforeVisibleSnapshot, await ReadFinancialSnapshotAsync(testFactory, visibleBillId));
+        Assert.Equal(beforeSideEffectCounts, await ReadExportSideEffectCountsAsync(testFactory));
         Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
     }
 
@@ -1357,7 +1466,7 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         await AssertMonthlyReportUnavailableProblemAsync(deniedResponse);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(Action<IServiceCollection>? configureServices = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new ReconciliationTestTimeProvider(InitialTimestamp);
@@ -1376,6 +1485,8 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
 
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(timeProvider);
+
+                configureServices?.Invoke(services);
             });
         });
 
@@ -1753,11 +1864,15 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
             await dbContext.Set<ExpenseBill>().CountAsync(),
             await dbContext.Set<ExpenseBillRevision>().CountAsync(),
             await dbContext.Set<ExpenseBillAttachment>().CountAsync(),
+            await dbContext.Set<FileObject>().CountAsync(),
             await dbContext.Set<ReceiptOcrReview>().CountAsync(),
+            await dbContext.Set<ReceiptOcrReviewLine>().CountAsync(),
             await dbContext.Set<RecurringBillTemplate>().CountAsync(),
             await dbContext.Set<RecurringBillOccurrence>().CountAsync(),
             await dbContext.Set<SettlementRequest>().CountAsync(),
             await dbContext.Set<SettlementPayment>().CountAsync(),
+            await dbContext.Set<SettlementProofAttachment>().CountAsync(),
+            await dbContext.Set<InAppNotification>().CountAsync(),
             await dbContext.Set<AuthAuditEvent>().CountAsync(auditEvent => auditEvent.Action == ReconciliationUpdatedAction));
     }
 
@@ -2071,12 +2186,25 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
         int BillCount,
         int BillRevisionCount,
         int BillAttachmentCount,
+        int FileObjectCount,
         int ReceiptOcrReviewCount,
+        int ReceiptOcrReviewLineCount,
         int RecurringBillTemplateCount,
         int RecurringBillOccurrenceCount,
         int SettlementRequestCount,
         int SettlementPaymentCount,
+        int SettlementProofAttachmentCount,
+        int NotificationCount,
         int ReconciliationAuditCount);
+
+    private sealed class ThrowingCurrentActorAccessor : ICurrentActorAccessor
+    {
+        public bool TryGetCurrentActor(out AuthenticatedActor actor)
+        {
+            actor = default!;
+            throw new InvalidOperationException("Monthly report envelope validation must run before current actor access.");
+        }
+    }
 
     private sealed record ParticipantSnapshot(
         Guid UserProfileId,

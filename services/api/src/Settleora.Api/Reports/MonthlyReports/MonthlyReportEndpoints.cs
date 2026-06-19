@@ -4,6 +4,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Reports.MonthlyReports;
 
@@ -32,15 +33,15 @@ internal static class MonthlyReportEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var requestReadResult = ReadMonthlyReportRequest(request);
         if (!requestReadResult.Succeeded || requestReadResult.Request is null)
         {
             return InvalidMonthlyReportRequest(requestReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var monthlyReportRequest = requestReadResult.Request;
@@ -259,9 +260,7 @@ internal static class MonthlyReportEndpoints
         HttpRequest request,
         Dictionary<string, List<string>> errors)
     {
-        if (request.ContentLength.GetValueOrDefault() > 0
-            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
-            && transferEncoding.Count > 0)
+        if (UnsupportedRequestFieldGuards.RequestHasBody(request))
         {
             AddError(errors, "body", "Monthly report requests do not accept a body.");
         }
