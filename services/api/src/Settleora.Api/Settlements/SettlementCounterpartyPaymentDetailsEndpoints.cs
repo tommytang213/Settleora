@@ -5,6 +5,7 @@ using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 using Settleora.Api.Storage;
 using Settleora.Api.Users.PaymentDetails;
 
@@ -49,6 +50,7 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
     private static async Task<IResult> GetCounterpartyPaymentDetailsAsync(
         Guid settlementId,
         Guid userProfileId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IPaymentDetailsAuditWriter auditWriter,
@@ -59,6 +61,15 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            PaymentDetailsUnavailableTitle,
+            PaymentDetailsUnavailableDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -120,6 +131,7 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
     private static async Task<IResult> GetCounterpartyPaymentDetailsQrContentAsync(
         Guid settlementId,
         Guid userProfileId,
+        HttpRequest request,
         HttpResponse response,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
@@ -132,6 +144,15 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            PaymentDetailsUnavailableTitle,
+            PaymentDetailsUnavailableDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(

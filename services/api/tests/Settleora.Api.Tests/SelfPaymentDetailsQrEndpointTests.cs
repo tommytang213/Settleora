@@ -277,6 +277,78 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
     }
 
     [Fact]
+    public async Task QrEndpointsRejectQueryOwnershipFieldsWithoutFileStorageOrLinkSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+        using (var postRequest = CreateQrUploadRequest(
+            actor.RawSessionToken,
+            ValidPngBytes,
+            "image/png",
+            "query-smuggled.png"))
+        {
+            postRequest.RequestUri = new Uri(
+                $"{PaymentQrPath}?userProfileId={Guid.NewGuid():D}&paymentQrId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}",
+                UriKind.Relative);
+            using var postResponse = await client.SendAsync(postRequest);
+            var postContent = await postResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, postResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", postContent);
+            Assert.DoesNotContain("userProfileId", postContent);
+            Assert.DoesNotContain("paymentQrId", postContent);
+            Assert.DoesNotContain("fileId", postContent);
+            Assert.DoesNotContain("query-smuggled.png", postContent);
+        }
+
+        Assert.Equal(0, await CountActivePaymentProfilesAsync(testFactory, actor.UserProfileId));
+        Assert.Empty(await ReadFileObjectsAsync(testFactory));
+        Assert.Empty(await ReadPaymentQrAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadFileLifecycleAuditEventsAsync(testFactory));
+        Assert.Equal(0, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+
+        var payload = await UploadQrAsync(
+            client,
+            actor.RawSessionToken,
+            ValidPngBytes,
+            "image/png",
+            "existing.png");
+        var linkedFileId = payload.QrFile!.Id;
+        var writeCountAfterValidUpload = testContext.StorageProvider.WriteCount;
+
+        using (var deleteRequest = CreateBearerRequest(
+            HttpMethod.Delete,
+            $"{PaymentQrPath}?attachmentId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}",
+            actor.RawSessionToken))
+        using (var deleteResponse = await client.SendAsync(deleteRequest))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, deleteResponse.StatusCode);
+        }
+
+        var paymentProfile = await ReadPaymentProfileAsync(testFactory, payload.Id!.Value);
+        Assert.Equal(linkedFileId, paymentProfile.QrFileObjectId);
+        var fileObject = await ReadFileObjectAsync(testFactory, linkedFileId);
+        Assert.Equal(FileObjectStatuses.Active, fileObject.Status);
+        Assert.Null(fileObject.DeletedAtUtc);
+
+        using (var contentRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{PaymentQrContentPath}?ownerUserProfileId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}",
+            actor.RawSessionToken))
+        using (var contentResponse = await client.SendAsync(contentRequest))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, contentResponse.StatusCode);
+        }
+
+        Assert.Equal(writeCountAfterValidUpload, testContext.StorageProvider.WriteCount);
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
+        Assert.Single(await ReadPaymentQrAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task DeleteRemovesLinkedQrMarksFileDeletedAndRepeatedDeleteIsIdempotent()
     {
         var testContext = CreateFactory();

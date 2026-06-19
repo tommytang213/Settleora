@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Users.SelfProfile;
 
@@ -29,6 +30,7 @@ internal static class SelfUserProfileEndpoints
     }
 
     private static async Task<IResult> GetSelfProfileAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -37,6 +39,15 @@ internal static class SelfUserProfileEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidProfileUpdateTitle,
+            InvalidProfileUpdateDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -69,6 +80,15 @@ internal static class SelfUserProfileEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidProfileUpdateTitle,
+            InvalidProfileUpdateDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var patchResult = await ReadPatchAsync(request, cancellationToken);

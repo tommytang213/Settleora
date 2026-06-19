@@ -4601,6 +4601,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SettlementCounterpartyPaymentDetailsResponse"
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -4663,6 +4669,12 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -7617,6 +7629,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SelfPaymentDetailsResponse"
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -7743,6 +7761,12 @@ paths:
       responses:
         "204":
           description: The self payment QR link is absent after the request.
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -7799,6 +7823,12 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -7831,6 +7861,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SelfUserProfileResponse"
+        "400":
+          description: Unsupported query fields are not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:

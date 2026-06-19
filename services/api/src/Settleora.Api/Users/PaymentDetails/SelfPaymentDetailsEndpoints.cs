@@ -4,6 +4,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Users.PaymentDetails;
 
@@ -36,6 +37,7 @@ internal static partial class SelfPaymentDetailsEndpoints
     }
 
     private static async Task<IResult> GetSelfPaymentDetailsAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -44,6 +46,15 @@ internal static partial class SelfPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidPaymentDetailsUpdateTitle,
+            InvalidPaymentDetailsUpdateDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -75,6 +86,15 @@ internal static partial class SelfPaymentDetailsEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+            request,
+            InvalidPaymentDetailsUpdateTitle,
+            InvalidPaymentDetailsUpdateDetail,
+            out var queryRejection))
+        {
+            return queryRejection;
         }
 
         var patchResult = await ReadPatchAsync(request, cancellationToken);

@@ -569,6 +569,37 @@ public sealed class SelfPaymentDetailsEndpointTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task PatchRejectsQueryOwnershipFieldsWithoutCreatingOrAuditing()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider);
+        var unrelated = await SeedAccountAsync(testFactory, "Unrelated Query Target", InitialTimestamp.AddMinutes(1));
+        using var client = testFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Patch,
+            $"{PaymentDetailsPath}?userProfileId={unrelated.UserProfileId:D}&paymentDetailId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}");
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {actor.RawSessionToken}");
+        request.Content = new StringContent(
+            "{\"paymentHandle\":\"should-not-apply\"}",
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidPaymentDetailsUpdateProblemAsync(response, content);
+        Assert.Contains("Unsupported query fields are not allowed.", content);
+        Assert.DoesNotContain("userProfileId", content);
+        Assert.DoesNotContain("paymentDetailId", content);
+        Assert.DoesNotContain("fileId", content);
+        Assert.DoesNotContain("should-not-apply", content);
+        Assert.Equal(0, await CountActivePaymentProfilesAsync(testFactory, actor.UserProfileId));
+        Assert.Equal(0, await CountActivePaymentProfilesAsync(testFactory, unrelated.UserProfileId));
+        await AssertNoPaymentDetailsAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
     public void OpenApiContractDefinesSelfPaymentDetailsOnlyWithoutQrCounterpartyOrAdminSurface()
     {
         var openApiPath = FindRepoFile("packages/contracts/openapi/settleora.v1.yaml");
