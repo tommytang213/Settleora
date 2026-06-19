@@ -15,6 +15,21 @@ internal static class ExpenseBillExportEndpoints
     private const string BillExportUnavailableDetail = "The requested bill export is unavailable.";
     private const string InvalidBillExportRequestTitle = "Invalid bill export request";
     private const string InvalidBillExportRequestDetail = "The submitted bill export request is invalid.";
+    private const string PersonalBillExportBodyMessage = "Bill export requests do not accept a body.";
+    private const string GroupBillExportBodyMessage = "Group bill export requests do not accept a body.";
+
+    private static readonly HashSet<string> SupportedBillExportQueryFields = new(StringComparer.Ordinal)
+    {
+        "fromDate",
+        "toDate",
+        "status",
+        "reconciliationStatus",
+        "currency",
+        "merchant",
+        "search",
+        "archiveState",
+        "limit"
+    };
 
     private static readonly string[] CsvHeaders =
     [
@@ -49,15 +64,7 @@ internal static class ExpenseBillExportEndpoints
     }
 
     private static async Task<IResult> ExportPersonalBillsJsonAsync(
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -65,15 +72,7 @@ internal static class ExpenseBillExportEndpoints
         CancellationToken cancellationToken)
     {
         var result = await BuildPersonalExportResponseAsync(
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -84,15 +83,7 @@ internal static class ExpenseBillExportEndpoints
     }
 
     private static async Task<IResult> ExportPersonalBillsCsvAsync(
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -100,15 +91,7 @@ internal static class ExpenseBillExportEndpoints
         CancellationToken cancellationToken)
     {
         var result = await BuildPersonalExportResponseAsync(
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -120,15 +103,7 @@ internal static class ExpenseBillExportEndpoints
 
     private static async Task<IResult> ExportGroupBillsJsonAsync(
         Guid groupId,
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -137,15 +112,7 @@ internal static class ExpenseBillExportEndpoints
     {
         var result = await BuildGroupExportResponseAsync(
             groupId,
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -157,15 +124,7 @@ internal static class ExpenseBillExportEndpoints
 
     private static async Task<IResult> ExportGroupBillsCsvAsync(
         Guid groupId,
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -174,15 +133,7 @@ internal static class ExpenseBillExportEndpoints
     {
         var result = await BuildGroupExportResponseAsync(
             groupId,
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -193,21 +144,19 @@ internal static class ExpenseBillExportEndpoints
     }
 
     private static async Task<ExpenseBillExportBuildResult> BuildPersonalExportResponseAsync(
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        var filterReadResult = ReadExportFilter(request, PersonalBillExportBodyMessage);
+        if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
+        {
+            return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return ExpenseBillExportBuildResult.Failed(Unauthenticated());
@@ -221,47 +170,29 @@ internal static class ExpenseBillExportEndpoints
             return ExpenseBillExportBuildResult.Failed(MapAuthorizationFailure(authorizationResult));
         }
 
-        if (!ExpenseBillSearchFilter.TryRead(
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
-            out var filter,
-            out var errors))
-        {
-            return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(errors));
-        }
-
         var rows = await LoadRowsAsync(
             ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId),
-            filter,
+            filterReadResult.Filter,
             cancellationToken);
 
-        return ExpenseBillExportBuildResult.Succeeded(BuildResponse(filter, rows, timeProvider));
+        return ExpenseBillExportBuildResult.Succeeded(BuildResponse(filterReadResult.Filter, rows, timeProvider));
     }
 
     private static async Task<ExpenseBillExportBuildResult> BuildGroupExportResponseAsync(
         Guid groupId,
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        var filterReadResult = ReadExportFilter(request, GroupBillExportBodyMessage);
+        if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
+        {
+            return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out _))
         {
             return ExpenseBillExportBuildResult.Failed(Unauthenticated());
@@ -275,28 +206,111 @@ internal static class ExpenseBillExportEndpoints
             return ExpenseBillExportBuildResult.Failed(MapAuthorizationFailure(authorizationResult));
         }
 
-        if (!ExpenseBillSearchFilter.TryRead(
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
-            out var filter,
-            out var errors))
-        {
-            return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(errors));
-        }
-
         var rows = await LoadRowsAsync(
             ExpenseBillSearchQueries.VisibleGroupBillsIncludingArchived(dbContext, groupId),
-            filter,
+            filterReadResult.Filter,
             cancellationToken);
 
-        return ExpenseBillExportBuildResult.Succeeded(BuildResponse(filter, rows, timeProvider));
+        return ExpenseBillExportBuildResult.Succeeded(BuildResponse(filterReadResult.Filter, rows, timeProvider));
+    }
+
+    private static BillExportFilterReadResult ReadExportFilter(
+        HttpRequest request,
+        string bodyMessage)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectExportRequestBody(request, bodyMessage, errors);
+        RejectUnsupportedExportQueryFields(request, errors);
+
+        var fromDate = ReadOptionalQueryString(request, "fromDate", errors);
+        var toDate = ReadOptionalQueryString(request, "toDate", errors);
+        var status = ReadOptionalQueryString(request, "status", errors);
+        var reconciliationStatus = ReadOptionalQueryString(request, "reconciliationStatus", errors);
+        var currency = ReadOptionalQueryString(request, "currency", errors);
+        var merchant = ReadOptionalQueryString(request, "merchant", errors);
+        var search = ReadOptionalQueryString(request, "search", errors);
+        var archiveState = ReadOptionalQueryString(request, "archiveState", errors);
+        var limit = ReadOptionalQueryString(request, "limit", errors);
+        ExpenseBillSearchFilter? filter = null;
+
+        if (errors.Count == 0
+            && !ExpenseBillSearchFilter.TryRead(
+                fromDate,
+                toDate,
+                status,
+                reconciliationStatus,
+                currency,
+                merchant,
+                search,
+                archiveState,
+                limit,
+                out filter,
+                out var filterErrors))
+        {
+            foreach (var error in filterErrors)
+            {
+                foreach (var message in error.Value)
+                {
+                    AddError(errors, error.Key, message);
+                }
+            }
+        }
+
+        return errors.Count == 0
+            ? BillExportFilterReadResult.Valid(filter!)
+            : BillExportFilterReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectExportRequestBody(
+        HttpRequest request,
+        string message,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", message);
+        }
+    }
+
+    private static void RejectUnsupportedExportQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!SupportedBillExportQueryFields.Contains(field))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
+    private static string? ReadOptionalQueryString(
+        HttpRequest request,
+        string name,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, name, "Only one value is supported.");
+            return null;
+        }
+
+        var raw = values.ToString();
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static async Task<IReadOnlyList<ExpenseBillExportRowResponse>> LoadRowsAsync(
@@ -445,6 +459,32 @@ internal static class ExpenseBillExportEndpoints
         return amount.ToString("0.####", CultureInfo.InvariantCulture);
     }
 
+    private static void AddError(
+        Dictionary<string, List<string>> errors,
+        string key,
+        string message)
+    {
+        if (!errors.TryGetValue(key, out var values))
+        {
+            values = [];
+            errors[key] = values;
+        }
+
+        if (!values.Contains(message, StringComparer.Ordinal))
+        {
+            values.Add(message);
+        }
+    }
+
+    private static IDictionary<string, string[]> ToErrorDictionary(
+        Dictionary<string, List<string>> errors)
+    {
+        return errors.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToArray(),
+            StringComparer.Ordinal);
+    }
+
     private sealed record ExpenseBillExportBuildResult(
         ExpenseBillExportResponse? Response,
         IResult? Error)
@@ -457,6 +497,23 @@ internal static class ExpenseBillExportEndpoints
         public static ExpenseBillExportBuildResult Failed(IResult error)
         {
             return new ExpenseBillExportBuildResult(null, error);
+        }
+    }
+
+    private sealed record BillExportFilterReadResult(
+        ExpenseBillSearchFilter? Filter,
+        IDictionary<string, string[]> Errors)
+    {
+        public bool Succeeded => Errors.Count == 0;
+
+        public static BillExportFilterReadResult Valid(ExpenseBillSearchFilter filter)
+        {
+            return new BillExportFilterReadResult(filter, new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static BillExportFilterReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new BillExportFilterReadResult(null, errors);
         }
     }
 }
