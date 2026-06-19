@@ -23,6 +23,8 @@ internal static class FutureBillEndpoints
     private const string FutureBillUnavailableDetail = "The requested future bill is unavailable.";
     private const string InvalidFutureBillRequestTitle = "Invalid future bill request";
     private const string InvalidFutureBillRequestDetail = "The submitted future bill request is invalid.";
+    private const string InvalidFutureBillNoBodyTitle = "Invalid future bill request";
+    private const string InvalidFutureBillNoBodyDetail = "This future bill action does not accept a request body.";
     private const string FutureBillConflictTitle = "Future bill conflict";
     private const string FutureBillConflictDetail = "The requested future bill transition is not allowed.";
     private const string FutureBillWriteFailedTitle = "Future bill write failed";
@@ -236,6 +238,12 @@ internal static class FutureBillEndpoints
             return FutureBillConflict();
         }
 
+        if (bill.CreatedByUserProfileId != actor.UserProfileId
+            && bill.BillOwnerUserProfileId != actor.UserProfileId)
+        {
+            return FutureBillUnavailable();
+        }
+
         var nextMerchantName = patchResult.Request.MerchantNameSpecified
             ? patchResult.Request.MerchantName
             : bill.MerchantName;
@@ -259,6 +267,7 @@ internal static class FutureBillEndpoints
 
     private static async Task<IResult> CancelFutureBillAsync(
         Guid futureBillId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IPersonalBillAuditWriter personalBillAuditWriter,
@@ -270,6 +279,11 @@ internal static class FutureBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidFutureBillNoBody();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -292,6 +306,12 @@ internal static class FutureBillEndpoints
             return FutureBillConflict();
         }
 
+        if (bill.CreatedByUserProfileId != actor.UserProfileId
+            && bill.BillOwnerUserProfileId != actor.UserProfileId)
+        {
+            return FutureBillUnavailable();
+        }
+
         var now = timeProvider.GetUtcNow();
         bill.Status = ExpenseBillStatuses.Cancelled;
         bill.ArchivedAtUtc = now;
@@ -311,6 +331,7 @@ internal static class FutureBillEndpoints
 
     private static async Task<IResult> PostFutureBillAsync(
         Guid futureBillId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IExpenseBillWorkflowAuditWriter workflowAuditWriter,
@@ -322,6 +343,11 @@ internal static class FutureBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidFutureBillNoBody();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -1058,6 +1084,14 @@ internal static class FutureBillEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static IResult InvalidFutureBillNoBody()
+    {
+        return Results.Problem(
+            title: InvalidFutureBillNoBodyTitle,
+            detail: InvalidFutureBillNoBodyDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
     private static IResult Unauthenticated()
     {
         return Results.Problem(
@@ -1088,6 +1122,13 @@ internal static class FutureBillEndpoints
             title: FutureBillWriteFailedTitle,
             detail: FutureBillWriteFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static void AddUnsupportedFieldError(Dictionary<string, List<string>> errors)

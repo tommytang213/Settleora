@@ -234,6 +234,52 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
+    public async Task GroupFutureBillUpdateAndCancelRequireCreatorOrOwnerAuthority()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Mutation Owner");
+        var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Mutation Member");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(member.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        var futureBillId = await CreateFutureBillAsync(
+            client,
+            owner.RawSessionToken,
+            CreateGroupFutureBillJson(groupId, owner.UserProfileId, member.UserProfileId));
+
+        using var memberUpdateRequest = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{FutureBillsPath}/{futureBillId:D}",
+            member.RawSessionToken,
+            """
+            {
+              "merchantName": "Member overwrite",
+              "dueDate": "2026-07-01"
+            }
+            """);
+        using var memberUpdateResponse = await client.SendAsync(memberUpdateRequest);
+        await AssertFutureBillUnavailableProblemAsync(memberUpdateResponse);
+
+        using var memberCancelRequest = CreateBearerRequest(HttpMethod.Post, $"{FutureBillsPath}/{futureBillId:D}/cancel", member.RawSessionToken);
+        using var memberCancelResponse = await client.SendAsync(memberCancelRequest);
+        await AssertFutureBillUnavailableProblemAsync(memberCancelResponse);
+
+        var bill = await ReadBillAsync(testFactory, futureBillId);
+        Assert.Equal("Future Group Bill", bill.MerchantName);
+        Assert.Equal(new DateOnly(2026, 6, 20), bill.BillDate);
+        Assert.Equal(ExpenseBillStatuses.Draft, bill.Status);
+        Assert.Null(bill.ArchivedAtUtc);
+        var auditEvents = await ReadAuditEventsAsync(testFactory);
+        Assert.Single(auditEvents, auditEvent => auditEvent.Action == "future_bill.created");
+        Assert.DoesNotContain(auditEvents, auditEvent => auditEvent.Action == "future_bill.updated");
+        Assert.DoesNotContain(auditEvents, auditEvent => auditEvent.Action == "future_bill.cancelled");
+    }
+
+    [Fact]
     public async Task CancelFutureBillArchivesDraftAndHidesItFromDefaultList()
     {
         var testContext = CreateFactory();
@@ -255,6 +301,44 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
         using var listResponse = await client.SendAsync(listRequest);
         using var listPayload = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
         Assert.Empty(listPayload.RootElement.GetProperty("futureBills").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task NoBodyFutureBillActionsRejectSmuggledBodiesBeforeMutation()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Future Body Actor");
+        using var client = testFactory.CreateClient();
+        var postFutureBillId = await CreateFutureBillAsync(client, actor.RawSessionToken, CreatePersonalFutureBillJson("2026-06-20", "120.00"));
+        var cancelFutureBillId = await CreateFutureBillAsync(client, actor.RawSessionToken, CreatePersonalFutureBillJson("2026-06-21", "80.00"));
+
+        using var postRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{FutureBillsPath}/{postFutureBillId:D}/post",
+            actor.RawSessionToken,
+            """{ "futureBillId": "00000000-0000-0000-0000-000000000001", "userProfileId": "00000000-0000-0000-0000-000000000002" }""");
+        using var postResponse = await client.SendAsync(postRequest);
+        await AssertInvalidFutureBillNoBodyProblemAsync(postResponse);
+
+        using var cancelRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{FutureBillsPath}/{cancelFutureBillId:D}/cancel",
+            actor.RawSessionToken,
+            """{ "futureBillId": "00000000-0000-0000-0000-000000000003", "ownerUserProfileId": "00000000-0000-0000-0000-000000000004" }""");
+        using var cancelResponse = await client.SendAsync(cancelRequest);
+        await AssertInvalidFutureBillNoBodyProblemAsync(cancelResponse);
+
+        var postBill = await ReadBillAsync(testFactory, postFutureBillId);
+        var cancelBill = await ReadBillAsync(testFactory, cancelFutureBillId);
+        Assert.Equal(ExpenseBillStatuses.Draft, postBill.Status);
+        Assert.Null(postBill.ArchivedAtUtc);
+        Assert.Equal(ExpenseBillStatuses.Draft, cancelBill.Status);
+        Assert.Null(cancelBill.ArchivedAtUtc);
+        var auditActions = (await ReadAuditEventsAsync(testFactory)).Select(auditEvent => auditEvent.Action).ToArray();
+        Assert.Equal(2, auditActions.Count(action => action == "future_bill.created"));
+        Assert.DoesNotContain("bill.submitted", auditActions);
+        Assert.DoesNotContain("future_bill.cancelled", auditActions);
     }
 
     [Fact]
@@ -532,6 +616,16 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
             .ToListAsync();
     }
 
+    private static async Task<IReadOnlyList<AuthAuditEvent>> ReadAuditEventsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<AuthAuditEvent>()
+            .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
+            .ThenBy(auditEvent => auditEvent.Action)
+            .ToListAsync();
+    }
+
     private static HttpRequestMessage CreateBearerRequest(HttpMethod method, string path, string rawSessionToken)
     {
         var request = new HttpRequestMessage(method, path);
@@ -560,6 +654,15 @@ public sealed class FutureBillEndpointTests : IClassFixture<WebApplicationFactor
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("\"title\":\"Future bill conflict\"", content);
+    }
+
+    private static async Task AssertInvalidFutureBillNoBodyProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("\"title\":\"Invalid future bill request\"", content);
+        Assert.Contains("does not accept a request body", content);
     }
 
     private sealed record FactoryTestContext(WebApplicationFactory<Program> Factory, EndpointTestTimeProvider TimeProvider);
