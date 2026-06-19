@@ -14,6 +14,9 @@ internal static partial class SelfPaymentDetailsEndpoints
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
     private const string PaymentDetailsUnavailableTitle = "Payment details unavailable";
     private const string PaymentDetailsUnavailableDetail = "The requested payment details are unavailable.";
+    private const string InvalidPaymentDetailsReadTitle = "Invalid payment details read";
+    private const string InvalidPaymentDetailsReadDetail = "The submitted payment details read request is invalid.";
+    private const string PaymentDetailsReadBodyMessage = "Payment details read requests do not accept a request body.";
     private const string InvalidPaymentDetailsUpdateTitle = "Invalid payment details update";
     private const string InvalidPaymentDetailsUpdateDetail = "The submitted payment details update is invalid.";
     private const string PaymentDetailsUpdateFailedTitle = "Payment details update failed";
@@ -43,18 +46,14 @@ internal static partial class SelfPaymentDetailsEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectPaymentDetailsReadEnvelope(request, out var readEnvelopeRejection))
+        {
+            return readEnvelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
-        }
-
-        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
-            request,
-            InvalidPaymentDetailsUpdateTitle,
-            InvalidPaymentDetailsUpdateDetail,
-            out var queryRejection))
-        {
-            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -242,6 +241,16 @@ internal static partial class SelfPaymentDetailsEndpoints
         }
 
         return await paymentProfiles.SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static bool TryRejectPaymentDetailsReadEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidPaymentDetailsReadTitle,
+            InvalidPaymentDetailsReadDetail,
+            PaymentDetailsReadBodyMessage,
+            out result);
     }
 
     private static async Task<PaymentDetailsPatchReadResult> ReadPatchAsync(

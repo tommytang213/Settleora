@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -427,6 +428,42 @@ public sealed class SettlementCounterpartyPaymentDetailsEndpointTests : IClassFi
             Assert.DoesNotContain("paymentQrId", qrContent);
             Assert.DoesNotContain("fileId", qrContent);
             Assert.DoesNotContain("query-handle", qrContent);
+        }
+
+        using (var detailsBodyRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            PaymentDetailsPath(settlementId, creditor.UserProfileId),
+            debtorSession.RawSessionToken))
+        {
+            detailsBodyRequest.Content = new StringContent(
+                "{\"paymentHandle\":\"query-handle\",\"storageObjectKey\":\"visible-body-storage-key\"}",
+                Encoding.UTF8,
+                "application/json");
+            using var detailsBodyResponse = await client.SendAsync(detailsBodyRequest);
+            var detailsBodyContent = await detailsBodyResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, detailsBodyResponse.StatusCode);
+            Assert.Contains("Payment details read requests do not accept a request body.", detailsBodyContent);
+            Assert.DoesNotContain("query-handle", detailsBodyContent);
+            Assert.DoesNotContain("visible-body-storage-key", detailsBodyContent);
+        }
+
+        using (var qrBodyRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            QrContentPath(settlementId, creditor.UserProfileId),
+            debtorSession.RawSessionToken))
+        {
+            qrBodyRequest.Content = new StringContent(
+                "{\"fileId\":\"visible-body-file-id\",\"paymentNote\":\"query note\"}",
+                Encoding.UTF8,
+                "application/json");
+            using var qrBodyResponse = await client.SendAsync(qrBodyRequest);
+            var qrBodyContent = await qrBodyResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, qrBodyResponse.StatusCode);
+            Assert.Contains("Payment details read requests do not accept a request body.", qrBodyContent);
+            Assert.DoesNotContain("visible-body-file-id", qrBodyContent);
+            Assert.DoesNotContain("query note", qrBodyContent);
         }
 
         Assert.Empty(await ReadCounterpartyAuditEventsAsync(testFactory));

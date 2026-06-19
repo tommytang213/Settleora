@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -346,6 +347,23 @@ public sealed class SelfPaymentDetailsQrEndpointTests : IClassFixture<WebApplica
         Assert.Equal(writeCountAfterValidUpload, testContext.StorageProvider.WriteCount);
         Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
         Assert.Single(await ReadPaymentQrAuditEventsAsync(testFactory));
+
+        using (var bodyRequest = CreateBearerRequest(HttpMethod.Get, PaymentQrContentPath, actor.RawSessionToken))
+        {
+            bodyRequest.Content = new StringContent(
+                "{\"fileId\":\"visible-body-file-id\",\"storagePath\":\"visible-body-storage-path\"}",
+                Encoding.UTF8,
+                "application/json");
+            using var bodyResponse = await client.SendAsync(bodyRequest);
+            var bodyContent = await bodyResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, bodyResponse.StatusCode);
+            Assert.Contains("Payment QR read requests do not accept a request body.", bodyContent);
+            Assert.DoesNotContain("visible-body-file-id", bodyContent);
+            Assert.DoesNotContain("visible-body-storage-path", bodyContent);
+        }
+
+        Assert.Equal(0, testContext.StorageProvider.OpenReadCount);
     }
 
     [Fact]
