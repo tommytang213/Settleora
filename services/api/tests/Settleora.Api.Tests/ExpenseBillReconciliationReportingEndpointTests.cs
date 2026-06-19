@@ -352,7 +352,14 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
                 note = "route-only",
                 groupId = wrongGroupId,
                 billId = bodyTargetBillId,
-                userProfileId = Guid.NewGuid()
+                statementId = Guid.NewGuid(),
+                statementTransactionId = Guid.NewGuid(),
+                reconciliationMatchId = Guid.NewGuid(),
+                userProfileId = Guid.NewGuid(),
+                ownerUserProfileId = Guid.NewGuid(),
+                authAccountId = Guid.NewGuid(),
+                updatedByUserProfileId = Guid.NewGuid(),
+                settlementPaymentId = Guid.NewGuid()
             }));
         using var response = await client.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
@@ -406,8 +413,14 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
                 note = "route-only",
                 billId = bodyTargetBillId,
                 groupId = Guid.NewGuid(),
+                statementId = Guid.NewGuid(),
+                statementTransactionId = Guid.NewGuid(),
+                reconciliationMatchId = Guid.NewGuid(),
                 userProfileId = Guid.NewGuid(),
-                ownerUserProfileId = actorSession.UserProfileId
+                ownerUserProfileId = actorSession.UserProfileId,
+                authAccountId = Guid.NewGuid(),
+                updatedByUserProfileId = Guid.NewGuid(),
+                settlementRequestId = Guid.NewGuid()
             }));
         using var response = await client.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
