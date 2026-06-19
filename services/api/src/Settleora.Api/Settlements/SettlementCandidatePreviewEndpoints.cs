@@ -5,6 +5,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Settlements;
 
@@ -16,6 +17,9 @@ internal static class SettlementCandidatePreviewEndpoints
     private const string BillUnavailableDetail = "The requested bill is unavailable.";
     private const string GroupBillUnavailableTitle = "Group bill unavailable";
     private const string GroupBillUnavailableDetail = "The requested group bill is unavailable.";
+    private const string InvalidSettlementCandidateReadTitle = "Invalid settlement candidate read request";
+    private const string InvalidSettlementCandidateReadDetail = "The settlement candidate read request is invalid.";
+    private const string SettlementCandidateReadBodyMessage = "Settlement candidate read requests do not accept a body.";
     private const string SettlementCandidateConflictTitle = "Settlement candidate preview conflict";
     private const string SettlementCandidateConflictDetail = "Settlement candidates cannot be previewed for the current bill state.";
 
@@ -34,12 +38,18 @@ internal static class SettlementCandidatePreviewEndpoints
 
     private static async Task<IResult> ListPersonalBillSettlementCandidatesAsync(
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettlementCandidateDerivationService candidateDerivationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectReadRequestEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -71,12 +81,18 @@ internal static class SettlementCandidatePreviewEndpoints
     private static async Task<IResult> ListGroupBillSettlementCandidatesAsync(
         Guid groupId,
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettlementCandidateDerivationService candidateDerivationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectReadRequestEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -213,6 +229,16 @@ internal static class SettlementCandidatePreviewEndpoints
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
             ? Unauthenticated()
             : GroupBillUnavailable();
+    }
+
+    private static bool TryRejectReadRequestEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidSettlementCandidateReadTitle,
+            InvalidSettlementCandidateReadDetail,
+            SettlementCandidateReadBodyMessage,
+            out result);
     }
 
     private static IResult Unauthenticated()

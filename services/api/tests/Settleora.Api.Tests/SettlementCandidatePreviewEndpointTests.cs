@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -547,6 +548,74 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
         await AssertUnauthenticatedProblemAsync(invalidGroupResponse, WrongRawToken);
     }
 
+    [Theory]
+    [InlineData("personal-query")]
+    [InlineData("personal-body")]
+    [InlineData("group-query")]
+    [InlineData("group-body")]
+    public async Task UnsupportedReadEnvelopeReturnsBoundedBadRequestWithoutSideEffects(string scenario)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, $"Invalid Envelope Actor {scenario}");
+        var other = await SeedAccountAsync(testFactory, $"Invalid Envelope Other {scenario}", InitialTimestamp.AddMinutes(1));
+        var groupId = scenario.StartsWith("group", StringComparison.Ordinal)
+            ? await SeedGroupAsync(
+                testFactory,
+                actorSession.UserProfileId,
+                "Hidden Invalid Envelope Group",
+                InitialTimestamp,
+                deletedAtUtc: null,
+                new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+                new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active))
+            : (Guid?)null;
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(actorSession.UserProfileId, 50m),
+                new ParticipantSeed(other.UserProfileId, 50m)
+            ],
+            [new PayerSeed(other.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            "Hidden Invalid Envelope Merchant",
+            InitialTimestamp);
+        var path = groupId is null
+            ? PersonalCandidatesPath(billId)
+            : GroupCandidatesPath(groupId.Value, billId);
+        var beforeCounts = await ReadPreviewSideEffectCountsAsync(testFactory);
+        var beforeUpdatedAt = await ReadBillUpdatedAtAsync(testFactory, billId);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            scenario.EndsWith("query", StringComparison.Ordinal)
+                ? $"{path}?userProfileId={other.UserProfileId:D}&billId={Guid.NewGuid():D}&note=HiddenInvalidEnvelopeNote"
+                : path,
+            actorSession.RawSessionToken);
+        if (scenario.EndsWith("body", StringComparison.Ordinal))
+        {
+            request.Content = new StringContent(
+                $$"""{"userProfileId":"{{other.UserProfileId:D}}","billId":"{{Guid.NewGuid():D}}","note":"Hidden Invalid Envelope Body"}""",
+                Encoding.UTF8,
+                "application/json");
+        }
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        AssertInvalidSettlementCandidateReadRequestProblem(
+            response,
+            content,
+            other.UserProfileId.ToString("D"),
+            "HiddenInvalidEnvelopeNote",
+            "Hidden Invalid Envelope Body",
+            "Hidden Invalid Envelope Merchant",
+            "Hidden Invalid Envelope Group");
+        Assert.Equal(beforeCounts, await ReadPreviewSideEffectCountsAsync(testFactory));
+        Assert.Equal(beforeUpdatedAt, await ReadBillUpdatedAtAsync(testFactory, billId));
+    }
+
     [Fact]
     public async Task PreviewEndpointDoesNotCreateSettlementPaymentProofFilePaymentProfileAuditOrBillRows()
     {
@@ -979,6 +1048,39 @@ public sealed class SettlementCandidatePreviewEndpointTests : IClassFixture<WebA
         Assert.Equal(
             "Authentication is required to access this resource.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static void AssertInvalidSettlementCandidateReadRequestProblem(
+        HttpResponseMessage response,
+        string content,
+        params string[] forbiddenValues)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafePreviewResponseContent(content, forbiddenValues);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid settlement candidate read request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The settlement candidate read request is invalid.",
+            payload.RootElement.GetProperty("detail").GetString());
+
+        var errors = payload.RootElement.GetProperty("errors");
+        Assert.True(errors.TryGetProperty("query", out _) || errors.TryGetProperty("body", out _));
+        if (errors.TryGetProperty("query", out var queryErrors))
+        {
+            Assert.Contains(
+                queryErrors.EnumerateArray(),
+                error => error.GetString() == "Unsupported query fields are not allowed.");
+        }
+
+        if (errors.TryGetProperty("body", out var bodyErrors))
+        {
+            Assert.Contains(
+                bodyErrors.EnumerateArray(),
+                error => error.GetString() == "Settlement candidate read requests do not accept a body.");
+        }
     }
 
     private sealed record FactoryTestContext(
