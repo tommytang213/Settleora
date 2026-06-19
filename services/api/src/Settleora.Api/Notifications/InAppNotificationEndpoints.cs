@@ -16,9 +16,11 @@ internal static class InAppNotificationEndpoints
     private const string NotificationUnavailableDetail = "The requested notification is unavailable.";
     private const string InvalidNotificationRequestTitle = "Invalid notification request";
     private const string InvalidNotificationRequestDetail = "The submitted notification request is invalid.";
+    private const string InvalidNotificationListBodyDetail = "This notification readout does not accept a request body.";
     private const string InvalidNotificationNoBodyDetail = "This notification action does not accept a request body.";
     private const string NotificationWriteFailedTitle = "Notification write failed";
     private const string NotificationWriteFailedDetail = "Unable to complete notification write.";
+    private static readonly string[] SupportedListQueryFields = ["status", "limit", "before"];
 
     public static WebApplication MapInAppNotificationEndpoints(this WebApplication app)
     {
@@ -40,15 +42,15 @@ internal static class InAppNotificationEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var filterResult = ReadListFilter(request);
         if (!filterResult.Succeeded || filterResult.Filter is null)
         {
             return InvalidNotificationRequest(filterResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var filter = filterResult.Filter;
@@ -77,10 +79,16 @@ internal static class InAppNotificationEndpoints
     }
 
     private static async Task<IResult> GetNotificationSummaryAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectNoBodyReadEnvelope(request, out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -109,14 +117,14 @@ internal static class InAppNotificationEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         if (RequestHasBody(request))
         {
             return InvalidNotificationNoBody();
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var notification = await VisibleNotifications(dbContext, actor.UserProfileId, trackChanges: true)
@@ -146,14 +154,14 @@ internal static class InAppNotificationEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         if (RequestHasBody(request))
         {
             return InvalidNotificationNoBody();
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var now = timeProvider.GetUtcNow();
@@ -178,7 +186,7 @@ internal static class InAppNotificationEndpoints
             return NotificationWriteFailed();
         }
 
-        return await GetNotificationSummaryAsync(currentActorAccessor, dbContext, cancellationToken);
+        return await GetNotificationSummaryAsync(request, currentActorAccessor, dbContext, cancellationToken);
     }
 
     private static async Task<IResult> ArchiveNotificationAsync(
@@ -189,14 +197,14 @@ internal static class InAppNotificationEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         if (RequestHasBody(request))
         {
             return InvalidNotificationNoBody();
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var notification = await VisibleNotifications(dbContext, actor.UserProfileId, trackChanges: true)
@@ -252,6 +260,13 @@ internal static class InAppNotificationEndpoints
     private static ListFilterReadResult ReadListFilter(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        AddUnsupportedQueryFieldErrors(request, SupportedListQueryFields, errors);
+
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", InvalidNotificationListBodyDetail);
+        }
+
         var status = ReadOptionalQueryString(request, "status");
         if (status is not null && !InAppNotificationStatuses.IsSupported(status))
         {
@@ -276,6 +291,61 @@ internal static class InAppNotificationEndpoints
         return request.Query.TryGetValue(key, out var values) && values != StringValues.Empty
             ? values.ToString()
             : null;
+    }
+
+    private static void AddUnsupportedQueryFieldErrors(
+        HttpRequest request,
+        IReadOnlyCollection<string> supportedFields,
+        Dictionary<string, List<string>> errors)
+    {
+        if (request.Query.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var field in request.Query.Keys)
+        {
+            if (!supportedFields.Contains(field, StringComparer.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+
+        foreach (var supportedField in supportedFields)
+        {
+            if (request.Query.TryGetValue(supportedField, out var values)
+                && values.Count > 1)
+            {
+                AddError(errors, supportedField, $"{supportedField} accepts only one value.");
+            }
+        }
+    }
+
+    private static bool TryRejectNoBodyReadEnvelope(HttpRequest request, out IResult result)
+    {
+        if (request.Query.Count > 0)
+        {
+            result = InvalidNotificationRequest(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["query"] = ["Unsupported query fields are not allowed."]
+                });
+            return true;
+        }
+
+        if (RequestHasBody(request))
+        {
+            result = InvalidNotificationRequest(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["body"] = [InvalidNotificationListBodyDetail]
+                });
+            return true;
+        }
+
+        result = null!;
+        return false;
     }
 
     private static int? ReadOptionalQueryInt(
@@ -345,7 +415,11 @@ internal static class InAppNotificationEndpoints
 
     private static IResult InvalidNotificationNoBody()
     {
-        return Results.Problem(
+        return Results.ValidationProblem(
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["body"] = [InvalidNotificationNoBodyDetail]
+            },
             title: InvalidNotificationRequestTitle,
             detail: InvalidNotificationNoBodyDetail,
             statusCode: StatusCodes.Status400BadRequest);
