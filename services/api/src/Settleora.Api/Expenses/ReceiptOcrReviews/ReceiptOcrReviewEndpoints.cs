@@ -575,6 +575,12 @@ internal static class ReceiptOcrReviewEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        var envelopeReadResult = ReadNoReceiptOcrReviewGetReadEnvelopeRequest(request);
+        if (!envelopeReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(envelopeReadResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -588,12 +594,6 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
-        }
-
-        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
-        if (!queryReadResult.Succeeded)
-        {
-            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var billContext = await LoadVisibleBillContextAsync(
@@ -655,6 +655,12 @@ internal static class ReceiptOcrReviewEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var envelopeReadResult = ReadNoReceiptOcrReviewGetReadEnvelopeRequest(request);
+        if (!envelopeReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(envelopeReadResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -668,12 +674,6 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
-        }
-
-        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
-        if (!queryReadResult.Succeeded)
-        {
-            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var billContext = await LoadVisibleBillContextAsync(
@@ -1033,6 +1033,24 @@ internal static class ReceiptOcrReviewEndpoints
     private static ReceiptOcrReviewQueryReadResult ReadNoReceiptOcrReviewRouteQueryRequest(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var queryKey in request.Query.Keys)
+        {
+            AddError(errors, queryKey, "Query field is not supported for this receipt OCR review route.");
+        }
+
+        return errors.Count > 0
+            ? ReceiptOcrReviewQueryReadResult.Invalid(ToErrorDictionary(errors))
+            : ReceiptOcrReviewQueryReadResult.Valid();
+    }
+
+    private static ReceiptOcrReviewQueryReadResult ReadNoReceiptOcrReviewGetReadEnvelopeRequest(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (UnsupportedRequestFieldGuards.RequestHasBody(request))
+        {
+            AddError(errors, "body", "GET request bodies are not supported for receipt OCR review read routes.");
+        }
+
         foreach (var queryKey in request.Query.Keys)
         {
             AddError(errors, queryKey, "Query field is not supported for this receipt OCR review route.");
