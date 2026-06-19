@@ -163,6 +163,12 @@ internal static class RecurringBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var filterResult = ReadListFilter(request);
+        if (!filterResult.Succeeded || filterResult.Filter is null)
+        {
+            return InvalidRecurringBillRequest(filterResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -174,12 +180,6 @@ internal static class RecurringBillEndpoints
         if (!authorizationResult.Allowed)
         {
             return MapAuthorizationFailure(authorizationResult);
-        }
-
-        var filterResult = ReadListFilter(request);
-        if (!filterResult.Succeeded || filterResult.Filter is null)
-        {
-            return InvalidRecurringBillRequest(filterResult.Errors);
         }
 
         var templates = await VisibleTemplates(dbContext, actor.UserProfileId, trackChanges: false)
@@ -198,11 +198,18 @@ internal static class RecurringBillEndpoints
 
     private static async Task<IResult> GetTemplateAsync(
         Guid templateId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var readEnvelopeResult = ReadTemplateReadEnvelope(request);
+        if (!readEnvelopeResult.Succeeded)
+        {
+            return InvalidRecurringBillRequest(readEnvelopeResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -1282,7 +1289,10 @@ internal static class RecurringBillEndpoints
     private static TemplateListFilterReadResult ReadListFilter(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var status = ReadOptionalQueryString(request, "status");
+        RejectTemplateListRequestBody(request, errors);
+        RejectUnsupportedTemplateListQueryFields(request, errors);
+
+        var status = ReadOptionalQueryString(request, "status", errors);
         if (status is not null && !RecurringBillTemplateStatuses.IsSupported(status))
         {
             AddError(errors, "status", "Recurring template status is not supported.");
@@ -1299,6 +1309,57 @@ internal static class RecurringBillEndpoints
         return errors.Count == 0
             ? TemplateListFilterReadResult.Valid(new TemplateListFilter(status, groupId, fromDate, toDate))
             : TemplateListFilterReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static TemplateReadEnvelopeResult ReadTemplateReadEnvelope(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectTemplateReadRequestBody(request, errors);
+        if (request.Query.Count > 0)
+        {
+            AddError(errors, "query", "Unsupported query fields are not allowed.");
+        }
+
+        return errors.Count == 0
+            ? TemplateReadEnvelopeResult.Valid()
+            : TemplateReadEnvelopeResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectTemplateListRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Recurring bill template list requests do not accept a body.");
+        }
+    }
+
+    private static void RejectTemplateReadRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Recurring bill template read requests do not accept a body.");
+        }
+    }
+
+    private static void RejectUnsupportedTemplateListQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!string.Equals(field, "status", StringComparison.Ordinal)
+                && !string.Equals(field, "groupId", StringComparison.Ordinal)
+                && !string.Equals(field, "fromDate", StringComparison.Ordinal)
+                && !string.Equals(field, "toDate", StringComparison.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
     }
 
     private static ForecastFilterReadResult ReadForecastFilter(
@@ -1441,11 +1502,27 @@ internal static class RecurringBillEndpoints
         return parsed;
     }
 
-    private static string? ReadOptionalQueryString(HttpRequest request, string key)
+    private static string? ReadOptionalQueryString(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>>? errors = null)
     {
-        return request.Query.TryGetValue(key, out var values) && values != StringValues.Empty
-            ? values.ToString()
-            : null;
+        if (!request.Query.TryGetValue(key, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            if (errors is not null)
+            {
+                AddError(errors, key, "Only one value is supported.");
+            }
+
+            return null;
+        }
+
+        return values.ToString();
     }
 
     private static Guid? ReadOptionalQueryGuid(
@@ -1453,7 +1530,7 @@ internal static class RecurringBillEndpoints
         string key,
         Dictionary<string, List<string>> errors)
     {
-        var value = ReadOptionalQueryString(request, key);
+        var value = ReadOptionalQueryString(request, key, errors);
         if (value is null)
         {
             return null;
@@ -1473,7 +1550,7 @@ internal static class RecurringBillEndpoints
         string key,
         Dictionary<string, List<string>> errors)
     {
-        var value = ReadOptionalQueryString(request, key);
+        var value = ReadOptionalQueryString(request, key, errors);
         if (value is null)
         {
             return null;
@@ -1498,7 +1575,7 @@ internal static class RecurringBillEndpoints
         string key,
         Dictionary<string, List<string>> errors)
     {
-        var value = ReadOptionalQueryString(request, key);
+        var value = ReadOptionalQueryString(request, key, errors);
         if (value is null)
         {
             return null;
@@ -1932,6 +2009,28 @@ internal static class RecurringBillEndpoints
         public static TemplateListFilterReadResult Invalid(IDictionary<string, string[]> errors)
         {
             return new TemplateListFilterReadResult(null, errors);
+        }
+    }
+
+    private sealed class TemplateReadEnvelopeResult
+    {
+        private TemplateReadEnvelopeResult(IDictionary<string, string[]> errors)
+        {
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static TemplateReadEnvelopeResult Valid()
+        {
+            return new TemplateReadEnvelopeResult(new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static TemplateReadEnvelopeResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new TemplateReadEnvelopeResult(errors);
         }
     }
 
