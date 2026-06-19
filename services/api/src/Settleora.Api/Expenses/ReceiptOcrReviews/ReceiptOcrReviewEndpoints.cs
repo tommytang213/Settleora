@@ -9,6 +9,7 @@ using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Expenses.ReceiptOcrReviews;
 
@@ -184,6 +185,12 @@ internal static class ReceiptOcrReviewEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var readResult = ReadReceiptOcrReviewQueueRequest(request);
+        if (!readResult.Succeeded || readResult.Filters is null)
+        {
+            return InvalidReceiptOcrReviewQuery(readResult.Errors);
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -197,12 +204,6 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
-        }
-
-        var readResult = ReadReceiptOcrReviewQueueRequest(request);
-        if (!readResult.Succeeded || readResult.Filters is null)
-        {
-            return InvalidReceiptOcrReviewQuery(readResult.Errors);
         }
 
         var filters = readResult.Filters;
@@ -1045,6 +1046,11 @@ internal static class ReceiptOcrReviewEndpoints
     private static ReceiptOcrReviewQueueReadResult ReadReceiptOcrReviewQueueRequest(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (UnsupportedRequestFieldGuards.RequestHasBody(request))
+        {
+            AddError(errors, "body", "GET request bodies are not supported for receipt OCR review queue.");
+        }
+
         foreach (var queryKey in request.Query.Keys)
         {
             if (!AllowedQueueQueryProperties.Contains(queryKey))
