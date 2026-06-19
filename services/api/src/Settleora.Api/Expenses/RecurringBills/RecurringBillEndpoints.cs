@@ -470,18 +470,18 @@ internal static class RecurringBillEndpoints
             return Unauthenticated();
         }
 
+        var forecastFilterResult = ReadForecastFilter(request, timeProvider);
+        if (!forecastFilterResult.Succeeded || forecastFilterResult.Filter is null)
+        {
+            return InvalidRecurringBillRequest(forecastFilterResult.Errors);
+        }
+
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
             actor.UserProfileId,
             cancellationToken);
         if (!authorizationResult.Allowed)
         {
             return MapAuthorizationFailure(authorizationResult);
-        }
-
-        var forecastFilterResult = ReadForecastFilter(request, timeProvider);
-        if (!forecastFilterResult.Succeeded || forecastFilterResult.Filter is null)
-        {
-            return InvalidRecurringBillRequest(forecastFilterResult.Errors);
         }
 
         var filter = forecastFilterResult.Filter;
@@ -1306,11 +1306,14 @@ internal static class RecurringBillEndpoints
         TimeProvider timeProvider)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectForecastRequestBody(request, errors);
+        RejectUnsupportedForecastQueryFields(request, errors);
+
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        var fromDate = ReadOptionalQueryDate(request, "fromDate", errors) ?? today;
-        var toDate = ReadOptionalQueryDate(request, "toDate", errors) ?? fromDate.AddDays(60);
-        var limit = ReadOptionalQueryInt(request, "limit", errors) ?? 50;
-        var groupId = ReadOptionalQueryGuid(request, "groupId", errors);
+        var fromDate = ReadOptionalForecastQueryDate(request, "fromDate", errors) ?? today;
+        var toDate = ReadOptionalForecastQueryDate(request, "toDate", errors) ?? fromDate.AddDays(60);
+        var limit = ReadOptionalForecastQueryInt(request, "limit", errors) ?? 50;
+        var groupId = ReadOptionalForecastQueryGuid(request, "groupId", errors);
 
         if (toDate < fromDate)
         {
@@ -1325,6 +1328,117 @@ internal static class RecurringBillEndpoints
         return errors.Count == 0
             ? ForecastFilterReadResult.Valid(new ForecastFilter(fromDate, toDate, limit, groupId))
             : ForecastFilterReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectForecastRequestBody(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", "Recurring bill forecast requests do not accept a body.");
+        }
+    }
+
+    private static void RejectUnsupportedForecastQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!string.Equals(field, "fromDate", StringComparison.Ordinal)
+                && !string.Equals(field, "toDate", StringComparison.Ordinal)
+                && !string.Equals(field, "limit", StringComparison.Ordinal)
+                && !string.Equals(field, "groupId", StringComparison.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
+    private static string? ReadOptionalForecastQueryString(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(key, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, key, "Only one value is supported.");
+            return null;
+        }
+
+        return values.ToString();
+    }
+
+    private static Guid? ReadOptionalForecastQueryGuid(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        var value = ReadOptionalForecastQueryString(request, key, errors);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!Guid.TryParse(value, out var parsed) || parsed == Guid.Empty)
+        {
+            AddError(errors, key, $"{key} must be a valid non-empty GUID.");
+            return null;
+        }
+
+        return parsed;
+    }
+
+    private static DateOnly? ReadOptionalForecastQueryDate(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        var value = ReadOptionalForecastQueryString(request, key, errors);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!DateOnly.TryParseExact(
+            value,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var parsed))
+        {
+            AddError(errors, key, $"{key} must be a yyyy-MM-dd date string.");
+            return null;
+        }
+
+        return parsed;
+    }
+
+    private static int? ReadOptionalForecastQueryInt(
+        HttpRequest request,
+        string key,
+        Dictionary<string, List<string>> errors)
+    {
+        var value = ReadOptionalForecastQueryString(request, key, errors);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+        {
+            AddError(errors, key, $"{key} must be an integer.");
+            return null;
+        }
+
+        return parsed;
     }
 
     private static string? ReadOptionalQueryString(HttpRequest request, string key)

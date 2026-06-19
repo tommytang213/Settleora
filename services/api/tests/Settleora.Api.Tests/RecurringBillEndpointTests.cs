@@ -389,6 +389,150 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task ForecastRejectsSmuggledQueryAndBodyFieldsBeforeForecastReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Forecast Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Forecast Smuggle Other");
+        var visibleTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            "Visible Forecast Smuggle Template");
+        var hiddenTemplateId = await SeedTemplateAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            "Hidden Forecast Smuggle Template");
+        using var client = testFactory.CreateClient();
+
+        var smuggledQuery = string.Join(
+            '&',
+            $"fromDate=2026-06-01",
+            $"toDate=2026-06-30",
+            $"limit=5",
+            $"accountId={other.AuthAccountId:D}",
+            $"userProfileId={other.UserProfileId:D}",
+            $"ownerUserProfileId={other.UserProfileId:D}",
+            $"billId={Guid.NewGuid():D}",
+            $"recurringBillId={hiddenTemplateId:D}",
+            $"futureBillId={Guid.NewGuid():D}",
+            $"generatedBillId={Guid.NewGuid():D}",
+            $"reportId={Guid.NewGuid():D}",
+            $"statementId={Guid.NewGuid():D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"attachmentId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            $"ocrJobId={Guid.NewGuid():D}",
+            "unknownRecordSelector=hidden");
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?{smuggledQuery}",
+            actor.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await queryResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(queryResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Forecast Smuggle Template", content);
+            Assert.DoesNotContain("Visible Forecast Smuggle Template", content);
+            Assert.DoesNotContain("hidden", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?fromDate=2026-06-01&toDate=2026-06-30",
+            actor.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                accountId = other.AuthAccountId,
+                userProfileId = other.UserProfileId,
+                ownerUserProfileId = other.UserProfileId,
+                recurringBillId = hiddenTemplateId,
+                templateId = hiddenTemplateId,
+                groupId = Guid.NewGuid(),
+                generatedBillId = Guid.NewGuid(),
+                reportId = Guid.NewGuid(),
+                settlementId = Guid.NewGuid(),
+                fileId = Guid.NewGuid(),
+                merchantName = "Hidden Forecast Smuggle Template"
+            })))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(bodyResponse, content);
+            Assert.Contains("Recurring bill forecast requests do not accept a body.", content);
+            Assert.DoesNotContain(other.AuthAccountId.ToString("D"), content);
+            Assert.DoesNotContain(other.UserProfileId.ToString("D"), content);
+            Assert.DoesNotContain(hiddenTemplateId.ToString("D"), content);
+            Assert.DoesNotContain("Hidden Forecast Smuggle Template", content);
+        }
+
+        var templates = await ReadTemplatesAsync(testFactory);
+        Assert.Equal(2, templates.Count);
+        Assert.Contains(templates, template => template.Id == visibleTemplateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Contains(templates, template => template.Id == hiddenTemplateId && template.Status == RecurringBillTemplateStatuses.Active);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ForecastRejectsDuplicateAndInvalidSupportedQueryValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Forecast Query Actor");
+        await SeedTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Forecast Query Template");
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?fromDate=2026-06-01&fromDate=2026-06-02&limit=2&limit=3&groupId={Guid.NewGuid():D}&groupId={Guid.NewGuid():D}",
+            actor.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(duplicateResponse, content);
+            Assert.Contains("\"fromDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"limit\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"groupId\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain("Forecast Query Template", content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?fromDate=2026-13-01&toDate=not-a-date&limit=abc&groupId=not-a-guid",
+            actor.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await invalidResponse.Content.ReadAsStringAsync();
+            await AssertInvalidRecurringBillRequestProblemAsync(invalidResponse, content);
+            Assert.Contains("fromDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("toDate must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("limit must be an integer.", content);
+            Assert.Contains("groupId must be a valid non-empty GUID.", content);
+            Assert.DoesNotContain("2026-13-01", content);
+            Assert.DoesNotContain("not-a-date", content);
+            Assert.DoesNotContain("not-a-guid", content);
+            Assert.DoesNotContain("Forecast Query Template", content);
+        }
+
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PauseResumeArchiveAndGenerationConflictsUseBoundedState()
     {
         var testContext = CreateFactory();
@@ -986,10 +1130,18 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     private static async Task AssertInvalidRecurringBillNoBodyProblemAsync(HttpResponseMessage response)
     {
         var content = await response.Content.ReadAsStringAsync();
+        await AssertInvalidRecurringBillRequestProblemAsync(response, content);
+        Assert.Contains("does not accept a request body", content);
+    }
+
+    private static async Task AssertInvalidRecurringBillRequestProblemAsync(
+        HttpResponseMessage response,
+        string? content = null)
+    {
+        content ??= await response.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("\"title\":\"Invalid recurring bill request\"", content);
-        Assert.Contains("does not accept a request body", content);
     }
 
     private sealed record FactoryTestContext(
