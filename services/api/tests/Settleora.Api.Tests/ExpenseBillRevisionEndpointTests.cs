@@ -174,6 +174,102 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task BillRevisionReadoutsRejectUnsupportedQueryAndBodiesWithoutSideEffectsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Envelope Creator");
+        var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Envelope Participant");
+        var smuggledBillId = Guid.NewGuid();
+        var smuggledRevisionId = Guid.NewGuid();
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participantSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var revisionId = await CreateDraftRevisionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            billId,
+            creatorSession.RawSessionToken,
+            creatorSession.UserProfileId,
+            participantSession.UserProfileId);
+        var revisionBefore = await ReadRevisionAsync(testFactory, revisionId);
+        var notificationCountBefore = (await ReadNotificationsAsync(testFactory)).Count;
+        var revisionAuditCountBefore = (await ReadRevisionAuditEventsAsync(testFactory)).Count;
+        using var client = testFactory.CreateClient();
+
+        using (var listQueryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RevisionsPath(billId)}?billId={smuggledBillId:D}&revisionId={smuggledRevisionId:D}&merchant=SecretMerchant",
+            creatorSession.RawSessionToken))
+        using (var listQueryResponse = await client.SendAsync(listQueryRequest))
+        {
+            var content = await listQueryResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, listQueryResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(smuggledBillId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(smuggledRevisionId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("SecretMerchant", content, StringComparison.Ordinal);
+        }
+
+        using (var getQueryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RevisionPath(billId, revisionId)}?userProfileId={participantSession.UserProfileId:D}&revisionSummary=HiddenSnapshot",
+            creatorSession.RawSessionToken))
+        using (var getQueryResponse = await client.SendAsync(getQueryRequest))
+        {
+            var content = await getQueryResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, getQueryResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain(participantSession.UserProfileId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("HiddenSnapshot", content, StringComparison.Ordinal);
+        }
+
+        using (var getBodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            RevisionPath(billId, revisionId),
+            creatorSession.RawSessionToken,
+            $$"""
+            {
+              "billId": "{{smuggledBillId:D}}",
+              "revisionId": "{{smuggledRevisionId:D}}",
+              "participantEmail": "hidden@example.test",
+              "ocrText": "private ocr text",
+              "storageObjectKey": "receipts/private-key"
+            }
+            """))
+        using (var getBodyResponse = await client.SendAsync(getBodyRequest))
+        {
+            var content = await getBodyResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, getBodyResponse.StatusCode);
+            Assert.Contains("Bill revision read requests do not accept a request body.", content);
+            Assert.DoesNotContain(smuggledBillId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(smuggledRevisionId.ToString("D"), content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hidden@example.test", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("private ocr text", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("receipts/private-key", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var revisionAfter = await ReadRevisionAsync(testFactory, revisionId);
+        Assert.Equal(revisionBefore.Status, revisionAfter.Status);
+        Assert.Equal(revisionBefore.UpdatedAtUtc, revisionAfter.UpdatedAtUtc);
+        Assert.Equal(revisionBefore.Approvals.Count, revisionAfter.Approvals.Count);
+        Assert.Equal(notificationCountBefore, (await ReadNotificationsAsync(testFactory)).Count);
+        Assert.Equal(revisionAuditCountBefore, (await ReadRevisionAuditEventsAsync(testFactory)).Count);
+    }
+
+    [Fact]
     public async Task RemovedGroupParticipantCannotSeeOrCreateRevisions()
     {
         var testContext = CreateFactory();

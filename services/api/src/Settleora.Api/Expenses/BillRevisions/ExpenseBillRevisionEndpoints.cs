@@ -6,6 +6,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Expenses.BillRevisions;
 
@@ -17,6 +18,9 @@ internal static class ExpenseBillRevisionEndpoints
     private const string BillUnavailableDetail = "The requested bill is unavailable.";
     private const string BillRevisionUnavailableTitle = "Bill revision unavailable";
     private const string BillRevisionUnavailableDetail = "The requested bill revision is unavailable.";
+    private const string InvalidBillRevisionReadEnvelopeTitle = "Invalid bill revision read request";
+    private const string InvalidBillRevisionReadEnvelopeDetail = "Bill revision read requests do not accept client-submitted selector fields.";
+    private const string BillRevisionReadEnvelopeBodyMessage = "Bill revision read requests do not accept a request body.";
     private const string InvalidBillRevisionRequestTitle = "Invalid bill revision request";
     private const string InvalidBillRevisionRequestDetail = "The submitted bill revision request is invalid.";
     private const string InvalidBillRevisionNoBodyTitle = "Invalid bill revision request";
@@ -58,12 +62,18 @@ internal static class ExpenseBillRevisionEndpoints
 
     private static async Task<IResult> ListBillRevisionsAsync(
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectBillRevisionReadEnvelope(request, out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -105,12 +115,18 @@ internal static class ExpenseBillRevisionEndpoints
     private static async Task<IResult> GetBillRevisionAsync(
         Guid billId,
         Guid revisionId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillRevisionSettlementApplyPolicy settlementApplyPolicy,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectBillRevisionReadEnvelope(request, out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -1734,6 +1750,16 @@ internal static class ExpenseBillRevisionEndpoints
         return request.ContentLength.GetValueOrDefault() > 0
             || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
             && transferEncoding.Count > 0;
+    }
+
+    private static bool TryRejectBillRevisionReadEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidBillRevisionReadEnvelopeTitle,
+            InvalidBillRevisionReadEnvelopeDetail,
+            BillRevisionReadEnvelopeBodyMessage,
+            out result);
     }
 
     private static IResult Unauthenticated()
