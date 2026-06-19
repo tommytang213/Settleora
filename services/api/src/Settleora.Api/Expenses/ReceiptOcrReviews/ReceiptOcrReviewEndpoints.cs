@@ -319,6 +319,18 @@ internal static class ReceiptOcrReviewEndpoints
             return MapAuthorizationFailure(scopeAuthorizationResult);
         }
 
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
+        }
+
+        var readResult = await ReadReceiptOcrReviewRequestAsync(request, cancellationToken);
+        if (!readResult.Succeeded || readResult.Review is null)
+        {
+            return InvalidReceiptOcrReview(readResult.Errors);
+        }
+
         var billContext = await LoadVisibleBillContextAsync(
             dbContext,
             routeGroupId,
@@ -345,12 +357,6 @@ internal static class ReceiptOcrReviewEndpoints
         if (attachment is null)
         {
             return BillUnavailable();
-        }
-
-        var readResult = await ReadReceiptOcrReviewRequestAsync(request, cancellationToken);
-        if (!readResult.Succeeded || readResult.Review is null)
-        {
-            return InvalidReceiptOcrReview(readResult.Errors);
         }
 
         var submittedReview = readResult.Review;
@@ -419,6 +425,7 @@ internal static class ReceiptOcrReviewEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
+        HttpRequest request,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -430,6 +437,7 @@ internal static class ReceiptOcrReviewEndpoints
             currentActorAccessor,
             businessAuthorizationService,
             auditWriter,
+            request,
             dbContext,
             timeProvider,
             cancellationToken);
@@ -440,6 +448,7 @@ internal static class ReceiptOcrReviewEndpoints
         Guid fileId,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        HttpRequest request,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -447,6 +456,7 @@ internal static class ReceiptOcrReviewEndpoints
             routeGroupId: null,
             billId,
             fileId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -460,6 +470,7 @@ internal static class ReceiptOcrReviewEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
+        HttpRequest request,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -471,6 +482,7 @@ internal static class ReceiptOcrReviewEndpoints
             currentActorAccessor,
             businessAuthorizationService,
             auditWriter,
+            request,
             dbContext,
             timeProvider,
             cancellationToken);
@@ -482,6 +494,7 @@ internal static class ReceiptOcrReviewEndpoints
         Guid fileId,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        HttpRequest request,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -489,6 +502,7 @@ internal static class ReceiptOcrReviewEndpoints
             groupId,
             billId,
             fileId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             dbContext,
@@ -555,6 +569,7 @@ internal static class ReceiptOcrReviewEndpoints
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
+        HttpRequest request,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -572,6 +587,12 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var billContext = await LoadVisibleBillContextAsync(
@@ -627,6 +648,7 @@ internal static class ReceiptOcrReviewEndpoints
         Guid? routeGroupId,
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -645,6 +667,12 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var billContext = await LoadVisibleBillContextAsync(
@@ -701,6 +729,12 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var applyReadResult = await ReadReceiptOcrReviewApplyRequestAsync(request, cancellationToken);
@@ -853,6 +887,7 @@ internal static class ReceiptOcrReviewEndpoints
     private static Task<IResult> RemovePersonalReceiptOcrReviewAsync(
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
@@ -864,6 +899,7 @@ internal static class ReceiptOcrReviewEndpoints
             routeGroupId: null,
             billId,
             fileId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             auditWriter,
@@ -876,6 +912,7 @@ internal static class ReceiptOcrReviewEndpoints
         Guid groupId,
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
@@ -887,6 +924,7 @@ internal static class ReceiptOcrReviewEndpoints
             groupId,
             billId,
             fileId,
+            request,
             currentActorAccessor,
             businessAuthorizationService,
             auditWriter,
@@ -899,6 +937,7 @@ internal static class ReceiptOcrReviewEndpoints
         Guid? routeGroupId,
         Guid billId,
         Guid fileId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         IReceiptOcrReviewAuditWriter auditWriter,
@@ -919,6 +958,12 @@ internal static class ReceiptOcrReviewEndpoints
         if (!scopeAuthorizationResult.Allowed)
         {
             return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
         }
 
         var billContext = await LoadVisibleBillContextAsync(
@@ -982,6 +1027,19 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return Results.NoContent();
+    }
+
+    private static ReceiptOcrReviewQueryReadResult ReadNoReceiptOcrReviewRouteQueryRequest(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var queryKey in request.Query.Keys)
+        {
+            AddError(errors, queryKey, "Query field is not supported for this receipt OCR review route.");
+        }
+
+        return errors.Count > 0
+            ? ReceiptOcrReviewQueryReadResult.Invalid(ToErrorDictionary(errors))
+            : ReceiptOcrReviewQueryReadResult.Valid();
     }
 
     private static ReceiptOcrReviewQueueReadResult ReadReceiptOcrReviewQueueRequest(HttpRequest request)
@@ -2191,6 +2249,28 @@ internal static class ReceiptOcrReviewEndpoints
         public static ReceiptOcrReviewQueueReadResult Invalid(IDictionary<string, string[]> errors)
         {
             return new ReceiptOcrReviewQueueReadResult(null, errors);
+        }
+    }
+
+    private sealed class ReceiptOcrReviewQueryReadResult
+    {
+        private ReceiptOcrReviewQueryReadResult(IDictionary<string, string[]> errors)
+        {
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static ReceiptOcrReviewQueryReadResult Valid()
+        {
+            return new ReceiptOcrReviewQueryReadResult(new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static ReceiptOcrReviewQueryReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new ReceiptOcrReviewQueryReadResult(errors);
         }
     }
 

@@ -73,6 +73,11 @@ internal static class BillAttachmentEndpoints
             ["application/pdf"] = "application/pdf"
         };
 
+    private static readonly HashSet<string> AllowedAttachmentFormFields =
+    [
+        "purpose"
+    ];
+
     public static WebApplication MapBillAttachmentEndpoints(this WebApplication app)
     {
         var bills = app.MapGroup("/api/v1/bills")
@@ -175,6 +180,12 @@ internal static class BillAttachmentEndpoints
             return MapAuthorizationFailure(scopeAuthorizationResult);
         }
 
+        var uploadReadResult = await ReadBillAttachmentUploadAsync(request, cancellationToken);
+        if (!uploadReadResult.Succeeded || uploadReadResult.Upload is null)
+        {
+            return InvalidBillAttachmentUpload(uploadReadResult.Errors);
+        }
+
         var billContext = await LoadVisibleBillContextAsync(
             dbContext,
             routeGroupId,
@@ -194,12 +205,6 @@ internal static class BillAttachmentEndpoints
         if (!CanChangeAttachmentsInCurrentState(billContext))
         {
             return BillAttachmentConflict();
-        }
-
-        var uploadReadResult = await ReadBillAttachmentUploadAsync(request, cancellationToken);
-        if (!uploadReadResult.Succeeded || uploadReadResult.Upload is null)
-        {
-            return InvalidBillAttachmentUpload(uploadReadResult.Errors);
         }
 
         var upload = uploadReadResult.Upload;
@@ -688,13 +693,27 @@ internal static class BillAttachmentEndpoints
             return BillAttachmentUploadReadResult.Invalid(errors);
         }
 
-        if (form.Count != 1
-            || !form.TryGetValue("purpose", out var purposeValues)
-            || purposeValues.Count != 1
-            || form.Files.Count != 1
-            || form.Files[0].Name != "file")
+        foreach (var fieldName in form.Keys)
         {
-            errors["form"] = ["A multipart form with one file field and one purpose field is required."];
+            if (!AllowedAttachmentFormFields.Contains(fieldName))
+            {
+                errors[fieldName] = ["Field is not supported for bill attachment upload."];
+            }
+        }
+
+        if (!form.TryGetValue("purpose", out var purposeValues)
+            || purposeValues.Count != 1)
+        {
+            errors["purpose"] = ["A single attachment purpose field is required."];
+        }
+
+        if (form.Files.Count != 1 || form.Files[0].Name != "file")
+        {
+            errors["file"] = ["A single bill attachment file field is required."];
+        }
+
+        if (errors.Count > 0)
+        {
             return BillAttachmentUploadReadResult.Invalid(errors);
         }
 
