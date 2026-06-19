@@ -3,6 +3,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Settlements;
 
@@ -10,6 +11,10 @@ internal static class SettlementRequestReadEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
+    private const string InvalidSettlementReadTitle = "Invalid settlement read request";
+    private const string InvalidSettlementReadDetail = "The settlement read request is invalid.";
+    private const string SettlementListBodyMessage = "Settlement list requests do not accept a body.";
+    private const string SettlementReadBodyMessage = "Settlement read requests do not accept a body.";
     private const string SettlementUnavailableTitle = "Settlement unavailable";
     private const string SettlementUnavailableDetail = "The requested settlement is unavailable.";
 
@@ -25,11 +30,17 @@ internal static class SettlementRequestReadEndpoints
     }
 
     private static async Task<IResult> ListSettlementRequestsAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectReadRequestEnvelope(request, SettlementListBodyMessage, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -55,11 +66,17 @@ internal static class SettlementRequestReadEndpoints
 
     private static async Task<IResult> GetSettlementRequestAsync(
         Guid settlementId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectReadRequestEnvelope(request, SettlementReadBodyMessage, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -124,6 +141,37 @@ internal static class SettlementRequestReadEndpoints
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
             ? Unauthenticated()
             : SettlementUnavailable();
+    }
+
+    private static bool TryRejectReadRequestEnvelope(
+        HttpRequest request,
+        string bodyMessage,
+        out IResult result)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+                request,
+                InvalidSettlementReadTitle,
+                InvalidSettlementReadDetail,
+                out result))
+        {
+            return true;
+        }
+
+        if (SettlementRuntimePolicy.RequestHasBody(request))
+        {
+            result = Results.ValidationProblem(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["body"] = [bodyMessage]
+                },
+                title: InvalidSettlementReadTitle,
+                detail: InvalidSettlementReadDetail,
+                statusCode: StatusCodes.Status400BadRequest);
+            return true;
+        }
+
+        result = null!;
+        return false;
     }
 
     private static IResult Unauthenticated()
