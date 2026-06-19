@@ -862,6 +862,79 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
     }
 
     [Fact]
+    public async Task ListMembersRejectsSmuggledQueryAndBodyFieldsWithoutMutatingRowsOrAudit()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Owner Actor");
+        var target = await SeedAccountAsync(testFactory, "Stable Member", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Stable Member Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(target.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active, InitialTimestamp.AddMinutes(1)));
+        using var client = testFactory.CreateClient();
+
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{MembersPath(groupId)}?userProfileId={target.UserProfileId:D}&role=owner&hiddenName=SensitiveTarget",
+            ownerSession.RawSessionToken))
+        {
+            using var queryResponse = await client.SendAsync(queryRequest);
+            var queryContent = await queryResponse.Content.ReadAsStringAsync();
+
+            await AssertInvalidGroupMemberRequestProblemAsync(queryResponse);
+            Assert.Contains("Unsupported query fields are not allowed.", queryContent);
+            Assert.DoesNotContain(target.UserProfileId.ToString("D"), queryContent);
+            Assert.DoesNotContain("SensitiveTarget", queryContent);
+            Assert.DoesNotContain("Stable Member", queryContent);
+        }
+
+        using (var bodyRequest = CreateJsonRequest(
+            HttpMethod.Get,
+            MembersPath(groupId),
+            ownerSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                groupId = "00000000-0000-0000-0000-000000000003",
+                userProfileId = target.UserProfileId,
+                role = GroupMembershipRoles.Owner,
+                displayName = "Sensitive Body Target"
+            })))
+        {
+            using var bodyResponse = await client.SendAsync(bodyRequest);
+            var bodyContent = await bodyResponse.Content.ReadAsStringAsync();
+
+            await AssertInvalidGroupMemberRequestProblemAsync(bodyResponse);
+            Assert.Contains("Group member read requests do not accept a body.", bodyContent);
+            Assert.DoesNotContain("00000000-0000-0000-0000-000000000003", bodyContent);
+            Assert.DoesNotContain(target.UserProfileId.ToString("D"), bodyContent);
+            Assert.DoesNotContain("Sensitive Body Target", bodyContent);
+        }
+
+        await AssertMembershipUnchangedAsync(
+            testFactory,
+            groupId,
+            ownerSession.UserProfileId,
+            GroupMembershipRoles.Owner,
+            GroupMembershipStatuses.Active,
+            InitialTimestamp);
+        await AssertMembershipUnchangedAsync(
+            testFactory,
+            groupId,
+            target.UserProfileId,
+            GroupMembershipRoles.Member,
+            GroupMembershipStatuses.Active,
+            InitialTimestamp.AddMinutes(1));
+        Assert.Equal(1, await CountMembershipsAsync(testFactory, groupId, ownerSession.UserProfileId));
+        Assert.Equal(1, await CountMembershipsAsync(testFactory, groupId, target.UserProfileId));
+        await AssertNoGroupMembershipAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
     public async Task MissingOrInvalidSessionReturnsUniformUnauthenticatedProblem()
     {
         var testContext = CreateFactory();
@@ -1168,6 +1241,20 @@ public sealed class GroupMemberManagementEndpointTests : IClassFixture<WebApplic
         return await dbContext.Set<GroupMembership>().CountAsync(
             membership => membership.GroupId == groupId
                 && membership.UserProfileId == userProfileId);
+    }
+
+    private static async Task AssertMembershipUnchangedAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid groupId,
+        Guid userProfileId,
+        string expectedRole,
+        string expectedStatus,
+        DateTimeOffset expectedUpdatedAtUtc)
+    {
+        var membership = await ReadMembershipAsync(testFactory, groupId, userProfileId);
+        Assert.Equal(expectedRole, membership.Role);
+        Assert.Equal(expectedStatus, membership.Status);
+        Assert.Equal(expectedUpdatedAtUtc, membership.UpdatedAtUtc);
     }
 
     private static async Task<string> ReadSessionTokenHashAsync(
