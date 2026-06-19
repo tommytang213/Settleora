@@ -146,6 +146,188 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
     }
 
     [Fact]
+    public async Task NotificationReadoutsRejectUnsupportedQueryAndBodiesWithoutSideEffectsOrLeaks()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Readout Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Readout Other");
+        var actorNotificationId = await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.BillSubmitted,
+            InAppNotificationPriorities.Attention,
+            InAppNotificationSubjectTypes.ExpenseBill,
+            InitialTimestamp.AddMinutes(1),
+            safeSummary: "visible notification summary");
+        var otherNotificationId = await SeedNotificationAsync(
+            testFactory,
+            other.UserProfileId,
+            actor.UserProfileId,
+            InAppNotificationEventTypes.SettlementPaymentConfirmed,
+            InAppNotificationPriorities.Normal,
+            InAppNotificationSubjectTypes.SettlementPayment,
+            InitialTimestamp.AddMinutes(2),
+            safeSummary: "hidden notification summary");
+        using var client = testFactory.CreateClient();
+
+        using var unsupportedListRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}?ownerUserProfileId={other.UserProfileId:D}&notificationId={otherNotificationId:D}",
+            actor.RawSessionToken);
+        using var unsupportedListResponse = await client.SendAsync(unsupportedListRequest);
+        await AssertInvalidNotificationRequestProblemAsync(
+            unsupportedListResponse,
+            other.UserProfileId.ToString("D"),
+            otherNotificationId.ToString("D"),
+            "hidden notification summary");
+
+        using var listBodyRequest = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            NotificationsPath,
+            actor.RawSessionToken,
+            $$"""
+            {
+              "accountId": "{{other.AuthAccountId:D}}",
+              "notificationId": "{{otherNotificationId:D}}",
+              "ownerUserProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var listBodyResponse = await client.SendAsync(listBodyRequest);
+        await AssertInvalidNotificationRequestProblemAsync(
+            listBodyResponse,
+            other.AuthAccountId.ToString("D"),
+            other.UserProfileId.ToString("D"),
+            otherNotificationId.ToString("D"),
+            "hidden notification summary");
+
+        using var unsupportedSummaryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}/summary?paymentId={Guid.NewGuid():D}",
+            actor.RawSessionToken);
+        using var unsupportedSummaryResponse = await client.SendAsync(unsupportedSummaryRequest);
+        await AssertInvalidNotificationRequestProblemAsync(unsupportedSummaryResponse, "paymentId");
+
+        using var summaryBodyRequest = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}/summary",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "userProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var summaryBodyResponse = await client.SendAsync(summaryBodyRequest);
+        await AssertInvalidNotificationRequestProblemAsync(summaryBodyResponse, other.UserProfileId.ToString("D"));
+
+        var actorNotification = await ReadNotificationAsync(testFactory, actorNotificationId);
+        Assert.Equal(InAppNotificationStatuses.Unread, actorNotification.Status);
+        Assert.Null(actorNotification.ReadAtUtc);
+        Assert.Null(actorNotification.ArchivedAtUtc);
+
+        var otherNotification = await ReadNotificationAsync(testFactory, otherNotificationId);
+        Assert.Equal(InAppNotificationStatuses.Unread, otherNotification.Status);
+        Assert.Null(otherNotification.ReadAtUtc);
+        Assert.Null(otherNotification.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public async Task NotificationListRejectsDuplicateAndInvalidSupportedQueryValuesWithoutEchoingRawValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Query Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Query Other");
+        var notificationId = await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.SettlementRequestCreated,
+            InAppNotificationPriorities.Attention,
+            InAppNotificationSubjectTypes.SettlementRequest,
+            InitialTimestamp.AddMinutes(1),
+            safeSummary: "query visible summary");
+        using var client = testFactory.CreateClient();
+
+        using var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}?status=unread&status=read&limit=10&limit=20&before=2026-05-16T15%3A00%3A00Z&before=2026-05-16T16%3A00%3A00Z",
+            actor.RawSessionToken);
+        using var duplicateResponse = await client.SendAsync(duplicateRequest);
+        await AssertInvalidNotificationRequestProblemAsync(duplicateResponse, "query visible summary");
+
+        using var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}?status=smuggled-status-value&limit=smuggled-limit-value&before=smuggled-before-value",
+            actor.RawSessionToken);
+        using var invalidResponse = await client.SendAsync(invalidRequest);
+        await AssertInvalidNotificationRequestProblemAsync(
+            invalidResponse,
+            "smuggled-status-value",
+            "smuggled-limit-value",
+            "smuggled-before-value",
+            "query visible summary");
+
+        var notification = await ReadNotificationAsync(testFactory, notificationId);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public async Task NotificationListPreservesValidSupportedFilters()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Valid Filter Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Notification Valid Filter Other");
+        var olderUnreadId = await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.BillSubmitted,
+            InAppNotificationPriorities.Attention,
+            InAppNotificationSubjectTypes.ExpenseBill,
+            InitialTimestamp.AddMinutes(1));
+        await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.SettlementPaymentConfirmed,
+            InAppNotificationPriorities.Normal,
+            InAppNotificationSubjectTypes.SettlementPayment,
+            InitialTimestamp.AddMinutes(2),
+            status: InAppNotificationStatuses.Read,
+            readAtUtc: InitialTimestamp.AddMinutes(3));
+        await SeedNotificationAsync(
+            testFactory,
+            actor.UserProfileId,
+            other.UserProfileId,
+            InAppNotificationEventTypes.SettlementRequestCancelled,
+            InAppNotificationPriorities.Urgent,
+            InAppNotificationSubjectTypes.SettlementRequest,
+            InitialTimestamp.AddMinutes(4),
+            status: InAppNotificationStatuses.Archived,
+            readAtUtc: InitialTimestamp.AddMinutes(5),
+            archivedAtUtc: InitialTimestamp.AddMinutes(6));
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{NotificationsPath}?status=unread&limit=1&before=2026-05-16T15%3A02%3A00Z",
+            actor.RawSessionToken);
+        using var response = await client.SendAsync(request);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var notifications = payload.RootElement.GetProperty("notifications").EnumerateArray().ToArray();
+        var notification = Assert.Single(notifications);
+        Assert.Equal(olderUnreadId, notification.GetProperty("id").GetGuid());
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task ReadAndArchiveActionsAreCurrentUserScopedAndIdempotent()
     {
         var testContext = CreateFactory();
@@ -555,6 +737,29 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         using var payload = JsonDocument.Parse(content);
         Assert.Equal("Invalid notification request", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal("This notification action does not accept a request body.", payload.RootElement.GetProperty("detail").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+    }
+
+    private static async Task AssertInvalidNotificationRequestProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("auth", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("session", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recipient", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("owner", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("account", content, StringComparison.OrdinalIgnoreCase);
+        foreach (var unexpectedText in unexpectedResponseText)
+        {
+            Assert.DoesNotContain(unexpectedText, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid notification request", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
     }
 
