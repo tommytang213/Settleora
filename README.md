@@ -44,6 +44,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [TrueNAS catalog app readiness](docs/deployment/TRUENAS_CATALOG_APP_READINESS.md)
 - [Codemagic/TestFlight setup](docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md)
 - [Codex task guide](docs/workflow/CODEX_TASK_GUIDE.md)
+- [Codex validation and report budget policy](docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md)
 - [Workflow guidance](docs/workflow/)
 - [OpenAPI contract](packages/contracts/openapi/settleora.v1.yaml)
 - [Local infrastructure compose](infra/docker-compose.yml)
