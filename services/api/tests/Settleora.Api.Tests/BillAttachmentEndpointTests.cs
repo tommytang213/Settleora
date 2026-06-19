@@ -637,6 +637,41 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
             await AssertInvalidBillAttachmentUploadProblemAsync(mismatchResponse, "mismatch-secret.pdf");
         }
 
+        using (var smuggledIdentityRequest = CreateAttachmentUploadRequest(
+            PersonalAttachmentPath(billId),
+            ownerSession.RawSessionToken,
+            ExpenseBillAttachmentPurposes.Receipt,
+            ValidPngBytes,
+            "image/png",
+            "smuggled-identity-secret.png",
+            extraFields: new Dictionary<string, string>
+            {
+                ["userProfileId"] = Guid.NewGuid().ToString("D"),
+                ["ownerUserProfileId"] = ownerSession.UserProfileId.ToString("D"),
+                ["accountId"] = Guid.NewGuid().ToString("D"),
+                ["groupId"] = Guid.NewGuid().ToString("D"),
+                ["billId"] = Guid.NewGuid().ToString("D"),
+                ["fileId"] = Guid.NewGuid().ToString("D"),
+                ["attachmentId"] = Guid.NewGuid().ToString("D"),
+                ["receiptId"] = Guid.NewGuid().ToString("D"),
+                ["ocrJobId"] = Guid.NewGuid().ToString("D"),
+                ["ocrResultId"] = Guid.NewGuid().ToString("D"),
+                ["reviewId"] = Guid.NewGuid().ToString("D")
+            }))
+        using (var smuggledIdentityResponse = await client.SendAsync(smuggledIdentityRequest))
+        {
+            await AssertInvalidBillAttachmentUploadProblemAsync(smuggledIdentityResponse, "smuggled-identity-secret.png");
+            var content = await smuggledIdentityResponse.Content.ReadAsStringAsync();
+            using var payload = JsonDocument.Parse(content);
+            var errors = payload.RootElement.GetProperty("errors");
+            Assert.True(errors.TryGetProperty("userProfileId", out _));
+            Assert.True(errors.TryGetProperty("billId", out _));
+            Assert.True(errors.TryGetProperty("fileId", out _));
+            Assert.True(errors.TryGetProperty("attachmentId", out _));
+            Assert.True(errors.TryGetProperty("ocrJobId", out _));
+            Assert.True(errors.TryGetProperty("reviewId", out _));
+        }
+
         Assert.Empty(await ReadBillAttachmentsAsync(testFactory));
         Assert.Empty(await ReadFileObjectsAsync(testFactory));
         Assert.Empty(await ReadBillAttachmentAuditEventsAsync(testFactory));
@@ -760,7 +795,8 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
         byte[] bytes,
         string? contentType,
         string filename,
-        string fieldName = "file")
+        string fieldName = "file",
+        IReadOnlyDictionary<string, string>? extraFields = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, path);
         if (rawSessionToken is not null)
@@ -770,6 +806,14 @@ public sealed class BillAttachmentEndpointTests : IClassFixture<WebApplicationFa
 
         var form = new MultipartFormDataContent();
         form.Add(new StringContent(purpose, Encoding.UTF8), "purpose");
+        if (extraFields is not null)
+        {
+            foreach (var field in extraFields)
+            {
+                form.Add(new StringContent(field.Value, Encoding.UTF8), field.Key);
+            }
+        }
+
         var fileContent = new ByteArrayContent(bytes);
         if (!string.IsNullOrWhiteSpace(contentType))
         {

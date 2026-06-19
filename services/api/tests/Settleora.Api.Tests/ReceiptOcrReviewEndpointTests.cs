@@ -1439,6 +1439,102 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task ReceiptOcrReviewRouteActionsRejectQuerySmuggledRecordIdsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "OCR Query Smuggle Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Draft,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var reviewId = await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ReceiptOcrReviewStatuses.Reviewed,
+            ReceiptOcrReviewSources.OnDevice,
+            "Query Smuggle Cafe",
+            "USD",
+            InitialTimestamp.AddMinutes(3),
+            lineCount: 1);
+        var review = await ReadReceiptOcrReviewAsync(testFactory, reviewId);
+        var query = $"billId={Guid.NewGuid():D}&fileId={Guid.NewGuid():D}&receiptId={Guid.NewGuid():D}&reviewId={Guid.NewGuid():D}&ocrJobId={Guid.NewGuid():D}";
+        var beforeBillItems = await CountBillItemsAsync(testFactory, billId);
+        using var client = testFactory.CreateClient();
+
+        using (var getRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{PersonalOcrReviewPath(billId, fileId)}?{query}",
+            ownerSession.RawSessionToken))
+        using (var getResponse = await client.SendAsync(getRequest))
+        {
+            await AssertInvalidReceiptOcrReviewQueryProblemAsync(getResponse);
+        }
+
+        using (var previewRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{PersonalOcrReviewApplyPreviewPath(billId, fileId)}?{query}",
+            ownerSession.RawSessionToken))
+        using (var previewResponse = await client.SendAsync(previewRequest))
+        {
+            await AssertInvalidReceiptOcrReviewQueryProblemAsync(previewResponse);
+        }
+
+        using (var putRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            $"{PersonalOcrReviewPath(billId, fileId)}?{query}",
+            ownerSession.RawSessionToken,
+            ReplacementReviewJson()))
+        using (var putResponse = await client.SendAsync(putRequest))
+        {
+            await AssertInvalidReceiptOcrReviewQueryProblemAsync(putResponse);
+        }
+
+        using (var applyRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"{PersonalOcrReviewApplyPath(billId, fileId)}?{query}",
+            ownerSession.RawSessionToken,
+            ApplyRequestJson(review.UpdatedAtUtc)))
+        using (var applyResponse = await client.SendAsync(applyRequest))
+        {
+            await AssertInvalidReceiptOcrReviewQueryProblemAsync(applyResponse);
+        }
+
+        using (var deleteRequest = CreateBearerRequest(
+            HttpMethod.Delete,
+            $"{PersonalOcrReviewPath(billId, fileId)}?{query}",
+            ownerSession.RawSessionToken))
+        using (var deleteResponse = await client.SendAsync(deleteRequest))
+        {
+            await AssertInvalidReceiptOcrReviewQueryProblemAsync(deleteResponse);
+        }
+
+        var persistedReview = await ReadReceiptOcrReviewAsync(testFactory, reviewId);
+        Assert.Null(persistedReview.RemovedAtUtc);
+        Assert.Equal("Query Smuggle Cafe", persistedReview.MerchantText);
+        Assert.Equal(beforeBillItems, await CountBillItemsAsync(testFactory, billId));
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, billId, fileId)).RemovedAtUtc);
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, fileId)).Status);
+        Assert.Empty(await ReadReceiptOcrReviewAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task InvalidReceiptOcrReviewPayloadsAreRejectedWithoutPersistingReviewRows()
     {
         var testContext = CreateFactory();
