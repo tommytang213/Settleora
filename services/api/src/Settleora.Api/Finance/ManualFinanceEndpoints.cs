@@ -24,6 +24,10 @@ internal static class ManualFinanceEndpoints
     private const string InvalidManualIncomeTitle = "Invalid manual income source request";
     private const string InvalidManualFinanceSummaryTitle = "Invalid manual finance summary request";
     private const string InvalidManualFinanceNoBodyDetail = "This manual finance action does not accept a request body.";
+    private const string InvalidManualAccountListBodyMessage = "Manual financial account list requests do not accept a body.";
+    private const string InvalidManualAccountReadBodyMessage = "Manual financial account read requests do not accept a body.";
+    private const string InvalidManualIncomeListBodyMessage = "Manual income source list requests do not accept a body.";
+    private const string InvalidManualIncomeReadBodyMessage = "Manual income source read requests do not accept a body.";
     private const int DefaultSummaryWindowDays = 60;
     private const int MaxSummaryWindowDays = 366;
     private static readonly HashSet<string> AccountCreateFields = new(StringComparer.Ordinal)
@@ -308,13 +312,19 @@ internal static class ManualFinanceEndpoints
             return Unauthenticated();
         }
 
+        var listFilterResult = ReadManualFinanceListFilter(request, InvalidManualAccountListBodyMessage);
+        if (!listFilterResult.Succeeded || listFilterResult.Filter is null)
+        {
+            return InvalidAccount(listFilterResult.Errors);
+        }
+
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
         if (!authorization.Allowed)
         {
             return MapAccountAuthorizationFailure(authorization);
         }
 
-        var includeArchived = ReadBoolQuery(request, "includeArchived");
+        var includeArchived = listFilterResult.Filter.IncludeArchived;
         var query = VisibleAccounts(dbContext, actor.UserProfileId, trackChanges: false);
         if (!includeArchived)
         {
@@ -377,6 +387,7 @@ internal static class ManualFinanceEndpoints
 
     private static async Task<IResult> GetAccountAsync(
         Guid accountId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -385,6 +396,12 @@ internal static class ManualFinanceEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        var readoutResult = ReadManualFinanceReadoutRequest(request, InvalidManualAccountReadBodyMessage);
+        if (!readoutResult.Succeeded)
+        {
+            return InvalidAccount(readoutResult.Errors);
         }
 
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
@@ -522,13 +539,19 @@ internal static class ManualFinanceEndpoints
             return Unauthenticated();
         }
 
+        var listFilterResult = ReadManualFinanceListFilter(request, InvalidManualIncomeListBodyMessage);
+        if (!listFilterResult.Succeeded || listFilterResult.Filter is null)
+        {
+            return InvalidIncome(listFilterResult.Errors);
+        }
+
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
         if (!authorization.Allowed)
         {
             return MapIncomeAuthorizationFailure(authorization);
         }
 
-        var includeArchived = ReadBoolQuery(request, "includeArchived");
+        var includeArchived = listFilterResult.Filter.IncludeArchived;
         var query = VisibleIncomeSources(dbContext, actor.UserProfileId, trackChanges: false);
         if (!includeArchived)
         {
@@ -602,6 +625,7 @@ internal static class ManualFinanceEndpoints
 
     private static async Task<IResult> GetIncomeSourceAsync(
         Guid incomeSourceId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -610,6 +634,12 @@ internal static class ManualFinanceEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        var readoutResult = ReadManualFinanceReadoutRequest(request, InvalidManualIncomeReadBodyMessage);
+        if (!readoutResult.Succeeded)
+        {
+            return InvalidIncome(readoutResult.Errors);
         }
 
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
@@ -1091,11 +1121,6 @@ internal static class ManualFinanceEndpoints
             : RequestReadResult<IncomeRequest>.Success(new IncomeRequest(displayName, amount.Value, currency, cadence, nextExpectedDate.Value, endDate, accountId, note));
     }
 
-    private static bool ReadBoolQuery(HttpRequest request, string name)
-    {
-        return bool.TryParse(request.Query[name], out var value) && value;
-    }
-
     private static SummaryWindowReadResult ReadSummaryWindow(HttpRequest request, DateTimeOffset now)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -1119,6 +1144,99 @@ internal static class ManualFinanceEndpoints
         return errors.Count == 0
             ? SummaryWindowReadResult.Success(new SummaryWindow(startDate, endDate))
             : SummaryWindowReadResult.Failed(ToValidationDictionary(errors));
+    }
+
+    private static ManualFinanceListFilterReadResult ReadManualFinanceListFilter(
+        HttpRequest request,
+        string bodyMessage)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectManualFinanceRequestBody(request, bodyMessage, errors);
+        RejectUnsupportedManualFinanceListQueryFields(request, errors);
+        var includeArchived = ReadOptionalQueryBool(request, "includeArchived", errors) ?? false;
+
+        return errors.Count == 0
+            ? ManualFinanceListFilterReadResult.Success(new ManualFinanceListFilter(includeArchived))
+            : ManualFinanceListFilterReadResult.Failed(ToValidationDictionary(errors));
+    }
+
+    private static ManualFinanceReadoutReadResult ReadManualFinanceReadoutRequest(
+        HttpRequest request,
+        string bodyMessage)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectManualFinanceRequestBody(request, bodyMessage, errors);
+        RejectUnsupportedManualFinanceReadoutQueryFields(request, errors);
+
+        return errors.Count == 0
+            ? ManualFinanceReadoutReadResult.Success()
+            : ManualFinanceReadoutReadResult.Failed(ToValidationDictionary(errors));
+    }
+
+    private static void RejectManualFinanceRequestBody(
+        HttpRequest request,
+        string message,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", message);
+        }
+    }
+
+    private static void RejectUnsupportedManualFinanceListQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!string.Equals(field, "includeArchived", StringComparison.Ordinal))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
+    private static void RejectUnsupportedManualFinanceReadoutQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        if (request.Query.Count > 0)
+        {
+            AddError(errors, "query", "Unsupported query fields are not allowed.");
+        }
+    }
+
+    private static bool? ReadOptionalQueryBool(
+        HttpRequest request,
+        string name,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, name, "Only one value is supported.");
+            return null;
+        }
+
+        var raw = values.ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        if (!bool.TryParse(raw, out var value))
+        {
+            AddError(errors, name, $"{name} must be a boolean string.");
+            return null;
+        }
+
+        return value;
     }
 
     private static void RejectSummaryRequestBody(
@@ -1613,6 +1731,34 @@ internal static class ManualFinanceEndpoints
     private sealed record GroupProjectionResult(
         IReadOnlyList<CurrencyAmount> Rows,
         int ExcludedUnsupportedCount);
+
+    private sealed record ManualFinanceListFilter(bool IncludeArchived);
+
+    private sealed record ManualFinanceListFilterReadResult(bool Succeeded, ManualFinanceListFilter? Filter, Dictionary<string, string[]> Errors)
+    {
+        public static ManualFinanceListFilterReadResult Success(ManualFinanceListFilter filter)
+        {
+            return new ManualFinanceListFilterReadResult(true, filter, []);
+        }
+
+        public static ManualFinanceListFilterReadResult Failed(Dictionary<string, string[]> errors)
+        {
+            return new ManualFinanceListFilterReadResult(false, null, errors);
+        }
+    }
+
+    private sealed record ManualFinanceReadoutReadResult(bool Succeeded, Dictionary<string, string[]> Errors)
+    {
+        public static ManualFinanceReadoutReadResult Success()
+        {
+            return new ManualFinanceReadoutReadResult(true, []);
+        }
+
+        public static ManualFinanceReadoutReadResult Failed(Dictionary<string, string[]> errors)
+        {
+            return new ManualFinanceReadoutReadResult(false, errors);
+        }
+    }
 
     private sealed record SummaryWindow(DateOnly StartDate, DateOnly EndDate);
 

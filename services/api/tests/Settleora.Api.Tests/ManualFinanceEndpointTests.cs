@@ -130,6 +130,11 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         using var defaultListResponse = await client.SendAsync(defaultListRequest);
         using var defaultListPayload = JsonDocument.Parse(await defaultListResponse.Content.ReadAsStringAsync());
         Assert.Empty(defaultListPayload.RootElement.GetProperty("incomeSources").EnumerateArray());
+
+        using var archivedListRequest = CreateBearerRequest(HttpMethod.Get, $"{IncomePath}?includeArchived=true", actor.RawSessionToken);
+        using var archivedListResponse = await client.SendAsync(archivedListRequest);
+        using var archivedListPayload = JsonDocument.Parse(await archivedListResponse.Content.ReadAsStringAsync());
+        Assert.Equal(incomeId, Assert.Single(archivedListPayload.RootElement.GetProperty("incomeSources").EnumerateArray()).GetProperty("id").GetGuid());
     }
 
     [Fact]
@@ -369,6 +374,162 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         income = Assert.Single(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId));
         Assert.Equal(ManualIncomeSourceStatuses.Active, income.Status);
         Assert.Null(income.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public async Task AccountAndIncomeListsRejectSmuggledQueryFieldsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance List Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance List Smuggle Other");
+        using var client = testFactory.CreateClient();
+
+        var visibleAccountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Visible List Account", "cash", "100.00", "USD", "2026-06-18"));
+        var hiddenAccountId = await CreateAccountAsync(client, other.RawSessionToken, AccountJson("Hidden List Account", "cash", "900.00", "USD", "2026-06-18"));
+        var visibleIncomeId = await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Visible List Income", "50.00", "USD", "monthly", "2026-06-30", visibleAccountId));
+        var hiddenIncomeId = await CreateIncomeAsync(client, other.RawSessionToken, IncomeJson("Hidden List Income", "500.00", "USD", "monthly", "2026-06-30", hiddenAccountId));
+        await SeedFutureBillAsync(testFactory, actor.UserProfileId, "Visible List Bill", "25.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+        await SeedFutureBillAsync(testFactory, other.UserProfileId, "Hidden List Bill", "250.00", "USD", "2026-06-30", ExpenseBillStatuses.Draft);
+        await SeedRecurringBillTemplateAsync(testFactory, actor.UserProfileId, groupId: null, "Visible List Recurring", "10.00", "USD", "2026-06-20");
+        await SeedRecurringBillTemplateAsync(testFactory, other.UserProfileId, groupId: null, "Hidden List Recurring", "100.00", "USD", "2026-06-20");
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+
+        var unsupportedQuery = string.Join(
+            '&',
+            "includeArchived=false",
+            $"accountId={hiddenAccountId:D}",
+            $"financialAccountId={hiddenAccountId:D}",
+            $"manualFinancialAccountId={hiddenAccountId:D}",
+            $"incomeSourceId={hiddenIncomeId:D}",
+            $"userProfileId={other.UserProfileId:D}",
+            $"ownerUserProfileId={other.UserProfileId:D}",
+            $"groupId={Guid.NewGuid():D}",
+            $"billId={Guid.NewGuid():D}",
+            $"futureBillId={Guid.NewGuid():D}",
+            $"recurringBillId={Guid.NewGuid():D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"reportId={Guid.NewGuid():D}",
+            $"statementId={Guid.NewGuid():D}",
+            $"attachmentId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            $"ocrJobId={Guid.NewGuid():D}",
+            "hiddenRecordSelector=Hidden List Selector");
+
+        using (var accountRequest = CreateBearerRequest(HttpMethod.Get, $"{AccountsPath}?{unsupportedQuery}", actor.RawSessionToken))
+        using (var accountResponse = await client.SendAsync(accountRequest))
+        {
+            var content = await accountResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, accountResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertListValidationResponseIsBounded(content, hiddenAccountId, hiddenIncomeId, other.UserProfileId);
+        }
+
+        using (var incomeRequest = CreateBearerRequest(HttpMethod.Get, $"{IncomePath}?{unsupportedQuery}", actor.RawSessionToken))
+        using (var incomeResponse = await client.SendAsync(incomeRequest))
+        {
+            var content = await incomeResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, incomeResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertListValidationResponseIsBounded(content, hiddenAccountId, hiddenIncomeId, other.UserProfileId);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+        Assert.Contains(await LoadAccountsAsync(testFactory, actor.UserProfileId), account => account.Id == visibleAccountId && account.DisplayName == "Visible List Account");
+        Assert.Contains(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId), income => income.Id == visibleIncomeId && income.DisplayName == "Visible List Income");
+    }
+
+    [Fact]
+    public async Task AccountAndIncomeListsRejectGetBodiesWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance List Body Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance List Body Other");
+        using var client = testFactory.CreateClient();
+
+        var visibleAccountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Visible Body Account", "cash", "100.00", "USD", "2026-06-18"));
+        var hiddenAccountId = await CreateAccountAsync(client, other.RawSessionToken, AccountJson("Hidden Body Account", "cash", "900.00", "USD", "2026-06-18"));
+        var visibleIncomeId = await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Visible Body Income", "50.00", "USD", "monthly", "2026-06-30", visibleAccountId));
+        var hiddenIncomeId = await CreateIncomeAsync(client, other.RawSessionToken, IncomeJson("Hidden Body Income", "500.00", "USD", "monthly", "2026-06-30", hiddenAccountId));
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+        var body = JsonSerializer.Serialize(new
+        {
+            accountId = hiddenAccountId,
+            financialAccountId = hiddenAccountId,
+            incomeSourceId = hiddenIncomeId,
+            ownerUserProfileId = other.UserProfileId,
+            groupId = Guid.NewGuid(),
+            billId = Guid.NewGuid(),
+            settlementId = Guid.NewGuid(),
+            paymentId = Guid.NewGuid(),
+            reportId = Guid.NewGuid(),
+            attachmentId = Guid.NewGuid(),
+            fileId = Guid.NewGuid(),
+            ocrJobId = Guid.NewGuid(),
+            name = "Hidden Body Selector"
+        });
+
+        using (var accountRequest = CreateJsonRequest(HttpMethod.Get, $"{AccountsPath}?includeArchived=false", actor.RawSessionToken, body))
+        using (var accountResponse = await client.SendAsync(accountRequest))
+        {
+            var content = await accountResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, accountResponse.StatusCode);
+            Assert.Contains("Manual financial account list requests do not accept a body.", content);
+            AssertListValidationResponseIsBounded(content, hiddenAccountId, hiddenIncomeId, other.UserProfileId);
+        }
+
+        using (var incomeRequest = CreateJsonRequest(HttpMethod.Get, $"{IncomePath}?includeArchived=false", actor.RawSessionToken, body))
+        using (var incomeResponse = await client.SendAsync(incomeRequest))
+        {
+            var content = await incomeResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, incomeResponse.StatusCode);
+            Assert.Contains("Manual income source list requests do not accept a body.", content);
+            AssertListValidationResponseIsBounded(content, hiddenAccountId, hiddenIncomeId, other.UserProfileId);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
+        Assert.Contains(await LoadAccountsAsync(testFactory, actor.UserProfileId), account => account.Id == visibleAccountId && account.DisplayName == "Visible Body Account");
+        Assert.Contains(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId), income => income.Id == visibleIncomeId && income.DisplayName == "Visible Body Income");
+    }
+
+    [Fact]
+    public async Task AccountAndIncomeListsRejectDuplicateAndInvalidIncludeArchivedValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance List Query Actor");
+        using var client = testFactory.CreateClient();
+        await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("List Query Account", "cash", "100.00", "USD", "2026-06-18"));
+        await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("List Query Income", "50.00", "USD", "monthly", "2026-06-30", null));
+        var beforeCounts = await CountProtectedRowsAsync(testFactory);
+
+        foreach (var path in new[] { AccountsPath, IncomePath })
+        {
+            using (var duplicateRequest = CreateBearerRequest(HttpMethod.Get, $"{path}?includeArchived=true&includeArchived=false", actor.RawSessionToken))
+            using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+            {
+                var content = await duplicateResponse.Content.ReadAsStringAsync();
+                Assert.Equal(HttpStatusCode.BadRequest, duplicateResponse.StatusCode);
+                Assert.Contains("\"includeArchived\":[\"Only one value is supported.\"]", content);
+                Assert.DoesNotContain("List Query Account", content);
+                Assert.DoesNotContain("List Query Income", content);
+            }
+
+            using (var invalidRequest = CreateBearerRequest(HttpMethod.Get, $"{path}?includeArchived=definitely-not-a-bool", actor.RawSessionToken))
+            using (var invalidResponse = await client.SendAsync(invalidRequest))
+            {
+                var content = await invalidResponse.Content.ReadAsStringAsync();
+                Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+                Assert.Contains("includeArchived must be a boolean string.", content);
+                Assert.DoesNotContain("definitely-not-a-bool", content);
+                Assert.DoesNotContain("List Query Account", content);
+                Assert.DoesNotContain("List Query Income", content);
+            }
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedRowsAsync(testFactory));
     }
 
     [Fact]
@@ -855,6 +1016,20 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
             await dbContext.Set<FileObject>().CountAsync(),
             await dbContext.Set<ReceiptOcrReview>().CountAsync(),
             await dbContext.Set<ReceiptOcrReviewLine>().CountAsync());
+    }
+
+    private static void AssertListValidationResponseIsBounded(
+        string content,
+        Guid hiddenAccountId,
+        Guid hiddenIncomeId,
+        Guid hiddenUserProfileId)
+    {
+        Assert.DoesNotContain(hiddenAccountId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenIncomeId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenUserProfileId.ToString("D"), content);
+        Assert.DoesNotContain("Hidden", content);
+        Assert.DoesNotContain("Visible", content);
+        Assert.DoesNotContain("Selector", content);
     }
 
     private static async Task SeedFutureBillAsync(
