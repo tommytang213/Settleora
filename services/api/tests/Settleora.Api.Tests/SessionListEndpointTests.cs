@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -342,6 +343,87 @@ public sealed class SessionListEndpointTests : IClassFixture<WebApplicationFacto
         Assert.True(sessionResponse.TryGetProperty("deviceLabel", out _));
     }
 
+    [Fact]
+    public async Task SessionListRejectsUnsupportedQueryEnvelopeWithoutLeakingSubmittedAuthorityValuesOrRevokingSessions()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var account = await SeedAuthAccountAsync(testFactory);
+        var currentSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            deviceLabel: "Current device before rejected query");
+        var otherOwnedSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            issuedAtUtc: InitialTimestamp.AddMinutes(1),
+            deviceLabel: "Other device before rejected query");
+        var rawSmuggledSessionId = otherOwnedSession.AuthSessionId.ToString("D");
+        var rawSmuggledAccountId = account.AuthAccountId.ToString("D");
+        const string rawSmuggledToken = "visible-smuggled-session-token";
+        using var client = testFactory.CreateClient();
+        using var request = CreateSessionListRequest(currentSession.RawSessionToken);
+        request.RequestUri = new Uri(
+            $"{SessionsPath}?accountId={rawSmuggledAccountId}&sessionId={rawSmuggledSessionId}&token={rawSmuggledToken}",
+            UriKind.Relative);
+
+        var revokedAuditCountBefore = await CountSessionRevokedAuditEventsAsync(testFactory);
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidReadEnvelopeProblemAsync(
+            response,
+            "query",
+            "Unsupported query fields are not allowed.",
+            rawSmuggledAccountId,
+            rawSmuggledSessionId,
+            rawSmuggledToken,
+            currentSession.RawSessionToken);
+        await AssertNoSessionRevocationAsync(testFactory, revokedAuditCountBefore, currentSession, otherOwnedSession);
+    }
+
+    [Fact]
+    public async Task SessionListRejectsGetBodyEnvelopeWithoutLeakingSubmittedAuthorityValuesOrRevokingSessions()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var account = await SeedAuthAccountAsync(testFactory);
+        var currentSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            deviceLabel: "Current device before rejected body");
+        var otherOwnedSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            issuedAtUtc: InitialTimestamp.AddMinutes(1),
+            deviceLabel: "Other device before rejected body");
+        var rawSmuggledSessionId = otherOwnedSession.AuthSessionId.ToString("D");
+        var rawSmuggledAccountId = account.AuthAccountId.ToString("D");
+        const string rawSmuggledToken = "visible-body-session-token";
+        using var client = testFactory.CreateClient();
+        using var request = CreateSessionListRequest(currentSession.RawSessionToken);
+        request.Content = new StringContent(
+            $$"""{"accountId":"{{rawSmuggledAccountId}}","sessionId":"{{rawSmuggledSessionId}}","refreshToken":"{{rawSmuggledToken}}"}""",
+            Encoding.UTF8,
+            "application/json");
+
+        var revokedAuditCountBefore = await CountSessionRevokedAuditEventsAsync(testFactory);
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidReadEnvelopeProblemAsync(
+            response,
+            "body",
+            "This auth session readout does not accept a request body.",
+            rawSmuggledAccountId,
+            rawSmuggledSessionId,
+            rawSmuggledToken,
+            currentSession.RawSessionToken);
+        await AssertNoSessionRevocationAsync(testFactory, revokedAuditCountBefore, currentSession, otherOwnedSession);
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -497,6 +579,33 @@ public sealed class SessionListEndpointTests : IClassFixture<WebApplicationFacto
         await dbContext.SaveChangesAsync();
     }
 
+    private static async Task<int> CountSessionRevokedAuditEventsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthAuditEvent>()
+            .CountAsync(auditEvent => auditEvent.Action == "session.revoked");
+    }
+
+    private static async Task AssertNoSessionRevocationAsync(
+        WebApplicationFactory<Program> testFactory,
+        int revokedAuditCountBefore,
+        params SeededSession[] sessions)
+    {
+        foreach (var seededSession in sessions)
+        {
+            var session = await ReadSessionAsync(testFactory, seededSession.AuthSessionId);
+            Assert.Equal(AuthSessionStatuses.Active, session.Status);
+            Assert.Null(session.RevokedAtUtc);
+            Assert.Null(session.RevocationReason);
+        }
+
+        var revokedAuditCountAfter = await CountSessionRevokedAuditEventsAsync(testFactory);
+        Assert.Equal(revokedAuditCountBefore, revokedAuditCountAfter);
+    }
+
     private static HttpRequestMessage CreateSessionListRequest(string rawSessionToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, SessionsPath);
@@ -529,6 +638,40 @@ public sealed class SessionListEndpointTests : IClassFixture<WebApplicationFacto
         Assert.Equal(
             "Authentication is required to access this resource.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertInvalidReadEnvelopeProblemAsync(
+        HttpResponseMessage response,
+        string expectedErrorKey,
+        string expectedErrorMessage,
+        params string[] unexpectedResponseTexts)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("sessions", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("revoked", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("refresh", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("accountId", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("sessionId", content, StringComparison.Ordinal);
+        foreach (var unexpectedResponseText in unexpectedResponseTexts)
+        {
+            Assert.DoesNotContain(unexpectedResponseText, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "This auth session readout does not accept request envelope fields.",
+            payload.RootElement.GetProperty("detail").GetString());
+        var errors = payload.RootElement.GetProperty("errors");
+        var messages = errors.GetProperty(expectedErrorKey).EnumerateArray()
+            .Select(message => message.GetString())
+            .ToArray();
+        Assert.Contains(expectedErrorMessage, messages);
     }
 
     private sealed record FactoryTestContext(

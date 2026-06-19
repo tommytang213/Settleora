@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Auth.Sessions;
 
@@ -10,6 +11,9 @@ internal static class SessionListEndpoints
     private const int MaxSessionListCount = 50;
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
+    private const string InvalidAuthRequestTitle = "Invalid auth request";
+    private const string InvalidSessionListReadoutDetail = "This auth session readout does not accept request envelope fields.";
+    private const string InvalidSessionListBodyMessage = "This auth session readout does not accept a request body.";
 
     public static WebApplication MapSessionListEndpoints(this WebApplication app)
     {
@@ -20,11 +24,22 @@ internal static class SessionListEndpoints
     }
 
     private static async Task<IResult> GetSessionsAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidAuthRequestTitle,
+            InvalidSessionListReadoutDetail,
+            InvalidSessionListBodyMessage,
+            out var envelopeProblem))
+        {
+            return envelopeProblem;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
