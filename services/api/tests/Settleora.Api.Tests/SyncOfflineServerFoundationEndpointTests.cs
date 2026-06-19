@@ -458,6 +458,97 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
     }
 
     [Fact]
+    public async Task ChangeFeedRejectsSmuggledQueryAndBodyFieldsBeforeActorReadoutOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Feed Envelope Actor");
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Smuggled Sync Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
+        await SubmitAcceptedArchiveAsync(client, actorSession.RawSessionToken, "sync-feed-envelope", visibleBillId);
+        Assert.Equal(1, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(1, await CountSyncResourceVersionsAsync(testFactory));
+
+        using (var unsupportedRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/changes?sinceVersion=0&actorUserProfileId=00000000-0000-0000-0000-000000000001&includeHidden=true",
+            actorSession.RawSessionToken))
+        using (var unsupportedResponse = await client.SendAsync(unsupportedRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(unsupportedResponse);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain("00000000-0000-0000-0000-000000000001", content);
+            Assert.DoesNotContain("includeHidden", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Smuggled Sync Merchant", content);
+            Assert.DoesNotContain(visibleBillId.ToString("D"), content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        using (var bodyRequest = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/changes?sinceVersion=0",
+            actorSession.RawSessionToken,
+            """{"resourceType":"expense_bill","actorUserProfileId":"00000000-0000-0000-0000-000000000001"}"""))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(bodyResponse);
+            Assert.Contains("Sync change feed requests do not accept a body.", content);
+            Assert.DoesNotContain("actorUserProfileId", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        Assert.Equal(1, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(1, await CountSyncResourceVersionsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task ChangeFeedRejectsDuplicateAndInvalidSupportedQueryValuesWithoutRawEchoOrReads()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Feed Invalid Query Actor");
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/changes?sinceVersion=0&sinceVersion=1&limit=10",
+            actorSession.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(duplicateResponse);
+            Assert.Contains("sinceVersion accepts only one value.", content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/changes?sinceVersion=-1&limit=not-a-number&resourceType=hidden_resource",
+            actorSession.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(invalidResponse);
+            Assert.Contains("sinceVersion must be greater than or equal to zero.", content);
+            Assert.Contains("limit must be an integer.", content);
+            Assert.Contains("resourceType is not supported.", content);
+            Assert.DoesNotContain("not-a-number", content);
+            Assert.DoesNotContain("hidden_resource", content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        Assert.Equal(0, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(0, await CountSyncResourceVersionsAsync(testFactory));
+    }
+
+    [Fact]
     public void OpenApiAndGeneratedClientsExposeSyncOperations()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
@@ -883,6 +974,19 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         using var payload = JsonDocument.Parse(content);
         Assert.Equal("Unauthenticated", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal(401, payload.RootElement.GetProperty("status").GetInt32());
+    }
+
+    private static async Task<string> AssertInvalidSyncRequestProblemAsync(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid sync request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("The submitted sync request is invalid.", payload.RootElement.GetProperty("detail").GetString());
+        Assert.True(payload.RootElement.TryGetProperty("errors", out _));
+        return content;
     }
 
     private static HttpRequestMessage CreateBearerRequest(
