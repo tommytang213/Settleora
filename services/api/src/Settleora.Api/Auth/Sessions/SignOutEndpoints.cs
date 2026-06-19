@@ -1,3 +1,4 @@
+using Settleora.Api.Auth;
 using Settleora.Api.Auth.Authorization;
 
 namespace Settleora.Api.Auth.Sessions;
@@ -6,6 +7,8 @@ internal static class SignOutEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
+    private const string InvalidAuthRequestTitle = "Invalid auth request";
+    private const string NoBodyDetail = "This auth session action does not accept a request body.";
     private const string SignOutFailedTitle = "Sign-out failed";
     private const string SignOutFailedDetail = "Unable to complete sign-out.";
     private const string UserSignOutRevocationReason = "user_sign_out";
@@ -19,10 +22,16 @@ internal static class SignOutEndpoints
     }
 
     private static async Task<IResult> SignOutAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IAuthSessionRuntimeService sessionRuntimeService,
         CancellationToken cancellationToken)
     {
+        if (AuthEndpointRequestValidation.RequestHasBody(request))
+        {
+            return InvalidNoBody();
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -58,5 +67,13 @@ internal static class SignOutEndpoints
             title: SignOutFailedTitle,
             detail: SignOutFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static IResult InvalidNoBody()
+    {
+        return Results.Problem(
+            title: InvalidAuthRequestTitle,
+            detail: NoBodyDetail,
+            statusCode: StatusCodes.Status400BadRequest);
     }
 }

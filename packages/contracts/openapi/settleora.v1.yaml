@@ -239,7 +239,7 @@ paths:
   /api/v1/auth/sign-in:
     post:
       summary: Local sign-in
-      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus initial refresh-like credential only once on success.
+      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus initial refresh-like credential only once on success. Source, actor, session, refresh, credential, and policy identifiers are resolved server-side; unsupported request fields are rejected.
       operationId: signInLocal
       security: []
       requestBody:
@@ -255,6 +255,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LocalSignInResponse"
+        "400":
+          description: Request contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Sign-in failed without revealing account, credential, or policy state.
           content:
@@ -276,7 +282,7 @@ paths:
   /api/v1/auth/local/sign-in:
     post:
       summary: Local session sign-in
-      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus bounded current authenticated user/profile/session metadata.
+      description: Authenticates a local account with an identifier and password, returning a refresh-capable opaque access session plus bounded current authenticated user/profile/session metadata. Source, actor, session, refresh, credential, and policy identifiers are resolved server-side; unsupported request fields are rejected.
       operationId: signInLocalSession
       security: []
       requestBody:
@@ -292,6 +298,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LocalSessionSignInResponse"
+        "400":
+          description: Request contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Sign-in failed without revealing account, credential, or policy state.
           content:
@@ -313,7 +325,7 @@ paths:
   /api/v1/auth/refresh:
     post:
       summary: Refresh session
-      description: Rotates a submitted refresh-like credential and returns a new opaque access-session token plus replacement refresh-like credential only on success.
+      description: Rotates a submitted refresh-like credential and returns a new opaque access-session token plus replacement refresh-like credential only on success. Credential lookup, account, session, session-family, status, expiry, and revocation policy are resolved server-side; unsupported request fields are rejected.
       operationId: refreshSession
       security: []
       requestBody:
@@ -329,6 +341,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RefreshSessionResponse"
+        "400":
+          description: Request contains unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Refresh failed without revealing credential, account, session, or family state.
           content:
@@ -350,13 +368,19 @@ paths:
   /api/v1/auth/sign-out:
     post:
       summary: Current session sign-out
-      description: Validates the submitted opaque bearer session token and revokes only that current session.
+      description: Validates the submitted opaque bearer session token and revokes only that current session. The current bearer session is authoritative; this endpoint does not accept a request body.
       operationId: signOutCurrentSession
       security:
         - SessionBearerAuth: []
       responses:
         "204":
           description: Current session was revoked. No response body is returned.
+        "400":
+          description: Request body is not accepted for this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -372,13 +396,19 @@ paths:
   /api/v1/auth/sign-out-all:
     post:
       summary: Current account sign-out-all
-      description: Validates the submitted opaque bearer session token and revokes all active sessions owned by the authenticated account, including the submitted current session.
+      description: Validates the submitted opaque bearer session token and revokes all active sessions owned by the authenticated account, including the submitted current session. The current bearer actor/account is authoritative; this endpoint does not accept a request body.
       operationId: signOutAllCurrentAccountSessions
       security:
         - SessionBearerAuth: []
       responses:
         "204":
           description: Active sessions for the current account were revoked. No response body is returned.
+        "400":
+          description: Request body is not accepted for this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -400,7 +430,7 @@ paths:
   /api/v1/auth/sessions:
     get:
       summary: Current account sessions
-      description: Validates the submitted opaque bearer session token and lists safe metadata for active sessions owned by the authenticated account.
+      description: Validates the submitted opaque bearer session token and lists safe metadata for active sessions owned by the authenticated account. The current bearer actor/account is authoritative; client-submitted account or user identifiers are not accepted.
       operationId: listCurrentAccountSessions
       security:
         - SessionBearerAuth: []
@@ -426,7 +456,7 @@ paths:
   /api/v1/auth/sessions/{sessionId}:
     delete:
       summary: Revoke current account session
-      description: Validates the submitted opaque bearer session token and revokes one session owned by the authenticated account.
+      description: Validates the submitted opaque bearer session token and revokes one route-identified session owned by the authenticated account. The route session ID and current bearer actor/account are authoritative; this endpoint does not accept a request body.
       operationId: revokeCurrentAccountSession
       security:
         - SessionBearerAuth: []
@@ -434,13 +464,19 @@ paths:
         - name: sessionId
           in: path
           required: true
-          description: Session ID to revoke.
+          description: Authoritative route session ID to revoke for the authenticated account.
           schema:
             type: string
             format: uuid
       responses:
         "204":
           description: Session was revoked. No response body is returned.
+        "400":
+          description: Request body is not accepted for this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -462,7 +498,7 @@ paths:
   /api/v1/auth/current-user:
     get:
       summary: Current authenticated user
-      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary.
+      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary derived from the current bearer session.
       operationId: getCurrentUser
       security:
         - SessionBearerAuth: []
@@ -488,7 +524,7 @@ paths:
   /api/v1/auth/me:
     get:
       summary: Current authenticated session
-      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary.
+      description: Validates an opaque bearer session token and returns the minimal authenticated actor, profile, session, and system-role summary derived from the current bearer session.
       operationId: getAuthenticatedSession
       security:
         - SessionBearerAuth: []
@@ -7921,7 +7957,7 @@ components:
               - user
     LocalSignInRequest:
       type: object
-      description: Local-account sign-in request. Source, network, and policy bucket details are derived server-side.
+      description: Local-account sign-in request. Source, network, actor, account, user, session, refresh, credential, and policy bucket details are derived server-side. Unsupported fields are rejected.
       additionalProperties: false
       required:
         - identifier
@@ -7969,7 +8005,7 @@ components:
           $ref: "#/components/schemas/CurrentUserResponse"
     RefreshSessionRequest:
       type: object
-      description: Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.
+      description: Public refresh request. Credential lookup, account, session, session-family, status, expiry, and revocation policy are resolved server-side. Unsupported fields are rejected.
       additionalProperties: false
       required:
         - refreshCredential

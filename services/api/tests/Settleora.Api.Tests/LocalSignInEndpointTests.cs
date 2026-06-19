@@ -92,6 +92,40 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task UnsupportedIdentityOrSessionFieldsReturnBadRequestWithoutCreatingSession()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalSignInAccountAsync(testFactory);
+        await SeedCredentialAsync(testFactory, seededAccount.AuthAccountId);
+        using var client = testFactory.CreateClient();
+        var smuggledUserId = Guid.NewGuid().ToString("D");
+        var smuggledSessionId = Guid.NewGuid().ToString("D");
+
+        using var response = await client.PostAsync(
+            SignInPath,
+            CreateJsonContent(new
+            {
+                identifier = SubmittedIdentifier,
+                password = SubmittedPassword,
+                deviceLabel = "Endpoint device",
+                userId = smuggledUserId,
+                sessionId = smuggledSessionId,
+                refreshTokenId = "visible-smuggled-refresh-token-id"
+            }));
+
+        await AssertInvalidAuthUnsupportedFieldsProblemAsync(
+            response,
+            SubmittedIdentifier.Trim(),
+            SubmittedPassword,
+            smuggledUserId,
+            smuggledSessionId,
+            "visible-smuggled-refresh-token-id");
+        Assert.Equal(0, await CountSessionsAsync(testFactory));
+        Assert.Equal(0, await CountRefreshCredentialsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task MissingIdentifierReturnsGenericFailureWithoutLeakingPassword()
     {
         var testContext = CreateFactory();
@@ -517,7 +551,7 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
-    public async Task RequestedSessionLifetimeMinutesIsIgnoredAndCannotLengthenRefreshAccessSession()
+    public async Task RequestedSessionLifetimeMinutesIsRejectedWithoutCreatingSession()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -528,14 +562,10 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         using var response = await client.PostAsync(
             SignInPath,
             CreateSignInContent(requestedSessionLifetimeMinutes: 43_200));
-        var content = await response.Content.ReadAsStringAsync();
-        using var payload = JsonDocument.Parse(content);
-        var session = payload.RootElement.GetProperty("session");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(
-            InitialTimestamp.AddMinutes(15),
-            session.GetProperty("expiresAtUtc").GetDateTimeOffset());
+        await AssertInvalidAuthUnsupportedFieldsProblemAsync(response, "requestedSessionLifetimeMinutes");
+        Assert.Equal(0, await CountSessionsAsync(testFactory));
+        Assert.Equal(0, await CountRefreshCredentialsAsync(testFactory));
     }
 
     [Fact]
@@ -799,6 +829,22 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
             .SingleAsync(session => session.Id == authSessionId);
     }
 
+    private static async Task<int> CountSessionsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthSession>().CountAsync();
+    }
+
+    private static async Task<int> CountRefreshCredentialsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthRefreshCredential>().CountAsync();
+    }
+
     private static async Task<PersistedSignInCredentialRows> ReadPersistedSignInCredentialRowsAsync(
         WebApplicationFactory<Program> testFactory,
         Guid authSessionId)
@@ -918,6 +964,22 @@ public sealed class LocalSignInEndpointTests : IClassFixture<WebApplicationFacto
         Assert.Equal(
             "Unable to sign in with the submitted information.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertInvalidAuthUnsupportedFieldsProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content, unexpectedResponseText);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("Unsupported fields are not allowed.", payload.RootElement.GetProperty("detail").GetString());
     }
 
     private static async Task AssertTooManyAttemptsProblemAsync(

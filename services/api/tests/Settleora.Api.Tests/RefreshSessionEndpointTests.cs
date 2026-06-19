@@ -313,7 +313,7 @@ public sealed class RefreshSessionEndpointTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
-    public async Task UnknownPolicyFieldsAreIgnoredAndDoNotLeakIntoSuccessResponse()
+    public async Task UnsupportedIdentityOrSessionFieldsReturnBadRequestWithoutRotatingCredential()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -337,17 +337,28 @@ public sealed class RefreshSessionEndpointTests : IClassFixture<WebApplicationFa
                 revoked = true
             }));
 
-        var content = await response.Content.ReadAsStringAsync();
+        await AssertInvalidAuthUnsupportedFieldsProblemAsync(
+            response,
+            seededSession.RawRefreshCredential,
+            ForbiddenAccountId,
+            ForbiddenSessionFamilyId,
+            ForbiddenRefreshCredentialId,
+            ForbiddenSourceKey,
+            "visible-user-profile-id",
+            "visible-submitted-session-id",
+            "visible-submitted-status",
+            "2099-01-01");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.DoesNotContain(ForbiddenAccountId, content);
-        Assert.DoesNotContain(ForbiddenSessionFamilyId, content);
-        Assert.DoesNotContain(ForbiddenRefreshCredentialId, content);
-        Assert.DoesNotContain(ForbiddenSourceKey, content);
-        Assert.DoesNotContain("visible-user-profile-id", content);
-        Assert.DoesNotContain("visible-submitted-session-id", content);
-        Assert.DoesNotContain("visible-submitted-status", content);
-        Assert.DoesNotContain("2099-01-01", content);
+        var oldCredential = await ReadRefreshCredentialAsync(
+            testFactory,
+            seededSession.AuthRefreshCredentialId);
+        var oldSession = await ReadSessionAsync(testFactory, seededSession.AuthSessionId);
+        Assert.Equal(AuthRefreshCredentialStatuses.Active, oldCredential.Status);
+        Assert.Null(oldCredential.ConsumedAtUtc);
+        Assert.Null(oldCredential.ReplacedByRefreshCredentialId);
+        Assert.Equal(AuthSessionStatuses.Active, oldSession.Status);
+        Assert.Equal(1, await CountRefreshCredentialsAsync(testFactory));
+        Assert.Equal(1, await CountSessionsAsync(testFactory));
     }
 
     [Fact]
@@ -572,6 +583,22 @@ public sealed class RefreshSessionEndpointTests : IClassFixture<WebApplicationFa
             .SingleAsync(session => session.Id == authSessionId);
     }
 
+    private static async Task<int> CountRefreshCredentialsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthRefreshCredential>().CountAsync();
+    }
+
+    private static async Task<int> CountSessionsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<AuthSession>().CountAsync();
+    }
+
     private static async Task MarkFamilyUnavailableAsync(
         WebApplicationFactory<Program> testFactory,
         Guid sessionFamilyId,
@@ -678,6 +705,22 @@ public sealed class RefreshSessionEndpointTests : IClassFixture<WebApplicationFa
         params string[] unexpectedResponseText)
     {
         await ReadRefreshFailedProblemSnapshotAsync(response, unexpectedResponseText);
+    }
+
+    private static async Task AssertInvalidAuthUnsupportedFieldsProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content, unexpectedResponseText);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("Unsupported fields are not allowed.", payload.RootElement.GetProperty("detail").GetString());
     }
 
     private static async Task AssertRefreshUnavailableProblemAsync(

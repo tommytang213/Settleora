@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -232,6 +233,44 @@ public sealed class SessionRevocationEndpointTests : IClassFixture<WebApplicatio
 
         await AssertSessionUnavailableProblemAsync(response);
         await AssertSessionStatusAsync(testFactory, otherAccountSession.AuthSessionId, AuthSessionStatuses.Active);
+    }
+
+    [Fact]
+    public async Task RequestBodyWithSmuggledSessionOrDeviceIdsReturnsBadRequestWithoutRevokingRouteSession()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var account = await SeedAuthAccountAsync(testFactory);
+        var currentSession = await CreateSessionAsync(testFactory, testContext.TimeProvider, account.AuthAccountId);
+        var targetSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            issuedAtUtc: InitialTimestamp.AddMinutes(1));
+        using var client = testFactory.CreateClient();
+        using var request = CreateSessionRevocationRequest(
+            currentSession.RawSessionToken,
+            targetSession.AuthSessionId);
+        var smuggledSessionId = Guid.NewGuid().ToString("D");
+        var smuggledDeviceId = Guid.NewGuid().ToString("D");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                sessionId = smuggledSessionId,
+                deviceId = smuggledDeviceId,
+                userProfileId = "visible-smuggled-user-profile-id"
+            }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidAuthNoBodyProblemAsync(
+            response,
+            smuggledSessionId,
+            smuggledDeviceId,
+            "visible-smuggled-user-profile-id");
+        await AssertSessionStatusAsync(testFactory, targetSession.AuthSessionId, AuthSessionStatuses.Active);
     }
 
     [Fact]
@@ -683,6 +722,27 @@ public sealed class SessionRevocationEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal("Session unavailable", payload.RootElement.GetProperty("title").GetString());
         Assert.Equal(404, payload.RootElement.GetProperty("status").GetInt32());
         Assert.Equal("The requested session is unavailable.", payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertInvalidAuthNoBodyProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedValues)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        foreach (var unexpectedValue in unexpectedValues)
+        {
+            Assert.DoesNotContain(unexpectedValue, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "This auth session action does not accept a request body.",
+            payload.RootElement.GetProperty("detail").GetString());
     }
 
     private static void AssertFailureDoesNotLeakSensitiveMaterial(
