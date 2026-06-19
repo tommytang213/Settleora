@@ -5781,7 +5781,7 @@ paths:
   /api/v1/manual-finance/summary:
     get:
       summary: Get manual finance availability summary
-      description: Returns a read-only current-actor manual finance availability projection grouped by currency. The API includes active manual account balance snapshots, active one-time manual income expected inside the requested window, safe recurring manual income occurrences inside the requested window, personal one-time future bill draft/pending obligations inside the requested window, and personal recurring bill obligation projections inside the requested window. It does not convert currencies, fetch FX rates, claim bank sync, import statements, mutate bills, mutate settlements, create recurring occurrence rows, or include group/shared future or recurring obligation math.
+      description: Returns a read-only current-actor manual finance availability projection grouped by currency. The API includes active manual account balance snapshots, active one-time manual income expected inside the requested window, safe recurring manual income occurrences inside the requested window, personal one-time future bill draft/pending obligations inside the requested window, personal recurring bill obligation projections inside the requested window, and safe current-actor group future/recurring obligation projections inside the requested window. It does not convert currencies, fetch FX rates, claim bank sync, import statements, mutate bills, mutate settlements, create recurring occurrence rows, or expose unrelated group-member shares.
       operationId: getManualFinanceSummary
       security:
         - SessionBearerAuth: []
@@ -6027,6 +6027,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ManualFinancialAccountResponse"
+        "400":
+          description: The archive action does not accept a request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -6241,6 +6247,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ManualIncomeSourceResponse"
+        "400":
+          description: The archive action does not accept a request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
         "401":
           description: Authentication is required to access this resource.
           content:

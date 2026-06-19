@@ -23,8 +23,31 @@ internal static class ManualFinanceEndpoints
     private const string InvalidManualAccountTitle = "Invalid manual financial account request";
     private const string InvalidManualIncomeTitle = "Invalid manual income source request";
     private const string InvalidManualFinanceSummaryTitle = "Invalid manual finance summary request";
+    private const string InvalidManualFinanceNoBodyDetail = "This manual finance action does not accept a request body.";
     private const int DefaultSummaryWindowDays = 60;
     private const int MaxSummaryWindowDays = 366;
+    private static readonly HashSet<string> AccountCreateFields = new(StringComparer.Ordinal)
+    {
+        "displayName",
+        "accountType",
+        "currentBalanceAmount",
+        "currency",
+        "balanceAsOfDate",
+        "note"
+    };
+
+    private static readonly HashSet<string> AccountPatchFields = new(AccountCreateFields, StringComparer.Ordinal);
+    private static readonly HashSet<string> IncomeFields = new(StringComparer.Ordinal)
+    {
+        "displayName",
+        "amount",
+        "currency",
+        "cadence",
+        "nextExpectedDate",
+        "endDate",
+        "manualFinancialAccountId",
+        "note"
+    };
 
     public static WebApplication MapManualFinanceEndpoints(this WebApplication app)
     {
@@ -445,6 +468,7 @@ internal static class ManualFinanceEndpoints
 
     private static async Task<IResult> ArchiveAccountAsync(
         Guid accountId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -454,6 +478,11 @@ internal static class ManualFinanceEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidAccountNoBody();
         }
 
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
@@ -651,6 +680,7 @@ internal static class ManualFinanceEndpoints
 
     private static async Task<IResult> ArchiveIncomeSourceAsync(
         Guid incomeSourceId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
@@ -660,6 +690,11 @@ internal static class ManualFinanceEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        if (RequestHasBody(request))
+        {
+            return InvalidIncomeNoBody();
         }
 
         var authorization = await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken);
@@ -984,6 +1019,7 @@ internal static class ManualFinanceEndpoints
         using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
         var root = document.RootElement;
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        AddUnsupportedFieldErrors(root, AccountCreateFields, errors);
         var displayName = ReadBoundedString(root, "displayName", required: true, ManualFinanceConstraints.DisplayNameMaxLength, errors);
         var accountType = ReadAccountType(root, "accountType", required: true, errors);
         var currency = ReadCurrency(root, "currency", required: true, errors);
@@ -1003,6 +1039,7 @@ internal static class ManualFinanceEndpoints
         using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
         var root = document.RootElement;
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        AddUnsupportedFieldErrors(root, AccountPatchFields, errors);
         var currencySpecified = TryGetProperty(root, "currency", out _);
         var amountSpecified = TryGetProperty(root, "currentBalanceAmount", out _);
         var currency = currencySpecified ? ReadCurrency(root, "currency", required: true, errors) : null;
@@ -1035,6 +1072,7 @@ internal static class ManualFinanceEndpoints
         using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
         var root = document.RootElement;
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        AddUnsupportedFieldErrors(root, IncomeFields, errors);
         var displayName = ReadBoundedString(root, "displayName", required: true, ManualFinanceConstraints.DisplayNameMaxLength, errors);
         var currency = ReadCurrency(root, "currency", required: true, errors);
         var amount = ReadMoney(root, "amount", currency, "currency", allowNegative: false, allowZero: false, errors);
@@ -1279,6 +1317,25 @@ internal static class ManualFinanceEndpoints
         return false;
     }
 
+    private static void AddUnsupportedFieldErrors(
+        JsonElement root,
+        IReadOnlySet<string> supportedFields,
+        Dictionary<string, List<string>> errors)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!supportedFields.Contains(property.Name))
+            {
+                AddError(errors, property.Name, "Unsupported fields are not allowed.");
+            }
+        }
+    }
+
     private static ManualFinancialAccountResponse MapAccount(ManualFinancialAccount account)
     {
         return new ManualFinancialAccountResponse(
@@ -1372,12 +1429,28 @@ internal static class ManualFinanceEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static IResult InvalidAccountNoBody()
+    {
+        return Results.Problem(
+            title: InvalidManualAccountTitle,
+            detail: InvalidManualFinanceNoBodyDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
     private static IResult InvalidIncome(IDictionary<string, string[]> errors)
     {
         return Results.ValidationProblem(
             errors,
             title: InvalidManualIncomeTitle,
             detail: "The submitted manual income source request is invalid.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult InvalidIncomeNoBody()
+    {
+        return Results.Problem(
+            title: InvalidManualIncomeTitle,
+            detail: InvalidManualFinanceNoBodyDetail,
             statusCode: StatusCodes.Status400BadRequest);
     }
 
@@ -1388,6 +1461,13 @@ internal static class ManualFinanceEndpoints
             title: InvalidManualFinanceSummaryTitle,
             detail: "The submitted manual finance summary request is invalid.",
             statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static void AddError(Dictionary<string, List<string>> errors, string key, string message)

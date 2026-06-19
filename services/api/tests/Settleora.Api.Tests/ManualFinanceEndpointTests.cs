@@ -228,6 +228,148 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task AccountRequestsRejectBodySmuggledAuthorityFieldsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Account Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Account Smuggle Other");
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            AccountsPath,
+            actor.RawSessionToken,
+            $$"""
+            {
+              "displayName": "Smuggled",
+              "accountType": "cash",
+              "currentBalanceAmount": "10.00",
+              "currency": "USD",
+              "balanceAsOfDate": "2026-06-18",
+              "ownerUserProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", createContent);
+        Assert.Empty(await LoadAccountsAsync(testFactory, actor.UserProfileId));
+        Assert.Empty(await LoadAccountsAsync(testFactory, other.UserProfileId));
+
+        var accountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Cash Wallet", "cash", "123.45", "USD", "2026-06-18"));
+        using var patchRequest = CreateJsonRequest(
+            HttpMethod.Patch,
+            $"{AccountsPath}/{accountId:D}",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "displayName": "Mutated",
+              "id": "{{Guid.NewGuid():D}}",
+              "ownerUserProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var patchResponse = await client.SendAsync(patchRequest);
+        var patchContent = await patchResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", patchContent);
+
+        var account = Assert.Single(await LoadAccountsAsync(testFactory, actor.UserProfileId));
+        Assert.Equal(accountId, account.Id);
+        Assert.Equal("Cash Wallet", account.DisplayName);
+        Assert.Equal("123.45", account.CurrentBalanceAmount.ToString("0.##", CultureInfo.InvariantCulture));
+
+        using var archiveRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{AccountsPath}/{accountId:D}/archive",
+            actor.RawSessionToken,
+            $$"""{"ownerUserProfileId":"{{other.UserProfileId:D}}"}""");
+        using var archiveResponse = await client.SendAsync(archiveRequest);
+        var archiveContent = await archiveResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, archiveResponse.StatusCode);
+        Assert.Contains("does not accept a request body", archiveContent);
+
+        account = Assert.Single(await LoadAccountsAsync(testFactory, actor.UserProfileId));
+        Assert.Equal(ManualFinancialAccountStatuses.Active, account.Status);
+        Assert.Null(account.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public async Task IncomeRequestsRejectBodySmuggledAuthorityFieldsWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Income Smuggle Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Manual Finance Income Smuggle Other");
+        using var client = testFactory.CreateClient();
+        var accountId = await CreateAccountAsync(client, actor.RawSessionToken, AccountJson("Bank", "bank_account", "200.00", "USD", "2026-06-18"));
+
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            IncomePath,
+            actor.RawSessionToken,
+            $$"""
+            {
+              "displayName": "Smuggled Salary",
+              "amount": "100.00",
+              "currency": "USD",
+              "cadence": "monthly",
+              "nextExpectedDate": "2026-06-30",
+              "manualFinancialAccountId": "{{accountId:D}}",
+              "ownerUserProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", createContent);
+        Assert.Empty(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId));
+        Assert.Empty(await LoadIncomeSourcesAsync(testFactory, other.UserProfileId));
+
+        var incomeId = await CreateIncomeAsync(client, actor.RawSessionToken, IncomeJson("Salary", "3000.00", "USD", "monthly", "2026-06-30", accountId));
+        using var updateRequest = CreateJsonRequest(
+            HttpMethod.Put,
+            $"{IncomePath}/{incomeId:D}",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "displayName": "Mutated Salary",
+              "amount": "1.00",
+              "currency": "USD",
+              "cadence": "weekly",
+              "nextExpectedDate": "2026-07-01",
+              "manualFinancialAccountId": "{{accountId:D}}",
+              "incomeSourceId": "{{Guid.NewGuid():D}}",
+              "ownerUserProfileId": "{{other.UserProfileId:D}}"
+            }
+            """);
+        using var updateResponse = await client.SendAsync(updateRequest);
+        var updateContent = await updateResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", updateContent);
+
+        var income = Assert.Single(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId));
+        Assert.Equal(incomeId, income.Id);
+        Assert.Equal("Salary", income.DisplayName);
+        Assert.Equal("3000", income.Amount.ToString("0.##", CultureInfo.InvariantCulture));
+        Assert.Equal(ManualIncomeCadences.Monthly, income.Cadence);
+
+        using var archiveRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"{IncomePath}/{incomeId:D}/archive",
+            actor.RawSessionToken,
+            $$"""{"ownerUserProfileId":"{{other.UserProfileId:D}}"}""");
+        using var archiveResponse = await client.SendAsync(archiveRequest);
+        var archiveContent = await archiveResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, archiveResponse.StatusCode);
+        Assert.Contains("does not accept a request body", archiveContent);
+
+        income = Assert.Single(await LoadIncomeSourcesAsync(testFactory, actor.UserProfileId));
+        Assert.Equal(ManualIncomeSourceStatuses.Active, income.Status);
+        Assert.Null(income.ArchivedAtUtc);
+    }
+
+    [Fact]
     public async Task SummaryGroupsAvailableBalanceByCurrencyForCurrentActorOnly()
     {
         var testContext = CreateFactory();
@@ -545,6 +687,32 @@ public sealed class ManualFinanceEndpointTests : IClassFixture<WebApplicationFac
         Assert.True(response.StatusCode == HttpStatusCode.Created, content);
         using var payload = JsonDocument.Parse(content);
         return payload.RootElement.GetProperty("id").GetGuid();
+    }
+
+    private static async Task<List<ManualFinancialAccount>> LoadAccountsAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid ownerUserProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return await dbContext.Set<ManualFinancialAccount>()
+            .AsNoTracking()
+            .Where(account => account.OwnerUserProfileId == ownerUserProfileId)
+            .OrderBy(account => account.CreatedAtUtc)
+            .ToListAsync();
+    }
+
+    private static async Task<List<ManualIncomeSource>> LoadIncomeSourcesAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid ownerUserProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return await dbContext.Set<ManualIncomeSource>()
+            .AsNoTracking()
+            .Where(income => income.OwnerUserProfileId == ownerUserProfileId)
+            .OrderBy(income => income.CreatedAtUtc)
+            .ToListAsync();
     }
 
     private static async Task SeedFutureBillAsync(
