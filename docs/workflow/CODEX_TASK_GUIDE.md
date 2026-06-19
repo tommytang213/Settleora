@@ -36,6 +36,7 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 
 ## Validation Rules
 
+- Use [CODEX_VALIDATION_REPORT_BUDGET.md](CODEX_VALIDATION_REPORT_BUDGET.md) for the current validation profiles, Codemagic budget rule, chat/report budget rule, and task prompt budget rule.
 - Choose validation from the changed-file scope before running slow commands.
 - Start repo tooling, API, Docker, and mobile validation with the relevant doctor command:
   - `npm run doctor:validation` for Node/npm/dotnet preflight.
@@ -54,6 +55,10 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - For changes limited to documentation-only paths such as `docs/**/*.md`, `README.md`, and static docs assets, skip slow npm/dotnet/Docker validation unless the diff touches package files, validation scripts, OpenAPI/contracts, generated clients, code, tests, migrations, Docker/compose, CI, or runtime config.
 - For docs-only changes run at minimum `git status --short`, `git diff --name-only`, and `git diff --check`.
 - For tooling/docs changes, prefer scoped validation such as `npm run validate:docs`, `npm run validate:scaffold`, and `npm run validate:openapi` before escalating to API, Docker, or mobile suites.
+- Keep docs-only tasks on the docs-only profile unless changed files make API, OpenAPI, client, Docker, mobile, or CI validation directly relevant.
+- For focused backend endpoint or test hardening, prefer focused `dotnet test --filter ...` during implementation and reserve broader API validation for PR/merge gates or wider runtime risk.
+- Codemagic is manual-only for mobile/iOS, Codemagic config, signing/TestFlight/App Store prep, release branches/tags, or explicitly requested mobile validation gates. It is not a routine backend/API/docs PR check.
+- Keep workflow chat replies compact and put detailed validation logs, skipped-check rationale, files changed, warnings, and scope evidence in the Codex report file.
 - Do not weaken validation for code, API, security, runtime, migration, generated-client, or infrastructure changes.
 - Do not fake validation success; report the exact failing command and error summary.
 
