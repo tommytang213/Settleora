@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -919,6 +920,65 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
         await AssertUnauthenticatedProblemAsync(wrongResponse, WrongRawToken);
     }
 
+    [Theory]
+    [InlineData("query")]
+    [InlineData("body")]
+    public async Task UnsupportedReadEnvelopeReturnsBoundedBadRequestWithoutSideEffects(string envelopeKind)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, $"Invalid Balance Envelope Debtor {envelopeKind}");
+        var creditor = await SeedAccountAsync(testFactory, $"Invalid Balance Envelope Creditor {envelopeKind}", InitialTimestamp.AddMinutes(1));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creditor.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(debtorSession.UserProfileId, 25m),
+                new ParticipantSeed(creditor.UserProfileId, 25m)
+            ],
+            [new PayerSeed(creditor.UserProfileId, 50m)],
+            InitialTimestamp);
+        await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            creditor.UserProfileId,
+            creditor.UserProfileId,
+            25m,
+            SettlementRequestStatuses.Requested,
+            InitialTimestamp.AddMinutes(5));
+        var beforeCounts = await ReadReadOnlyCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            envelopeKind == "query"
+                ? $"{SettlementBalancesPath()}?userProfileId={creditor.UserProfileId:D}&settlementId={Guid.NewGuid():D}&paymentDetails=HiddenBalanceSelector"
+                : SettlementBalancesPath(),
+            debtorSession.RawSessionToken);
+        if (envelopeKind == "body")
+        {
+            request.Content = new StringContent(
+                $$"""{"userProfileId":"{{creditor.UserProfileId:D}}","settlementId":"{{Guid.NewGuid():D}}","paymentDetails":"Hidden Balance Body Selector"}""",
+                Encoding.UTF8,
+                "application/json");
+        }
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        AssertInvalidSettlementBalanceReadRequestProblem(
+            response,
+            content,
+            creditor.UserProfileId.ToString("D"),
+            "HiddenBalanceSelector",
+            "Hidden Balance Body Selector",
+            HiddenMerchantName,
+            HiddenItemName);
+        Assert.Equal(beforeCounts, await ReadReadOnlyCountsAsync(testFactory));
+    }
+
     [Fact]
     public void OpenApiAndGeneratedClientsContainSettlementBalanceProjectionContract()
     {
@@ -1651,6 +1711,39 @@ public sealed class SettlementBalanceProjectionEndpointTests : IClassFixture<Web
         Assert.Equal(
             "Authentication is required to access this resource.",
             payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static void AssertInvalidSettlementBalanceReadRequestProblem(
+        HttpResponseMessage response,
+        string content,
+        params string[] forbiddenValues)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeBalanceResponseContent(content, forbiddenValues);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid settlement balance read request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The settlement balance read request is invalid.",
+            payload.RootElement.GetProperty("detail").GetString());
+
+        var errors = payload.RootElement.GetProperty("errors");
+        Assert.True(errors.TryGetProperty("query", out _) || errors.TryGetProperty("body", out _));
+        if (errors.TryGetProperty("query", out var queryErrors))
+        {
+            Assert.Contains(
+                queryErrors.EnumerateArray(),
+                error => error.GetString() == "Unsupported query fields are not allowed.");
+        }
+
+        if (errors.TryGetProperty("body", out var bodyErrors))
+        {
+            Assert.Contains(
+                bodyErrors.EnumerateArray(),
+                error => error.GetString() == "Settlement balance read requests do not accept a body.");
+        }
     }
 
     private static string FindRepoFile(string relativePath)

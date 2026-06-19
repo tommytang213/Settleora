@@ -3,6 +3,7 @@ using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
+using Settleora.Api.RequestValidation;
 
 namespace Settleora.Api.Settlements;
 
@@ -10,6 +11,9 @@ internal static class SettlementBalanceProjectionEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
+    private const string InvalidSettlementBalanceReadTitle = "Invalid settlement balance read request";
+    private const string InvalidSettlementBalanceReadDetail = "The settlement balance read request is invalid.";
+    private const string SettlementBalanceReadBodyMessage = "Settlement balance read requests do not accept a body.";
     private const string SettlementBalancesUnavailableTitle = "Settlement balances unavailable";
     private const string SettlementBalancesUnavailableDetail = "Settlement balances are unavailable.";
 
@@ -30,12 +34,18 @@ internal static class SettlementBalanceProjectionEndpoints
     }
 
     private static async Task<IResult> ListSettlementBalanceProjectionsAsync(
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        if (TryRejectReadRequestEnvelope(request, out var invalidRequest))
+        {
+            return invalidRequest;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -324,6 +334,16 @@ internal static class SettlementBalanceProjectionEndpoints
         return authorizationResult.FailureReason is BusinessAuthorizationFailureReason.DeniedUnauthenticated
             ? Unauthenticated()
             : SettlementBalancesUnavailable();
+    }
+
+    private static bool TryRejectReadRequestEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidSettlementBalanceReadTitle,
+            InvalidSettlementBalanceReadDetail,
+            SettlementBalanceReadBodyMessage,
+            out result);
     }
 
     private static IResult Unauthenticated()
