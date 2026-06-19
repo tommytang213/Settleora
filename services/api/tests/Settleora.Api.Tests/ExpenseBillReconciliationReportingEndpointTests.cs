@@ -365,6 +365,61 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task PersonalReconciliationUsesRouteBillAndRejectsBodySmuggledIds()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal Route Reconciliation Actor");
+        var routeBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 11m)],
+            [new PayerSeed(actorSession.UserProfileId, 11m)],
+            "Personal Route Reconciliation Bill",
+            new DateOnly(2026, 5, 17),
+            11m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp);
+        var bodyTargetBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 13m)],
+            [new PayerSeed(actorSession.UserProfileId, 13m)],
+            "Personal Body Reconciliation Bill",
+            new DateOnly(2026, 5, 17),
+            13m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Patch,
+            PersonalReconciliationPath(routeBillId),
+            actorSession.RawSessionToken,
+            JsonSerializer.Serialize(new
+            {
+                status = ExpenseBillReconciliationStatuses.Reconciled,
+                note = "route-only",
+                billId = bodyTargetBillId,
+                groupId = Guid.NewGuid(),
+                userProfileId = Guid.NewGuid(),
+                ownerUserProfileId = actorSession.UserProfileId
+            }));
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidReconciliationRequestProblemAsync(response, content);
+        Assert.Contains("Unsupported fields are not allowed.", content);
+        Assert.Equal(ExpenseBillReconciliationStatuses.Unreconciled, (await ReadBillAsync(testFactory, routeBillId)).ReconciliationStatus);
+        Assert.Equal(ExpenseBillReconciliationStatuses.Unreconciled, (await ReadBillAsync(testFactory, bodyTargetBillId)).ReconciliationStatus);
+        Assert.Empty(await ReadReconciliationAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task BillListsCanFilterByReconciliationStatus()
     {
         var testContext = CreateFactory();
