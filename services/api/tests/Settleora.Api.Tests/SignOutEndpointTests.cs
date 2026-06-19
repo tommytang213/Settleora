@@ -166,6 +166,36 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task RequestBodyWithSmuggledSessionOrUserIdsReturnsBadRequestWithoutRevokingSession()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededSession = await SeedValidSessionAsync(testFactory, testContext.TimeProvider);
+        using var client = testFactory.CreateClient();
+        using var request = CreateSignOutRequest(seededSession.RawSessionToken);
+        var smuggledUserId = Guid.NewGuid().ToString("D");
+        var smuggledSessionId = Guid.NewGuid().ToString("D");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                userId = smuggledUserId,
+                sessionId = smuggledSessionId,
+                refreshTokenId = "visible-smuggled-refresh-token-id"
+            }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidAuthNoBodyProblemAsync(
+            response,
+            smuggledUserId,
+            smuggledSessionId,
+            "visible-smuggled-refresh-token-id");
+        await AssertSessionStatusAsync(testFactory, seededSession.AuthSessionId, AuthSessionStatuses.Active);
+    }
+
+    [Fact]
     public async Task RevokedSessionCannotReadCurrentUserAfterSignOut()
     {
         var testContext = CreateFactory();
@@ -579,6 +609,27 @@ public sealed class SignOutEndpointTests : IClassFixture<WebApplicationFactory<P
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(string.Empty, content);
+    }
+
+    private static async Task AssertInvalidAuthNoBodyProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedValues)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        foreach (var unexpectedValue in unexpectedValues)
+        {
+            Assert.DoesNotContain(unexpectedValue, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "This auth session action does not accept a request body.",
+            payload.RootElement.GetProperty("detail").GetString());
     }
 
     private static async Task AssertUnauthenticatedProblemAsync(

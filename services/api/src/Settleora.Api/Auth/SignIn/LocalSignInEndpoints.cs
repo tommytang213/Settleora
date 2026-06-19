@@ -1,4 +1,4 @@
-using System.Text.Json;
+using Settleora.Api.Auth;
 using Settleora.Api.Auth.CurrentUser;
 
 namespace Settleora.Api.Auth.SignIn;
@@ -7,10 +7,18 @@ internal static class LocalSignInEndpoints
 {
     private const string SignInFailedTitle = "Sign-in failed";
     private const string SignInFailedDetail = "Unable to sign in with the submitted information.";
+    private const string InvalidAuthRequestTitle = "Invalid auth request";
+    private const string UnsupportedFieldsDetail = "Unsupported fields are not allowed.";
     private const string TooManyAttemptsTitle = "Too many sign-in attempts";
     private const string TooManyAttemptsDetail = "Too many sign-in attempts. Try again later.";
     private const string LocalSingleNodeSourceKey = "src:local-single-node";
     private const int DeviceLabelMaxLength = 120;
+    private static readonly HashSet<string> AllowedSignInProperties = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "identifier",
+        "password",
+        "deviceLabel"
+    };
 
     public static WebApplication MapLocalSignInEndpoints(this WebApplication app)
     {
@@ -57,9 +65,18 @@ internal static class LocalSignInEndpoints
             return SignInFailed();
         }
 
-        var endpointRequest = await TryReadRequestAsync(request, cancellationToken);
-        if (endpointRequest is null
-            || !TryMapRequest(endpointRequest, out var signInRequest))
+        var readResult = await AuthEndpointRequestValidation.ReadLimitedJsonObjectAsync<LocalSignInEndpointRequest>(
+            request,
+            AllowedSignInProperties,
+            cancellationToken);
+        if (readResult.Status == AuthJsonRequestStatus.UnsupportedFields)
+        {
+            return UnsupportedFields();
+        }
+
+        if (readResult.Status != AuthJsonRequestStatus.Valid
+            || readResult.Request is null
+            || !TryMapRequest(readResult.Request, out var signInRequest))
         {
             return SignInFailed();
         }
@@ -71,24 +88,6 @@ internal static class LocalSignInEndpoints
             LocalSignInStatus.Throttled => TooManyAttempts(),
             _ => SignInFailed()
         };
-    }
-
-    private static async Task<LocalSignInEndpointRequest?> TryReadRequestAsync(
-        HttpRequest request,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await request.ReadFromJsonAsync<LocalSignInEndpointRequest>(cancellationToken);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-        catch (BadHttpRequestException)
-        {
-            return null;
-        }
     }
 
     private static bool TryMapRequest(
@@ -197,6 +196,14 @@ internal static class LocalSignInEndpoints
             title: TooManyAttemptsTitle,
             detail: TooManyAttemptsDetail,
             statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    private static IResult UnsupportedFields()
+    {
+        return Results.Problem(
+            title: InvalidAuthRequestTitle,
+            detail: UnsupportedFieldsDetail,
+            statusCode: StatusCodes.Status400BadRequest);
     }
 
     private delegate bool SignInSuccessMapper(

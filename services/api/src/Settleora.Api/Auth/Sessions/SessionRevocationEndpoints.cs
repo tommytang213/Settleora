@@ -1,3 +1,4 @@
+using Settleora.Api.Auth;
 using Settleora.Api.Auth.Authorization;
 
 namespace Settleora.Api.Auth.Sessions;
@@ -6,6 +7,8 @@ internal static class SessionRevocationEndpoints
 {
     private const string UnauthenticatedTitle = "Unauthenticated";
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
+    private const string InvalidAuthRequestTitle = "Invalid auth request";
+    private const string NoBodyDetail = "This auth session action does not accept a request body.";
     private const string SessionUnavailableTitle = "Session unavailable";
     private const string SessionUnavailableDetail = "The requested session is unavailable.";
     private const string SessionRevocationFailedTitle = "Session revocation failed";
@@ -22,10 +25,16 @@ internal static class SessionRevocationEndpoints
 
     private static async Task<IResult> RevokeSessionAsync(
         Guid sessionId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IAuthSessionRuntimeService sessionRuntimeService,
         CancellationToken cancellationToken)
     {
+        if (AuthEndpointRequestValidation.RequestHasBody(request))
+        {
+            return InvalidNoBody();
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
@@ -72,5 +81,13 @@ internal static class SessionRevocationEndpoints
             title: SessionRevocationFailedTitle,
             detail: SessionRevocationFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static IResult InvalidNoBody()
+    {
+        return Results.Problem(
+            title: InvalidAuthRequestTitle,
+            detail: NoBodyDetail,
+            statusCode: StatusCodes.Status400BadRequest);
     }
 }

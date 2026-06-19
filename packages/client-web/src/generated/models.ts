@@ -44,7 +44,7 @@ export interface BootstrapLocalOwnerResponse {
 }
 
 /**
- * Local-account sign-in request. Source, network, and policy bucket details are derived server-side.
+ * Local-account sign-in request. Source, network, actor, account, user, session, refresh, credential, and policy bucket details are derived server-side. Unsupported fields are rejected.
  */
 export interface LocalSignInRequest {
   /**
@@ -79,7 +79,7 @@ export interface LocalSessionSignInResponse {
 }
 
 /**
- * Public refresh request. Credential lookup, account, session-family, status, expiry, and revocation policy are resolved server-side.
+ * Public refresh request. Credential lookup, account, session, session-family, status, expiry, and revocation policy are resolved server-side. Unsupported fields are rejected.
  */
 export interface RefreshSessionRequest {
   /**

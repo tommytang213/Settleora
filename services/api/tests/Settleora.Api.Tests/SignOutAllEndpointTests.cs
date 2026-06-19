@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -179,6 +180,43 @@ public sealed class SignOutAllEndpointTests : IClassFixture<WebApplicationFactor
         await AssertRevokedBySignOutAllAsync(testFactory, currentSession.AuthSessionId);
         await AssertRevokedBySignOutAllAsync(testFactory, otherOwnedSession.AuthSessionId);
         await AssertSessionStatusAsync(testFactory, otherAccountSession.AuthSessionId, AuthSessionStatuses.Active);
+    }
+
+    [Fact]
+    public async Task RequestBodyWithSmuggledAccountOrSessionIdsReturnsBadRequestWithoutRevokingSessions()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var account = await SeedAuthAccountAsync(testFactory);
+        var currentSession = await CreateSessionAsync(testFactory, testContext.TimeProvider, account.AuthAccountId);
+        var otherOwnedSession = await CreateSessionAsync(
+            testFactory,
+            testContext.TimeProvider,
+            account.AuthAccountId,
+            issuedAtUtc: InitialTimestamp.AddMinutes(1));
+        using var client = testFactory.CreateClient();
+        using var request = CreateSignOutAllRequest(currentSession.RawSessionToken);
+        var smuggledAccountId = Guid.NewGuid().ToString("D");
+        var smuggledSessionId = Guid.NewGuid().ToString("D");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                accountId = smuggledAccountId,
+                ownerUserId = "visible-owner-user-id",
+                sessionId = smuggledSessionId
+            }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+
+        await AssertInvalidAuthNoBodyProblemAsync(
+            response,
+            smuggledAccountId,
+            smuggledSessionId,
+            "visible-owner-user-id");
+        await AssertSessionStatusAsync(testFactory, currentSession.AuthSessionId, AuthSessionStatuses.Active);
+        await AssertSessionStatusAsync(testFactory, otherOwnedSession.AuthSessionId, AuthSessionStatuses.Active);
     }
 
     [Fact]
@@ -499,6 +537,27 @@ public sealed class SignOutAllEndpointTests : IClassFixture<WebApplicationFactor
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(string.Empty, content);
+    }
+
+    private static async Task AssertInvalidAuthNoBodyProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedValues)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        foreach (var unexpectedValue in unexpectedValues)
+        {
+            Assert.DoesNotContain(unexpectedValue, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid auth request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "This auth session action does not accept a request body.",
+            payload.RootElement.GetProperty("detail").GetString());
     }
 
     private static async Task AssertUnauthenticatedProblemAsync(
