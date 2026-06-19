@@ -193,15 +193,15 @@ internal static class GroupBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var filterReadResult = ReadGroupBillListFilter(request, GroupBillListReadBodyMessage);
         if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
         {
             return InvalidGroupBillRequest(filterReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
@@ -246,15 +246,15 @@ internal static class GroupBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var readoutReadResult = ReadGroupBillReadoutRequest(request, GroupBillReadBodyMessage);
         if (!readoutReadResult.Succeeded)
         {
             return InvalidGroupBillRequest(readoutReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(

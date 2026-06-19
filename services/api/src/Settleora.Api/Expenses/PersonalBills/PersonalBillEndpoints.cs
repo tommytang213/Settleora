@@ -228,15 +228,15 @@ internal static class PersonalBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var filterReadResult = ReadBillListFilter(request, BillListReadBodyMessage);
         if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
         {
             return InvalidBillRequest(filterReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -280,15 +280,15 @@ internal static class PersonalBillEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
-        {
-            return Unauthenticated();
-        }
-
         var readoutReadResult = ReadBillReadoutRequest(request, BillReadBodyMessage);
         if (!readoutReadResult.Succeeded)
         {
             return InvalidBillRequest(readoutReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
