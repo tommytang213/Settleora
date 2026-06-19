@@ -151,6 +151,12 @@ Maintainers manually trigger Codemagic only for:
 
 The repository-side Codemagic setup remains documented in [CODEMAGIC_TESTFLIGHT_SETUP.md](CODEMAGIC_TESTFLIGHT_SETUP.md).
 
+## GitHub Actions Required Check Budget Rule
+
+The required `Scaffold Validation` workflow must keep the `Validate scaffold` job name stable for branch protection. Its changed-file classifier treats only `README.md` and Markdown/static documentation assets under `docs/` as docs-only. Docs-only runs install the Node repo tooling dependencies and run `npm run validate:scaffold`; any other changed path, unavailable diff, first-push/zero-SHA push, or unsupported event defaults to full validation.
+
+Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, generated clients, source, tests, Docker/compose, infrastructure, deployment, runtime config, OpenAPI, schema, migration, security, storage/privacy, money, settlement, payment, and bill-calculation changes must keep the broader GitHub Actions validation path enabled.
+
 ## Chat And Report Budget Rule
 
 Future Codex workflow chat replies should stay compact. Use:
