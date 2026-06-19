@@ -17,6 +17,9 @@ internal static partial class SelfPaymentDetailsEndpoints
     private const string PaymentQrRemovedAction = "payment_details.qr_removed";
     private const string InvalidPaymentQrUploadTitle = "Invalid payment QR upload";
     private const string InvalidPaymentQrUploadDetail = "The submitted payment QR upload is invalid.";
+    private const string InvalidPaymentQrReadTitle = "Invalid payment QR read";
+    private const string InvalidPaymentQrReadDetail = "The submitted payment QR read request is invalid.";
+    private const string PaymentQrReadBodyMessage = "Payment QR read requests do not accept a request body.";
     private const string PaymentQrUploadFailedTitle = "Payment QR upload failed";
     private const string PaymentQrUploadFailedDetail = "Unable to complete payment QR upload.";
     private const string PaymentQrRemoveFailedTitle = "Payment QR remove failed";
@@ -297,18 +300,14 @@ internal static partial class SelfPaymentDetailsEndpoints
         SettleoraDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (TryRejectPaymentQrReadEnvelope(request, out var readEnvelopeRejection))
+        {
+            return readEnvelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
-        }
-
-        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
-            request,
-            InvalidPaymentQrUploadTitle,
-            InvalidPaymentQrUploadDetail,
-            out var queryRejection))
-        {
-            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -355,6 +354,16 @@ internal static partial class SelfPaymentDetailsEndpoints
             && StringComparer.Ordinal.Equals(fileObject.Purpose, FileObjectPurposes.PaymentQr)
             && StringComparer.Ordinal.Equals(fileObject.Status, FileObjectStatuses.Active)
             && SupportedPaymentQrContentTypes.ContainsKey(fileObject.ContentType);
+    }
+
+    private static bool TryRejectPaymentQrReadEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidPaymentQrReadTitle,
+            InvalidPaymentQrReadDetail,
+            PaymentQrReadBodyMessage,
+            out result);
     }
 
     private static async Task<PaymentQrUploadReadResult> ReadPaymentQrUploadAsync(

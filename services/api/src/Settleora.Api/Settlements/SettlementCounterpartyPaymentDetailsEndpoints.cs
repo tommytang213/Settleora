@@ -17,6 +17,9 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
     private const string UnauthenticatedDetail = "Authentication is required to access this resource.";
     private const string PaymentDetailsUnavailableTitle = "Payment details unavailable";
     private const string PaymentDetailsUnavailableDetail = "The requested payment details are unavailable.";
+    private const string InvalidPaymentDetailsReadTitle = "Invalid payment details read";
+    private const string InvalidPaymentDetailsReadDetail = "The submitted payment details read request is invalid.";
+    private const string PaymentDetailsReadBodyMessage = "Payment details read requests do not accept a request body.";
     private const string PaymentDetailsAccessFailedTitle = "Payment details access failed";
     private const string PaymentDetailsAccessFailedDetail = "Unable to complete payment details access.";
     private const string PaymentDetailsViewedByCounterpartyAction = "payment_details.viewed_by_counterparty";
@@ -58,18 +61,14 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        if (TryRejectCounterpartyPaymentDetailsReadEnvelope(request, out var readEnvelopeRejection))
+        {
+            return readEnvelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
-        }
-
-        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
-            request,
-            PaymentDetailsUnavailableTitle,
-            PaymentDetailsUnavailableDetail,
-            out var queryRejection))
-        {
-            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -141,18 +140,14 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        if (TryRejectCounterpartyPaymentDetailsReadEnvelope(request, out var readEnvelopeRejection))
+        {
+            return readEnvelopeRejection;
+        }
+
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
-        }
-
-        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
-            request,
-            PaymentDetailsUnavailableTitle,
-            PaymentDetailsUnavailableDetail,
-            out var queryRejection))
-        {
-            return queryRejection;
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -374,6 +369,16 @@ internal static class SettlementCounterpartyPaymentDetailsEndpoints
             && StringComparer.Ordinal.Equals(fileObject.Purpose, FileObjectPurposes.PaymentQr)
             && StringComparer.Ordinal.Equals(fileObject.Status, FileObjectStatuses.Active)
             && SupportedPaymentQrContentTypes.ContainsKey(fileObject.ContentType);
+    }
+
+    private static bool TryRejectCounterpartyPaymentDetailsReadEnvelope(HttpRequest request, out IResult result)
+    {
+        return UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+            request,
+            InvalidPaymentDetailsReadTitle,
+            InvalidPaymentDetailsReadDetail,
+            PaymentDetailsReadBodyMessage,
+            out result);
     }
 
     private static ValueTask WriteCounterpartyAccessAuditAsync(

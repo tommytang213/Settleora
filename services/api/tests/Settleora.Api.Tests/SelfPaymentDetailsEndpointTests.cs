@@ -177,6 +177,36 @@ public sealed class SelfPaymentDetailsEndpointTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task GetRejectsRequestBodyWithoutEchoingSubmittedTextOrAuditing()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider);
+        await SeedPaymentProfileAsync(
+            testFactory,
+            actor.UserProfileId,
+            "FPS",
+            "body-secret-handle",
+            "body secret note",
+            UserPaymentProfileVisibilities.SettlementCounterpartiesOnly);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(HttpMethod.Get, actor.RawSessionToken);
+        request.Content = new StringContent(
+            "{\"paymentHandle\":\"body-secret-handle\",\"storagePath\":\"visible-storage-path\"}",
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        await AssertInvalidPaymentDetailsReadProblemAsync(response, content);
+        Assert.Contains("Payment details read requests do not accept a request body.", content);
+        Assert.DoesNotContain("body-secret-handle", content);
+        Assert.DoesNotContain("visible-storage-path", content);
+        await AssertNoPaymentDetailsAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
     public async Task PatchCreatesPaymentProfileForCurrentActorWithDefaultVisibilityAndSafeAudit()
     {
         var testContext = CreateFactory();
@@ -1028,6 +1058,24 @@ public sealed class SelfPaymentDetailsEndpointTests : IClassFixture<WebApplicati
         Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
         Assert.Equal(
             "The submitted payment details update is invalid.",
+            payload.RootElement.GetProperty("detail").GetString());
+    }
+
+    private static async Task AssertInvalidPaymentDetailsReadProblemAsync(
+        HttpResponseMessage response,
+        string? content = null)
+    {
+        content ??= await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeProblemContent(content);
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid payment details read", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "The submitted payment details read request is invalid.",
             payload.RootElement.GetProperty("detail").GetString());
     }
 
