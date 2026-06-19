@@ -23,8 +23,22 @@ internal static class PersonalBillEndpoints
     private const string BillWriteFailedDetail = "Unable to complete bill write.";
     private const string BillReadFailedTitle = "Bill read failed";
     private const string BillReadFailedDetail = "Unable to read bill calculation data.";
+    private const string BillListReadBodyMessage = "Bill list requests do not accept a body.";
+    private const string BillReadBodyMessage = "Bill read requests do not accept a body.";
     private const string BillCreatedAction = "bill.created";
     private const string PersonalGroupMode = "personal";
+    private static readonly HashSet<string> SupportedBillListQueryFields = new(StringComparer.Ordinal)
+    {
+        "fromDate",
+        "toDate",
+        "status",
+        "reconciliationStatus",
+        "currency",
+        "merchant",
+        "search",
+        "archiveState",
+        "limit"
+    };
 
     public static WebApplication MapPersonalBillEndpoints(this WebApplication app)
     {
@@ -207,15 +221,7 @@ internal static class PersonalBillEndpoints
     }
 
     private static async Task<IResult> ListPersonalBillsAsync(
-        string? fromDate,
-        string? toDate,
-        string? status,
-        string? reconciliationStatus,
-        string? currency,
-        string? merchant,
-        string? search,
-        string? archiveState,
-        string? limit,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -227,6 +233,12 @@ internal static class PersonalBillEndpoints
             return Unauthenticated();
         }
 
+        var filterReadResult = ReadBillListFilter(request, BillListReadBodyMessage);
+        if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
+        {
+            return InvalidBillRequest(filterReadResult.Errors);
+        }
+
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
             actor.UserProfileId,
             cancellationToken);
@@ -235,22 +247,7 @@ internal static class PersonalBillEndpoints
             return MapAuthorizationFailure(authorizationResult);
         }
 
-        if (!ExpenseBillSearchFilter.TryRead(
-            fromDate,
-            toDate,
-            status,
-            reconciliationStatus,
-            currency,
-            merchant,
-            search,
-            archiveState,
-            limit,
-            out var filter,
-            out var filterErrors))
-        {
-            return InvalidBillRequest(filterErrors);
-        }
-
+        var filter = filterReadResult.Filter;
         var bills = await ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId)
             .ApplySearchFilter(filter)
             .WithBillDetails()
@@ -276,6 +273,7 @@ internal static class PersonalBillEndpoints
 
     private static async Task<IResult> GetPersonalBillAsync(
         Guid billId,
+        HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
         ExpenseBillCalculationService calculationService,
@@ -285,6 +283,12 @@ internal static class PersonalBillEndpoints
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Unauthenticated();
+        }
+
+        var readoutReadResult = ReadBillReadoutRequest(request, BillReadBodyMessage);
+        if (!readoutReadResult.Succeeded)
+        {
+            return InvalidBillRequest(readoutReadResult.Errors);
         }
 
         var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
@@ -317,6 +321,121 @@ internal static class PersonalBillEndpoints
         return ExpenseBillSearchQueries.VisiblePersonalBills(dbContext, userProfileId)
             .WithBillDetails()
             .Include(bill => bill.Revisions);
+    }
+
+    private static BillListFilterReadResult ReadBillListFilter(
+        HttpRequest request,
+        string bodyMessage)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectBillReadRequestBody(request, bodyMessage, errors);
+        RejectUnsupportedBillListQueryFields(request, errors);
+
+        var fromDate = ReadOptionalQueryString(request, "fromDate", errors);
+        var toDate = ReadOptionalQueryString(request, "toDate", errors);
+        var status = ReadOptionalQueryString(request, "status", errors);
+        var reconciliationStatus = ReadOptionalQueryString(request, "reconciliationStatus", errors);
+        var currency = ReadOptionalQueryString(request, "currency", errors);
+        var merchant = ReadOptionalQueryString(request, "merchant", errors);
+        var search = ReadOptionalQueryString(request, "search", errors);
+        var archiveState = ReadOptionalQueryString(request, "archiveState", errors);
+        var limit = ReadOptionalQueryString(request, "limit", errors);
+        ExpenseBillSearchFilter? filter = null;
+
+        if (errors.Count == 0
+            && !ExpenseBillSearchFilter.TryRead(
+                fromDate,
+                toDate,
+                status,
+                reconciliationStatus,
+                currency,
+                merchant,
+                search,
+                archiveState,
+                limit,
+                out filter,
+                out var filterErrors))
+        {
+            foreach (var error in filterErrors)
+            {
+                foreach (var message in error.Value)
+                {
+                    AddError(errors, error.Key, message);
+                }
+            }
+        }
+
+        return errors.Count == 0
+            ? BillListFilterReadResult.Valid(filter!)
+            : BillListFilterReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static BillReadoutReadResult ReadBillReadoutRequest(
+        HttpRequest request,
+        string bodyMessage)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        RejectBillReadRequestBody(request, bodyMessage, errors);
+        if (request.Query.Count > 0)
+        {
+            AddError(errors, "query", "Unsupported query fields are not allowed.");
+        }
+
+        return errors.Count == 0
+            ? BillReadoutReadResult.Valid()
+            : BillReadoutReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static void RejectBillReadRequestBody(
+        HttpRequest request,
+        string message,
+        Dictionary<string, List<string>> errors)
+    {
+        if (RequestHasBody(request))
+        {
+            AddError(errors, "body", message);
+        }
+    }
+
+    private static void RejectUnsupportedBillListQueryFields(
+        HttpRequest request,
+        Dictionary<string, List<string>> errors)
+    {
+        foreach (var field in request.Query.Keys)
+        {
+            if (!SupportedBillListQueryFields.Contains(field))
+            {
+                AddError(errors, "query", "Unsupported query fields are not allowed.");
+                return;
+            }
+        }
+    }
+
+    private static string? ReadOptionalQueryString(
+        HttpRequest request,
+        string name,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!request.Query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count > 1)
+        {
+            AddError(errors, name, "Only one value is supported.");
+            return null;
+        }
+
+        var raw = values.ToString();
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    private static bool RequestHasBody(HttpRequest request)
+    {
+        return request.ContentLength.GetValueOrDefault() > 0
+            || request.Headers.TryGetValue("Transfer-Encoding", out var transferEncoding)
+            && transferEncoding.Count > 0;
     }
 
     private static async Task<PersonalBillCreateReadResult> ReadCreateRequestAsync(
@@ -1151,6 +1270,57 @@ internal static class PersonalBillEndpoints
         decimal Amount,
         string Currency,
         string? ReasonNote);
+
+    private sealed class BillListFilterReadResult
+    {
+        private BillListFilterReadResult(
+            ExpenseBillSearchFilter? filter,
+            IDictionary<string, string[]> errors)
+        {
+            Filter = filter;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public ExpenseBillSearchFilter? Filter { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static BillListFilterReadResult Valid(ExpenseBillSearchFilter filter)
+        {
+            return new BillListFilterReadResult(
+                filter,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static BillListFilterReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new BillListFilterReadResult(null, errors);
+        }
+    }
+
+    private sealed class BillReadoutReadResult
+    {
+        private BillReadoutReadResult(IDictionary<string, string[]> errors)
+        {
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static BillReadoutReadResult Valid()
+        {
+            return new BillReadoutReadResult(new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static BillReadoutReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new BillReadoutReadResult(errors);
+        }
+    }
 
     private sealed class PersonalBillCreateReadResult
     {

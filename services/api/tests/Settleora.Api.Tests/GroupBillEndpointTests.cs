@@ -598,6 +598,213 @@ public sealed class GroupBillEndpointTests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
+    public async Task GetGroupBillListAndReadRejectUnsupportedQueryFieldsWithoutSideEffectsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Query Actor");
+        var other = await SeedAccountAsync(testFactory, "Group Query Other", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Visible Query Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(actor.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var hiddenGroupId = await SeedGroupAsync(
+            testFactory,
+            other.UserProfileId,
+            "Hidden Query Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId,
+            [actor.UserProfileId, other.UserProfileId],
+            "Visible Query Group Bill",
+            InitialTimestamp.AddMinutes(2));
+        var hiddenBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            hiddenGroupId,
+            [other.UserProfileId],
+            "Hidden Query Group Bill",
+            InitialTimestamp.AddMinutes(3));
+        var beforeCounts = await CountProtectedBillRowsAsync(testFactory);
+        var unsupportedQuery = string.Join(
+            "&",
+            $"billId={hiddenBillId:D}",
+            $"groupId={hiddenGroupId:D}",
+            $"participantUserProfileId={other.UserProfileId:D}",
+            $"payerUserProfileId={other.UserProfileId:D}",
+            $"settlementId={Guid.NewGuid():D}",
+            $"paymentId={Guid.NewGuid():D}",
+            $"fileId={Guid.NewGuid():D}",
+            $"ocrJobId={Guid.NewGuid():D}",
+            "merchantName=Hidden Query Group Bill",
+            "hiddenSelector=Hidden Query Group Selector");
+        using var client = testFactory.CreateClient();
+
+        using (var listRequest = CreateBearerRequest(HttpMethod.Get, $"{BillsPath(groupId)}?{unsupportedQuery}", actor.RawSessionToken))
+        using (var listResponse = await client.SendAsync(listRequest))
+        {
+            var content = await listResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(listResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertValidationResponseIsBounded(content, hiddenBillId, hiddenGroupId, other.UserProfileId, "Hidden Query");
+            Assert.DoesNotContain("Visible Query Group Bill", content);
+        }
+
+        using (var readRequest = CreateBearerRequest(HttpMethod.Get, $"{BillsPath(groupId, visibleBillId)}?{unsupportedQuery}", actor.RawSessionToken))
+        using (var readResponse = await client.SendAsync(readRequest))
+        {
+            var content = await readResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(readResponse, content);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            AssertValidationResponseIsBounded(content, hiddenBillId, hiddenGroupId, other.UserProfileId, "Hidden Query");
+            Assert.DoesNotContain("Visible Query Group Bill", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedBillRowsAsync(testFactory));
+        await AssertNoGroupBillAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
+    public async Task GetGroupBillListAndReadRejectBodiesWithoutSideEffectsOrEcho()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Body Actor");
+        var other = await SeedAccountAsync(testFactory, "Group Body Other", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Visible Body Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(actor.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var hiddenGroupId = await SeedGroupAsync(
+            testFactory,
+            other.UserProfileId,
+            "Hidden Body Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(other.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId,
+            [actor.UserProfileId, other.UserProfileId],
+            "Visible Body Group Bill",
+            InitialTimestamp.AddMinutes(2));
+        var hiddenBillId = await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            hiddenGroupId,
+            [other.UserProfileId],
+            "Hidden Body Group Bill",
+            InitialTimestamp.AddMinutes(3));
+        var beforeCounts = await CountProtectedBillRowsAsync(testFactory);
+        var body = JsonSerializer.Serialize(new
+        {
+            billId = hiddenBillId,
+            groupId = hiddenGroupId,
+            participantUserProfileId = other.UserProfileId,
+            payerUserProfileId = other.UserProfileId,
+            settlementId = Guid.NewGuid(),
+            paymentId = Guid.NewGuid(),
+            fileId = Guid.NewGuid(),
+            ocrJobId = Guid.NewGuid(),
+            merchantName = "Hidden Body Group Bill"
+        });
+        using var client = testFactory.CreateClient();
+
+        using (var listRequest = CreateJsonRequest(HttpMethod.Get, $"{BillsPath(groupId)}?status={ExpenseBillStatuses.Draft}", actor.RawSessionToken, body))
+        using (var listResponse = await client.SendAsync(listRequest))
+        {
+            var content = await listResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(listResponse, content);
+            Assert.Contains("Group bill list requests do not accept a body.", content);
+            AssertValidationResponseIsBounded(content, hiddenBillId, hiddenGroupId, other.UserProfileId, "Hidden Body");
+            Assert.DoesNotContain("Visible Body Group Bill", content);
+        }
+
+        using (var readRequest = CreateJsonRequest(HttpMethod.Get, BillsPath(groupId, visibleBillId), actor.RawSessionToken, body))
+        using (var readResponse = await client.SendAsync(readRequest))
+        {
+            var content = await readResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(readResponse, content);
+            Assert.Contains("Group bill read requests do not accept a body.", content);
+            AssertValidationResponseIsBounded(content, hiddenBillId, hiddenGroupId, other.UserProfileId, "Hidden Body");
+            Assert.DoesNotContain("Visible Body Group Bill", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedBillRowsAsync(testFactory));
+        await AssertNoGroupBillAuditEventsAsync(testFactory);
+    }
+
+    [Fact]
+    public async Task GetGroupBillListRejectsDuplicateAndInvalidSingletonQueryValues()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Filter Actor");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actor.UserProfileId,
+            "Filter Group",
+            InitialTimestamp,
+            null,
+            new MembershipSeed(actor.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        await SeedBillAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId,
+            [actor.UserProfileId],
+            "Visible Filter Group Bill",
+            InitialTimestamp.AddMinutes(1));
+        var beforeCounts = await CountProtectedBillRowsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using (var duplicateRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{BillsPath(groupId)}?fromDate=2026-05-01&fromDate=2026-05-02&limit=10&limit=20",
+            actor.RawSessionToken))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var content = await duplicateResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(duplicateResponse, content);
+            Assert.Contains("\"fromDate\":[\"Only one value is supported.\"]", content);
+            Assert.Contains("\"limit\":[\"Only one value is supported.\"]", content);
+            Assert.DoesNotContain("Visible Filter Group Bill", content);
+        }
+
+        using (var invalidRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{BillsPath(groupId)}?fromDate=not-a-date&status=not-a-status&currency=usd&limit=9999&merchant=HiddenInvalidMerchant",
+            actor.RawSessionToken))
+        using (var invalidResponse = await client.SendAsync(invalidRequest))
+        {
+            var content = await invalidResponse.Content.ReadAsStringAsync();
+            await AssertInvalidGroupBillRequestProblemAsync(invalidResponse, content);
+            Assert.Contains("From date must be a yyyy-MM-dd date string.", content);
+            Assert.Contains("Bill status is not supported.", content);
+            Assert.Contains("Currency must be an uppercase three-letter code.", content);
+            Assert.Contains("Limit must be between 1 and 200.", content);
+            Assert.DoesNotContain("not-a-date", content);
+            Assert.DoesNotContain("not-a-status", content);
+            Assert.DoesNotContain("HiddenInvalidMerchant", content);
+            Assert.DoesNotContain("Visible Filter Group Bill", content);
+        }
+
+        Assert.Equal(beforeCounts, await CountProtectedBillRowsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task GetGroupBillByIdFailsClosedForUnavailableBillOrNonMemberAccess()
     {
         var testContext = CreateFactory();
@@ -889,6 +1096,38 @@ public sealed class GroupBillEndpointTests : IClassFixture<WebApplicationFactory
             .CountAsync(bill => bill.CreatedByUserProfileId == userProfileId);
 
         Assert.Equal(0, billCount);
+    }
+
+    private static async Task<ProtectedBillRowCounts> CountProtectedBillRowsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return new ProtectedBillRowCounts(
+            await dbContext.Set<ExpenseBill>().CountAsync(),
+            await dbContext.Set<ExpenseBillItem>().CountAsync(),
+            await dbContext.Set<ExpenseBillItemSplit>().CountAsync(),
+            await dbContext.Set<ExpenseBillParticipant>().CountAsync(),
+            await dbContext.Set<ExpenseBillPayer>().CountAsync(),
+            await dbContext.Set<ExpenseBillAdjustment>().CountAsync());
+    }
+
+    private static void AssertValidationResponseIsBounded(
+        string content,
+        Guid hiddenBillId,
+        Guid hiddenGroupId,
+        Guid hiddenUserProfileId,
+        string hiddenTextPrefix)
+    {
+        Assert.DoesNotContain(hiddenBillId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenGroupId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenUserProfileId.ToString("D"), content);
+        Assert.DoesNotContain(hiddenTextPrefix, content);
+        Assert.DoesNotContain("settlementId", content);
+        Assert.DoesNotContain("paymentId", content);
+        Assert.DoesNotContain("fileId", content);
+        Assert.DoesNotContain("ocrJobId", content);
     }
 
     private static async Task<AuthAuditEvent> AssertSingleGroupBillAuditEventAsync(
@@ -1245,6 +1484,14 @@ public sealed class GroupBillEndpointTests : IClassFixture<WebApplicationFactory
         Guid UserProfileId,
         string Role,
         string Status);
+
+    private sealed record ProtectedBillRowCounts(
+        int Bills,
+        int Items,
+        int ItemSplits,
+        int Participants,
+        int Payers,
+        int Adjustments);
 
     private sealed class GroupBillTestTimeProvider : TimeProvider
     {
