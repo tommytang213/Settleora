@@ -2855,24 +2855,10 @@ class _FutureBillInlineFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(failure.message)),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.error_outline,
+      message: failure.message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }
@@ -3441,24 +3427,10 @@ class _InlineFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(
-              _failureIcon(failure.kind),
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(failure.message)),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: _failureIcon(failure.kind),
+      message: failure.message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }

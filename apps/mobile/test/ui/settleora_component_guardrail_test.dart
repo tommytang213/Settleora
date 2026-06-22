@@ -105,6 +105,17 @@ void main() {
                       label: 'Morgan',
                       avatarLabel: 'M',
                     ),
+                    SettleoraMoneyChip(
+                      amount: '18.25',
+                      currencyCode: 'hkd',
+                      icon: Icons.payments_outlined,
+                    ),
+                    SettleoraMoneyChip(
+                      label: 'Selected total',
+                      amount: '42.00',
+                      currencyCode: 'USD',
+                      icon: Icons.payments_outlined,
+                    ),
                   ],
                 ),
                 const AppCard(child: Text('Card content')),
@@ -171,6 +182,29 @@ void main() {
                   message: 'Compact padding can preserve screen spacing.',
                   compact: true,
                   compactPadding: EdgeInsets.symmetric(vertical: 24),
+                ),
+                const SettleoraInlinePanel(
+                  icon: Icons.error_outline,
+                  message: 'Inline failure copy stays feature-owned.',
+                  variant: SettleoraSurfaceVariant.danger,
+                ),
+                const SettleoraInlinePanel(
+                  icon: Icons.fact_check_outlined,
+                  title: 'Inline guidance',
+                  message: 'Guidance copy and chips stay at the call site.',
+                  filled: true,
+                  padding: EdgeInsets.all(14),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        SettleoraStatusChip(
+                          label: 'Feature-owned chip',
+                          icon: Icons.info_outline,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
                 SettingsRow(
                   key: const Key('component-settings-row'),
@@ -244,6 +278,10 @@ void main() {
     expect(find.text('Checklist ready'), findsOneWidget);
     expect(find.text('Morgan'), findsOneWidget);
     expect(find.text('M'), findsOneWidget);
+    expect(find.byType(SettleoraMoneyChip), findsNWidgets(2));
+    expect(find.text('18.25 HKD'), findsOneWidget);
+    expect(find.text('Selected total'), findsOneWidget);
+    expect(find.text('42.00 USD'), findsOneWidget);
     final staticChipWrap = find.byKey(const Key('shared-static-chip-wrap'));
     expect(
       find.descendant(of: staticChipWrap, matching: find.byType(FilterChip)),
@@ -305,6 +343,17 @@ void main() {
       find.text('Compact padding can preserve screen spacing.'),
       findsOneWidget,
     );
+    expect(find.byType(SettleoraInlinePanel), findsNWidgets(2));
+    expect(
+      find.text('Inline failure copy stays feature-owned.'),
+      findsOneWidget,
+    );
+    expect(find.text('Inline guidance'), findsOneWidget);
+    expect(
+      find.text('Guidance copy and chips stay at the call site.'),
+      findsOneWidget,
+    );
+    expect(find.text('Feature-owned chip'), findsOneWidget);
     expect(find.byKey(const Key('component-settings-row')), findsOneWidget);
     expect(find.text('Settings row title'), findsOneWidget);
     expect(

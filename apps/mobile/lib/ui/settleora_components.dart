@@ -223,6 +223,47 @@ class SettleoraAssignedMemberChip extends StatelessWidget {
   }
 }
 
+class SettleoraMoneyChip extends StatelessWidget {
+  const SettleoraMoneyChip({
+    super.key,
+    required this.amount,
+    required this.currencyCode,
+    this.label,
+    this.icon,
+    this.backgroundColor,
+  });
+
+  final String amount;
+  final String currencyCode;
+  final String? label;
+  final IconData? icon;
+  final Color? backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final moneyText = MoneyText(
+      amount: amount,
+      currencyCode: currencyCode,
+      style: Theme.of(context).textTheme.labelLarge,
+    );
+
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor:
+          backgroundColor ??
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+      avatar: icon == null ? null : Icon(icon, size: 16),
+      label: label == null
+          ? moneyText
+          : Wrap(
+              spacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [Text(label!), moneyText],
+            ),
+    );
+  }
+}
+
 class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.child, this.padding, this.color});
 
@@ -292,6 +333,118 @@ class MoneyText extends StatelessWidget {
 }
 
 enum SettleoraSurfaceVariant { neutral, info, warning, danger, success }
+
+class SettleoraInlinePanel extends StatelessWidget {
+  const SettleoraInlinePanel({
+    super.key,
+    required this.icon,
+    required this.message,
+    this.title,
+    this.action,
+    this.children = const [],
+    this.variant = SettleoraSurfaceVariant.neutral,
+    this.filled = false,
+    this.padding = const EdgeInsets.all(12),
+  });
+
+  final IconData icon;
+  final String message;
+  final String? title;
+  final Widget? action;
+  final List<Widget> children;
+  final SettleoraSurfaceVariant variant;
+  final bool filled;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final foreground = switch (variant) {
+      SettleoraSurfaceVariant.danger => colorScheme.error,
+      SettleoraSurfaceVariant.warning => colors.onWarningSoft,
+      SettleoraSurfaceVariant.info => colors.onInfoSoft,
+      SettleoraSurfaceVariant.success => colors.onSuccessSoft,
+      SettleoraSurfaceVariant.neutral => colorScheme.primary,
+    };
+    final background = filled
+        ? switch (variant) {
+            SettleoraSurfaceVariant.danger => colorScheme.errorContainer,
+            SettleoraSurfaceVariant.warning => colors.warningSoft,
+            SettleoraSurfaceVariant.info => colors.infoSoft,
+            SettleoraSurfaceVariant.success => colors.successSoft,
+            SettleoraSurfaceVariant.neutral =>
+              colorScheme.surfaceContainerHighest,
+          }
+        : null;
+    final borderColor = switch (variant) {
+      SettleoraSurfaceVariant.danger => colorScheme.error,
+      SettleoraSurfaceVariant.warning => colors.warningSoft,
+      SettleoraSurfaceVariant.info => colors.infoSoft,
+      SettleoraSurfaceVariant.success => colors.successSoft,
+      SettleoraSurfaceVariant.neutral => colorScheme.outlineVariant,
+    };
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        border: filled ? null : Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: padding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: title == null
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: foreground),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: title == null
+                      ? Text(message)
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title!,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: filled ? foreground : null,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              message,
+                              style: filled
+                                  ? TextStyle(color: foreground)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                ),
+              ],
+            ),
+            if (children.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              ...children,
+            ],
+            if (action != null) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: action!,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class SummaryCard extends StatelessWidget {
   const SummaryCard({

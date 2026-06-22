@@ -1609,10 +1609,10 @@ class _DetailReviewSummarySection extends StatelessWidget {
             'Payment details $paymentDetailsStatus',
           ],
           chipWidgets: [
-            _SoftMoneyChip(
+            SettleoraMoneyChip(
               label: 'Selected total',
               amount: request.amount,
-              currency: request.currency,
+              currencyCode: request.currency,
               icon: Icons.payments_outlined,
             ),
           ],
@@ -2432,51 +2432,24 @@ class _GuidancePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(message),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (chips.isNotEmpty || chipWidgets.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  for (final chip in chips)
-                    SettleoraStatusChip(label: chip, icon: Icons.info_outline),
-                  ...chipWidgets,
-                ],
-              ),
+    return SettleoraInlinePanel(
+      icon: icon,
+      title: title,
+      message: message,
+      filled: true,
+      padding: const EdgeInsets.all(14),
+      children: [
+        if (chips.isNotEmpty || chipWidgets.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final chip in chips)
+                SettleoraStatusChip(label: chip, icon: Icons.info_outline),
+              ...chipWidgets,
             ],
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }
@@ -2535,41 +2508,6 @@ class _AmountStatusText extends StatelessWidget {
         const SizedBox(width: 4),
         Text(status, style: Theme.of(context).textTheme.bodyMedium),
       ],
-    );
-  }
-}
-
-class _SoftMoneyChip extends StatelessWidget {
-  const _SoftMoneyChip({
-    required this.label,
-    required this.amount,
-    required this.currency,
-    required this.icon,
-  });
-
-  final String label;
-  final String amount;
-  final String currency;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Wrap(
-        spacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text(label),
-          MoneyText(
-            amount: amount,
-            currencyCode: currency,
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
-        ],
-      ),
     );
   }
 }

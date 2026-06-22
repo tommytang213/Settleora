@@ -14800,9 +14800,9 @@ class _PendingRevisionBanner extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _MoneyChip(
+                SettleoraMoneyChip(
                   amount: revision.totalAmount,
-                  currency: revision.totalCurrency,
+                  currencyCode: revision.totalCurrency,
                   icon: Icons.payments_outlined,
                 ),
                 if (requiresPayerConfirmation)
@@ -16719,28 +16719,6 @@ class _SavedReceiptOcrMoneyPart extends StatelessWidget {
             style: style,
           ),
       ],
-    );
-  }
-}
-
-class _MoneyChip extends StatelessWidget {
-  const _MoneyChip({required this.amount, required this.currency, this.icon});
-
-  final String amount;
-  final String currency;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: icon == null ? null : Icon(icon, size: 16),
-      label: MoneyText(
-        amount: amount,
-        currencyCode: currency,
-        style: Theme.of(context).textTheme.labelLarge,
-      ),
     );
   }
 }

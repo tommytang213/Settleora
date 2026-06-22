@@ -239,6 +239,43 @@ V1-aligned updates made in this branch:
   bill/OCR behavior, manual-finance account/income/archive behavior,
   repository contracts, persistence, OpenAPI, generated clients, schema,
   money authority, or backend/API behavior.
+- Mobile money-chip and inline-guidance consolidation now includes
+  `SettleoraMoneyChip` and `SettleoraInlinePanel` for exact visual primitives
+  where feature behavior remains owned by the screen. Personal/group bill
+  pending revision review now uses `SettleoraMoneyChip` for the revision total
+  amount/currency readout, and settlement detail review guidance now uses
+  `SettleoraInlinePanel` plus `SettleoraMoneyChip` for its loaded-facts panel
+  and selected-total chip. Compact inline failure shells in groups,
+  notifications, recurring bills, and future bill handling now use
+  `SettleoraInlinePanel` while each feature still supplies the failure kind,
+  icon, message, retry/sign-in/session callbacks, and state transitions. This
+  records the 2026-06-23 01:52 HKT money-chip/inline-guidance follow-up
+  without changing search strings, semantic labels, snackbars, copy helpers,
+  payment/settlement/bill/recurring/manual-finance/notification/group
+  behavior, repository contracts, persistence, routing, OpenAPI, generated
+  clients, schema, money formatting authority, rounding, aggregation,
+  settlement/payment/bill calculation authority, or backend/API behavior.
+
+Deferred from the 2026-06-23 01:52 HKT money-chip/inline-guidance follow-up:
+
+- Interactive `FilterChip`, `ChoiceChip`, assignment chips, bulk/action chips,
+  segmented controls, and selectable controls remain feature-owned because they
+  carry filtering, selection, member, bulk, or state-transition behavior.
+- Manual finance summary rows, account/income cards, archive controls, and
+  failure card remain feature-private because they combine manual-finance
+  behavior, domain copy, and surface-specific layout rather than a mechanically
+  identical shell.
+- Bill OCR duplicate/safety/capture/revision and group-bill share/next-step
+  panels remain feature-private where they mix domain-specific status,
+  review/apply/acknowledgement behavior, nested money lists, or specialized
+  action affordances beyond the extracted visual shell.
+- Recurring refresh-after-mutation and generated-draft panels remain
+  feature-private where action labels/callbacks or generated-draft state are
+  part of the panel contract.
+- Full-page loading/error/empty states were not reworked because current
+  groups, notifications, settlements, recurring, and reports surfaces already
+  compose `SettleoraStatePanel` or need feature-specific sign-in/retry actions
+  at the call site.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
