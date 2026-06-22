@@ -2199,9 +2199,36 @@ void main() {
     expect(find.byKey(const Key('group-bill-currency')), findsOneWidget);
     await _goToGroupBillCreateStep(tester, 'receiptItems');
     expect(find.byKey(const Key('group-bill-item-currency-0')), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyInput &&
+            widget.amountKey == const Key('group-bill-item-unit-amount-0') &&
+            widget.currencyControl == MoneyInputCurrencyControl.staticCode,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyInput &&
+            widget.amountKey == const Key('group-bill-item-amount-0') &&
+            widget.currencyControl == MoneyInputCurrencyControl.staticCode,
+      ),
+      findsOneWidget,
+    );
     await _goToGroupBillCreateStep(tester, 'payers');
     expect(
       find.byKey(const Key('group-bill-payer-currency-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyInput &&
+            widget.amountKey == const Key('group-bill-payer-amount-0') &&
+            widget.currencyControl == MoneyInputCurrencyControl.staticCode,
+      ),
       findsOneWidget,
     );
     expect(billRepository.createGroupCalls, 0);
