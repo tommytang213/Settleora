@@ -412,8 +412,9 @@ void main() {
     expect(find.text('Bills'), findsOneWidget);
     expect(find.text('Groups'), findsOneWidget);
     expect(find.text('Settle'), findsOneWidget);
-    expect(find.text('Receipts'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('More'), findsOneWidget);
+    expect(find.text('Receipts'), findsNothing);
+    expect(find.text('Profile'), findsNothing);
 
     final nav = tester.widget<SettleoraBottomNav>(
       find.byType(SettleoraBottomNav),
@@ -431,7 +432,7 @@ void main() {
     expect(tapped, SettleoraNavDestination.groups);
   });
 
-  testWidgets('bottom nav keeps six labels stable on narrow surfaces', (
+  testWidgets('bottom nav keeps five V1 labels stable on narrow surfaces', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 820);
@@ -451,16 +452,11 @@ void main() {
       ),
     );
 
-    for (final label in const [
-      'Home',
-      'Bills',
-      'Groups',
-      'Settle',
-      'Receipts',
-      'Profile',
-    ]) {
+    for (final label in const ['Home', 'Bills', 'Groups', 'Settle', 'More']) {
       expect(find.text(label), findsOneWidget);
     }
+    expect(find.text('Receipts'), findsNothing);
+    expect(find.text('Profile'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

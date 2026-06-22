@@ -67,14 +67,7 @@ void main() {
       bottomNavDestination(const Key('bottom-nav-settle')),
       findsOneWidget,
     );
-    expect(
-      bottomNavDestination(const Key('bottom-nav-receipts')),
-      findsOneWidget,
-    );
-    expect(
-      bottomNavDestination(const Key('bottom-nav-profile')),
-      findsOneWidget,
-    );
+    expect(bottomNavDestination(const Key('bottom-nav-more')), findsOneWidget);
     expectSelectedBottomNav(tester, SettleoraNavDestination.home);
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
@@ -382,17 +375,23 @@ void main() {
     expectCanonicalBottomNav(tester, selectedIndex: 3);
     expectSingleCanonicalBottomNav(tester);
 
-    await tester.tap(bottomNavDestination(const Key('bottom-nav-receipts')));
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
-    expect(find.text('Receipt Reviews'), findsWidgets);
+    expect(find.text('More'), findsWidgets);
     expectCanonicalBottomNav(tester, selectedIndex: 4);
     expectSingleCanonicalBottomNav(tester);
 
-    await tester.tap(bottomNavDestination(const Key('bottom-nav-profile')));
+    await scrollToAndTap(tester, const Key('server-shell-receipt-reviews'));
+    await tester.pumpAndSettle();
+    expect(find.text('Receipt Reviews'), findsWidgets);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await scrollToAndTap(tester, const Key('server-shell-more-profile'));
     await tester.pumpAndSettle();
     expect(find.text('Profile'), findsWidgets);
-    expectCanonicalBottomNav(tester, selectedIndex: 5);
-    expectSingleCanonicalBottomNav(tester);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
     await tester.pumpAndSettle();
@@ -1638,18 +1637,10 @@ void expectCanonicalBottomNav(
       SettleoraNavDestination.bills,
       SettleoraNavDestination.groups,
       SettleoraNavDestination.settle,
-      SettleoraNavDestination.receipts,
-      SettleoraNavDestination.profile,
+      SettleoraNavDestination.more,
     ][selectedIndex],
   );
-  for (final label in const [
-    'Home',
-    'Bills',
-    'Groups',
-    'Settle',
-    'Receipts',
-    'Profile',
-  ]) {
+  for (final label in const ['Home', 'Bills', 'Groups', 'Settle', 'More']) {
     expect(
       find.descendant(
         of: find.byType(SettleoraBottomNav),
@@ -1662,11 +1653,7 @@ void expectCanonicalBottomNav(
   expect(bottomNavDestination(const Key('bottom-nav-bills')), findsOneWidget);
   expect(bottomNavDestination(const Key('bottom-nav-groups')), findsOneWidget);
   expect(bottomNavDestination(const Key('bottom-nav-settle')), findsOneWidget);
-  expect(
-    bottomNavDestination(const Key('bottom-nav-receipts')),
-    findsOneWidget,
-  );
-  expect(bottomNavDestination(const Key('bottom-nav-profile')), findsOneWidget);
+  expect(bottomNavDestination(const Key('bottom-nav-more')), findsOneWidget);
 }
 
 void expectSingleCanonicalBottomNav(WidgetTester tester) {
@@ -1676,7 +1663,14 @@ void expectSingleCanonicalBottomNav(WidgetTester tester) {
   expect(
     find.descendant(
       of: find.byType(SettleoraBottomNav),
-      matching: find.text('Settings'),
+      matching: find.text('Receipts'),
+    ),
+    findsNothing,
+  );
+  expect(
+    find.descendant(
+      of: find.byType(SettleoraBottomNav),
+      matching: find.text('Profile'),
     ),
     findsNothing,
   );
