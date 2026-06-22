@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'report_repository.dart';
+import '../ui/settleora_components.dart';
 
 class SettleoraMonthlyReportScreen extends StatefulWidget {
   const SettleoraMonthlyReportScreen({
@@ -719,9 +720,11 @@ class _CurrencyRow extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Flexible(
-              child: Text(
-                '${row.amount} ${row.currency}',
+              child: MoneyText(
+                amount: row.amount,
+                currencyCode: row.currency,
                 textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
           ],
