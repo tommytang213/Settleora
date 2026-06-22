@@ -69,6 +69,14 @@ V1-aligned updates made in this branch:
   `apps/mobile/test/helpers/settleora_visual_test_fonts.dart`, which loads the
   required Roboto and Material Icons fonts and sets a standard mobile viewport
   for future screenshot harnesses.
+- Money/date/form foundation now includes shared `MoneyText`, `MoneyInput`
+  with explicit currency selection, and a picker-backed `DateField` that keeps
+  existing ISO date controller values while showing product-facing date text.
+- `MoneyAmountCurrencyField` remains as a compatibility wrapper over
+  `MoneyInput` for current callers.
+- Manual finance account and income sheets now use shared `MoneyInput` and
+  `DateField` instead of raw amount/currency and `yyyy-MM-dd` text-entry
+  controls.
 
 ## Feature-Private Duplicate Inventory
 
@@ -151,10 +159,10 @@ Current tests already guard many unsafe details, but audit risks remain:
 | `SummaryCard` | `matches_v1_reference` | Shared `SummaryCard` exists for static summary readouts and is used by Home balance summary cards; domain-specific summaries still need gradual migration. |
 | `StatusChip` | `exists_but_outdated` | Shared chip exists and is useful; many feature-private chips remain and semantic variants may need V1 expansion. |
 | `MetricChip` | `feature_private_duplicate` | `_DashboardMetricChip` exists privately; no shared component. |
-| `MoneyText` | `missing` | Repeated amount/currency text formatting across features. |
-| `MoneyInput` | `exists_but_outdated` | `MoneyAmountCurrencyField` exists, but raw money fields remain common and validation/format behavior is not yet the V1 standard. |
+| `MoneyText` | `matches_v1_reference` | Shared presentation-only amount plus ISO currency text now exists with tabular figures; broader caller migration remains incremental. |
+| `MoneyInput` | `matches_v1_reference` | Shared `MoneyInput` now combines decimal-friendly amount entry with explicit currency selection and no authoritative rounding; legacy `MoneyAmountCurrencyField` delegates to it. Raw feature fields remain gradual migration candidates. |
 | `CurrencySelector` | `matches_v1_reference` | Shared selector exists with ISO codes and unknown-value preservation; may need searchable/scalable expansion later. |
-| `DateField / DatePicker` | `missing` | Manual date strings remain. |
+| `DateField / DatePicker` | `matches_v1_reference` | Shared picker-backed `DateField` now displays product-facing date text while preserving ISO controller values; manual finance forms use it. Other raw date strings remain migration candidates. |
 | `CategorySelector` | `missing` | Category controls are feature-local or absent. |
 | `PaymentMethodSelector` | `matches_v1_reference` | Shared selector exists with common methods and custom value support; future V1 payment details need searchable method cards. |
 | `SearchableUserGroupSelector` | `feature_private_duplicate` | Member picker/search sheets exist privately in bills/groups. |

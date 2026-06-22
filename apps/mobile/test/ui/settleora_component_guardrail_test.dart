@@ -137,6 +137,11 @@ void main() {
                   caption: 'Across two bills',
                   variant: StatusChipVariant.danger,
                 ),
+                const MoneyText(
+                  amount: '42.00',
+                  currencyCode: 'HKD',
+                  semanticLabel: '42 dollars in HKD',
+                ),
                 const AmountStatusRow(
                   title: 'Dinner Club',
                   subtitle: 'Due tomorrow',
@@ -253,6 +258,7 @@ void main() {
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text(r'$42.00'), findsOneWidget);
     expect(find.text('Across two bills'), findsOneWidget);
+    expect(find.text('42.00 HKD'), findsOneWidget);
     expect(find.text('Dinner Club'), findsOneWidget);
     expect(find.text('Due tomorrow'), findsOneWidget);
     expect(find.text(r'$18.25'), findsOneWidget);
@@ -326,6 +332,91 @@ void main() {
       expect(find.text('AUD - Not currently selectable'), findsOneWidget);
     },
   );
+
+  testWidgets('money input keeps amount and currency explicit', (tester) async {
+    final amountController = TextEditingController(text: '1200');
+    String? selectedCurrency = 'JPY';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              body: MoneyInput(
+                amountKey: const Key('money-input-amount'),
+                currencyKey: const Key('money-input-currency'),
+                amountController: amountController,
+                currencyValue: selectedCurrency,
+                onCurrencyChanged: (value) =>
+                    setState(() => selectedCurrency = value),
+                amountLabel: 'Bill amount',
+                currencyLabel: 'Bill currency',
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    expect(find.text('Bill amount'), findsOneWidget);
+    expect(find.text('JPY'), findsOneWidget);
+    expect(find.text('Bill currency'), findsOneWidget);
+    expect(
+      find.textContaining('server validates final money rules'),
+      findsOneWidget,
+    );
+
+    final editableAmountField = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('money-input-amount')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(editableAmountField.keyboardType.toString(), contains('decimal'));
+
+    await tester.tap(find.byKey(const Key('money-input-currency')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('KWD - Kuwaiti Dinar').last);
+    await tester.pumpAndSettle();
+    expect(selectedCurrency, 'KWD');
+    amountController.dispose();
+  });
+
+  testWidgets('date field stores ISO value after picker selection', (
+    tester,
+  ) async {
+    final dateController = TextEditingController(text: '2026-06-10');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: DateField(
+            key: const Key('shared-date-field'),
+            controller: dateController,
+            label: 'Bill date',
+            firstDate: DateTime(2026, 1),
+            lastDate: DateTime(2026, 12, 31),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Bill date'), findsOneWidget);
+    expect(find.text('Jun 10, 2026'), findsOneWidget);
+    expect(find.textContaining('Choose a date'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('shared-date-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15').last);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    expect(dateController.text, '2026-06-15');
+    expect(find.text('Jun 15, 2026'), findsOneWidget);
+    dateController.dispose();
+  });
 
   testWidgets('payment method selector handles common and custom values', (
     tester,
