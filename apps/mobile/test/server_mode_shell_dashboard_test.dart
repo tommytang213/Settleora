@@ -527,6 +527,70 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('dashboard final content clears bottom nav on phone viewport', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    await pumpShell(
+      tester,
+      billRepository: FakeBillRepository(bills: [sampleBill()]),
+      settlementRepository: FakeSettlementRepository(
+        requests: [sampleSettlementRequest()],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        templates: [sampleTemplate()],
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    final morePrompt = find.byKey(const Key('server-shell-open-more-hub'));
+    await scrollShellToBottom(
+      tester,
+      const Key('server-shell-home-scroll'),
+      morePrompt,
+    );
+    expect(morePrompt, findsOneWidget);
+    expectContentClearsBottomNav(tester, morePrompt);
+    expect(find.text('Create bill'), findsOneWidget);
+    expect(find.text('Create group'), findsOneWidget);
+    expectSelectedBottomNav(tester, SettleoraNavDestination.home);
+  });
+
+  testWidgets('More final content clears bottom nav on phone viewport', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    await pumpShell(tester, dataBackupService: FakeLocalDataBackupService());
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    final finalReadout = find.byKey(
+      const Key('server-shell-visual-preference-readout'),
+    );
+    await scrollShellToBottom(
+      tester,
+      const Key('server-shell-more-hub'),
+      finalReadout,
+    );
+    expect(finalReadout, findsOneWidget);
+    expectContentClearsBottomNav(tester, finalReadout);
+    expect(find.text('Profile and account'), findsOneWidget);
+    expect(find.text('Monthly reports'), findsOneWidget);
+    expectSelectedBottomNav(tester, SettleoraNavDestination.more);
+  });
+
   testWidgets('dashboard replaces route cards with metric and content rows', (
     tester,
   ) async {
@@ -1624,6 +1688,32 @@ Future<void> ensureAndTap(WidgetTester tester, Key key) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+}
+
+Future<void> scrollShellToBottom(
+  WidgetTester tester,
+  Key scrollKey,
+  Finder finalContent,
+) async {
+  final scrollable = find.descendant(
+    of: find.byKey(scrollKey),
+    matching: find.byType(Scrollable),
+  );
+  await tester.scrollUntilVisible(finalContent, 420, scrollable: scrollable);
+  await tester.pumpAndSettle();
+  for (var attempt = 0; attempt < 6; attempt += 1) {
+    await tester.drag(scrollable, const Offset(0, -500));
+    await tester.pumpAndSettle();
+  }
+}
+
+void expectContentClearsBottomNav(WidgetTester tester, Finder finder) {
+  final contentBottom = tester.getBottomLeft(finder).dy;
+  final navTop = tester
+      .getTopLeft(find.byKey(const Key('server-shell-bottom-nav')))
+      .dy;
+
+  expect(navTop - contentBottom, greaterThanOrEqualTo(64));
 }
 
 Finder bottomNavDestination(Key key) => find.byKey(key);
