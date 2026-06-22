@@ -1064,6 +1064,16 @@ void main() {
     expect(find.byKey(const Key('saved-ocr-review-edit')), findsOneWidget);
     expect(find.text('Receipt totals for review only'), findsNothing);
     expect(find.text('Grand total'), findsOneWidget);
+    expect(find.text('10.80 USD'), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyText &&
+            widget.amount == '10.80' &&
+            widget.currencyCode == 'USD',
+      ),
+      findsWidgets,
+    );
     expect(find.textContaining('raw OCR full text'), findsNothing);
     expect(find.textContaining('signed URL'), findsNothing);
     expect(find.textContaining('storage'), findsNothing);
@@ -1419,6 +1429,25 @@ void main() {
     expect(find.text('Header summary'), findsOneWidget);
     expect(find.text('Line summary'), findsOneWidget);
     expect(find.text('Preview Milk'), findsOneWidget);
+    expect(find.text('10.80 USD'), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyText &&
+            widget.amount == '10.80' &&
+            widget.currencyCode == 'USD',
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyText &&
+            widget.amount == '10.00' &&
+            widget.currencyCode == 'USD',
+      ),
+      findsWidgets,
+    );
     expect(
       find.text(
         'Preview validates saved OCR review data before draft apply. It does not change this bill.',
