@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../future_bills/future_bill_repository.dart';
 import '../groups/group_repository.dart';
+import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'recurring_bill_repository.dart';
 
@@ -1578,6 +1579,13 @@ class _SettleoraRecurringBillTemplateFormScreenState
                           item: _itemControllers[index],
                           enabled: !_isSaving,
                           showItemCurrency: isEditing,
+                          sectionCurrency: _currencyController.text,
+                          onItemCurrencyChanged: (currency) {
+                            setState(() {
+                              _itemControllers[index].currencyController.text =
+                                  currency ?? '';
+                            });
+                          },
                         ),
                       if (isEditing) ...[
                         _PayloadUnsupportedState(
@@ -1662,12 +1670,16 @@ class _RecurringPayloadItemFields extends StatelessWidget {
     required this.item,
     required this.enabled,
     required this.showItemCurrency,
+    required this.sectionCurrency,
+    required this.onItemCurrencyChanged,
   });
 
   final int index;
   final _PayloadItemControllers item;
   final bool enabled;
   final bool showItemCurrency;
+  final String sectionCurrency;
+  final ValueChanged<String?> onItemCurrencyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1696,32 +1708,26 @@ class _RecurringPayloadItemFields extends StatelessWidget {
                 _requiredTextValidator(value, 'item name', 240),
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            key: Key('recurring-bill-form-item-amount$keySuffix'),
-            controller: item.amountController,
+          MoneyInput(
+            amountKey: Key('recurring-bill-form-item-amount$keySuffix'),
+            currencyKey: Key('recurring-bill-form-item-currency$keySuffix'),
+            amountController: item.amountController,
+            currencyValue: showItemCurrency
+                ? item.currencyController.text
+                : sectionCurrency,
+            onCurrencyChanged: showItemCurrency
+                ? onItemCurrencyChanged
+                : (_) {},
             enabled: enabled,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Item amount',
-              border: OutlineInputBorder(),
-            ),
-            validator: _amountValidator,
+            amountLabel: 'Item amount',
+            currencyLabel: showItemCurrency ? 'Item currency' : 'Currency',
+            amountValidator: _amountValidator,
+            currencyValidator: _currencyValidator,
+            currencyControl: showItemCurrency
+                ? MoneyInputCurrencyControl.selector
+                : MoneyInputCurrencyControl.staticCode,
           ),
           const SizedBox(height: 12),
-          if (showItemCurrency) ...[
-            CurrencySelector(
-              key: Key('recurring-bill-form-item-currency$keySuffix'),
-              value: item.currencyController.text,
-              label: 'Item currency',
-              validator: _currencyValidator,
-              enabled: enabled,
-              semanticLabel: 'Recurring bill item currency selector',
-              onChanged: (currency) {
-                item.currencyController.text = currency ?? '';
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
           TextFormField(
             key: Key('recurring-bill-form-item-note$keySuffix'),
             controller: item.noteController,
@@ -2910,7 +2916,11 @@ class _TemplateTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_money(template.forecastAmount, template.forecastCurrency)),
+              MoneyText(
+                amount: template.forecastAmount,
+                currencyCode: template.forecastCurrency,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
               const SizedBox(height: 4),
               Text(_templateDueSummary(template)),
               const SizedBox(height: 4),
@@ -2992,11 +3002,10 @@ class _ForecastTile extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        _money(
-                          occurrence.forecastAmount,
-                          occurrence.forecastCurrency,
-                        ),
+                      MoneyText(
+                        amount: occurrence.forecastAmount,
+                        currencyCode: occurrence.forecastCurrency,
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 4),
                       Text(_occurrenceDueSummary(occurrence)),
@@ -3268,9 +3277,10 @@ class _TemplateHeader extends StatelessWidget {
           label: 'Status',
           value: settleoraRecurringBillTemplateStatusLabel(template.status),
         ),
-        _KeyValueText(
+        _KeyValueMoney(
           label: 'Estimate',
-          value: _money(template.forecastAmount, template.forecastCurrency),
+          amount: template.forecastAmount,
+          currencyCode: template.forecastCurrency,
         ),
         if (description != null && description.isNotEmpty)
           _KeyValueText(label: 'Description', value: description),
@@ -3814,6 +3824,48 @@ class _KeyValueText extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(child: Text(value, textAlign: TextAlign.end)),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyValueMoney extends StatelessWidget {
+  const _KeyValueMoney({
+    required this.label,
+    required this.amount,
+    required this.currencyCode,
+  });
+
+  final String label;
+  final String amount;
+  final String currencyCode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: MoneyText(
+              amount: amount,
+              currencyCode: currencyCode,
+              textAlign: TextAlign.end,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         ],
       ),
     );
