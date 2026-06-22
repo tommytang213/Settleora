@@ -155,6 +155,14 @@ V1-aligned updates made in this branch:
   residual/allocation/payment authority, proof behavior, settlement state
   transitions, persistence, OpenAPI, generated clients, or backend/API
   behavior.
+- Home dashboard "You owe" / "You're owed" metrics and upcoming personal /
+  recurring bill rows now carry server-provided amount and currency values
+  separately through `_BalanceMetric` / `_DashboardBillRow` and render the
+  visible standalone readouts with shared `MoneyText`. This records the
+  2026-06-22 21:52 HKT home-dashboard money readout follow-up without parsing,
+  rounding, recalculating, aggregating, changing dashboard loading, navigation,
+  sync, notification, auth/session, repository contract, OpenAPI, generated
+  client, settlement, bill, recurring, persistence, or backend/API authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -226,16 +234,13 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Home dashboard money readouts: carry amount/currency separately through
-   `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
-   loaded-summary-only dashboard behavior unchanged.
-2. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
+1. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
    list/detail, share panel, payer, participant, and adjustment readouts to
    `MoneyText` where they are not sentence/search/semantics strings.
-3. Future bill due-date/readout slice: replace the future bill due-date
+2. Future bill due-date/readout slice: replace the future bill due-date
    `TextFormField` with `DateField` and migrate future bill amount readouts to
    `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
-4. Optional saved OCR apply-preview screenshot cutoff polish remains available
+3. Optional saved OCR apply-preview screenshot cutoff polish remains available
    as non-blocking visual polish; do not mix it into unrelated money/date
    migrations.
 
