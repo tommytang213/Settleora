@@ -19,6 +19,7 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('monthly report screen shows loading and loaded content', (
@@ -50,6 +51,13 @@ void main() {
     expect(find.text('3'), findsOneWidget);
     expect(find.text('Total by currency'), findsOneWidget);
     expect(find.text('123.4500 USD'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('monthly-report-total-0')),
+        matching: find.byType(MoneyText),
+      ),
+      findsOneWidget,
+    );
 
     await tester.scrollUntilVisible(
       find.text('Your share by currency'),
@@ -59,6 +67,13 @@ void main() {
 
     expect(find.text('Your share by currency'), findsOneWidget);
     expect(find.text('41.1500 USD'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('monthly-report-actor-share-0')),
+        matching: find.byType(MoneyText),
+      ),
+      findsOneWidget,
+    );
 
     await tester.scrollUntilVisible(
       find.text('You paid by currency'),
@@ -68,6 +83,13 @@ void main() {
 
     expect(find.text('You paid by currency'), findsOneWidget);
     expect(find.text('90.00 USD'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('monthly-report-actor-paid-0')),
+        matching: find.byType(MoneyText),
+      ),
+      findsOneWidget,
+    );
 
     await tester.scrollUntilVisible(
       find.text('Reconciliation'),
@@ -178,6 +200,13 @@ void main() {
     );
 
     expect(find.text('50.00 EUR'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('monthly-report-total-0')),
+        matching: find.byType(MoneyText),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('123.4500 USD'), findsNothing);
     expect(find.text('9000 JPY'), findsNothing);
     expect(

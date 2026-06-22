@@ -115,6 +115,13 @@ V1-aligned updates made in this branch:
   plus ISO currency. This records the 2026-06-22 18:22 HKT recurring follow-up
   without changing recurring forecast, draft generation, split, payer,
   rounding, persistence, request construction, or API authority.
+- Monthly report currency bucket rows now use shared `MoneyText` for total,
+  actor-share, and actor-paid amount-plus-ISO-currency readouts while
+  preserving the existing server-provided values, search/filter behavior,
+  report summary semantics, and display strings. This records the 2026-06-22
+  18:56 HKT reports-money follow-up without changing report generation,
+  aggregation, rounding, filtering authority, persistence, OpenAPI, generated
+  clients, or backend behavior.
 
 ## Feature-Private Duplicate Inventory
 
@@ -193,7 +200,9 @@ Current tests already guard many unsafe details, but audit risks remain:
   amount, item line total, and payer amount fields now use shared static-code
   money inputs while keeping row currency controls visible. Bill revision
   editor rows and review readouts now use shared `MoneyInput` / `MoneyText`.
-  Remaining bounded follow-ups are reports and other non-migrated money fields.
+  Monthly report currency total/share/paid readouts now use shared `MoneyText`.
+  Remaining bounded follow-ups are other non-migrated money fields outside the
+  reports slice.
 - Shared `MoneyText` exists; broader amount display migration remains
   incremental where feature-local formatting is still repeated.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
