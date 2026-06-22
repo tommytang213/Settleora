@@ -15,7 +15,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../receipt_ocr_review_screen_test.dart' as ocr;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1441-mobile-bills-ocr-money-date';
+    '/workspace/logs/settleora-visual-qa/20260622-1542-mobile-ocr-money-section-density';
 
 void main() {
   testWidgets('captures bills OCR money date visual QA evidence', (
@@ -107,12 +107,14 @@ class _BillsOcrMoneyDateShowcase extends StatefulWidget {
 class _BillsOcrMoneyDateShowcaseState
     extends State<_BillsOcrMoneyDateShowcase> {
   final _amountController = TextEditingController(text: '43.00');
+  final _subtotalController = TextEditingController(text: '38.40');
   final _dateController = TextEditingController(text: '2026-06-22');
   String _currency = 'HKD';
 
   @override
   void dispose() {
     _amountController.dispose();
+    _subtotalController.dispose();
     _dateController.dispose();
     super.dispose();
   }
@@ -136,7 +138,7 @@ class _BillsOcrMoneyDateShowcaseState
               const InfoCard(
                 title: 'Shared form controls',
                 message:
-                    'Bills and OCR review keep dates picker-backed and money explicit with currency.',
+                    'Bills and OCR review keep dates picker-backed and money explicit with section currency support.',
               ),
               const SizedBox(height: SettleoraSpacing.md),
               const AppCard(
@@ -159,6 +161,15 @@ class _BillsOcrMoneyDateShowcaseState
                     setState(() => _currency = value ?? _currency),
                 amountLabel: 'Grand total',
                 currencyLabel: 'Receipt currency',
+              ),
+              const SizedBox(height: SettleoraSpacing.md),
+              MoneyInput(
+                amountController: _subtotalController,
+                currencyValue: _currency,
+                onCurrencyChanged: (_) {},
+                amountLabel: 'Subtotal',
+                currencyLabel: 'Receipt currency',
+                currencyControl: MoneyInputCurrencyControl.staticCode,
               ),
               const SizedBox(height: SettleoraSpacing.md),
               DateField(controller: _dateController, label: 'Receipt date'),

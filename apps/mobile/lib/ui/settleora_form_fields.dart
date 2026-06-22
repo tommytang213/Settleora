@@ -312,6 +312,8 @@ class MoneyAmountCurrencyField extends StatelessWidget {
   }
 }
 
+enum MoneyInputCurrencyControl { selector, staticCode }
+
 class MoneyInput extends StatelessWidget {
   const MoneyInput({
     super.key,
@@ -325,6 +327,7 @@ class MoneyInput extends StatelessWidget {
     this.enabled = true,
     this.isLoading = false,
     this.allowSignedAmount = false,
+    this.currencyControl = MoneyInputCurrencyControl.selector,
     this.amountValidator,
     this.currencyValidator,
     this.helperText,
@@ -341,6 +344,7 @@ class MoneyInput extends StatelessWidget {
   final bool enabled;
   final bool isLoading;
   final bool allowSignedAmount;
+  final MoneyInputCurrencyControl currencyControl;
   final FormFieldValidator<String>? amountValidator;
   final FormFieldValidator<String?>? currencyValidator;
   final String? helperText;
@@ -349,8 +353,23 @@ class MoneyInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final normalizedCurrency = settleoraNormalizeCurrencyCode(currencyValue);
+    final currencyDisplay = normalizedCurrency ?? 'No currency';
+    final effectiveHelperText =
+        helperText ??
+        switch (currencyControl) {
+          MoneyInputCurrencyControl.selector =>
+            'Enter the amount for ${normalizedCurrency ?? 'the selected currency'}.',
+          MoneyInputCurrencyControl.staticCode =>
+            normalizedCurrency == null
+                ? 'No currency selected in $currencyLabel.'
+                : 'Uses $normalizedCurrency from $currencyLabel.',
+        };
     return Semantics(
-      label: '$amountLabel and $currencyLabel',
+      label: switch (currencyControl) {
+        MoneyInputCurrencyControl.selector => '$amountLabel and $currencyLabel',
+        MoneyInputCurrencyControl.staticCode =>
+          '$amountLabel amount in $currencyDisplay',
+      },
       textField: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -365,27 +384,37 @@ class MoneyInput extends StatelessWidget {
             ),
             decoration: InputDecoration(
               labelText: amountLabel,
-              helperText:
-                  helperText ??
-                  'Enter the amount for ${normalizedCurrency ?? 'the selected currency'}.',
+              helperText: effectiveHelperText,
               errorText: errorText,
               border: const OutlineInputBorder(),
-              suffixText: normalizedCurrency,
+              suffixIcon: Padding(
+                padding: const EdgeInsetsDirectional.only(end: 12),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text(
+                    currencyDisplay,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ),
+              suffixIconConstraints: const BoxConstraints(minWidth: 48),
             ),
             validator: amountValidator,
           ),
-          const SizedBox(height: 10),
-          CurrencySelector(
-            key: currencyKey,
-            value: currencyValue,
-            onChanged: onCurrencyChanged,
-            label: currencyLabel,
-            enabled: enabled,
-            isLoading: isLoading,
-            validator: currencyValidator,
-            helperText:
-                'Currency stays explicit; the server validates final money rules.',
-          ),
+          if (currencyControl == MoneyInputCurrencyControl.selector) ...[
+            const SizedBox(height: 10),
+            CurrencySelector(
+              key: currencyKey,
+              value: currencyValue,
+              onChanged: onCurrencyChanged,
+              label: currencyLabel,
+              enabled: enabled,
+              isLoading: isLoading,
+              validator: currencyValidator,
+              helperText:
+                  'Currency stays explicit; the server validates final money rules.',
+            ),
+          ],
         ],
       ),
     );
