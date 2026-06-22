@@ -15,7 +15,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../receipt_ocr_review_screen_test.dart' as ocr;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1542-mobile-ocr-money-section-density';
+    '/workspace/logs/settleora-visual-qa/20260622-1612-mobile-ocr-line-item-money-fields';
 
 void main() {
   testWidgets('captures bills OCR money date visual QA evidence', (
@@ -42,7 +42,7 @@ void main() {
     await _captureBoundary(
       tester,
       showcaseKey,
-      'bills-ocr-money-date-showcase-390x844.png',
+      'ocr-line-item-money-showcase-390x844.png',
     );
 
     const billCreateKey = Key('bills-create-money-date-capture');
@@ -88,10 +88,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit receipt review'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('receipt-review-edit-line-total-0')),
+    );
+    await tester.pumpAndSettle();
     await _captureBoundary(
       tester,
       ocrEditKey,
-      'receipt-ocr-review-edit-money-date-390x844.png',
+      'receipt-ocr-review-edit-line-money-fields-390x844.png',
     );
   });
 }
@@ -108,6 +112,8 @@ class _BillsOcrMoneyDateShowcaseState
     extends State<_BillsOcrMoneyDateShowcase> {
   final _amountController = TextEditingController(text: '43.00');
   final _subtotalController = TextEditingController(text: '38.40');
+  final _unitPriceController = TextEditingController(text: '19.20');
+  final _lineTotalController = TextEditingController(text: '38.40');
   final _dateController = TextEditingController(text: '2026-06-22');
   String _currency = 'HKD';
 
@@ -115,6 +121,8 @@ class _BillsOcrMoneyDateShowcaseState
   void dispose() {
     _amountController.dispose();
     _subtotalController.dispose();
+    _unitPriceController.dispose();
+    _lineTotalController.dispose();
     _dateController.dispose();
     super.dispose();
   }
@@ -170,6 +178,38 @@ class _BillsOcrMoneyDateShowcaseState
                 amountLabel: 'Subtotal',
                 currencyLabel: 'Receipt currency',
                 currencyControl: MoneyInputCurrencyControl.staticCode,
+              ),
+              const SizedBox(height: SettleoraSpacing.md),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Line item money fields',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: SettleoraSpacing.sm),
+                    MoneyInput(
+                      amountController: _unitPriceController,
+                      currencyValue: _currency,
+                      onCurrencyChanged: (_) {},
+                      amountLabel: 'Unit price',
+                      currencyLabel: 'Receipt currency',
+                      currencyControl: MoneyInputCurrencyControl.staticCode,
+                    ),
+                    const SizedBox(height: SettleoraSpacing.sm),
+                    MoneyInput(
+                      amountController: _lineTotalController,
+                      currencyValue: _currency,
+                      onCurrencyChanged: (_) {},
+                      amountLabel: 'Line total',
+                      currencyLabel: 'Receipt currency',
+                      currencyControl: MoneyInputCurrencyControl.staticCode,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: SettleoraSpacing.md),
               DateField(controller: _dateController, label: 'Receipt date'),

@@ -1176,13 +1176,13 @@ void main() {
       expect(find.byTooltip('Save receipt review'), findsOneWidget);
       expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
       expect(find.byType(DateField), findsOneWidget);
-      expect(find.byType(MoneyInput), findsNWidgets(5));
+      expect(find.byType(MoneyInput), findsNWidgets(7));
       expect(find.byType(CurrencySelector), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('Receipt currency selector')),
         findsOneWidget,
       );
-      expect(find.text('Uses USD from Receipt currency.'), findsNWidgets(5));
+      expect(find.text('Uses USD from Receipt currency.'), findsNWidgets(7));
       expect(
         find.bySemanticsLabel(RegExp('Subtotal amount suggestion')),
         findsOneWidget,

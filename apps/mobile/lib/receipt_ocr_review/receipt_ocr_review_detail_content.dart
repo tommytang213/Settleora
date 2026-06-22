@@ -465,6 +465,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                   key: ValueKey('receipt-review-edit-line-card-$index'),
                   index: index,
                   editors: _lineEditors[index],
+                  currencyController: _currencyController,
                   enabled: !isBusy,
                   onRemove: () => _removeLine(index),
                 ),
@@ -551,12 +552,14 @@ class _LineEditCard extends StatelessWidget {
     super.key,
     required this.index,
     required this.editors,
+    required this.currencyController,
     required this.enabled,
     required this.onRemove,
   });
 
   final int index;
   final _ReceiptOcrReviewLineEditors editors;
+  final TextEditingController currencyController;
   final bool enabled;
   final VoidCallback onRemove;
 
@@ -609,27 +612,23 @@ class _LineEditCard extends StatelessWidget {
                 ),
                 validator: _quantityValidator,
               ),
-              _EditTextField(
-                key: ValueKey('receipt-review-edit-line-unit-$index'),
-                controller: editors.unitPriceAmountController,
-                label: 'Unit price',
+              _ReceiptOcrMoneyInput(
+                amountKey: ValueKey('receipt-review-edit-line-unit-$index'),
+                amountController: editors.unitPriceAmountController,
+                currencyController: currencyController,
+                amountLabel: 'Unit price',
                 semanticLabel: 'Line unit price amount suggestion',
                 enabled: enabled,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: _lineMoneyValidator,
+                amountValidator: _lineMoneyValidator,
               ),
-              _EditTextField(
-                key: ValueKey('receipt-review-edit-line-total-$index'),
-                controller: editors.lineTotalAmountController,
-                label: 'Line total',
+              _ReceiptOcrMoneyInput(
+                amountKey: ValueKey('receipt-review-edit-line-total-$index'),
+                amountController: editors.lineTotalAmountController,
+                currencyController: currencyController,
+                amountLabel: 'Line total',
                 semanticLabel: 'Line total amount suggestion',
                 enabled: enabled,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: _lineMoneyValidator,
+                amountValidator: _lineMoneyValidator,
               ),
             ],
           ),
