@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_revision_proposal_editor_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets(
@@ -27,6 +28,8 @@ void main() {
       expect(find.text('Unsupported in this editor'), findsOneWidget);
       expect(find.text('Item-level edits'), findsOneWidget);
       expect(find.text('Receipt or OCR review'), findsOneWidget);
+      expect(find.byType(MoneyInput), findsNWidgets(3));
+      expect(find.byType(MoneyAmountCurrencyField), findsNothing);
 
       await tester.enterText(
         find.byKey(const Key('proposal-total-amount')),

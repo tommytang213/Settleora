@@ -355,7 +355,7 @@ class _SettleoraBillRevisionProposalEditorScreenState
               title: 'Proposal total',
               icon: Icons.payments_outlined,
               children: [
-                MoneyAmountCurrencyField(
+                MoneyInput(
                   amountKey: const Key('proposal-total-amount'),
                   currencyKey: const Key('proposal-total-currency'),
                   amountController: _totalAmountController,
@@ -581,7 +581,7 @@ class _MoneyRowEditor extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Profile ${_shortId(profileId)}'),
               const SizedBox(height: 10),
-              MoneyAmountCurrencyField(
+              MoneyInput(
                 amountKey: amountKey,
                 currencyKey: currencyKey,
                 amountController: amountController,
