@@ -129,6 +129,15 @@ V1-aligned updates made in this branch:
   behavior. This records the 2026-06-22 19:34 HKT personal-bill itemized
   follow-up without changing bill split, rounding, persistence, sync, OpenAPI,
   generated clients, or API/domain authority.
+- Saved OCR review inside bill detail now uses shared `DateField` for the
+  in-bill receipt date suggestion and shared `MoneyInput` static-code rows for
+  per-line unit price and line total controls while preserving the existing
+  per-line currency selectors, ISO controller/storage values, saved-review
+  save/apply request construction, validation behavior, and provisional OCR
+  authority boundaries. This records the 2026-06-22 20:02 HKT saved OCR
+  in-bill editor follow-up without changing OCR acceptance, bill split, money,
+  rounding, persistence, sync, OpenAPI, generated clients, or API/domain
+  authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -154,14 +163,6 @@ Remaining eligible raw money/date candidates:
   through `_money(...)` / `'$currency 0.00'` and render them with plain `Text`.
   These are display-only amount-plus-currency readouts and should move to
   amount/currency data plus `MoneyText` in a small Home dashboard slice.
-- Saved OCR review inside bill detail,
-  `apps/mobile/lib/bills/bill_list_screen.dart`:
-  `_ReceiptOcrEditableReviewForm` still uses raw `TextFormField` for
-  `*-ocr-edit-date`; `_ReceiptOcrEditableItemCard` still uses raw numeric
-  `TextFormField` rows for `*-ocr-item-unit-price-*` and
-  `*-ocr-item-line-total-*`, with per-line `CurrencySelector`. These should
-  move to shared `DateField` and `MoneyInput` in the in-bill saved-review
-  editor while preserving the provisional-review-only apply/save authority.
 - Saved OCR review readouts,
   `apps/mobile/lib/bills/bill_list_screen.dart`: apply preview header totals,
   line sums, saved review totals, saved line unit/total labels, and some bill
@@ -225,21 +226,17 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Saved OCR in-bill editor date/money fields: migrate the saved OCR review
-   date field and per-line unit/line-total fields in
-   `bill_list_screen.dart` to `DateField` and `MoneyInput` static-code rows;
-   keep provisional OCR review save/apply semantics unchanged.
-2. Settlement money readouts: add or reuse a key-value money readout wrapper
+1. Settlement money readouts: add or reuse a key-value money readout wrapper
    backed by `MoneyText` and migrate settlement balances, requests, payments,
    allocations, and residual standalone readouts; do not change settlement
    state, residual handling, proof, payment, or authorization behavior.
-3. Home dashboard money readouts: carry amount/currency separately through
+2. Home dashboard money readouts: carry amount/currency separately through
    `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
    loaded-summary-only dashboard behavior unchanged.
-4. Bill detail/read-only money readouts: migrate standalone bill list/detail,
+3. Bill detail/read-only money readouts: migrate standalone bill list/detail,
    share panel, payer, participant, adjustment, and saved OCR readouts to
    `MoneyText` where they are not sentence/search/semantics strings.
-5. Future bill due-date/readout slice: replace the future bill due-date
+4. Future bill due-date/readout slice: replace the future bill due-date
    `TextFormField` with `DateField` and migrate future bill amount readouts to
    `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
 

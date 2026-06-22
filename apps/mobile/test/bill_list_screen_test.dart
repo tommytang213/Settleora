@@ -359,8 +359,9 @@ void main() {
       find.byKey(const Key('personal-bill-ocr-edit-merchant')),
       'Corrected Market',
     );
-    await tester.enterText(
-      find.byKey(const Key('personal-bill-ocr-edit-date')),
+    await _setDateField(
+      tester,
+      const Key('personal-bill-ocr-edit-date'),
       '2026-06-13',
     );
     await _selectCurrency(
@@ -1076,6 +1077,38 @@ void main() {
     );
     expect(find.text('Review-only totals'), findsOneWidget);
     expect(find.text('Grand total'), findsOneWidget);
+    final savedOcrDateField = tester.widget<DateField>(
+      find.byKey(const Key('saved-ocr-review-ocr-edit-date')),
+    );
+    expect(savedOcrDateField.controller.text, '2026-05-17');
+    final savedOcrUnitPrice = tester.widget<MoneyInput>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyInput &&
+            widget.amountKey ==
+                const ValueKey('saved-ocr-review-ocr-item-unit-price-0'),
+      ),
+    );
+    expect(
+      savedOcrUnitPrice.currencyControl,
+      MoneyInputCurrencyControl.staticCode,
+    );
+    expect(savedOcrUnitPrice.currencyValue, 'USD');
+    expect(savedOcrUnitPrice.currencyLabel, 'Line currency');
+    final savedOcrLineTotal = tester.widget<MoneyInput>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MoneyInput &&
+            widget.amountKey ==
+                const ValueKey('saved-ocr-review-ocr-item-line-total-0'),
+      ),
+    );
+    expect(
+      savedOcrLineTotal.currencyControl,
+      MoneyInputCurrencyControl.staticCode,
+    );
+    expect(savedOcrLineTotal.currencyValue, 'USD');
+    expect(savedOcrLineTotal.currencyLabel, 'Line currency');
     await _scrollSavedOcrReviewEditActionsIntoView(tester);
     expect(find.text('Save review'), findsOneWidget);
     expect(find.textContaining('Apply'), findsNothing);
@@ -1084,8 +1117,9 @@ void main() {
       find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
       'Edited Market',
     );
-    await tester.enterText(
-      find.byKey(const Key('saved-ocr-review-ocr-edit-date')),
+    await _setDateField(
+      tester,
+      const Key('saved-ocr-review-ocr-edit-date'),
       '2026-06-14',
     );
     await _selectCurrency(
@@ -3349,8 +3383,9 @@ void main() {
         find.byKey(const Key('personal-bill-ocr-edit-merchant')),
         'Corrected Market Ltd.',
       );
-      await tester.enterText(
-        find.byKey(const Key('personal-bill-ocr-edit-date')),
+      await _setDateField(
+        tester,
+        const Key('personal-bill-ocr-edit-date'),
         '2026-06-13',
       );
       await _selectCurrency(
@@ -7218,8 +7253,9 @@ void main() {
         find.byKey(const Key('group-bill-ocr-edit-merchant')),
         'Corrected Noodle House Ltd.',
       );
-      await tester.enterText(
-        find.byKey(const Key('group-bill-ocr-edit-date')),
+      await _setDateField(
+        tester,
+        const Key('group-bill-ocr-edit-date'),
         '2026-06-13',
       );
       await _selectCurrency(
@@ -7524,11 +7560,11 @@ void main() {
       );
       expect(
         tester
-            .widget<TextFormField>(
+            .widget<DateField>(
               find.byKey(const Key('group-bill-ocr-edit-date')),
             )
             .controller
-            ?.text,
+            .text,
         '2026-06-11',
       );
       expect(
@@ -11427,6 +11463,13 @@ Future<void> _tapReceiptOcrApply(WidgetTester tester, String keyPrefix) async {
   final finder = find.byKey(Key('$keyPrefix-ocr-apply'));
   await tester.ensureVisible(finder);
   await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _setDateField(WidgetTester tester, Key key, String isoDate) async {
+  final field = tester.widget<DateField>(find.byKey(key));
+  field.controller.text = isoDate;
+  field.onChanged?.call(isoDate);
   await tester.pumpAndSettle();
 }
 
