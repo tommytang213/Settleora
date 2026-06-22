@@ -181,6 +181,12 @@ V1-aligned updates made in this branch:
   aggregating, changing split/payer/participant/revision/acknowledgement
   behavior, persistence, sync, OCR acceptance, OpenAPI, generated clients, or
   API/domain authority.
+- Saved OCR apply-preview visual evidence now includes a dedicated scrolled
+  lines capture that frames the first preview line money/readout row fully at
+  390x844, alongside the overview capture for the header/summary readouts. This
+  records the 2026-06-22 23:28 HKT visual-polish follow-up without changing
+  saved OCR review/apply behavior, bill draft construction, money parsing,
+  rounding, persistence, OpenAPI, generated clients, or API/domain authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -237,9 +243,9 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Optional saved OCR apply-preview screenshot cutoff polish remains available
-   as non-blocking visual polish; do not mix it into unrelated money/date
-   migrations.
+1. No remaining money/date migration or saved OCR apply-preview screenshot
+   cutoff follow-up is tracked in this audit as of the 2026-06-22 23:28 HKT
+   visual-polish capture update.
 
 ## Feature-Private Duplicate Inventory
 
