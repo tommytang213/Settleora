@@ -83,6 +83,11 @@ V1-aligned updates made in this branch:
   presentation-only amount readouts. Receipt review line amount fields, group
   bill item/payer money controls, revision editor rows, and broader recurring
   and report fields remain follow-up candidates.
+- Receipt OCR review edit header totals now use one section-level explicit
+  `CurrencySelector` and `MoneyInput` static-code amount rows for subtotal, tax,
+  service charge, discount, and grand total. This reduces repeated selector
+  density while keeping each amount visibly tied to the current ISO currency and
+  preserving the existing single OCR currency controller/validation path.
 
 ## Feature-Private Duplicate Inventory
 
@@ -153,11 +158,14 @@ Current tests already guard many unsafe details, but audit risks remain:
 
 - `MoneyAmountCurrencyField` exists and combines decimal keyboard input with `CurrencySelector`.
 - Many feature flows still use raw `TextField` / `TextFormField` plus `TextInputType.numberWithOptions(decimal: true)`.
-  Bills/OCR receipt review header totals now use shared `MoneyInput`; receipt
-  review lines, group bill create item/payer rows, revision editor rows,
-  recurring bills, reports, and other non-migrated fields remain gradual
-  migration candidates.
-- Shared `MoneyText` is missing, so amount display formatting is repeated across screens.
+  Bills/OCR receipt review header totals now use shared `MoneyInput` and avoid
+  repeated currency selectors through
+  `MoneyInputCurrencyControl.staticCode` under the section-level OCR currency
+  selector. Remaining bounded follow-ups are receipt review line unit price and
+  line total fields, group bill create item/payer rows, revision editor rows,
+  recurring bills, reports, and other non-migrated money fields.
+- Shared `MoneyText` exists; broader amount display migration remains
+  incremental where feature-local formatting is still repeated.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
 - UI must never become authoritative for money, rounding, split, settlement, payment, or OCR acceptance truth.
 
@@ -173,7 +181,7 @@ Current tests already guard many unsafe details, but audit risks remain:
 | `StatusChip` | `exists_but_outdated` | Shared chip exists and is useful; many feature-private chips remain and semantic variants may need V1 expansion. |
 | `MetricChip` | `feature_private_duplicate` | `_DashboardMetricChip` exists privately; no shared component. |
 | `MoneyText` | `matches_v1_reference` | Shared presentation-only amount plus ISO currency text now exists with tabular figures; broader caller migration remains incremental. |
-| `MoneyInput` | `matches_v1_reference` | Shared `MoneyInput` now combines decimal-friendly amount entry with explicit currency selection and no authoritative rounding; legacy `MoneyAmountCurrencyField` delegates to it. Raw feature fields remain gradual migration candidates. |
+| `MoneyInput` | `matches_v1_reference` | Shared `MoneyInput` now combines decimal-friendly amount entry with explicit currency selection and no authoritative rounding. It also supports an opt-in static-code display for shared-currency sections where a section-level `CurrencySelector` already exists; legacy `MoneyAmountCurrencyField` delegates to the default selector mode. Raw feature fields remain gradual migration candidates. |
 | `CurrencySelector` | `matches_v1_reference` | Shared selector exists with ISO codes and unknown-value preservation; may need searchable/scalable expansion later. |
 | `DateField / DatePicker` | `matches_v1_reference` | Shared picker-backed `DateField` now displays product-facing date text while preserving ISO controller values; manual finance forms use it. Other raw date strings remain migration candidates. |
 | `CategorySelector` | `missing` | Category controls are feature-local or absent. |

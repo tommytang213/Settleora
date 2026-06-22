@@ -383,6 +383,41 @@ void main() {
     amountController.dispose();
   });
 
+  testWidgets('money input can show a section currency without selector', (
+    tester,
+  ) async {
+    final amountController = TextEditingController(text: '43.00');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: MoneyInput(
+            amountKey: const Key('money-input-static-amount'),
+            amountController: amountController,
+            currencyValue: 'hkd',
+            onCurrencyChanged: (_) {},
+            amountLabel: 'Subtotal',
+            currencyLabel: 'Receipt currency',
+            currencyControl: MoneyInputCurrencyControl.staticCode,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Subtotal'), findsOneWidget);
+    expect(find.text('HKD'), findsOneWidget);
+    expect(find.text('Receipt currency'), findsNothing);
+    expect(find.byType(CurrencySelector), findsNothing);
+    expect(find.text('Uses HKD from Receipt currency.'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp('Subtotal amount in HKD')),
+      findsOneWidget,
+    );
+
+    amountController.dispose();
+  });
+
   testWidgets('date field stores ISO value after picker selection', (
     tester,
   ) async {

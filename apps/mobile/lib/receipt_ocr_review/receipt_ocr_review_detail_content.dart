@@ -396,7 +396,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               semanticLabel: 'Subtotal amount suggestion',
               enabled: !isBusy,
               amountValidator: _moneyValidator,
-              onCurrencyChanged: () => setState(() {}),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-tax'),
@@ -406,7 +405,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               semanticLabel: 'Tax amount suggestion',
               enabled: !isBusy,
               amountValidator: _moneyValidator,
-              onCurrencyChanged: () => setState(() {}),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-service-charge'),
@@ -416,7 +414,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               semanticLabel: 'Service charge amount suggestion',
               enabled: !isBusy,
               amountValidator: _moneyValidator,
-              onCurrencyChanged: () => setState(() {}),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-discount'),
@@ -426,7 +423,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               semanticLabel: 'Discount amount suggestion',
               enabled: !isBusy,
               amountValidator: _moneyValidator,
-              onCurrencyChanged: () => setState(() {}),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-grand-total'),
@@ -436,7 +432,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               semanticLabel: 'Grand total amount suggestion',
               enabled: !isBusy,
               amountValidator: _moneyValidator,
-              onCurrencyChanged: () => setState(() {}),
             ),
             const SizedBox(height: 12),
             Row(
@@ -652,7 +647,6 @@ class _ReceiptOcrMoneyInput extends StatelessWidget {
     required this.amountLabel,
     required this.semanticLabel,
     required this.enabled,
-    required this.onCurrencyChanged,
     required this.amountValidator,
   });
 
@@ -662,7 +656,6 @@ class _ReceiptOcrMoneyInput extends StatelessWidget {
   final String amountLabel;
   final String semanticLabel;
   final bool enabled;
-  final VoidCallback onCurrencyChanged;
   final FormFieldValidator<String> amountValidator;
 
   @override
@@ -680,13 +673,10 @@ class _ReceiptOcrMoneyInput extends StatelessWidget {
           currencyValue: currencyController.text,
           amountLabel: amountLabel,
           currencyLabel: 'Receipt currency',
+          currencyControl: MoneyInputCurrencyControl.staticCode,
           enabled: enabled,
-          helperText: 'Review the amount before applying receipt suggestions.',
           amountValidator: amountValidator,
-          onCurrencyChanged: (currency) {
-            currencyController.text = currency ?? '';
-            onCurrencyChanged();
-          },
+          onCurrencyChanged: (_) {},
         ),
       ),
     );
