@@ -169,6 +169,18 @@ V1-aligned updates made in this branch:
   future bill money/date follow-up without changing future bill create, edit,
   post, cancel, group participant, payload, split, settlement, persistence,
   OpenAPI, generated client, or backend/API authority.
+- Group/personal bill list and detail read-only money readouts outside saved
+  OCR now use shared `MoneyText` where the amount plus ISO currency is a
+  standalone visual readout, including read-only group bill list amounts,
+  pending revision amount chips, current-user share readouts, payer summaries,
+  non-saved-OCR item rows, participant share rows, payer rows, and adjustment
+  rows. Search/filter strings, semantic labels, sentence copy, fixture text,
+  saved OCR behavior, and request/payload construction remain string-based
+  where appropriate. This records the 2026-06-22 23:00 HKT bill detail/list
+  read-only money-readout follow-up without parsing, rounding, recalculating,
+  aggregating, changing split/payer/participant/revision/acknowledgement
+  behavior, persistence, sync, OCR acceptance, OpenAPI, generated clients, or
+  API/domain authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -189,14 +201,11 @@ shared money/date migration follow-ups.
 
 Remaining eligible raw money/date candidates:
 
-- Group/personal bill detail readouts,
-  `apps/mobile/lib/bills/bill_list_screen.dart`: several non-editor amount
-  readouts still use `_money(...)`, including read-only group bill list
-  subtitles, pending revision chip labels, current-user share panel text, payer
-  summaries, non-saved-OCR item rows, participant share rows, payer rows,
-  adjustment rows, and acknowledgement copy. Standalone UI readouts should move
-  toward `MoneyText`; hidden/searchable-field collections and sentence copy can
-  remain string-based unless a later UI slice gives them a structured readout.
+- No remaining group/personal bill detail standalone read-only money readout
+  candidate is tracked outside saved OCR as of the 2026-06-22 23:00 HKT bill
+  detail/list follow-up. `_money(...)` remains appropriate in this screen for
+  search/filter text, semantic labels, sentence copy, test fixture text, and
+  non-widget concatenation.
 
 Inspected but no action needed for this money/date migration queue:
 
@@ -228,13 +237,7 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
-   list/detail, share panel, payer, participant, and adjustment readouts to
-   `MoneyText` where they are not sentence/search/semantics strings.
-2. Future bill due-date/readout slice: replace the future bill due-date
-   `TextFormField` with `DateField` and migrate future bill amount readouts to
-   `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
-3. Optional saved OCR apply-preview screenshot cutoff polish remains available
+1. Optional saved OCR apply-preview screenshot cutoff polish remains available
    as non-blocking visual polish; do not mix it into unrelated money/date
    migrations.
 

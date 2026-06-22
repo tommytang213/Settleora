@@ -14623,8 +14623,18 @@ class _ReadOnlyBillSummaryTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${bill.billDate} - ${_money(bill.totalAmount, bill.totalCurrency)}',
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(bill.billDate),
+                  MoneyText(
+                    amount: bill.totalAmount,
+                    currencyCode: bill.totalCurrency,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Wrap(
@@ -14820,8 +14830,9 @@ class _PendingRevisionBanner extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _SoftChip(
-                  label: _money(revision.totalAmount, revision.totalCurrency),
+                _MoneyChip(
+                  amount: revision.totalAmount,
+                  currency: revision.totalCurrency,
                   icon: Icons.payments_outlined,
                 ),
                 if (requiresPayerConfirmation)
@@ -15118,11 +15129,9 @@ class _GroupBillSharePanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Text(
-                _money(
-                  participant.resolvedShareAmount,
-                  participant.resolvedShareCurrency,
-                ),
+              MoneyText(
+                amount: participant.resolvedShareAmount,
+                currencyCode: participant.resolvedShareCurrency,
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.end,
               ),
@@ -15156,13 +15165,16 @@ class _GroupBillSharePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _KeyValueText(
+          _KeyValueMoneyList(
             label: 'Payer summary',
-            value: bill.payers.isEmpty
-                ? 'No payer rows visible'
-                : bill.payers
-                      .map((payer) => _money(payer.amount, payer.currency))
-                      .join(', '),
+            emptyValue: 'No payer rows visible',
+            values: [
+              for (final payer in bill.payers)
+                _MoneyReadoutValue(
+                  amount: payer.amount,
+                  currency: payer.currency,
+                ),
+            ],
           ),
           _KeyValueText(
             label: 'Assigned items',
@@ -15681,7 +15693,8 @@ class _BillItems extends StatelessWidget {
         for (final item in sorted)
           _BillItemRow(
             name: item.name,
-            amount: _money(item.amount, item.currency),
+            amount: item.amount,
+            currency: item.currency,
             note: item.note,
           ),
       ],
@@ -15690,10 +15703,16 @@ class _BillItems extends StatelessWidget {
 }
 
 class _BillItemRow extends StatelessWidget {
-  const _BillItemRow({required this.name, required this.amount, this.note});
+  const _BillItemRow({
+    required this.name,
+    required this.amount,
+    required this.currency,
+    this.note,
+  });
 
   final String name;
   final String amount;
+  final String currency;
   final String? note;
 
   @override
@@ -15723,8 +15742,9 @@ class _BillItemRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            amount,
+          MoneyText(
+            amount: amount,
+            currencyCode: currency,
             style: Theme.of(context).textTheme.titleSmall,
             textAlign: TextAlign.end,
           ),
@@ -15762,7 +15782,7 @@ class _BillParticipants extends StatelessWidget {
       title: 'Participants',
       children: [
         for (var index = 0; index < participants.length; index += 1)
-          _KeyValueText(
+          _KeyValueMoneyStatusText(
             label: _participantDisplayLabel(
               index:
                   participantDisplayIndexes[participants[index].userProfileId
@@ -15772,8 +15792,11 @@ class _BillParticipants extends StatelessWidget {
               currentUserProfileId: currentUserProfileId,
               participantDisplayNames: participantDisplayNames,
             ),
-            value:
-                '${_money(participants[index].resolvedShareAmount, participants[index].resolvedShareCurrency)} - ${settleoraBillParticipantStatusLabel(participants[index].status)}',
+            amount: participants[index].resolvedShareAmount,
+            currency: participants[index].resolvedShareCurrency,
+            statusLabel: settleoraBillParticipantStatusLabel(
+              participants[index].status,
+            ),
           ),
       ],
     );
@@ -16047,9 +16070,10 @@ class _BillPayers extends StatelessWidget {
       title: 'Payers',
       children: [
         for (var index = 0; index < payers.length; index += 1)
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: 'Payer ${index + 1}',
-            value: _money(payers[index].amount, payers[index].currency),
+            amount: payers[index].amount,
+            currency: payers[index].currency,
           ),
       ],
     );
@@ -16079,9 +16103,10 @@ class _BillAdjustments extends StatelessWidget {
       title: 'Adjustments',
       children: [
         for (final adjustment in sorted)
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: _titleFromCode(adjustment.type),
-            value: _money(adjustment.amount, adjustment.currency),
+            amount: adjustment.amount,
+            currency: adjustment.currency,
           ),
       ],
     );
@@ -16582,6 +16607,116 @@ class _KeyValueMoneyText extends StatelessWidget {
   }
 }
 
+class _MoneyReadoutValue {
+  const _MoneyReadoutValue({required this.amount, required this.currency});
+
+  final String amount;
+  final String currency;
+}
+
+class _KeyValueMoneyList extends StatelessWidget {
+  const _KeyValueMoneyList({
+    required this.label,
+    required this.values,
+    required this.emptyValue,
+  });
+
+  final String label;
+  final List<_MoneyReadoutValue> values;
+  final String emptyValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: values.isEmpty
+                ? Text(emptyValue, textAlign: TextAlign.end)
+                : Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final value in values)
+                        MoneyText(
+                          amount: value.amount,
+                          currencyCode: value.currency,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyValueMoneyStatusText extends StatelessWidget {
+  const _KeyValueMoneyStatusText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    required this.statusLabel,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final String statusLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                MoneyText(
+                  amount: amount,
+                  currencyCode: currency,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                Text(statusLabel),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SavedReceiptOcrMoneyPart extends StatelessWidget {
   const _SavedReceiptOcrMoneyPart({
     required this.label,
@@ -16614,6 +16749,28 @@ class _SavedReceiptOcrMoneyPart extends StatelessWidget {
             style: style,
           ),
       ],
+    );
+  }
+}
+
+class _MoneyChip extends StatelessWidget {
+  const _MoneyChip({required this.amount, required this.currency, this.icon});
+
+  final String amount;
+  final String currency;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      avatar: icon == null ? null : Icon(icon, size: 16),
+      label: MoneyText(
+        amount: amount,
+        currencyCode: currency,
+        style: Theme.of(context).textTheme.labelLarge,
+      ),
     );
   }
 }
