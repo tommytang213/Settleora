@@ -138,7 +138,7 @@ class _SettleoraSettlementListScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading settlements');
+              return const SettleoraLoadingPanel(label: 'Loading settlements');
             }
 
             final failure = _failure;
@@ -771,7 +771,7 @@ class _SettleoraSettlementDetailScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading settlement');
+              return const SettleoraLoadingPanel(label: 'Loading settlement');
             }
 
             final failure = _failure;
@@ -992,7 +992,7 @@ class _SettlementDiscoveryControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Section(
+    return SettleoraSection(
       title: 'Find settlements',
       trailing: hasActiveDiscovery
           ? TextButton.icon(
@@ -1053,10 +1053,10 @@ class _BalanceSection extends StatelessWidget {
     final balances = snapshot?.balances ?? const <SettleoraSettlementBalance>[];
 
     if (balances.isEmpty) {
-      return const _Section(
+      return const SettleoraSection(
         title: 'Balances',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.account_balance_wallet_outlined,
             title: 'No balances',
             message: 'Current settlement balances will appear here.',
@@ -1066,7 +1066,7 @@ class _BalanceSection extends StatelessWidget {
       );
     }
 
-    return _Section(
+    return SettleoraSection(
       title: 'Balances',
       trailing: snapshot == null
           ? null
@@ -1114,40 +1114,40 @@ class _BalanceTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Selected lines',
                 amount: balance.selectedLineAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Remaining',
                 amount: balance.remainingUnclaimedAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Pending',
                 amount: balance.pendingClaimedAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Cleared',
                 amount: balance.confirmedClearedAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Confirmed residual',
                 amount: balance.confirmedRemainingResidualAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Waived residual',
                 amount: balance.waivedResidualAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
-              _KeyValueMoneyText(
+              SettleoraKeyValueMoneyText(
                 label: 'Credit residual',
                 amount: balance.creditResidualAmount,
-                currency: balance.currency,
+                currencyCode: balance.currency,
               ),
               Wrap(
                 spacing: 8,
@@ -1202,10 +1202,10 @@ class _RequestSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (requests.isEmpty) {
       if (hasActiveDiscovery) {
-        return const _Section(
+        return const SettleoraSection(
           title: 'Requests',
           children: [
-            _StatePanel(
+            SettleoraStatePanel(
               icon: Icons.search_off_outlined,
               title: 'No matching settlements',
               message:
@@ -1216,10 +1216,10 @@ class _RequestSection extends StatelessWidget {
         );
       }
 
-      return const _Section(
+      return const SettleoraSection(
         title: 'Requests',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.handshake_outlined,
             title: 'No settlement requests',
             message: 'Visible settlement requests will appear here.',
@@ -1229,7 +1229,7 @@ class _RequestSection extends StatelessWidget {
       );
     }
 
-    return _Section(
+    return SettleoraSection(
       title: 'Requests',
       children: [
         for (var index = 0; index < requests.length; index += 1)
@@ -1331,20 +1331,20 @@ class _RequestHeader extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 10),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Status',
           value: settleoraSettlementRequestStatusLabel(request.status),
         ),
-        _KeyValueMoneyText(
+        SettleoraKeyValueMoneyText(
           label: 'Selected total',
           amount: request.amount,
-          currency: request.currency,
+          currencyCode: request.currency,
         ),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Requested',
           value: _formatTimestamp(request.requestedAtUtc),
         ),
-        _KeyValueText(label: 'Lines', value: '${request.lines.length}'),
+        SettleoraKeyValueText(label: 'Lines', value: '${request.lines.length}'),
         const SizedBox(height: 8),
         Text(
           'Actions shown here use the latest loaded status. Access, settlement state, audit, and money are checked again before changes are saved.',
@@ -1428,7 +1428,7 @@ class _LifecycleSection extends StatelessWidget {
       currentUserProfileId: currentUserProfileId,
     );
 
-    return _Section(
+    return SettleoraSection(
       title: 'Next step',
       children: [
         _GuidancePanel(
@@ -1590,7 +1590,7 @@ class _DetailReviewSummarySection extends StatelessWidget {
         ? 'Available'
         : 'Not configured';
 
-    return _Section(
+    return SettleoraSection(
       title: 'Review Summary',
       children: [
         _GuidancePanel(
@@ -1637,10 +1637,10 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
     final failure = this.failure;
 
     if (details == null && failure == null) {
-      return const _Section(
+      return const SettleoraSection(
         title: 'Counterparty Payment Details',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.account_balance_outlined,
             title: 'No payment details',
             message: 'No settlement counterparty details are available.',
@@ -1651,10 +1651,10 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
     }
 
     if (failure != null) {
-      return _Section(
+      return SettleoraSection(
         title: 'Counterparty Payment Details',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.visibility_off_outlined,
             title: failure.title,
             message: failure.message,
@@ -1665,10 +1665,10 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
     }
 
     if (details == null || !details.isConfigured) {
-      return const _Section(
+      return const SettleoraSection(
         title: 'Counterparty Payment Details',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.account_balance_outlined,
             title: 'Not configured',
             message: 'The counterparty has no visible payment details.',
@@ -1678,7 +1678,7 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
       );
     }
 
-    return _Section(
+    return SettleoraSection(
       title: 'Counterparty Payment Details',
       children: [
         _GuidancePanel(
@@ -1692,15 +1692,21 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Method',
           value: _fallback(details.preferredMethodLabel, 'Payment method'),
         ),
         if (_hasText(details.paymentHandle))
-          _KeyValueText(label: 'Handle', value: details.paymentHandle!.trim()),
+          SettleoraKeyValueText(
+            label: 'Handle',
+            value: details.paymentHandle!.trim(),
+          ),
         if (_hasText(details.paymentNote))
-          _KeyValueText(label: 'Note', value: details.paymentNote!.trim()),
-        _KeyValueText(
+          SettleoraKeyValueText(
+            label: 'Note',
+            value: details.paymentNote!.trim(),
+          ),
+        SettleoraKeyValueText(
           label: 'QR',
           value: details.hasQrFile ? 'Available' : 'Not linked',
         ),
@@ -1727,10 +1733,10 @@ class _RequestLinesSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (totalLineCount == 0) {
-      return const _Section(
+      return const SettleoraSection(
         title: 'Request Lines',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.format_list_bulleted,
             title: 'No request lines',
             message: 'No selected settlement lines are visible.',
@@ -1740,7 +1746,7 @@ class _RequestLinesSection extends StatelessWidget {
       );
     }
 
-    return _Section(
+    return SettleoraSection(
       title: 'Request Lines',
       trailing: Text(
         '${lines.length} of $totalLineCount',
@@ -1768,7 +1774,7 @@ class _RequestLinesSection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         if (lines.isEmpty)
-          const _StatePanel(
+          const SettleoraStatePanel(
             icon: Icons.search_off_outlined,
             title: 'No matching request lines',
             message:
@@ -1876,10 +1882,10 @@ class _PaymentsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (totalPaymentCount == 0) {
-      return const _Section(
+      return const SettleoraSection(
         title: 'Payments',
         children: [
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.payments_outlined,
             title: 'No payments',
             message: 'Payment claims for this settlement will appear here.',
@@ -1889,7 +1895,7 @@ class _PaymentsSection extends StatelessWidget {
       );
     }
 
-    return _Section(
+    return SettleoraSection(
       title: 'Payments',
       trailing: Text(
         '${payments.length} of $totalPaymentCount',
@@ -1935,7 +1941,7 @@ class _PaymentsSection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         if (payments.isEmpty)
-          const _StatePanel(
+          const SettleoraStatePanel(
             icon: Icons.search_off_outlined,
             title: 'No matching payments',
             message:
@@ -2018,17 +2024,20 @@ class _PaymentTile extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            _KeyValueMoneyText(
+            SettleoraKeyValueMoneyText(
               label: 'Actual paid',
               amount: payment.amount,
-              currency: payment.currency,
+              currencyCode: payment.currency,
             ),
-            _KeyValueText(label: 'Payment date', value: payment.paymentDate),
-            _KeyValueText(
+            SettleoraKeyValueText(
+              label: 'Payment date',
+              value: payment.paymentDate,
+            ),
+            SettleoraKeyValueText(
               label: 'Status',
               value: settleoraSettlementPaymentStatusLabel(payment.status),
             ),
-            _KeyValueText(
+            SettleoraKeyValueText(
               label: 'Allocations',
               value: '${payment.allocations.length}',
             ),
@@ -2126,10 +2135,10 @@ class _AllocationList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var index = 0; index < allocations.length; index += 1)
-          _KeyValueMoneyText(
+          SettleoraKeyValueMoneyText(
             label: 'Allocation ${index + 1}',
             amount: allocations[index].clearedAmount,
-            currency: allocations[index].currency,
+            currencyCode: allocations[index].currency,
           ),
         Padding(
           padding: const EdgeInsets.only(top: 3),
@@ -2393,7 +2402,7 @@ class _FailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: failure.message,
@@ -2472,166 +2481,6 @@ class _GuidancePanel extends StatelessWidget {
   }
 }
 
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: content,
-        ),
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(label),
-        ],
-      ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children, this.trailing});
-
-  final String title;
-  final List<Widget> children;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            ?trailing,
-          ],
-        ),
-        const SizedBox(height: 8),
-        ...children,
-      ],
-    );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
-      ),
-    );
-  }
-}
-
-class _KeyValueMoneyText extends StatelessWidget {
-  const _KeyValueMoneyText({
-    required this.label,
-    required this.amount,
-    required this.currency,
-  });
-
-  final String label;
-  final String amount;
-  final String currency;
-
-  @override
-  Widget build(BuildContext context) {
-    return _KeyValueRow(
-      label: label,
-      value: MoneyText(
-        amount: amount,
-        currencyCode: currency,
-        textAlign: TextAlign.end,
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-    );
-  }
-}
-
 class _KeyValueAmountStatusText extends StatelessWidget {
   const _KeyValueAmountStatusText({
     required this.label,
@@ -2647,45 +2496,13 @@ class _KeyValueAmountStatusText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _KeyValueRow(
+    return SettleoraKeyValueRow(
       label: label,
       value: _AmountStatusText(
         amount: amount,
         currency: currency,
         status: status,
         alignment: WrapAlignment.end,
-      ),
-    );
-  }
-}
-
-class _KeyValueRow extends StatelessWidget {
-  const _KeyValueRow({required this.label, required this.value});
-
-  final String label;
-  final Widget value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Align(alignment: Alignment.centerRight, child: value),
-          ),
-        ],
       ),
     );
   }

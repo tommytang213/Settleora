@@ -347,6 +347,217 @@ class StateCard extends StatelessWidget {
   }
 }
 
+class SettleoraStatePanel extends StatelessWidget {
+  const SettleoraStatePanel({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+    this.compact = false,
+    this.compactAlignment = Alignment.center,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+  final bool compact;
+  final AlignmentGeometry compactAlignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final theme = Theme.of(context);
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: compact ? 28 : 42, color: colors.primary),
+        SizedBox(height: compact ? SettleoraSpacing.xs : 14),
+        Text(
+          title,
+          style: compact
+              ? theme.textTheme.titleMedium
+              : theme.textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 6),
+        Text(message, textAlign: TextAlign.center),
+        if (action != null) ...[const SizedBox(height: 14), action!],
+      ],
+    );
+
+    if (compact) {
+      return Align(
+        alignment: compactAlignment,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: SettleoraSpacing.sm),
+          child: content,
+        ),
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(SettleoraSpacing.xl),
+        child: content,
+      ),
+    );
+  }
+}
+
+class SettleoraLoadingPanel extends StatelessWidget {
+  const SettleoraLoadingPanel({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 14),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
+
+class SettleoraSection extends StatelessWidget {
+  const SettleoraSection({
+    super.key,
+    required this.title,
+    required this.children,
+    this.trailing,
+    this.spacing = SettleoraSpacing.xs,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final Widget? trailing;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
+        SizedBox(height: spacing),
+        ...children,
+      ],
+    );
+  }
+}
+
+class SettleoraKeyValueRow extends StatelessWidget {
+  const SettleoraKeyValueRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.labelWidth = 112,
+    this.spacing = 10,
+    this.padding = const EdgeInsets.symmetric(vertical: 3),
+  });
+
+  final String label;
+  final Widget value;
+  final double labelWidth;
+  final double spacing;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Padding(
+      padding: padding,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: labelWidth,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.textSubtle),
+            ),
+          ),
+          SizedBox(width: spacing),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: value),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SettleoraKeyValueText extends StatelessWidget {
+  const SettleoraKeyValueText({
+    super.key,
+    required this.label,
+    required this.value,
+    this.labelWidth = 112,
+  });
+
+  final String label;
+  final String value;
+  final double labelWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettleoraKeyValueRow(
+      label: label,
+      labelWidth: labelWidth,
+      value: Text(value, textAlign: TextAlign.end),
+    );
+  }
+}
+
+class SettleoraKeyValueMoneyText extends StatelessWidget {
+  const SettleoraKeyValueMoneyText({
+    super.key,
+    required this.label,
+    required this.amount,
+    required this.currencyCode,
+    this.labelWidth = 112,
+  });
+
+  final String label;
+  final String amount;
+  final String currencyCode;
+  final double labelWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettleoraKeyValueRow(
+      label: label,
+      labelWidth: labelWidth,
+      value: MoneyText(
+        amount: amount,
+        currencyCode: currencyCode,
+        textAlign: TextAlign.end,
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+    );
+  }
+}
+
 class InfoCard extends StatelessWidget {
   const InfoCard({
     super.key,

@@ -187,6 +187,18 @@ V1-aligned updates made in this branch:
   records the 2026-06-22 23:28 HKT visual-polish follow-up without changing
   saved OCR review/apply behavior, bill draft construction, money parsing,
   rounding, persistence, OpenAPI, generated clients, or API/domain authority.
+- Mobile shared component consolidation now includes `SettleoraSection`,
+  `SettleoraStatePanel`, `SettleoraLoadingPanel`, `SettleoraKeyValueRow`,
+  `SettleoraKeyValueText`, and `SettleoraKeyValueMoneyText` for repeated
+  section headings, centered empty/error/loading/info states, and read-only
+  detail rows. Recurring bills, settlements, and monthly reports now compose
+  these shared primitives instead of local `_Section`, `_StatePanel`,
+  `_LoadingPanel`, `_KeyValueText`, `_KeyValueMoney`, `_KeyValueMoneyText`, and
+  `_KeyValueRow` variants. This records the 2026-06-22 23:55 HKT shared
+  component consolidation without changing repository behavior, navigation,
+  notification behavior, saved OCR request construction, money/date parsing,
+  rounding, aggregation, settlement authority, persistence, OpenAPI, generated
+  clients, or backend/API authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -244,8 +256,18 @@ Inspected but no action needed for this money/date migration queue:
 Recommended next task queue:
 
 1. No remaining money/date migration or saved OCR apply-preview screenshot
-   cutoff follow-up is tracked in this audit as of the 2026-06-22 23:28 HKT
-   visual-polish capture update.
+   cutoff follow-up is tracked in this audit as of the 2026-06-22 23:55 HKT
+   shared component consolidation update.
+2. Consider a later shared chip/status bundle for `_SoftChip`, `_StatusChip`,
+   `_CountChip`, `_ReviewChecklistChip`, `_AssignedMemberChip`, `_ChannelChip`,
+   and feature-local status/readiness chips. These need behavior-by-behavior
+   review because some chips are filters, some are static readouts, and some
+   carry domain-specific icons or counts.
+3. Consider a later shared inline failure/guidance panel bundle for groups,
+   notifications, recurring future-bill failures, settlement guidance, and
+   manual finance failure cards. These were deferred here because their
+   actions, sign-in behavior, status chips, and domain copy are not all
+   mechanically equivalent.
 
 ## Feature-Private Duplicate Inventory
 

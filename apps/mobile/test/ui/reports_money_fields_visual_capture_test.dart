@@ -12,7 +12,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../monthly_report_screen_test.dart' as monthly;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1856-mobile-reports-money-fields';
+    '/workspace/logs/settleora-visual-qa/20260622-2355-mobile-shared-component-consolidation-bundle';
 
 void main() {
   testWidgets('captures reports money field visual QA evidence', (

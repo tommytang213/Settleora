@@ -118,6 +118,28 @@ void main() {
                     onPressed: () {},
                   ),
                 ),
+                const SettleoraLoadingPanel(label: 'Loading shared rows'),
+                SettleoraSection(
+                  title: 'Shared section',
+                  trailing: const StatusChip(
+                    label: 'Shared',
+                    size: StatusChipSize.small,
+                  ),
+                  children: const [
+                    SettleoraStatePanel(
+                      icon: Icons.info_outline,
+                      title: 'Shared state panel',
+                      message: 'Reusable state copy remains screen-owned.',
+                      compact: true,
+                    ),
+                    SettleoraKeyValueText(label: 'Status', value: 'Ready'),
+                    SettleoraKeyValueMoneyText(
+                      label: 'Balance',
+                      amount: '128.00',
+                      currencyCode: 'HKD',
+                    ),
+                  ],
+                ),
                 SettingsRow(
                   key: const Key('component-settings-row'),
                   icon: Icons.settings_outlined,
@@ -205,13 +227,25 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Retry action'), findsOneWidget);
+    expect(find.text('Loading shared rows'), findsOneWidget);
+    expect(find.text('Shared section'), findsOneWidget);
+    expect(find.text('Shared'), findsOneWidget);
+    expect(find.text('Shared state panel'), findsOneWidget);
+    expect(
+      find.text('Reusable state copy remains screen-owned.'),
+      findsOneWidget,
+    );
+    expect(find.text('Status'), findsOneWidget);
+    expect(find.text('Ready'), findsWidgets);
+    expect(find.text('Balance'), findsOneWidget);
+    expect(find.text('128.00 HKD'), findsOneWidget);
     expect(find.byKey(const Key('component-settings-row')), findsOneWidget);
     expect(find.text('Settings row title'), findsOneWidget);
     expect(
       find.text('Reusable settings row subtitle with product-facing copy.'),
       findsOneWidget,
     );
-    expect(find.text('Ready'), findsOneWidget);
+    expect(find.text('Ready'), findsWidgets);
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
       find.textContaining(

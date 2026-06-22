@@ -13,7 +13,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../settlement_list_screen_test.dart' as settlements;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-2117-mobile-settlement-money-readouts';
+    '/workspace/logs/settleora-visual-qa/20260622-2355-mobile-shared-component-consolidation-bundle';
 
 void main() {
   testWidgets('captures settlement money readout visual evidence', (
