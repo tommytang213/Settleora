@@ -797,20 +797,36 @@ class _SettleoraAuthenticatedServerShellState
                             ),
                             const SizedBox(height: 16),
                             if (_isLoadingOverview && overview == null)
-                              const _DashboardLoadingCard()
+                              const LoadingState(
+                                message: 'Loading dashboard overview',
+                              )
                             else if (overviewFailure != null &&
                                 overview == null)
-                              _DashboardErrorCard(
-                                failure: overviewFailure,
+                              ErrorState(
+                                title: overviewFailure.title,
+                                message: overviewFailure.message,
+                                retryKey: const Key('dashboard-overview-retry'),
                                 onRetry: _loadOverview,
                               )
                             else if (overview != null) ...[
                               if (_isLoadingOverview)
                                 const _DashboardRefreshIndicator(),
                               if (overviewFailure != null)
-                                _DashboardInlineErrorCard(
-                                  failure: overviewFailure,
-                                  onRetry: _loadOverview,
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: WarningCard(
+                                    title: overviewFailure.title,
+                                    message: 'Showing last overview.',
+                                    icon: Icons.info_outline,
+                                    action: AppButton(
+                                      key: const Key(
+                                        'dashboard-overview-inline-retry',
+                                      ),
+                                      label: 'Retry',
+                                      variant: AppButtonVariant.secondary,
+                                      onPressed: _loadOverview,
+                                    ),
+                                  ),
                                 ),
                               _DashboardOverviewContent(
                                 overview: overview,
@@ -1457,7 +1473,6 @@ class _DashboardSummaryCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.settleoraColors;
     final youOwe = _BalanceMetric.from(
       balances: overview.outgoingBalances,
       fallbackCurrency: defaultCurrency,
@@ -1467,21 +1482,19 @@ class _DashboardSummaryCards extends StatelessWidget {
       fallbackCurrency: defaultCurrency,
     );
     final cards = [
-      _DashboardSummaryCard(
+      SummaryCard(
         icon: Icons.north_east_outlined,
         title: 'You owe',
         value: youOwe.value,
         caption: youOwe.caption,
-        backgroundColor: colors.dangerSoft,
-        foregroundColor: colors.onDangerSoft,
+        variant: SettleoraSurfaceVariant.danger,
       ),
-      _DashboardSummaryCard(
+      SummaryCard(
         icon: Icons.south_west_outlined,
         title: "You're owed",
         value: youAreOwed.value,
         caption: youAreOwed.caption,
-        backgroundColor: colors.successSoft,
-        foregroundColor: colors.onSuccessSoft,
+        variant: SettleoraSurfaceVariant.success,
       ),
     ];
 
@@ -1502,70 +1515,6 @@ class _DashboardSummaryCards extends StatelessWidget {
           children: [cards.first, const SizedBox(height: 8), cards.last],
         );
       },
-    );
-  }
-}
-
-class _DashboardSummaryCard extends StatelessWidget {
-  const _DashboardSummaryCard({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.caption,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final String caption;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      color: backgroundColor,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 20, color: foregroundColor),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: foregroundColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              value,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: foregroundColor,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              caption,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: foregroundColor,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -2157,54 +2106,6 @@ class _DashboardSection extends StatelessWidget {
   }
 }
 
-class _DashboardLoadingCard extends StatelessWidget {
-  const _DashboardLoadingCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Card(
-      child: ListTile(
-        leading: SizedBox.square(
-          dimension: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        title: Text('Loading dashboard overview'),
-      ),
-    );
-  }
-}
-
-class _DashboardErrorCard extends StatelessWidget {
-  const _DashboardErrorCard({required this.failure, required this.onRetry});
-
-  final _SettleoraDashboardFailure failure;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(failure.title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(failure.message),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              key: const Key('dashboard-overview-retry'),
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _DashboardRefreshIndicator extends StatelessWidget {
   const _DashboardRefreshIndicator();
 
@@ -2221,38 +2122,6 @@ class _DashboardRefreshIndicator extends StatelessWidget {
           SizedBox(width: 8),
           Text('Refreshing overview'),
         ],
-      ),
-    );
-  }
-}
-
-class _DashboardInlineErrorCard extends StatelessWidget {
-  const _DashboardInlineErrorCard({
-    required this.failure,
-    required this.onRetry,
-  });
-
-  final _SettleoraDashboardFailure failure;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            const Icon(Icons.info_outline),
-            const SizedBox(width: 12),
-            Expanded(child: Text('${failure.title}. Showing last overview.')),
-            TextButton(
-              key: const Key('dashboard-overview-inline-retry'),
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
       ),
     );
   }

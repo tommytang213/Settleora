@@ -83,3 +83,45 @@ Focused mobile UI branches should update or add tests for:
 - Money/currency display and input behavior when changed.
 - Date picker/raw-date replacement behavior when changed.
 - Safe-area/scroll-padding behavior for changed sticky actions, bottom sheets, and long forms.
+
+## Visual QA Screenshot Protocol
+
+Material mobile UI tasks must produce visual evidence unless the task is
+clearly non-visual. Capture the actual branch-rendered Flutter UI, not only
+approved reference images or design exports.
+
+Preferred capture path:
+
+- Use Flutter headless widget/golden screenshot capture on the DevBox when
+  feasible.
+- Load both Material test fonts before capture:
+  - `/opt/flutter/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf`
+  - `/opt/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf`
+- Disable the Flutter debug banner for visual capture.
+- Use a mobile viewport that matches the task evidence request, commonly
+  `390x844`.
+- Save task screenshots under
+  `/workspace/logs/settleora-visual-qa/<task-or-pr>/`.
+- Include screenshot paths in the Codex report.
+
+When a matching approved reference exists under `docs/design/mobile/assets/`,
+compare the captured branch UI against that reference and record whether the
+branch matches, intentionally differs, or needs follow-up.
+
+Report visual status as exactly one of:
+
+- `VISUAL_APPROVED`
+- `VISUAL_APPROVED_WITH_FOLLOWUPS`
+- `VISUAL_BLOCKED`
+- `VISUAL_CAPTURE_UNAVAILABLE`
+
+Do not fake visual approval. Material UI PR/merge gates must stop before merge
+when visual capture is unavailable, visual QA is blocked, or required human
+approval is missing.
+
+Reusable test helpers for capture setup should live in
+`apps/mobile/test/helpers/`. The shared helper
+`settleora_visual_test_fonts.dart` loads the Roboto and Material Icons fonts
+and can set the standard mobile viewport for future screenshot harnesses. In
+widget tests, call font loading through `tester.runAsync(...)` so real file IO
+and font registration are not trapped in the fake-async test zone.

@@ -4,6 +4,8 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
+import '../helpers/settleora_visual_test_fonts.dart';
+
 void main() {
   test('built-in light palette keeps readable warm-fintech token pairs', () {
     const colors = SettleoraColors.light;
@@ -90,6 +92,32 @@ void main() {
                   ],
                 ),
                 const AppCard(child: Text('Card content')),
+                const SummaryCard(
+                  icon: Icons.summarize_outlined,
+                  title: 'Summary card',
+                  value: 'HKD 128.00',
+                  caption: 'Presentation-only readout',
+                  variant: SettleoraSurfaceVariant.info,
+                ),
+                const InfoCard(
+                  title: 'Info card',
+                  message: 'Use shared surfaces for reusable readouts.',
+                ),
+                const WarningCard(
+                  title: 'Warning card',
+                  message: 'Review before applying sensitive changes.',
+                ),
+                StateCard(
+                  title: 'Action state',
+                  message: 'Retry is an explicit product-facing action.',
+                  variant: SettleoraSurfaceVariant.danger,
+                  action: AppButton(
+                    label: 'Retry action',
+                    icon: Icons.refresh,
+                    variant: AppButtonVariant.secondary,
+                    onPressed: () {},
+                  ),
+                ),
                 SettingsRow(
                   key: const Key('component-settings-row'),
                   icon: Icons.settings_outlined,
@@ -153,6 +181,25 @@ void main() {
     expect(find.text('Synced'), findsOneWidget);
     expect(find.text('Draft'), findsOneWidget);
     expect(find.text('Card content'), findsOneWidget);
+    expect(find.text('Summary card'), findsOneWidget);
+    expect(find.text('HKD 128.00'), findsOneWidget);
+    expect(find.text('Presentation-only readout'), findsOneWidget);
+    expect(find.text('Info card'), findsOneWidget);
+    expect(
+      find.text('Use shared surfaces for reusable readouts.'),
+      findsOneWidget,
+    );
+    expect(find.text('Warning card'), findsOneWidget);
+    expect(
+      find.text('Review before applying sensitive changes.'),
+      findsOneWidget,
+    );
+    expect(find.text('Action state'), findsOneWidget);
+    expect(
+      find.text('Retry is an explicit product-facing action.'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry action'), findsOneWidget);
     expect(find.byKey(const Key('component-settings-row')), findsOneWidget);
     expect(find.text('Settings row title'), findsOneWidget);
     expect(
@@ -474,6 +521,36 @@ void main() {
     }
     expect(find.text('Receipts'), findsNothing);
     expect(find.text('Profile'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('visual screenshot helper loads fonts and mobile viewport', (
+    tester,
+  ) async {
+    await tester.runAsync(loadSettleoraVisualTestFonts);
+    await setSettleoraMobileViewport(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              child: InfoCard(
+                title: 'Visual QA helper',
+                message: 'Roboto and Material Icons are loaded for capture.',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.view.physicalSize, const Size(390, 844));
+    expect(find.text('Visual QA helper'), findsOneWidget);
+    expect(find.byIcon(Icons.info_outline), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

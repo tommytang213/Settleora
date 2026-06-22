@@ -60,6 +60,15 @@ V1-aligned updates made in this branch:
 - The obsolete bottom-nav `Receipts` and `Profile` destinations were removed.
 - The `Settle` destination no longer uses a global center `+` icon or primary circular action treatment.
 - Profile and Receipt Reviews remain reachable through Home/More pushed routes.
+- Shared state/surface foundation now includes `SummaryCard`, `StateCard`,
+  `InfoCard`, and `WarningCard`; `EmptyState`, `LoadingState`, and
+  `ErrorState` compose the shared surface pattern.
+- Home dashboard loading/error and owed/owing summary readouts now use shared
+  state/surface components instead of private one-off cards.
+- Visual QA capture setup is repo-tracked through
+  `apps/mobile/test/helpers/settleora_visual_test_fonts.dart`, which loads the
+  required Roboto and Material Icons fonts and sets a standard mobile viewport
+  for future screenshot harnesses.
 
 ## Feature-Private Duplicate Inventory
 
@@ -139,7 +148,7 @@ Current tests already guard many unsafe details, but audit risks remain:
 | `TopBar` | `missing` | No shared V1 top bar. Current app bars and notification/profile affordances are screen-local. |
 | `BottomNav` | `matches_v1_reference` | `SettleoraBottomNav` now uses `Home / Bills / Groups / Settle / More`, no Notifications tab, no global `+`, and safe-area padding. |
 | `LedgerCard` | `missing` | Bill, balance, recurring, notification, and report rows are feature-private. |
-| `SummaryCard` | `feature_private_duplicate` | `MetricCard` exists, but dashboard/settlement/report/recurring summaries use many private cards. |
+| `SummaryCard` | `matches_v1_reference` | Shared `SummaryCard` exists for static summary readouts and is used by Home balance summary cards; domain-specific summaries still need gradual migration. |
 | `StatusChip` | `exists_but_outdated` | Shared chip exists and is useful; many feature-private chips remain and semantic variants may need V1 expansion. |
 | `MetricChip` | `feature_private_duplicate` | `_DashboardMetricChip` exists privately; no shared component. |
 | `MoneyText` | `missing` | Repeated amount/currency text formatting across features. |
@@ -152,10 +161,12 @@ Current tests already guard many unsafe details, but audit risks remain:
 | `PersonChip / GroupChip` | `feature_private_duplicate` | Assigned member chips and group/member rows exist privately. |
 | `BottomSheet` | `feature_private_duplicate` | Many feature-private sheets exist; no shared sheet scaffold. |
 | `Dialog` | `feature_private_duplicate` | Many feature-private dialogs exist; no shared confirmation/dialog wrapper. |
-| `WarningCard` | `missing` | Warning/readiness banners are feature-private. |
-| `EmptyState` | `exists_but_outdated` | Shared state exists, but feature-local empty/zero/state panels remain common. |
-| `LoadingState` | `exists_but_outdated` | Shared loading state exists, but feature-local loading panels remain common. |
-| `ErrorState` | `exists_but_outdated` | Shared error state exists, but feature-local failure panels remain common. |
+| `WarningCard` | `matches_v1_reference` | Shared warning surface exists and is used for dashboard stale-overview warning; feature-local warning/readiness banners remain migration candidates. |
+| `InfoCard` | `matches_v1_reference` | Shared info surface exists for static readouts where no action is implied. |
+| `StateCard` | `matches_v1_reference` | Shared state/surface foundation exists for reusable empty, warning, info, and error presentation. |
+| `EmptyState` | `matches_v1_reference` | Shared state composes `StateCard`; feature-local empty/zero/state panels remain migration candidates. |
+| `LoadingState` | `matches_v1_reference` | Shared loading state is tokenized and used by Home dashboard loading; feature-local loading panels remain migration candidates. |
+| `ErrorState` | `matches_v1_reference` | Shared error state composes `StateCard` with explicit retry support; feature-local failure panels remain migration candidates. |
 | `NotificationRow` | `feature_private_duplicate` | Repository model and `_NotificationTile` exist; no shared row component. |
 | `ReviewQueueCard` | `feature_private_duplicate` | Receipt/OCR queue and notification review patterns are private. |
 | `SplitPreviewCard` | `feature_private_duplicate` | Bill create preview panels exist privately. |
