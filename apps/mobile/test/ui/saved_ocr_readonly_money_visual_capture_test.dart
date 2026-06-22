@@ -13,7 +13,7 @@ import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-2032-mobile-saved-ocr-readonly-money-readouts';
+    '/workspace/logs/settleora-visual-qa/20260622-2328-mobile-saved-ocr-apply-preview-visual-polish';
 
 void main() {
   testWidgets('captures saved OCR read-only money visual evidence', (
@@ -116,7 +116,23 @@ void main() {
     await _captureBoundary(
       tester,
       billKey,
-      'saved-ocr-readonly-money-apply-preview-390x844.png',
+      'saved-ocr-apply-preview-overview-390x844.png',
+    );
+
+    const firstPreviewLineKey = ValueKey(
+      'saved-ocr-review-preview-line-dddddddd-dddd-dddd-dddd-dddddddddddd',
+    );
+    await tester.ensureVisible(find.text('Line summary'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(firstPreviewLineKey), findsOneWidget);
+    final lineTop = tester.getTopLeft(find.byKey(firstPreviewLineKey)).dy;
+    final lineBottom = tester.getBottomLeft(find.byKey(firstPreviewLineKey)).dy;
+    expect(lineTop, greaterThanOrEqualTo(0));
+    expect(lineBottom, lessThanOrEqualTo(844));
+    await _captureBoundary(
+      tester,
+      billKey,
+      'saved-ocr-apply-preview-lines-390x844.png',
     );
   });
 }
