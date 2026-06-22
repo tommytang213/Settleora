@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'settlement_repository.dart';
 
@@ -1113,39 +1114,40 @@ class _BalanceTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Selected lines',
-                value: _money(balance.selectedLineAmount, balance.currency),
+                amount: balance.selectedLineAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Remaining',
-                value: _money(
-                  balance.remainingUnclaimedAmount,
-                  balance.currency,
-                ),
+                amount: balance.remainingUnclaimedAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Pending',
-                value: _money(balance.pendingClaimedAmount, balance.currency),
+                amount: balance.pendingClaimedAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Cleared',
-                value: _money(balance.confirmedClearedAmount, balance.currency),
+                amount: balance.confirmedClearedAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Confirmed residual',
-                value: _money(
-                  balance.confirmedRemainingResidualAmount,
-                  balance.currency,
-                ),
+                amount: balance.confirmedRemainingResidualAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Waived residual',
-                value: _money(balance.waivedResidualAmount, balance.currency),
+                amount: balance.waivedResidualAmount,
+                currency: balance.currency,
               ),
-              _KeyValueText(
+              _KeyValueMoneyText(
                 label: 'Credit residual',
-                value: _money(balance.creditResidualAmount, balance.currency),
+                amount: balance.creditResidualAmount,
+                currency: balance.currency,
               ),
               Wrap(
                 spacing: 8,
@@ -1266,7 +1268,11 @@ class _RequestTile extends StatelessWidget {
         key: ValueKey('settlement-request-tile-$index'),
         onTap: onTap,
         leading: const Icon(Icons.request_quote_outlined),
-        title: Text(_money(request.amount, request.currency)),
+        title: MoneyText(
+          amount: request.amount,
+          currencyCode: request.currency,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Wrap(
@@ -1319,8 +1325,9 @@ class _RequestHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          _money(request.amount, request.currency),
+        MoneyText(
+          amount: request.amount,
+          currencyCode: request.currency,
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 10),
@@ -1328,9 +1335,10 @@ class _RequestHeader extends StatelessWidget {
           label: 'Status',
           value: settleoraSettlementRequestStatusLabel(request.status),
         ),
-        _KeyValueText(
+        _KeyValueMoneyText(
           label: 'Selected total',
-          value: _money(request.amount, request.currency),
+          amount: request.amount,
+          currency: request.currency,
         ),
         _KeyValueText(
           label: 'Requested',
@@ -1592,7 +1600,6 @@ class _DetailReviewSummarySection extends StatelessWidget {
               '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel. Mobile shows loaded API rows and does not expand baskets, decide eligibility, or calculate settlement totals.',
           chips: [
             '${request.lines.length} lines',
-            'Selected total ${_money(request.amount, request.currency)}',
             '${payments.length} payments',
             '$residualCount residuals',
             if (pendingResidualCount > 0)
@@ -1600,6 +1607,14 @@ class _DetailReviewSummarySection extends StatelessWidget {
             else
               'No residual review',
             'Payment details $paymentDetailsStatus',
+          ],
+          chipWidgets: [
+            _SoftMoneyChip(
+              label: 'Selected total',
+              amount: request.amount,
+              currency: request.currency,
+              icon: Icons.payments_outlined,
+            ),
           ],
         ),
       ],
@@ -1762,10 +1777,13 @@ class _RequestLinesSection extends StatelessWidget {
           )
         else
           for (var index = 0; index < lines.length; index += 1)
-            _KeyValueText(
+            _KeyValueAmountStatusText(
               label: 'Line ${index + 1}',
-              value:
-                  '${_money(lines[index].exactAmount, lines[index].currency)} - ${settleoraSettlementRequestLineStatusLabel(lines[index].status)}',
+              amount: lines[index].exactAmount,
+              currency: lines[index].currency,
+              status: settleoraSettlementRequestLineStatusLabel(
+                lines[index].status,
+              ),
             ),
       ],
     );
@@ -1994,14 +2012,16 @@ class _PaymentTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _money(payment.amount, payment.currency),
+            MoneyText(
+              amount: payment.amount,
+              currencyCode: payment.currency,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            _KeyValueText(
+            _KeyValueMoneyText(
               label: 'Actual paid',
-              value: _money(payment.amount, payment.currency),
+              amount: payment.amount,
+              currency: payment.currency,
             ),
             _KeyValueText(label: 'Payment date', value: payment.paymentDate),
             _KeyValueText(
@@ -2106,12 +2126,10 @@ class _AllocationList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var index = 0; index < allocations.length; index += 1)
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: 'Allocation ${index + 1}',
-            value: _money(
-              allocations[index].clearedAmount,
-              allocations[index].currency,
-            ),
+            amount: allocations[index].clearedAmount,
+            currency: allocations[index].currency,
           ),
         Padding(
           padding: const EdgeInsets.only(top: 3),
@@ -2162,8 +2180,12 @@ class _ResidualList extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${_money(residuals[index].amount, residuals[index].currency)} - ${settleoraSettlementResidualStatusLabel(residuals[index].status)}',
+                        _AmountStatusText(
+                          amount: residuals[index].amount,
+                          currency: residuals[index].currency,
+                          status: settleoraSettlementResidualStatusLabel(
+                            residuals[index].status,
+                          ),
                         ),
                         Text(
                           '${settleoraSettlementResidualDirectionLabel(residuals[index].direction)} / ${settleoraSettlementResidualPolicyLabel(residuals[index].policy)}',
@@ -2390,12 +2412,14 @@ class _GuidancePanel extends StatelessWidget {
     required this.title,
     required this.message,
     required this.chips,
+    this.chipWidgets = const [],
   });
 
   final IconData icon;
   final String title;
   final String message;
   final List<String> chips;
+  final List<Widget> chipWidgets;
 
   @override
   Widget build(BuildContext context) {
@@ -2429,7 +2453,7 @@ class _GuidancePanel extends StatelessWidget {
                 ),
               ],
             ),
-            if (chips.isNotEmpty) ...[
+            if (chips.isNotEmpty || chipWidgets.isNotEmpty) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -2437,6 +2461,7 @@ class _GuidancePanel extends StatelessWidget {
                 children: [
                   for (final chip in chips)
                     _SoftChip(label: chip, icon: Icons.info_outline),
+                  ...chipWidgets,
                 ],
               ),
             ],
@@ -2582,6 +2607,121 @@ class _KeyValueText extends StatelessWidget {
   }
 }
 
+class _KeyValueMoneyText extends StatelessWidget {
+  const _KeyValueMoneyText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return _KeyValueRow(
+      label: label,
+      value: MoneyText(
+        amount: amount,
+        currencyCode: currency,
+        textAlign: TextAlign.end,
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+    );
+  }
+}
+
+class _KeyValueAmountStatusText extends StatelessWidget {
+  const _KeyValueAmountStatusText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    required this.status,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    return _KeyValueRow(
+      label: label,
+      value: _AmountStatusText(
+        amount: amount,
+        currency: currency,
+        status: status,
+        alignment: WrapAlignment.end,
+      ),
+    );
+  }
+}
+
+class _KeyValueRow extends StatelessWidget {
+  const _KeyValueRow({required this.label, required this.value});
+
+  final String label;
+  final Widget value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: value),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AmountStatusText extends StatelessWidget {
+  const _AmountStatusText({
+    required this.amount,
+    required this.currency,
+    required this.status,
+    this.alignment = WrapAlignment.start,
+  });
+
+  final String amount;
+  final String currency;
+  final String status;
+  final WrapAlignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      alignment: alignment,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        MoneyText(
+          amount: amount,
+          currencyCode: currency,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(width: 4),
+        Text(status, style: Theme.of(context).textTheme.bodyMedium),
+      ],
+    );
+  }
+}
+
 class _SoftChip extends StatelessWidget {
   const _SoftChip({required this.label, required this.icon});
 
@@ -2595,6 +2735,41 @@ class _SoftChip extends StatelessWidget {
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
       avatar: Icon(icon, size: 16),
       label: Text(label),
+    );
+  }
+}
+
+class _SoftMoneyChip extends StatelessWidget {
+  const _SoftMoneyChip({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    required this.icon,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      avatar: Icon(icon, size: 16),
+      label: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(label),
+          MoneyText(
+            amount: amount,
+            currencyCode: currency,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ],
+      ),
     );
   }
 }

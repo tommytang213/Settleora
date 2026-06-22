@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/settlements/settlement_list_screen.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets('settlement list opens detail and confirms residuals', (
@@ -31,6 +32,8 @@ void main() {
     expect(find.text('Outgoing balance'), findsOneWidget);
     expect(find.text('7.50 USD'), findsOneWidget);
     expect(find.text('10.00 USD'), findsOneWidget);
+    expectMoneyText('7.50', 'USD');
+    expectMoneyText('10.00', 'USD');
     expect(repository.listBalancesCalls, 1);
     expect(repository.listRequestsCalls, 1);
 
@@ -41,12 +44,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settlement-request-tile-0')));
     await tester.pumpAndSettle();
 
+    expectMoneyText('10.00', 'USD');
     await scrollTo(tester, find.text('Counterparty Payment Details'));
     expect(find.text('Counterparty Payment Details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
+    await scrollTo(tester, find.text('Request Lines'));
+    expect(find.text('Request Lines'), findsOneWidget);
+    expectMoneyText('10.00', 'USD');
+    expect(find.text('Open'), findsWidgets);
     await scrollTo(tester, find.text('Payments'));
     expect(find.text('Payments'), findsOneWidget);
     expect(find.text('2.50 USD'), findsWidgets);
+    expectMoneyText('2.50', 'USD');
+    expect(find.text('Allocation 1'), findsOneWidget);
+    expectMoneyText('7.50', 'USD');
     expect(
       find.text(
         'Receipt confirmation is blocked until pending receiver-confirmation residuals are resolved by the API.',
@@ -589,7 +600,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('2 lines'), findsOneWidget);
-    expect(find.text('Selected total 22.00 USD'), findsOneWidget);
+    expect(find.text('Selected total'), findsWidgets);
+    expectMoneyText('22.00', 'USD');
     expect(find.text('2 payments'), findsOneWidget);
     expect(find.text('1 need confirmation'), findsOneWidget);
     expect(find.text('Payment details Available'), findsOneWidget);
@@ -628,8 +640,10 @@ void main() {
 
     expect(find.text('Selected lines'), findsOneWidget);
     expect(find.text('22.00 USD'), findsOneWidget);
+    expectMoneyText('22.00', 'USD');
     expect(find.text('Confirmed residual'), findsOneWidget);
     expect(find.text('1.50 USD'), findsOneWidget);
+    expectMoneyText('1.50', 'USD');
     expect(find.text('Waived residual'), findsOneWidget);
     expect(find.text('0.25 USD'), findsOneWidget);
     expect(find.text('Credit residual'), findsOneWidget);
@@ -666,8 +680,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('10.00 USD - Open'), findsNothing);
-    expect(find.text('12.00 EUR - Closed'), findsOneWidget);
+    expectMoneyText('10.00', 'USD', findsNothing);
+    expectMoneyText('12.00', 'EUR');
+    expect(find.text('Closed'), findsOneWidget);
     expect(find.text('No matching request lines'), findsNothing);
     expect(find.text('Loaded selected scope'), findsOneWidget);
     expect(find.text('2 loaded lines'), findsOneWidget);
@@ -683,7 +698,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('12.00 EUR - Closed'), findsNothing);
+    expectMoneyText('12.00', 'EUR', findsNothing);
     expect(find.text('No matching request lines'), findsOneWidget);
     expect(
       find.textContaining('Clear the filter to restore the rows'),
@@ -1454,6 +1469,18 @@ Future<void> scrollListBy(WidgetTester tester, double dy) async {
 Future<void> scrollFilterChipsBy(WidgetTester tester, double dx) async {
   await tester.drag(find.byType(SingleChildScrollView), Offset(dx, 0));
   await tester.pumpAndSettle();
+}
+
+void expectMoneyText(String amount, String currencyCode, [Matcher? matcher]) {
+  expect(
+    find.byWidgetPredicate(
+      (widget) =>
+          widget is MoneyText &&
+          widget.amount == amount &&
+          widget.currencyCode == currencyCode,
+    ),
+    matcher ?? findsWidgets,
+  );
 }
 
 SettleoraSettlementBalance sampleBalance({
