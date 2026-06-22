@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/manual_finance/manual_finance_repository.dart';
 import 'package:mobile/manual_finance/manual_finance_screen.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets('lists manual account and income data with explanatory copy', (
@@ -131,6 +132,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('manual-finance-add-account')));
     await tester.pumpAndSettle();
+    expect(find.byType(MoneyInput), findsOneWidget);
+    expect(find.byType(DateField), findsOneWidget);
+    expect(find.text('yyyy-MM-dd'), findsNothing);
     await tester.enterText(
       find.byKey(const Key('manual-account-name')),
       'Bank',
@@ -138,10 +142,6 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('manual-account-balance')),
       '50.00',
-    );
-    await tester.enterText(
-      find.byKey(const Key('manual-account-as-of')),
-      '2026-06-18',
     );
     await tester.ensureVisible(
       find.byKey(const Key('manual-finance-save-account')),
@@ -159,6 +159,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('manual-finance-add-income')));
     await tester.pumpAndSettle();
+    expect(find.byType(MoneyInput), findsOneWidget);
+    expect(find.byType(DateField), findsNWidgets(2));
+    expect(find.text('yyyy-MM-dd'), findsNothing);
     await tester.enterText(
       find.byKey(const Key('manual-income-name')),
       'Bonus',
@@ -166,10 +169,6 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('manual-income-amount')),
       '200.00',
-    );
-    await tester.enterText(
-      find.byKey(const Key('manual-income-next-date')),
-      '2026-06-30',
     );
     await tester.ensureVisible(
       find.byKey(const Key('manual-finance-save-income')),

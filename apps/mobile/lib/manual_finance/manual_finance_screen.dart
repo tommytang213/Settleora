@@ -938,35 +938,25 @@ class _ManualAccountSheetState extends State<_ManualAccountSheet> {
                   : (value) => setState(() => _type = value ?? _type),
             ),
             const SizedBox(height: 10),
-            TextFormField(
-              key: const Key('manual-account-balance'),
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-                signed: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Current manual balance',
-                border: OutlineInputBorder(),
-              ),
-              validator: _required,
-            ),
-            const SizedBox(height: 10),
-            CurrencySelector(
-              key: const Key('manual-account-currency'),
-              value: _currency,
-              onChanged: (value) =>
+            MoneyInput(
+              amountKey: const Key('manual-account-balance'),
+              currencyKey: const Key('manual-account-currency'),
+              amountController: _amountController,
+              currencyValue: _currency,
+              onCurrencyChanged: (value) =>
                   setState(() => _currency = value ?? _currency),
+              amountLabel: 'Current manual balance',
+              currencyLabel: 'Balance currency',
+              allowSignedAmount: true,
+              enabled: !_isSaving,
+              amountValidator: _required,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            DateField(
               key: const Key('manual-account-as-of'),
               controller: _dateController,
-              decoration: const InputDecoration(
-                labelText: 'As-of date',
-                helperText: 'yyyy-MM-dd',
-                border: OutlineInputBorder(),
-              ),
+              label: 'As-of date',
+              enabled: !_isSaving,
               validator: _required,
             ),
             const SizedBox(height: 10),
@@ -1109,24 +1099,17 @@ class _ManualIncomeSheetState extends State<_ManualIncomeSheet> {
               validator: _required,
             ),
             const SizedBox(height: 10),
-            TextFormField(
-              key: const Key('manual-income-amount'),
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Expected amount',
-                border: OutlineInputBorder(),
-              ),
-              validator: _required,
-            ),
-            const SizedBox(height: 10),
-            CurrencySelector(
-              key: const Key('manual-income-currency'),
-              value: _currency,
-              onChanged: (value) =>
+            MoneyInput(
+              amountKey: const Key('manual-income-amount'),
+              currencyKey: const Key('manual-income-currency'),
+              amountController: _amountController,
+              currencyValue: _currency,
+              onCurrencyChanged: (value) =>
                   setState(() => _currency = value ?? _currency),
+              amountLabel: 'Expected amount',
+              currencyLabel: 'Income currency',
+              enabled: !_isSaving,
+              amountValidator: _required,
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
@@ -1148,14 +1131,11 @@ class _ManualIncomeSheetState extends State<_ManualIncomeSheet> {
                   : (value) => setState(() => _cadence = value ?? _cadence),
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            DateField(
               key: const Key('manual-income-next-date'),
               controller: _nextDateController,
-              decoration: const InputDecoration(
-                labelText: 'Next expected date',
-                helperText: 'yyyy-MM-dd',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Next expected date',
+              enabled: !_isSaving,
               validator: _required,
             ),
             const SizedBox(height: 10),
@@ -1183,14 +1163,13 @@ class _ManualIncomeSheetState extends State<_ManualIncomeSheet> {
                   : (value) => setState(() => _accountId = value),
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            DateField(
               key: const Key('manual-income-end-date'),
               controller: _endDateController,
-              decoration: const InputDecoration(
-                labelText: 'End date',
-                helperText: 'Optional yyyy-MM-dd',
-                border: OutlineInputBorder(),
-              ),
+              label: 'End date',
+              enabled: !_isSaving,
+              helperText:
+                  'Optional. Choose a date when this income should stop.',
             ),
             const SizedBox(height: 10),
             TextFormField(

@@ -296,32 +296,224 @@ class MoneyAmountCurrencyField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextFormField(
-          key: amountKey,
-          controller: amountController,
-          enabled: enabled,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: amountLabel,
-            helperText: helperText,
-            border: const OutlineInputBorder(),
-          ),
-          validator: amountValidator,
-        ),
-        const SizedBox(height: 10),
-        CurrencySelector(
-          key: currencyKey,
-          value: currencyValue,
-          onChanged: onCurrencyChanged,
-          label: currencyLabel,
-          enabled: enabled,
-          validator: currencyValidator,
-        ),
-      ],
+    return MoneyInput(
+      amountController: amountController,
+      currencyValue: currencyValue,
+      onCurrencyChanged: onCurrencyChanged,
+      amountLabel: amountLabel,
+      currencyLabel: currencyLabel,
+      amountKey: amountKey,
+      currencyKey: currencyKey,
+      enabled: enabled,
+      amountValidator: amountValidator,
+      currencyValidator: currencyValidator,
+      helperText: helperText,
     );
+  }
+}
+
+class MoneyInput extends StatelessWidget {
+  const MoneyInput({
+    super.key,
+    required this.amountController,
+    required this.currencyValue,
+    required this.onCurrencyChanged,
+    this.amountLabel = 'Amount',
+    this.currencyLabel = 'Currency',
+    this.amountKey,
+    this.currencyKey,
+    this.enabled = true,
+    this.isLoading = false,
+    this.allowSignedAmount = false,
+    this.amountValidator,
+    this.currencyValidator,
+    this.helperText,
+    this.errorText,
+  });
+
+  final TextEditingController amountController;
+  final String? currencyValue;
+  final ValueChanged<String?> onCurrencyChanged;
+  final String amountLabel;
+  final String currencyLabel;
+  final Key? amountKey;
+  final Key? currencyKey;
+  final bool enabled;
+  final bool isLoading;
+  final bool allowSignedAmount;
+  final FormFieldValidator<String>? amountValidator;
+  final FormFieldValidator<String?>? currencyValidator;
+  final String? helperText;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedCurrency = settleoraNormalizeCurrencyCode(currencyValue);
+    return Semantics(
+      label: '$amountLabel and $currencyLabel',
+      textField: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextFormField(
+            key: amountKey,
+            controller: amountController,
+            enabled: enabled && !isLoading,
+            keyboardType: TextInputType.numberWithOptions(
+              decimal: true,
+              signed: allowSignedAmount,
+            ),
+            decoration: InputDecoration(
+              labelText: amountLabel,
+              helperText:
+                  helperText ??
+                  'Enter the amount for ${normalizedCurrency ?? 'the selected currency'}.',
+              errorText: errorText,
+              border: const OutlineInputBorder(),
+              suffixText: normalizedCurrency,
+            ),
+            validator: amountValidator,
+          ),
+          const SizedBox(height: 10),
+          CurrencySelector(
+            key: currencyKey,
+            value: currencyValue,
+            onChanged: onCurrencyChanged,
+            label: currencyLabel,
+            enabled: enabled,
+            isLoading: isLoading,
+            validator: currencyValidator,
+            helperText:
+                'Currency stays explicit; the server validates final money rules.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DateField extends StatefulWidget {
+  const DateField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.enabled = true,
+    this.isLoading = false,
+    this.firstDate,
+    this.lastDate,
+    this.initialDate,
+    this.helperText,
+    this.validator,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool enabled;
+  final bool isLoading;
+  final DateTime? firstDate;
+  final DateTime? lastDate;
+  final DateTime? initialDate;
+  final String? helperText;
+  final FormFieldValidator<String>? validator;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  State<DateField> createState() => _DateFieldState();
+}
+
+class _DateFieldState extends State<DateField> {
+  late final TextEditingController _displayController;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayController = TextEditingController();
+    widget.controller.addListener(_syncDisplayText);
+    _syncDisplayText();
+  }
+
+  @override
+  void didUpdateWidget(covariant DateField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_syncDisplayText);
+      widget.controller.addListener(_syncDisplayText);
+      _syncDisplayText();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_syncDisplayText);
+    _displayController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      textField: true,
+      label: widget.label,
+      child: TextFormField(
+        controller: _displayController,
+        enabled: widget.enabled && !widget.isLoading,
+        readOnly: true,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          helperText:
+              widget.helperText ??
+              'Choose a date. The saved value stays unchanged.',
+          border: const OutlineInputBorder(),
+          suffixIcon: widget.isLoading
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : const Icon(Icons.calendar_today_outlined),
+        ),
+        validator: (_) => widget.validator?.call(widget.controller.text),
+        onTap: widget.enabled && !widget.isLoading ? _pickDate : null,
+      ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final firstDate = widget.firstDate ?? DateTime(now.year - 10);
+    final lastDate = widget.lastDate ?? DateTime(now.year + 10, 12, 31);
+    final parsed = _parseIsoDate(widget.controller.text);
+    final initialDate = _clampDate(
+      widget.initialDate ?? parsed ?? now,
+      firstDate,
+      lastDate,
+    );
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (selected == null) {
+      return;
+    }
+    final isoDate = _formatIsoDate(selected);
+    widget.controller.text = isoDate;
+    widget.onChanged?.call(isoDate);
+  }
+
+  void _syncDisplayText() {
+    final parsed = _parseIsoDate(widget.controller.text);
+    final nextText = parsed == null
+        ? widget.controller.text
+        : _formatProductDate(parsed);
+    if (_displayController.text != nextText) {
+      _displayController.text = nextText;
+    }
   }
 }
 
@@ -339,4 +531,57 @@ String _customValue(String? value) {
     return '';
   }
   return normalized;
+}
+
+DateTime? _parseIsoDate(String value) {
+  final trimmed = value.trim();
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+  if (match == null) {
+    return null;
+  }
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null || month == null || day == null) {
+    return null;
+  }
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return null;
+  }
+  return parsed;
+}
+
+DateTime _clampDate(DateTime value, DateTime firstDate, DateTime lastDate) {
+  if (value.isBefore(firstDate)) {
+    return firstDate;
+  }
+  if (value.isAfter(lastDate)) {
+    return lastDate;
+  }
+  return value;
+}
+
+String _formatIsoDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
+}
+
+String _formatProductDate(DateTime value) {
+  const months = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[value.month - 1]} ${value.day}, ${value.year}';
 }

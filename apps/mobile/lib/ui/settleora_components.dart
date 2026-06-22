@@ -160,6 +160,50 @@ class AppCard extends StatelessWidget {
   }
 }
 
+class MoneyText extends StatelessWidget {
+  const MoneyText({
+    super.key,
+    required this.amount,
+    required this.currencyCode,
+    this.style,
+    this.textAlign,
+    this.maxLines = 1,
+    this.overflow = TextOverflow.ellipsis,
+    this.semanticLabel,
+  });
+
+  final String amount;
+  final String currencyCode;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedCurrency = currencyCode.trim().toUpperCase();
+    final displayCurrency = normalizedCurrency.isEmpty
+        ? 'Currency not set'
+        : normalizedCurrency;
+    final displayAmount = amount.trim().isEmpty ? '0' : amount.trim();
+    final text = '$displayAmount $displayCurrency';
+    final effectiveStyle = (style ?? Theme.of(context).textTheme.titleMedium)
+        ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+
+    return Semantics(
+      label: semanticLabel ?? text,
+      child: Text(
+        text,
+        maxLines: maxLines,
+        overflow: overflow,
+        textAlign: textAlign,
+        style: effectiveStyle,
+      ),
+    );
+  }
+}
+
 enum SettleoraSurfaceVariant { neutral, info, warning, danger, success }
 
 class SummaryCard extends StatelessWidget {
