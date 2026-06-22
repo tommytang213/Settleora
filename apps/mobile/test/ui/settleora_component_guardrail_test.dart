@@ -90,6 +90,16 @@ void main() {
                   ],
                 ),
                 const AppCard(child: Text('Card content')),
+                SettingsRow(
+                  key: const Key('component-settings-row'),
+                  icon: Icons.settings_outlined,
+                  title: 'Settings row title',
+                  subtitle:
+                      'Reusable settings row subtitle with product-facing copy.',
+                  statusLabel: 'Ready',
+                  statusVariant: StatusChipVariant.success,
+                  onTap: () {},
+                ),
                 const VisualPreferenceUnsupportedReadout(
                   key: Key('component-visual-preference-readout'),
                 ),
@@ -143,6 +153,13 @@ void main() {
     expect(find.text('Synced'), findsOneWidget);
     expect(find.text('Draft'), findsOneWidget);
     expect(find.text('Card content'), findsOneWidget);
+    expect(find.byKey(const Key('component-settings-row')), findsOneWidget);
+    expect(find.text('Settings row title'), findsOneWidget);
+    expect(
+      find.text('Reusable settings row subtitle with product-facing copy.'),
+      findsOneWidget,
+    );
+    expect(find.text('Ready'), findsOneWidget);
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
       find.textContaining(

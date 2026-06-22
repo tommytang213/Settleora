@@ -483,6 +483,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const Key('server-shell-reports')),
       180,
