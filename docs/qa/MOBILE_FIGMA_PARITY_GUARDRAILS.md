@@ -2,15 +2,20 @@
 
 ## Purpose
 
-This document preserves the current mobile UI baseline so future Flutter UI work does not regress the Figma Make prototype alignment or the shared Settleora component foundation. It is a guardrail for incremental implementation, not a redesign brief.
+This document preserves the current mobile UI parity and regression baseline so future Flutter UI work does not drift from the approved V1 mobile references or the shared Settleora component foundation. It is a guardrail for incremental implementation, not a redesign brief.
 
-The product reference is the Figma Make mobile finance prototype supplied by product, last reviewed for this baseline from:
+The approved V1 product references are now repo-tracked under `docs/design/mobile/`:
 
-```text
-https://www.figma.com/make/wkK3z5KZIi5Tvp3yaXRTcR/Mobile-Finance-App-Prototype?t=Tf6mwoWQp5A3XxWh-1
-```
+- `MOBILE_DESIGN_REFERENCE_V1.md`
+- `MOBILE_BILLS_OCR_REFERENCE_V1.md`
+- `MOBILE_GROUPS_REFERENCE_V1.md`
+- `MOBILE_SETTLE_REFERENCE_V1.md`
+- `MOBILE_MORE_SETTINGS_REFERENCE_V1.md`
+- `MOBILE_NOTIFICATIONS_REFERENCE_V1.md`
+- `MOBILE_IMPLEMENTATION_GUARDRAILS_V1.md`
+- `MOBILE_SHARED_DESIGN_SYSTEM_AUDIT_V1.md`
 
-Current repository files remain the source of truth. If the Figma Make source or open mobile UI PRs differ from this document, reconcile the checked-out repo first and record the difference in the task report.
+Current repository files remain the implementation source of truth. If older Figma Make links, open mobile UI PRs, or prior QA maps differ from these V1 references, reconcile the checked-out repo against the V1 docs first and record the difference in the task report.
 
 ## Latest Repo Baseline
 
@@ -56,7 +61,7 @@ Current dashboard/component consumers include:
 | `components/settleora/AppButton.tsx` | `AppButton` with `primary`, `secondary`, `soft`, `destructive` variants | Shared primitive exists. |
 | `components/settleora/AppCard.tsx` | `AppCard` | Shared primitive exists. |
 | `components/settleora/AppTextField.tsx` | `AppTextField` | Shared primitive exists. |
-| `components/settleora/BottomNav.tsx` | `SettleoraBottomNav` | Shared primitive exists; labels on current `ai/integration` are `Home`, `Bills`, `Groups`, `Settle`, `Receipts`, `Profile`. |
+| `components/settleora/BottomNav.tsx` | `SettleoraBottomNav` | Shared primitive exists and is reconciled to approved V1 labels `Home`, `Bills`, `Groups`, `Settle`, `More`. |
 | `components/settleora/EmptyState.tsx` | `EmptyState` | Shared primitive exists. |
 | `components/settleora/ErrorState.tsx` | `ErrorState` | Shared primitive exists. |
 | `components/settleora/LoadingState.tsx` | `LoadingState` | Shared primitive exists. |
@@ -96,9 +101,12 @@ Current dashboard/component consumers include:
 - Promote reusable private dashboard or screen widgets into shared components when they appear in more than one screen or represent a Figma Make common component.
 - Keep common states consistent across screens: empty, loading, error, offline, review-needed, and pending-sync.
 - New screens must consider both narrow/mobile and wider Flutter viewports. Avoid layouts that only work on one phone size or desktop test surface.
-- Bottom navigation keeps the approved product destinations `Home`, `Bills`, `Groups`, `Settle`, `Receipts`, and `Profile`; do not reduce it to Figma Make's five-tab Settings model without explicit product approval.
+- Bottom navigation keeps the approved V1 product destinations `Home`, `Bills`, `Groups`, `Settle`, and `More`.
+- There is no global center `+` button.
+- Notifications are reached from the top bell or global notification affordance, not a bottom-nav tab.
+- More is the all-functions hub. Profile, receipt reviews, sessions, reports, manual finance, backups, settings-like surfaces, and future advanced tools must remain reachable through More, Home actions, or pushed routes rather than extra bottom-nav tabs.
 - Top-level server-mode destinations use one root shell bottom nav with stable selected state. Secondary/detail routes such as bill detail/create, recurring bills, notifications, sessions, monthly reports, and nested settlement/group detail screens may hide the bottom nav intentionally while they are pushed flows.
-- The shared bottom nav uses a Figma-style treatment: soft active icon pills for standard tabs, a primary circular Settle action, stable labels, safe-area padding, and responsive width constraints for narrow mobile and wider Flutter windows.
+- The shared bottom nav uses stable labels, safe-area padding, and responsive width constraints for narrow mobile and wider Flutter windows.
 - Keep test coverage for user-visible labels, route handoffs, bottom nav selected state, and the absence of implementation-seam copy visible to users.
 - Do not expose implementation labels such as repository names, generated-client seams, exception class names, debug state, direct storage paths, or sync internals in user-facing UI.
 - Treat Figma Make names as component intent, not generated Flutter source. Do not paste generated Figma code into the app.

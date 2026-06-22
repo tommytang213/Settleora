@@ -28,14 +28,7 @@ void main() {
       find.byType(SettleoraBottomNav),
     );
     expect(nav.selected, SettleoraNavDestination.home);
-    for (final label in const [
-      'Home',
-      'Bills',
-      'Groups',
-      'Settle',
-      'Receipts',
-      'Profile',
-    ]) {
+    for (final label in const ['Home', 'Bills', 'Groups', 'Settle', 'More']) {
       expect(
         find.descendant(
           of: find.byType(SettleoraBottomNav),
@@ -44,6 +37,20 @@ void main() {
         findsOneWidget,
       );
     }
+    expect(
+      find.descendant(
+        of: find.byType(SettleoraBottomNav),
+        matching: find.text('Receipts'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SettleoraBottomNav),
+        matching: find.text('Profile'),
+      ),
+      findsNothing,
+    );
     expect(find.byKey(const Key('bottom-nav-home')), findsOneWidget);
     expect(find.byKey(const Key('bottom-nav-settle')), findsOneWidget);
     expect(find.text('Upcoming Bills'), findsOneWidget);

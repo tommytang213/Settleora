@@ -456,7 +456,7 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-enum SettleoraNavDestination { home, bills, groups, settle, receipts, profile }
+enum SettleoraNavDestination { home, bills, groups, settle, more }
 
 class SettleoraBottomNav extends StatelessWidget {
   const SettleoraBottomNav({
@@ -475,8 +475,7 @@ class SettleoraBottomNav extends StatelessWidget {
       SettleoraNavDestination.bills,
       SettleoraNavDestination.groups,
       SettleoraNavDestination.settle,
-      SettleoraNavDestination.receipts,
-      SettleoraNavDestination.profile,
+      SettleoraNavDestination.more,
     ];
     final colors = context.settleoraColors;
 
@@ -552,8 +551,7 @@ class SettleoraBottomNav extends StatelessWidget {
       SettleoraNavDestination.bills => const Key('bottom-nav-bills'),
       SettleoraNavDestination.groups => const Key('bottom-nav-groups'),
       SettleoraNavDestination.settle => const Key('bottom-nav-settle'),
-      SettleoraNavDestination.receipts => const Key('bottom-nav-receipts'),
-      SettleoraNavDestination.profile => const Key('bottom-nav-profile'),
+      SettleoraNavDestination.more => const Key('bottom-nav-more'),
     };
   }
 }
@@ -576,7 +574,6 @@ class _SettleoraBottomNavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
     final label = _label(destination);
-    final isPrimaryAction = destination == SettleoraNavDestination.settle;
     final foreground = selected ? colors.primary : colors.textMuted;
     final icon = selected ? _selectedIcon(destination) : _icon(destination);
 
@@ -595,36 +592,17 @@ class _SettleoraBottomNavItem extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (isPrimaryAction)
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colors.primary,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: colors.primary.withValues(alpha: 0.22),
-                          blurRadius: 12,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: SizedBox.square(
-                      dimension: 42,
-                      child: Icon(icon, color: colors.onPrimary, size: 21),
-                    ),
-                  )
-                else
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: selected ? colors.primarySoft : Colors.transparent,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: SizedBox(
-                      width: 50,
-                      height: 30,
-                      child: Icon(icon, color: foreground, size: 21),
-                    ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: selected ? colors.primarySoft : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
                   ),
+                  child: SizedBox(
+                    width: 50,
+                    height: 30,
+                    child: Icon(icon, color: foreground, size: 21),
+                  ),
+                ),
                 const SizedBox(height: 3),
                 FittedBox(
                   fit: BoxFit.scaleDown,
@@ -632,9 +610,7 @@ class _SettleoraBottomNavItem extends StatelessWidget {
                     label,
                     maxLines: 1,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: isPrimaryAction && selected
-                          ? colors.primary
-                          : foreground,
+                      color: foreground,
                       fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
                       letterSpacing: 0,
                     ),
@@ -654,8 +630,7 @@ class _SettleoraBottomNavItem extends StatelessWidget {
       SettleoraNavDestination.bills => 'Bills',
       SettleoraNavDestination.groups => 'Groups',
       SettleoraNavDestination.settle => 'Settle',
-      SettleoraNavDestination.receipts => 'Receipts',
-      SettleoraNavDestination.profile => 'Profile',
+      SettleoraNavDestination.more => 'More',
     };
   }
 
@@ -664,9 +639,8 @@ class _SettleoraBottomNavItem extends StatelessWidget {
       SettleoraNavDestination.home => Icons.home_outlined,
       SettleoraNavDestination.bills => Icons.receipt_long_outlined,
       SettleoraNavDestination.groups => Icons.groups_outlined,
-      SettleoraNavDestination.settle => Icons.add,
-      SettleoraNavDestination.receipts => Icons.document_scanner_outlined,
-      SettleoraNavDestination.profile => Icons.person_outline,
+      SettleoraNavDestination.settle => Icons.payments_outlined,
+      SettleoraNavDestination.more => Icons.more_horiz,
     };
   }
 
@@ -675,9 +649,8 @@ class _SettleoraBottomNavItem extends StatelessWidget {
       SettleoraNavDestination.home => Icons.home,
       SettleoraNavDestination.bills => Icons.receipt_long,
       SettleoraNavDestination.groups => Icons.groups,
-      SettleoraNavDestination.settle => Icons.add,
-      SettleoraNavDestination.receipts => Icons.document_scanner,
-      SettleoraNavDestination.profile => Icons.person,
+      SettleoraNavDestination.settle => Icons.payments,
+      SettleoraNavDestination.more => Icons.more_horiz,
     };
   }
 }

@@ -392,7 +392,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openProfile() async {
-    await _openTopLevelDestination(SettleoraNavDestination.profile);
+    await _openDashboardDestination(_buildProfileScreen);
   }
 
   Future<void> _openNotifications() async {
@@ -441,7 +441,7 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openReceiptReviews() async {
-    await _openTopLevelDestination(SettleoraNavDestination.receipts);
+    await _openDashboardDestination(_buildReceiptReviewsScreen);
   }
 
   Future<void> _openSettlements() async {
@@ -875,9 +875,40 @@ class _SettleoraAuthenticatedServerShellState
       SettleoraNavDestination.bills => _buildBillsScreen(context),
       SettleoraNavDestination.groups => _buildGroupsScreen(context),
       SettleoraNavDestination.settle => _buildSettlementsScreen(context),
-      SettleoraNavDestination.receipts => _buildReceiptReviewsScreen(context),
-      SettleoraNavDestination.profile => _buildProfileScreen(context),
+      SettleoraNavDestination.more => _buildMoreScreen(context),
     };
+  }
+
+  Widget _buildMoreScreen(BuildContext context) {
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          _DashboardMoreSection(
+            onOpenProfile: _openProfile,
+            onOpenReceiptReviews: _openReceiptReviews,
+            onOpenSessions: _openSessions,
+            onOpenMonthlyReport: _openMonthlyReport,
+            onOpenManualFinance: _openManualFinance,
+          ),
+          const SizedBox(height: 16),
+          _DashboardDataSafetySection(
+            export: _latestBackupExport,
+            isBuildingBackup: _isBuildingBackup,
+            isAvailable: widget.dataBackupService != null,
+            onBuildBackup: _buildLocalBackupExport,
+            onPreviewImport: _openImportPreview,
+          ),
+          const SizedBox(height: 16),
+          SettleoraNotificationPreferencePanel(
+            settings: _notificationPreferences,
+            onChanged: _setNotificationPreferences,
+          ),
+          const SizedBox(height: 16),
+          const VisualPreferenceUnsupportedReadout(),
+        ],
+      ),
+    );
   }
 }
 
@@ -1602,6 +1633,7 @@ class _DashboardMoreSection extends StatelessWidget {
                   : constraints.maxWidth;
               final items = [
                 _DashboardCompactAction(
+                  key: const Key('server-shell-more-profile'),
                   width: width,
                   icon: Icons.account_circle_outlined,
                   title: 'Profile',
