@@ -163,6 +163,12 @@ V1-aligned updates made in this branch:
   rounding, recalculating, aggregating, changing dashboard loading, navigation,
   sync, notification, auth/session, repository contract, OpenAPI, generated
   client, settlement, bill, recurring, persistence, or backend/API authority.
+- Future bill form due-date now uses the shared picker-backed `DateField`, and
+  future bill list tile, detail header, and detail item standalone amount
+  readouts now use shared `MoneyText`. This records the 2026-06-22 22:32 HKT
+  future bill money/date follow-up without changing future bill create, edit,
+  post, cancel, group participant, payload, split, settlement, persistence,
+  OpenAPI, generated client, or backend/API authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -183,11 +189,6 @@ shared money/date migration follow-ups.
 
 Remaining eligible raw money/date candidates:
 
-- Home/dashboard, `apps/mobile/lib/app/server_mode_shell.dart`:
-  `_BalanceMetric` and `_DashboardBillRow` still pass formatted money strings
-  through `_money(...)` / `'$currency 0.00'` and render them with plain `Text`.
-  These are display-only amount-plus-currency readouts and should move to
-  amount/currency data plus `MoneyText` in a small Home dashboard slice.
 - Group/personal bill detail readouts,
   `apps/mobile/lib/bills/bill_list_screen.dart`: several non-editor amount
   readouts still use `_money(...)`, including read-only group bill list
@@ -196,13 +197,6 @@ Remaining eligible raw money/date candidates:
   adjustment rows, and acknowledgement copy. Standalone UI readouts should move
   toward `MoneyText`; hidden/searchable-field collections and sentence copy can
   remain string-based unless a later UI slice gives them a structured readout.
-- Future bills / upcoming one-time bills,
-  `apps/mobile/lib/recurring_bills/recurring_bill_screen.dart`: the future bill
-  form uses a raw due-date `TextFormField` with a picker suffix at
-  `future-bill-form-due-date`; this should move to shared `DateField`. Future
-  bill tile/header/item amount readouts still use `_money(...)` strings and are
-  eligible for `MoneyText`. The create amount/currency field already uses
-  `MoneyAmountCurrencyField`, which delegates to shared `MoneyInput`.
 
 Inspected but no action needed for this money/date migration queue:
 

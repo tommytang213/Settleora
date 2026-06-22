@@ -2122,9 +2122,10 @@ class _SettleoraFutureBillDetailScreenState
                       )
                     else
                       for (final item in futureBill.items)
-                        _KeyValueText(
+                        _KeyValueMoney(
                           label: item.name,
-                          value: _money(item.amount, item.currency),
+                          amount: item.amount,
+                          currencyCode: item.currency,
                         ),
                   ],
                 ),
@@ -2339,26 +2340,6 @@ class _SettleoraFutureBillFormScreenState
     });
   }
 
-  Future<void> _pickDueDate() async {
-    final currentValue = _parseIsoDate(_dueDateController.text.trim());
-    final now = DateTime.now();
-    final initialDate =
-        currentValue ?? DateTime(now.year, now.month, now.day + 1);
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(2100),
-    );
-    if (selected == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _dueDateController.text = _formatIsoDate(selected);
-    });
-  }
-
   Future<void> _save() async {
     if (_isSaving || !_formKey.currentState!.validate()) {
       return;
@@ -2521,20 +2502,17 @@ class _SettleoraFutureBillFormScreenState
                     compact: true,
                   ),
                 if (isEditing) const SizedBox(height: 12),
-                TextFormField(
+                DateField(
                   key: const Key('future-bill-form-due-date'),
                   controller: _dueDateController,
+                  label: 'Due date (YYYY-MM-DD)',
                   enabled: !_isSaving,
-                  decoration: InputDecoration(
-                    labelText: 'Due date (YYYY-MM-DD)',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      key: const Key('future-bill-form-due-date-picker'),
-                      tooltip: 'Pick due date',
-                      onPressed: _isSaving ? null : _pickDueDate,
-                      icon: const Icon(Icons.calendar_month_outlined),
-                    ),
+                  firstDate: DateTime(
+                    DateTime.now().year,
+                    DateTime.now().month,
+                    DateTime.now().day,
                   ),
+                  lastDate: DateTime(2100),
                   validator: (value) =>
                       _isoDateValidator(value, required: true),
                 ),
@@ -2769,7 +2747,11 @@ class _FutureBillTile extends StatelessWidget {
           spacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text(_money(futureBill.totalAmount, futureBill.totalCurrency)),
+            MoneyText(
+              amount: futureBill.totalAmount,
+              currencyCode: futureBill.totalCurrency,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
             if (futureBill.canCancel)
               IconButton(
                 key: cancelButtonKey,
@@ -2804,9 +2786,10 @@ class _FutureBillHeader extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 10),
-        _KeyValueText(
+        _KeyValueMoney(
           label: 'Amount',
-          value: _money(futureBill.totalAmount, futureBill.totalCurrency),
+          amount: futureBill.totalAmount,
+          currencyCode: futureBill.totalCurrency,
         ),
         _KeyValueText(label: 'Due date', value: futureBill.dueDate),
         _KeyValueText(
