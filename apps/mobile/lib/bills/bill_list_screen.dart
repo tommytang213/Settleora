@@ -4540,32 +4540,40 @@ class _PersonalBillCreateItemCard extends StatelessWidget {
               validator: _requiredPositiveWholeNumberField,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('personal-bill-item-unit-amount-$index'),
-              controller: controllers.unitAmount,
+            MoneyInput(
+              amountKey: ValueKey('personal-bill-item-unit-amount-$index'),
+              amountController: controllers.unitAmount,
+              currencyValue: controllers.currency.text,
+              onCurrencyChanged: (_) {},
+              amountLabel: 'Unit amount',
+              currencyLabel: 'Item currency',
               enabled: !isSaving,
-              onChanged: (_) {
+              currencyControl: MoneyInputCurrencyControl.staticCode,
+              helperText: 'Uses the item currency shown below.',
+              onAmountChanged: (_) {
                 controllers.syncAfterUnitAmountEdited();
                 onDraftChanged();
               },
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Unit amount'),
-              validator: (value) => _optionalPositiveMoneyAmountField(value),
+              amountValidator: (value) =>
+                  _optionalPositiveMoneyAmountField(value),
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('personal-bill-item-amount-$index'),
-              controller: controllers.amount,
+            MoneyInput(
+              amountKey: ValueKey('personal-bill-item-amount-$index'),
+              amountController: controllers.amount,
+              currencyValue: controllers.currency.text,
+              onCurrencyChanged: (_) {},
+              amountLabel: 'Line total',
+              currencyLabel: 'Item currency',
               enabled: !isSaving,
-              onChanged: (_) {
+              currencyControl: MoneyInputCurrencyControl.staticCode,
+              helperText: 'Uses the item currency shown below.',
+              onAmountChanged: (_) {
                 controllers.syncAfterLineTotalEdited();
                 onDraftChanged();
               },
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Line total'),
-              validator: (_) => _billCreateItemAmountModelError(controllers),
+              amountValidator: (_) =>
+                  _billCreateItemAmountModelError(controllers),
             ),
             const SizedBox(height: 12),
             _CurrencyPickerField(

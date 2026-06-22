@@ -122,6 +122,13 @@ V1-aligned updates made in this branch:
   18:56 HKT reports-money follow-up without changing report generation,
   aggregation, rounding, filtering authority, persistence, OpenAPI, generated
   clients, or backend behavior.
+- Personal bill create item unit amount and line total rows now use shared
+  `MoneyInput` static-code rows while preserving the existing row-level item
+  currency selector, row currency controllers, validation messages, quantity to
+  line-total sync behavior, draft state, request construction, and save
+  behavior. This records the 2026-06-22 19:34 HKT personal-bill itemized
+  follow-up without changing bill split, rounding, persistence, sync, OpenAPI,
+  generated clients, or API/domain authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -147,14 +154,6 @@ Remaining eligible raw money/date candidates:
   through `_money(...)` / `'$currency 0.00'` and render them with plain `Text`.
   These are display-only amount-plus-currency readouts and should move to
   amount/currency data plus `MoneyText` in a small Home dashboard slice.
-- Personal bill itemized creation,
-  `apps/mobile/lib/bills/bill_list_screen.dart`: `_PersonalBillCreateItemCard`
-  still uses raw `TextFormField` with `TextInputType.number` for
-  `personal-bill-item-unit-amount-*` and `personal-bill-item-amount-*`, with a
-  nearby row-level `_CurrencyPickerField`. These should move to `MoneyInput`
-  with `MoneyInputCurrencyControl.staticCode`, preserving the existing row
-  currency controller, validation, line-total sync behavior, and request
-  construction. Quantity/name/note fields are not money candidates.
 - Saved OCR review inside bill detail,
   `apps/mobile/lib/bills/bill_list_screen.dart`:
   `_ReceiptOcrEditableReviewForm` still uses raw `TextFormField` for
@@ -226,25 +225,21 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Personal bill itemized money fields: migrate personal bill item unit amount
-   and line total rows to `MoneyInput` static-code rows with focused bill-list
-   tests; do not change item math, split, payer, rounding, request, sync, or API
-   authority.
-2. Saved OCR in-bill editor date/money fields: migrate the saved OCR review
+1. Saved OCR in-bill editor date/money fields: migrate the saved OCR review
    date field and per-line unit/line-total fields in
    `bill_list_screen.dart` to `DateField` and `MoneyInput` static-code rows;
    keep provisional OCR review save/apply semantics unchanged.
-3. Settlement money readouts: add or reuse a key-value money readout wrapper
+2. Settlement money readouts: add or reuse a key-value money readout wrapper
    backed by `MoneyText` and migrate settlement balances, requests, payments,
    allocations, and residual standalone readouts; do not change settlement
    state, residual handling, proof, payment, or authorization behavior.
-4. Home dashboard money readouts: carry amount/currency separately through
+3. Home dashboard money readouts: carry amount/currency separately through
    `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
    loaded-summary-only dashboard behavior unchanged.
-5. Bill detail/read-only money readouts: migrate standalone bill list/detail,
+4. Bill detail/read-only money readouts: migrate standalone bill list/detail,
    share panel, payer, participant, adjustment, and saved OCR readouts to
    `MoneyText` where they are not sentence/search/semantics strings.
-6. Future bill due-date/readout slice: replace the future bill due-date
+5. Future bill due-date/readout slice: replace the future bill due-date
    `TextFormField` with `DateField` and migrate future bill amount readouts to
    `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
 

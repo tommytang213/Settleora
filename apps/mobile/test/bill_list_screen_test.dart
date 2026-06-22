@@ -4813,6 +4813,33 @@ void main() {
       expect(find.text('Quantity'), findsOneWidget);
       expect(find.text('Unit amount'), findsOneWidget);
       expect(find.text('Line total'), findsOneWidget);
+      final unitAmountMoneyInput = tester.widget<MoneyInput>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MoneyInput &&
+              widget.amountKey ==
+                  const ValueKey('personal-bill-item-unit-amount-0'),
+        ),
+      );
+      expect(
+        unitAmountMoneyInput.currencyControl,
+        MoneyInputCurrencyControl.staticCode,
+      );
+      expect(unitAmountMoneyInput.currencyValue, 'USD');
+      expect(unitAmountMoneyInput.currencyLabel, 'Item currency');
+      final lineTotalMoneyInput = tester.widget<MoneyInput>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MoneyInput &&
+              widget.amountKey == const ValueKey('personal-bill-item-amount-0'),
+        ),
+      );
+      expect(
+        lineTotalMoneyInput.currencyControl,
+        MoneyInputCurrencyControl.staticCode,
+      );
+      expect(lineTotalMoneyInput.currencyValue, 'USD');
+      expect(lineTotalMoneyInput.currencyLabel, 'Item currency');
       expect(
         find.byKey(const Key('personal-bill-total-preview')),
         findsOneWidget,
