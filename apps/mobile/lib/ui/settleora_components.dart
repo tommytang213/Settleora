@@ -160,6 +160,201 @@ class AppCard extends StatelessWidget {
   }
 }
 
+enum SettleoraSurfaceVariant { neutral, info, warning, danger, success }
+
+class SummaryCard extends StatelessWidget {
+  const SummaryCard({
+    super.key,
+    required this.title,
+    required this.value,
+    this.caption,
+    this.icon,
+    this.variant = SettleoraSurfaceVariant.neutral,
+  });
+
+  final String title;
+  final String value;
+  final String? caption;
+  final IconData? icon;
+  final SettleoraSurfaceVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (background, foreground) = _surfaceColors(context, variant);
+
+    return AppCard(
+      color: background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 20, color: foreground),
+                const SizedBox(width: SettleoraSpacing.xs),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: SettleoraSpacing.xs),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          if (caption != null) ...[
+            const SizedBox(height: SettleoraSpacing.xxs),
+            Text(
+              caption!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: foreground),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class StateCard extends StatelessWidget {
+  const StateCard({
+    super.key,
+    required this.title,
+    required this.message,
+    this.icon,
+    this.action,
+    this.variant = SettleoraSurfaceVariant.neutral,
+  });
+
+  final String title;
+  final String message;
+  final IconData? icon;
+  final Widget? action;
+  final SettleoraSurfaceVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final theme = Theme.of(context);
+    final (background, foreground) = _surfaceColors(context, variant);
+
+    return AppCard(
+      color: background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (icon != null) ...[
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: colors.surface.withValues(alpha: 0.72),
+                  foregroundColor: foreground,
+                  child: Icon(icon, size: 20),
+                ),
+                const SizedBox(width: SettleoraSpacing.sm),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: SettleoraSpacing.xxs),
+                    Text(message, style: TextStyle(color: foreground)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (action != null) ...[
+            const SizedBox(height: SettleoraSpacing.sm),
+            Align(alignment: AlignmentDirectional.centerStart, child: action!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class InfoCard extends StatelessWidget {
+  const InfoCard({
+    super.key,
+    required this.title,
+    required this.message,
+    this.icon = Icons.info_outline,
+    this.action,
+  });
+
+  final String title;
+  final String message;
+  final IconData icon;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return StateCard(
+      title: title,
+      message: message,
+      icon: icon,
+      action: action,
+      variant: SettleoraSurfaceVariant.info,
+    );
+  }
+}
+
+class WarningCard extends StatelessWidget {
+  const WarningCard({
+    super.key,
+    required this.title,
+    required this.message,
+    this.icon = Icons.warning_amber_outlined,
+    this.action,
+  });
+
+  final String title;
+  final String message;
+  final IconData icon;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return StateCard(
+      title: title,
+      message: message,
+      icon: icon,
+      action: action,
+      variant: SettleoraSurfaceVariant.warning,
+    );
+  }
+}
+
 class SettingsRow extends StatelessWidget {
   const SettingsRow({
     super.key,
@@ -777,22 +972,12 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.settleoraColors;
-    return AppCard(
-      child: Column(
-        children: [
-          Icon(icon, color: colors.textSubtle, size: 34),
-          const SizedBox(height: 10),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: colors.textMuted),
-          ),
-          if (action != null) ...[const SizedBox(height: 14), action!],
-        ],
-      ),
+    return StateCard(
+      title: title,
+      message: message,
+      icon: icon,
+      action: action,
+      variant: SettleoraSurfaceVariant.neutral,
     );
   }
 }
@@ -804,6 +989,8 @@ class LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
     return AppCard(
       child: Row(
         children: [
@@ -811,8 +998,10 @@ class LoadingState extends StatelessWidget {
             dimension: 18,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(message)),
+          const SizedBox(width: SettleoraSpacing.sm),
+          Expanded(
+            child: Text(message, style: TextStyle(color: colors.textMuted)),
+          ),
         ],
       ),
     );
@@ -825,32 +1014,51 @@ class ErrorState extends StatelessWidget {
     required this.title,
     required this.message,
     this.onRetry,
+    this.retryKey,
   });
 
   final String title;
   final String message;
   final VoidCallback? onRetry;
+  final Key? retryKey;
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(message),
-          if (onRetry != null) ...[
-            const SizedBox(height: 12),
-            AppButton(
+    return StateCard(
+      title: title,
+      message: message,
+      icon: Icons.error_outline,
+      action: onRetry == null
+          ? null
+          : AppButton(
+              key: retryKey,
               label: 'Retry',
               icon: Icons.refresh,
               variant: AppButtonVariant.secondary,
               onPressed: onRetry,
             ),
-          ],
-        ],
-      ),
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
+}
+
+(Color, Color) _surfaceColors(
+  BuildContext context,
+  SettleoraSurfaceVariant variant,
+) {
+  final colors = context.settleoraColors;
+
+  return switch (variant) {
+    SettleoraSurfaceVariant.neutral => (colors.surface, colors.text),
+    SettleoraSurfaceVariant.info => (colors.infoSoft, colors.onInfoSoft),
+    SettleoraSurfaceVariant.warning => (
+      colors.warningSoft,
+      colors.onWarningSoft,
+    ),
+    SettleoraSurfaceVariant.danger => (colors.dangerSoft, colors.onDangerSoft),
+    SettleoraSurfaceVariant.success => (
+      colors.successSoft,
+      colors.onSuccessSoft,
+    ),
+  };
 }
