@@ -36,6 +36,8 @@ import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
 
+const _serverShellRootScrollPadding = EdgeInsets.fromLTRB(16, 12, 16, 96);
+
 typedef SettleoraSessionEndedCallback =
     Future<void> Function(String? noticeMessage);
 
@@ -766,7 +768,8 @@ class _SettleoraAuthenticatedServerShellState
                       : double.infinity;
 
                   return SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    key: const Key('server-shell-home-scroll'),
+                    padding: _serverShellRootScrollPadding,
                     child: Center(
                       child: ConstrainedBox(
                         key: const Key('server-shell-dashboard-surface'),
@@ -884,7 +887,7 @@ class _SettleoraAuthenticatedServerShellState
 
           return ListView(
             key: const Key('server-shell-more-hub'),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            padding: _serverShellRootScrollPadding,
             children: [
               Center(
                 child: ConstrainedBox(
