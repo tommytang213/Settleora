@@ -78,16 +78,20 @@ V1-aligned updates made in this branch:
   `DateField` instead of raw amount/currency and `yyyy-MM-dd` text-entry
   controls.
 - Bills/OCR now uses shared `DateField` for the personal bill date and receipt
-  review date, shared `MoneyInput` for receipt review header totals with
-  explicit currency, and shared `MoneyText` for selected bill and OCR
-  presentation-only amount readouts. Receipt review line amount fields, group
-  bill item/payer money controls, revision editor rows, and broader recurring
-  and report fields remain follow-up candidates.
+  review date, shared `MoneyInput` for receipt review header totals and receipt
+  review line item unit price / line total fields with explicit currency, and
+  shared `MoneyText` for selected bill and OCR presentation-only amount
+  readouts. Group bill item/payer money controls, revision editor rows, and
+  broader recurring and report fields remain follow-up candidates.
 - Receipt OCR review edit header totals now use one section-level explicit
   `CurrencySelector` and `MoneyInput` static-code amount rows for subtotal, tax,
   service charge, discount, and grand total. This reduces repeated selector
   density while keeping each amount visibly tied to the current ISO currency and
   preserving the existing single OCR currency controller/validation path.
+- Receipt OCR review edit line item unit price and line total amount fields now
+  use `MoneyInput` static-code rows tied to the same receipt-level OCR currency
+  controller. This records the 2026-06-22 16:12 HKT follow-up completion without
+  adding client-side recalculation or changing OCR save/apply authority.
 
 ## Feature-Private Duplicate Inventory
 
@@ -161,9 +165,10 @@ Current tests already guard many unsafe details, but audit risks remain:
   Bills/OCR receipt review header totals now use shared `MoneyInput` and avoid
   repeated currency selectors through
   `MoneyInputCurrencyControl.staticCode` under the section-level OCR currency
-  selector. Remaining bounded follow-ups are receipt review line unit price and
-  line total fields, group bill create item/payer rows, revision editor rows,
-  recurring bills, reports, and other non-migrated money fields.
+  selector. Receipt OCR review line item unit price and line total fields now
+  use the same shared static-code money input. Remaining bounded follow-ups are
+  group bill create item/payer rows, revision editor rows, recurring bills,
+  reports, and other non-migrated money fields.
 - Shared `MoneyText` exists; broader amount display migration remains
   incremental where feature-local formatting is still repeated.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
