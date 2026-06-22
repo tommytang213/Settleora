@@ -147,6 +147,14 @@ V1-aligned updates made in this branch:
   readout follow-up without parsing, rounding, recalculating, aggregating,
   changing bill calculation, OCR acceptance, sync acceptance, persistence,
   OpenAPI, generated clients, or API/domain authority.
+- Settlement balance rows, request tile/header amount readouts, selected-total
+  review chip, request line amount/status rows, payment actual-paid readouts,
+  allocation amounts, and residual amount/status rows now use local settlement
+  helpers backed by shared `MoneyText`. This records the 2026-06-22 21:17 HKT
+  settlement money readout follow-up without changing settlement calculations,
+  residual/allocation/payment authority, proof behavior, settlement state
+  transitions, persistence, OpenAPI, generated clients, or backend/API
+  behavior.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -180,15 +188,6 @@ Remaining eligible raw money/date candidates:
   adjustment rows, and acknowledgement copy. Standalone UI readouts should move
   toward `MoneyText`; hidden/searchable-field collections and sentence copy can
   remain string-based unless a later UI slice gives them a structured readout.
-- Settlements,
-  `apps/mobile/lib/settlements/settlement_list_screen.dart`: balance amounts,
-  request tile/header totals, review-summary chips, request line values,
-  payment tile/header actual-paid values, allocation rows, and residual rows
-  still use `_money(...)` strings in `Text`, `_KeyValueText`, or chip labels.
-  A settlement readout slice should add a small key-value money helper backed by
-  `MoneyText` and migrate standalone readouts without changing settlement,
-  residual, allocation, proof, or payment authority. The mark-paid amount field
-  already uses the compatibility wrapper.
 - Future bills / upcoming one-time bills,
   `apps/mobile/lib/recurring_bills/recurring_bill_screen.dart`: the future bill
   form uses a raw due-date `TextFormField` with a picker suffix at
@@ -227,19 +226,18 @@ Inspected but no action needed for this money/date migration queue:
 
 Recommended next task queue:
 
-1. Settlement money readouts: add or reuse a key-value money readout wrapper
-   backed by `MoneyText` and migrate settlement balances, requests, payments,
-   allocations, and residual standalone readouts; do not change settlement
-   state, residual handling, proof, payment, or authorization behavior.
-2. Home dashboard money readouts: carry amount/currency separately through
+1. Home dashboard money readouts: carry amount/currency separately through
    `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
    loaded-summary-only dashboard behavior unchanged.
-3. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
+2. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
    list/detail, share panel, payer, participant, and adjustment readouts to
    `MoneyText` where they are not sentence/search/semantics strings.
-4. Future bill due-date/readout slice: replace the future bill due-date
+3. Future bill due-date/readout slice: replace the future bill due-date
    `TextFormField` with `DateField` and migrate future bill amount readouts to
    `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
+4. Optional saved OCR apply-preview screenshot cutoff polish remains available
+   as non-blocking visual polish; do not mix it into unrelated money/date
+   migrations.
 
 ## Feature-Private Duplicate Inventory
 
