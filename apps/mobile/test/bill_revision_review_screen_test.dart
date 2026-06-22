@@ -4,6 +4,7 @@ import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_revision_review_screen.dart';
 import 'package:mobile/bills/bill_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
   testWidgets(
@@ -26,6 +27,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Financial impact'), findsOneWidget);
+      expect(find.byType(MoneyText), findsWidgets);
       expect(find.text('10.00 USD'), findsWidgets);
       expect(find.text('12.00 USD'), findsWidgets);
       expect(find.text('Review baseline'), findsOneWidget);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart' show MoneyText;
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 
@@ -580,9 +581,10 @@ class _RevisionHeader extends StatelessWidget {
           ),
           _KeyValueText(label: 'Bill', value: _shortId(revision.billId)),
           _KeyValueText(label: 'Revision ID', value: _shortId(revision.id)),
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: 'Total',
-            value: _money(revision.totalAmount, revision.totalCurrency),
+            amount: revision.totalAmount,
+            currency: revision.totalCurrency,
           ),
           _KeyValueText(
             label: 'Updated',
@@ -613,20 +615,20 @@ class _FinancialImpactPanel extends StatelessWidget {
               ? 'Server marked you as affected'
               : 'Server marked no direct impact',
         ),
-        _KeyValueText(
+        _KeyValueOptionalMoneyText(
           label: 'Previous share',
-          value: _moneyOrFallback(
-            impact.previousShare,
-            'No safe previous share',
-          ),
+          money: impact.previousShare,
+          fallback: 'No safe previous share',
         ),
-        _KeyValueText(
+        _KeyValueOptionalMoneyText(
           label: 'Proposed share',
-          value: _moneyOrFallback(impact.proposedShare, 'Not applicable'),
+          money: impact.proposedShare,
+          fallback: 'Not applicable',
         ),
-        _KeyValueText(
+        _KeyValueOptionalMoneyText(
           label: 'Delta',
-          value: _moneyOrFallback(impact.deltaShare, 'No safe delta'),
+          money: impact.deltaShare,
+          fallback: 'No safe delta',
         ),
         if (payerImpact != null) ...[
           const SizedBox(height: 8),
@@ -636,26 +638,20 @@ class _FinancialImpactPanel extends StatelessWidget {
                 ? 'Payer confirmation required'
                 : 'Payer confirmation not required',
           ),
-          _KeyValueText(
+          _KeyValueOptionalMoneyText(
             label: 'Payer previous',
-            value: _moneyOrFallback(
-              payerImpact.previousContribution,
-              'No safe previous contribution',
-            ),
+            money: payerImpact.previousContribution,
+            fallback: 'No safe previous contribution',
           ),
-          _KeyValueText(
+          _KeyValueOptionalMoneyText(
             label: 'Payer proposed',
-            value: _moneyOrFallback(
-              payerImpact.proposedContribution,
-              'Not applicable',
-            ),
+            money: payerImpact.proposedContribution,
+            fallback: 'Not applicable',
           ),
-          _KeyValueText(
+          _KeyValueOptionalMoneyText(
             label: 'Payer delta',
-            value: _moneyOrFallback(
-              payerImpact.deltaContribution,
-              'No safe delta',
-            ),
+            money: payerImpact.deltaContribution,
+            fallback: 'No safe delta',
           ),
         ],
       ],
@@ -760,9 +756,10 @@ class _FullBillView extends StatelessWidget {
       title: 'Full bill review',
       icon: Icons.receipt_long_outlined,
       children: [
-        _AggregateRow(
+        _AggregateMoneyRow(
           label: 'Bill total',
-          value: _money(revision.totalAmount, revision.totalCurrency),
+          amount: revision.totalAmount,
+          currency: revision.totalCurrency,
           markers: _changesForScope(
             revision.reviewContext.changes,
             SettleoraBillRevisionReviewChangeScopeValues.billTotal,
@@ -772,12 +769,10 @@ class _FullBillView extends StatelessWidget {
           const _BodyText('No participant rows are visible in this revision.')
         else
           for (var index = 0; index < revision.participants.length; index += 1)
-            _AggregateRow(
+            _AggregateMoneyRow(
               label: 'Participant ${index + 1}',
-              value: _money(
-                revision.participants[index].resolvedShareAmount,
-                revision.participants[index].resolvedShareCurrency,
-              ),
+              amount: revision.participants[index].resolvedShareAmount,
+              currency: revision.participants[index].resolvedShareCurrency,
               markers: _changesForUserAndScopes(
                 revision.reviewContext.changes,
                 revision.participants[index].userProfileId,
@@ -790,12 +785,10 @@ class _FullBillView extends StatelessWidget {
           const _BodyText('No payer rows are visible in this revision.')
         else
           for (var index = 0; index < revision.payers.length; index += 1)
-            _AggregateRow(
+            _AggregateMoneyRow(
               label: 'Payer ${index + 1}',
-              value: _money(
-                revision.payers[index].amount,
-                revision.payers[index].currency,
-              ),
+              amount: revision.payers[index].amount,
+              currency: revision.payers[index].currency,
               markers: _changesForUserAndScopes(
                 revision.reviewContext.changes,
                 revision.payers[index].userProfileId,
@@ -1272,15 +1265,17 @@ class _TerminalRevisionNotice extends StatelessWidget {
   }
 }
 
-class _AggregateRow extends StatelessWidget {
-  const _AggregateRow({
+class _AggregateMoneyRow extends StatelessWidget {
+  const _AggregateMoneyRow({
     required this.label,
-    required this.value,
+    required this.amount,
+    required this.currency,
     required this.markers,
   });
 
   final String label;
-  final String value;
+  final String amount;
+  final String currency;
   final List<SettleoraBillRevisionChange> markers;
 
   @override
@@ -1290,7 +1285,7 @@ class _AggregateRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _KeyValueText(label: label, value: value),
+          _KeyValueMoneyText(label: label, amount: amount, currency: currency),
           if (markers.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -1408,6 +1403,73 @@ class _KeyValueText extends StatelessWidget {
           Expanded(child: Text(value, textAlign: TextAlign.end)),
         ],
       ),
+    );
+  }
+}
+
+class _KeyValueMoneyText extends StatelessWidget {
+  const _KeyValueMoneyText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: MoneyText(
+              amount: amount,
+              currencyCode: currency,
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyValueOptionalMoneyText extends StatelessWidget {
+  const _KeyValueOptionalMoneyText({
+    required this.label,
+    required this.money,
+    required this.fallback,
+  });
+
+  final String label;
+  final SettleoraBillRevisionMoneyValue? money;
+  final String fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = money;
+    if (value == null) {
+      return _KeyValueText(label: label, value: fallback);
+    }
+    return _KeyValueMoneyText(
+      label: label,
+      amount: value.amount,
+      currency: value.currency,
     );
   }
 }
@@ -1617,19 +1679,6 @@ List<SettleoraBillRevisionChange> _changesForUserAndScopes(
             scopes.contains(change.changeScope),
       )
       .toList(growable: false);
-}
-
-String _money(String amount, String currency) => '$amount $currency';
-
-String _moneyOrFallback(
-  SettleoraBillRevisionMoneyValue? money,
-  String fallback,
-) {
-  if (money == null) {
-    return fallback;
-  }
-
-  return _money(money.amount, money.currency);
 }
 
 String _formatTimestamp(DateTime value) {

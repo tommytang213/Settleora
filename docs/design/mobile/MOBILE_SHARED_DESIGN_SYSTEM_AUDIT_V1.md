@@ -98,6 +98,15 @@ V1-aligned updates made in this branch:
   request construction. This records the 2026-06-22 16:50 HKT follow-up
   completion without changing split, payer, rounding, persistence, or API
   authority.
+- Bill revision proposal editor total, participant-share, and payer-contribution
+  rows now use shared `MoneyInput` directly while preserving the existing
+  independent row currency selectors, controllers, validation messages, state
+  transitions, and revision request construction. Bill revision review aggregate
+  totals, participant shares, payer contributions, and viewer financial-impact
+  money readouts now use shared `MoneyText` while server-provided change display
+  values remain unchanged. This records the 2026-06-22 17:17 HKT bounded
+  follow-up completion without changing bill revision review, approval, payer
+  confirmation, apply, split, rounding, persistence, or API authority.
 
 ## Feature-Private Duplicate Inventory
 
@@ -174,8 +183,9 @@ Current tests already guard many unsafe details, but audit risks remain:
   selector. Receipt OCR review line item unit price and line total fields now
   use the same shared static-code money input. Group bill create item unit
   amount, item line total, and payer amount fields now use shared static-code
-  money inputs while keeping row currency controls visible. Remaining bounded
-  follow-ups are revision editor rows, recurring bills, reports, and other
+  money inputs while keeping row currency controls visible. Bill revision
+  editor rows and review readouts now use shared `MoneyInput` / `MoneyText`.
+  Remaining bounded follow-ups are recurring bills, reports, and other
   non-migrated money fields.
 - Shared `MoneyText` exists; broader amount display migration remains
   incremental where feature-local formatting is still repeated.
