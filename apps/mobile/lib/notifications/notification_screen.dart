@@ -12,6 +12,7 @@ import '../recurring_bills/recurring_bill_repository.dart';
 import '../recurring_bills/recurring_bill_screen.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
+import '../ui/settleora_components.dart';
 import 'notification_preferences.dart';
 import 'notification_repository.dart';
 
@@ -866,7 +867,9 @@ class _SettleoraNotificationScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel();
+              return const SettleoraLoadingPanel(
+                label: 'Loading notifications',
+              );
             }
 
             if (loadFailure != null) {
@@ -1652,6 +1655,7 @@ class _NotificationDetailSheet extends StatelessWidget {
       canOpenTypedTarget: canOpenTypedTarget,
       hasOpenTargetMetadata: hasOpenTargetMetadata,
     );
+    final detailLabelStyle = Theme.of(context).textTheme.labelLarge;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1677,48 +1681,120 @@ class _NotificationDetailSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
-              _DetailRow(label: 'Summary', value: notification.displaySummary),
-              _DetailRow(
+              SettleoraKeyValueText(
+                label: 'Summary',
+                value: notification.displaySummary,
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
                 label: 'Event',
                 value: settleoraNotificationEventLabel(notification.eventType),
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
-              _DetailRow(
+              SettleoraKeyValueText(
                 label: 'Priority',
                 value: settleoraNotificationPriorityLabel(
                   notification.priority,
                 ),
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
-              _DetailRow(
+              SettleoraKeyValueText(
                 label: 'Status',
                 value: settleoraNotificationStatusLabel(notification.status),
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
-              _DetailRow(
+              SettleoraKeyValueText(
                 label: 'Type',
                 value: settleoraNotificationSubjectTypeLabel(
                   notification.subjectType,
                 ),
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
-              _DetailRow(
+              SettleoraKeyValueText(
                 label: 'Received',
                 value: _formatTimestamp(notification.createdAtUtc),
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
               if (updatedAt != null)
-                _DetailRow(
+                SettleoraKeyValueText(
                   label: 'Updated',
                   value: _formatTimestamp(updatedAt),
+                  labelWidth: 120,
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  labelStyle: detailLabelStyle,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
                 ),
-              _DetailRow(label: 'Destination', value: destinationLabel),
-              _DetailRow(label: 'Destination status', value: destinationStatus),
-              const _DetailRow(
+              SettleoraKeyValueText(
+                label: 'Destination',
+                value: destinationLabel,
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
+                label: 'Destination status',
+                value: destinationStatus,
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
                 label: 'Navigation safety',
                 value:
                     'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
-              _DetailRow(label: 'Current filter', value: selectedFilterLabel),
-              const _DetailRow(
+              SettleoraKeyValueText(
+                label: 'Current filter',
+                value: selectedFilterLabel,
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
                 label: 'Authority',
                 value:
                     'The destination API re-checks access and current state before linked details or actions are shown.',
+                labelWidth: 120,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                labelStyle: detailLabelStyle,
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
               ),
               if (isArchived)
                 const Padding(
@@ -1730,31 +1806,6 @@ class _NotificationDetailSheet extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(label, style: Theme.of(context).textTheme.labelLarge),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value)),
-        ],
       ),
     );
   }
@@ -2134,7 +2185,7 @@ class _FailurePanel extends StatelessWidget {
         failure.kind == SettleoraNotificationFailureKind.sessionRequired ||
         failure.kind == SettleoraNotificationFailureKind.sessionExpired;
 
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: failure.message,
@@ -2195,81 +2246,12 @@ class _EmptyNotifications extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.notifications_none_outlined,
       title: title,
       message: message,
       compact: true,
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 14),
-          Text('Loading notifications'),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: content,
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
+      compactPadding: const EdgeInsets.symmetric(vertical: 24),
     );
   }
 }

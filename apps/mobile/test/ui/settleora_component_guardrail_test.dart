@@ -133,12 +133,28 @@ void main() {
                       compact: true,
                     ),
                     SettleoraKeyValueText(label: 'Status', value: 'Ready'),
+                    SettleoraKeyValueText(
+                      label: 'Detail',
+                      value: 'Left aligned detail',
+                      labelWidth: 120,
+                      padding: EdgeInsets.symmetric(vertical: 5),
+                      labelStyle: TextStyle(fontWeight: FontWeight.w700),
+                      valueAlignment: Alignment.centerLeft,
+                      valueTextAlign: TextAlign.start,
+                    ),
                     SettleoraKeyValueMoneyText(
                       label: 'Balance',
                       amount: '128.00',
                       currencyCode: 'HKD',
                     ),
                   ],
+                ),
+                const SettleoraStatePanel(
+                  icon: Icons.notifications_none_outlined,
+                  title: 'Custom compact state',
+                  message: 'Compact padding can preserve screen spacing.',
+                  compact: true,
+                  compactPadding: EdgeInsets.symmetric(vertical: 24),
                 ),
                 SettingsRow(
                   key: const Key('component-settings-row'),
@@ -237,8 +253,15 @@ void main() {
     );
     expect(find.text('Status'), findsOneWidget);
     expect(find.text('Ready'), findsWidgets);
+    expect(find.text('Detail'), findsOneWidget);
+    expect(find.text('Left aligned detail'), findsOneWidget);
     expect(find.text('Balance'), findsOneWidget);
     expect(find.text('128.00 HKD'), findsOneWidget);
+    expect(find.text('Custom compact state'), findsOneWidget);
+    expect(
+      find.text('Compact padding can preserve screen spacing.'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('component-settings-row')), findsOneWidget);
     expect(find.text('Settings row title'), findsOneWidget);
     expect(
