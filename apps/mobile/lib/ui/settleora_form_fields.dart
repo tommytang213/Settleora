@@ -328,6 +328,7 @@ class MoneyInput extends StatelessWidget {
     this.isLoading = false,
     this.allowSignedAmount = false,
     this.currencyControl = MoneyInputCurrencyControl.selector,
+    this.onAmountChanged,
     this.amountValidator,
     this.currencyValidator,
     this.helperText,
@@ -345,6 +346,7 @@ class MoneyInput extends StatelessWidget {
   final bool isLoading;
   final bool allowSignedAmount;
   final MoneyInputCurrencyControl currencyControl;
+  final ValueChanged<String>? onAmountChanged;
   final FormFieldValidator<String>? amountValidator;
   final FormFieldValidator<String?>? currencyValidator;
   final String? helperText;
@@ -382,6 +384,7 @@ class MoneyInput extends StatelessWidget {
               decimal: true,
               signed: allowSignedAmount,
             ),
+            onChanged: onAmountChanged,
             decoration: InputDecoration(
               labelText: amountLabel,
               helperText: effectiveHelperText,

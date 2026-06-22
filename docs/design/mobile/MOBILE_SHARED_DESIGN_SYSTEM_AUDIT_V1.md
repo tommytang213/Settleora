@@ -92,6 +92,12 @@ V1-aligned updates made in this branch:
   use `MoneyInput` static-code rows tied to the same receipt-level OCR currency
   controller. This records the 2026-06-22 16:12 HKT follow-up completion without
   adding client-side recalculation or changing OCR save/apply authority.
+- Group bill create item unit amount, item line total, and payer amount fields
+  now use shared `MoneyInput` static-code rows while preserving the existing
+  group bill currency selector, row currency controllers, validators, and draft
+  request construction. This records the 2026-06-22 16:50 HKT follow-up
+  completion without changing split, payer, rounding, persistence, or API
+  authority.
 
 ## Feature-Private Duplicate Inventory
 
@@ -166,9 +172,11 @@ Current tests already guard many unsafe details, but audit risks remain:
   repeated currency selectors through
   `MoneyInputCurrencyControl.staticCode` under the section-level OCR currency
   selector. Receipt OCR review line item unit price and line total fields now
-  use the same shared static-code money input. Remaining bounded follow-ups are
-  group bill create item/payer rows, revision editor rows, recurring bills,
-  reports, and other non-migrated money fields.
+  use the same shared static-code money input. Group bill create item unit
+  amount, item line total, and payer amount fields now use shared static-code
+  money inputs while keeping row currency controls visible. Remaining bounded
+  follow-ups are revision editor rows, recurring bills, reports, and other
+  non-migrated money fields.
 - Shared `MoneyText` exists; broader amount display migration remains
   incremental where feature-local formatting is still repeated.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
