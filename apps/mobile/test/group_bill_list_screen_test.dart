@@ -9,6 +9,7 @@ import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/bills/bill_repository.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets('group bill list renders loading, empty, and refresh states', (
@@ -2188,7 +2189,13 @@ void main() {
 
     expect(find.text('Enter a bill date.'), findsNothing);
     await _goToGroupBillCreateStep(tester, 'basics');
-    expect(find.text(_todayBillDate()), findsOneWidget);
+    expect(
+      tester
+          .widget<DateField>(find.byKey(const Key('group-bill-date-picker')))
+          .controller
+          .text,
+      _todayBillDate(),
+    );
     expect(find.byKey(const Key('group-bill-currency')), findsOneWidget);
     await _goToGroupBillCreateStep(tester, 'receiptItems');
     expect(find.byKey(const Key('group-bill-item-currency-0')), findsOneWidget);
@@ -3229,7 +3236,13 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text(_todayBillDate()), findsOneWidget);
+      expect(
+        tester
+            .widget<DateField>(find.byKey(const Key('group-bill-date-picker')))
+            .controller
+            .text,
+        _todayBillDate(),
+      );
       expect(find.byKey(const Key('group-bill-date-picker')), findsOneWidget);
       await _addSingleGroupPayer(tester, amount: '12.00');
       await _tapSaveGroupBill(tester);

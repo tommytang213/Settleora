@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart' show MoneyText;
 import '../ui/settleora_form_fields.dart';
 import 'receipt_ocr_review_repository.dart';
 

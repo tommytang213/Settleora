@@ -10623,77 +10623,37 @@ class _MobileDatePickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FormField<String>(
-      initialValue: controller.text,
-      validator: (_) => validator(controller.text),
-      builder: (field) {
-        final selectedDate = controller.text.trim();
-        final displayDate = selectedDate.isEmpty
-            ? 'No date selected'
-            : selectedDate;
-        final hasError = field.errorText != null;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            InputDecorator(
-              decoration: InputDecoration(
-                labelText: label,
-                border: const OutlineInputBorder(),
-                errorText: field.errorText,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      displayDate,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ),
-                  TextButton(
-                    key: todayKey,
-                    onPressed: enabled
-                        ? () {
-                            onDateSelected(DateTime.now());
-                            field.didChange(controller.text);
-                          }
-                        : null,
-                    child: const Text('Today'),
-                  ),
-                  IconButton(
-                    key: pickerKey,
-                    tooltip: 'Choose bill date',
-                    onPressed: enabled
-                        ? () async {
-                            final initialDate =
-                                _parseBillDate(controller.text) ??
-                                DateTime.now();
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: initialDate,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked == null) {
-                              return;
-                            }
-                            onDateSelected(picked);
-                            field.didChange(controller.text);
-                          }
-                        : null,
-                    icon: Icon(
-                      Icons.calendar_today_outlined,
-                      color: hasError
-                          ? Theme.of(context).colorScheme.error
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: DateField(
+            key: pickerKey,
+            controller: controller,
+            label: label,
+            enabled: enabled,
+            firstDate: DateTime(2000),
+            lastDate: DateTime(2100),
+            helperText: 'Choose the bill date.',
+            validator: validator,
+            onChanged: (value) {
+              final parsed = _parseBillDate(value);
+              if (parsed != null) {
+                onDateSelected(parsed);
+              }
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: TextButton(
+            key: todayKey,
+            onPressed: enabled ? () => onDateSelected(DateTime.now()) : null,
+            child: const Text('Today'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -14460,8 +14420,9 @@ class _BillSummaryTile extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          _money(bill.totalAmount, bill.totalCurrency),
+                        MoneyText(
+                          amount: bill.totalAmount,
+                          currencyCode: bill.totalCurrency,
                           style: Theme.of(context).textTheme.titleMedium,
                           textAlign: TextAlign.end,
                         ),
@@ -15584,8 +15545,9 @@ class _BillDetailHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                _money(bill.totalAmount, bill.totalCurrency),
+              MoneyText(
+                amount: bill.totalAmount,
+                currencyCode: bill.totalCurrency,
                 style: Theme.of(context).textTheme.titleLarge,
                 textAlign: TextAlign.end,
               ),

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
+import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   group('ReceiptOcrReviewQueueScreen', () {
@@ -899,6 +901,7 @@ void main() {
       expect(find.text('Personal bill'), findsOneWidget);
       expect(find.text('On device OCR'), findsOneWidget);
       expect(find.text('Receipt totals'), findsOneWidget);
+      expect(find.byType(MoneyText), findsWidgets);
       expect(find.text('Review receipt lines'), findsOneWidget);
       expect(find.text('Milk'), findsOneWidget);
       expect(find.text('Apply preview'), findsOneWidget);
@@ -1172,6 +1175,8 @@ void main() {
       expect(find.byTooltip('Cancel receipt review edit'), findsOneWidget);
       expect(find.byTooltip('Save receipt review'), findsOneWidget);
       expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
+      expect(find.byType(DateField), findsOneWidget);
+      expect(find.byType(MoneyInput), findsNWidgets(5));
       expect(
         find.bySemanticsLabel(RegExp('Receipt currency selector')),
         findsOneWidget,

@@ -4734,7 +4734,13 @@ void main() {
     await tester.pumpAndSettle();
     await _tapSaveBill(tester);
 
-    expect(find.text(_formatTestBillDate(DateTime.now())), findsOneWidget);
+    expect(
+      tester
+          .widget<DateField>(find.byKey(const Key('personal-bill-date-picker')))
+          .controller
+          .text,
+      _formatTestBillDate(DateTime.now()),
+    );
     expect(find.text('Enter a bill date.'), findsNothing);
     expect(find.text('Enter an item name.'), findsOneWidget);
     expect(find.text('Enter a unit amount or line total.'), findsOneWidget);
@@ -4776,7 +4782,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('personal-bill-date')), findsOneWidget);
-      expect(find.text(_formatTestBillDate(DateTime.now())), findsOneWidget);
+      expect(find.byType(DateField), findsOneWidget);
+      expect(
+        tester
+            .widget<DateField>(
+              find.byKey(const Key('personal-bill-date-picker')),
+            )
+            .controller
+            .text,
+        _formatTestBillDate(DateTime.now()),
+      );
       expect(find.byKey(const Key('personal-bill-date-today')), findsOneWidget);
       expect(
         find.byKey(const Key('personal-bill-date-picker')),

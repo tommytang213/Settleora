@@ -77,6 +77,12 @@ V1-aligned updates made in this branch:
 - Manual finance account and income sheets now use shared `MoneyInput` and
   `DateField` instead of raw amount/currency and `yyyy-MM-dd` text-entry
   controls.
+- Bills/OCR now uses shared `DateField` for the personal bill date and receipt
+  review date, shared `MoneyInput` for receipt review header totals with
+  explicit currency, and shared `MoneyText` for selected bill and OCR
+  presentation-only amount readouts. Receipt review line amount fields, group
+  bill item/payer money controls, revision editor rows, and broader recurring
+  and report fields remain follow-up candidates.
 
 ## Feature-Private Duplicate Inventory
 
@@ -138,12 +144,19 @@ Current tests already guard many unsafe details, but audit risks remain:
 - Shared `DateField` / `DatePicker` is missing.
 - `manual_finance_screen.dart` uses manual `yyyy-MM-dd` helper text for account/income dates.
 - Repository boundaries also validate or normalize date strings, including `generated_manual_finance_repository.dart`.
-- Several screens use month/date text entry or date formatting locally. These are presentation risks and should be replaced with shared date picker fields in future UI bundles.
+- Several screens use month/date text entry or date formatting locally. Bills/OCR
+  personal bill and receipt review header dates now use the shared picker-backed
+  `DateField`; remaining raw date fields are presentation risks and should be
+  replaced with shared date picker fields in future UI bundles.
 
 ## Money And Currency Input Risks
 
 - `MoneyAmountCurrencyField` exists and combines decimal keyboard input with `CurrencySelector`.
 - Many feature flows still use raw `TextField` / `TextFormField` plus `TextInputType.numberWithOptions(decimal: true)`.
+  Bills/OCR receipt review header totals now use shared `MoneyInput`; receipt
+  review lines, group bill create item/payer rows, revision editor rows,
+  recurring bills, reports, and other non-migrated fields remain gradual
+  migration candidates.
 - Shared `MoneyText` is missing, so amount display formatting is repeated across screens.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
 - UI must never become authoritative for money, rounding, split, settlement, payment, or OCR acceptance truth.
