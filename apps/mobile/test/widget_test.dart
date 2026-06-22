@@ -223,9 +223,12 @@ void main() {
     expect(storage.session?.refreshCredential, 'redacted-signed-in-refresh');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
     expect(find.text('Welcome back, Taylor'), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipt Reviews'), findsNothing);
     expect(repository.listCalls, 0);
 
+    await tester.tap(find.byKey(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    expect(find.text('Receipt reviews'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const Key('server-shell-receipt-reviews')),
     );
@@ -265,9 +268,12 @@ void main() {
     expect(authRepository.currentUserCalls, 1);
     expect(authRepository.lastAccessToken, 'saved-access-token');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipt Reviews'), findsNothing);
     expect(repository.listCalls, 0);
 
+    await tester.tap(find.byKey(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    expect(find.text('Receipt reviews'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const Key('server-shell-receipt-reviews')),
     );
@@ -320,7 +326,10 @@ void main() {
     expect(storage.session?.accessToken, 'rotated-access-token');
     expect(storage.session?.refreshCredential, 'rotated-refresh-token');
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
-    expect(find.text('Receipt Reviews'), findsOneWidget);
+    expect(find.text('Receipt Reviews'), findsNothing);
+    await tester.tap(find.byKey(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    expect(find.text('Receipt reviews'), findsOneWidget);
   });
 
   testWidgets('denied sign-in maps to a safe UI failure', (tester) async {
@@ -1991,6 +2000,11 @@ Finder verticalScrollable() {
 
 Future<void> scrollToShellTile(WidgetTester tester, Key key) async {
   final tile = find.byKey(key);
+  if (tile.evaluate().isEmpty &&
+      find.byKey(const Key('bottom-nav-more')).evaluate().isNotEmpty) {
+    await tester.tap(find.byKey(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+  }
   await tester.dragUntilVisible(
     tile,
     verticalScrollable().first,

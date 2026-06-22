@@ -827,30 +827,9 @@ class _SettleoraAuthenticatedServerShellState
                               ),
                             ],
                             const SizedBox(height: 16),
-                            _DashboardMoreSection(
-                              onOpenProfile: _openProfile,
-                              onOpenReceiptReviews: _openReceiptReviews,
-                              onOpenSessions: _openSessions,
-                              onOpenMonthlyReport: _openMonthlyReport,
-                              onOpenManualFinance: _openManualFinance,
-                            ),
-                            const SizedBox(height: 16),
-                            _DashboardDataSafetySection(
-                              export: _latestBackupExport,
-                              isBuildingBackup: _isBuildingBackup,
-                              isAvailable: widget.dataBackupService != null,
-                              onBuildBackup: _buildLocalBackupExport,
-                              onPreviewImport: _openImportPreview,
-                            ),
-                            const SizedBox(height: 16),
-                            SettleoraNotificationPreferencePanel(
-                              settings: _notificationPreferences,
-                              onChanged: _setNotificationPreferences,
-                            ),
-                            const SizedBox(height: 16),
-                            const VisualPreferenceUnsupportedReadout(
-                              key: Key(
-                                'server-shell-visual-preference-readout',
+                            _DashboardMorePrompt(
+                              onOpenMore: () => _openTopLevelDestination(
+                                SettleoraNavDestination.more,
                               ),
                             ),
                           ],
@@ -881,32 +860,183 @@ class _SettleoraAuthenticatedServerShellState
 
   Widget _buildMoreScreen(BuildContext context) {
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          _DashboardMoreSection(
-            onOpenProfile: _openProfile,
-            onOpenReceiptReviews: _openReceiptReviews,
-            onOpenSessions: _openSessions,
-            onOpenMonthlyReport: _openMonthlyReport,
-            onOpenManualFinance: _openManualFinance,
-          ),
-          const SizedBox(height: 16),
-          _DashboardDataSafetySection(
-            export: _latestBackupExport,
-            isBuildingBackup: _isBuildingBackup,
-            isAvailable: widget.dataBackupService != null,
-            onBuildBackup: _buildLocalBackupExport,
-            onPreviewImport: _openImportPreview,
-          ),
-          const SizedBox(height: 16),
-          SettleoraNotificationPreferencePanel(
-            settings: _notificationPreferences,
-            onChanged: _setNotificationPreferences,
-          ),
-          const SizedBox(height: 16),
-          const VisualPreferenceUnsupportedReadout(),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxWidth = constraints.maxWidth >= 560
+              ? 430.0
+              : double.infinity;
+
+          return ListView(
+            key: const Key('server-shell-more-hub'),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _MoreHubHeader(currentUser: widget.currentUser),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Account',
+                        children: [
+                          SettingsRow(
+                            key: const Key('server-shell-more-profile'),
+                            icon: Icons.account_circle_outlined,
+                            title: 'Profile and account',
+                            subtitle:
+                                'Name, email, default currency, language, and account details.',
+                            statusLabel: widget.currentUser.defaultCurrency,
+                            statusVariant: StatusChipVariant.info,
+                            onTap: _openProfile,
+                          ),
+                          SettingsRow(
+                            key: const Key('server-shell-more-payment-details'),
+                            icon: Icons.payments_outlined,
+                            title: 'Payment details',
+                            subtitle:
+                                'Payment profile and QR details currently open from the account screen.',
+                            statusLabel: 'In profile',
+                            onTap: _openProfile,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Security and privacy',
+                        children: [
+                          SettingsRow(
+                            key: const Key('server-shell-sessions'),
+                            icon: Icons.devices_outlined,
+                            title: 'Sessions and devices',
+                            subtitle:
+                                'Review active sessions, revoke another session, or sign out all sessions.',
+                            statusLabel: 'Server',
+                            statusVariant: StatusChipVariant.warning,
+                            onTap: _openSessions,
+                          ),
+                          const SettingsRow(
+                            key: Key('server-shell-more-privacy-readout'),
+                            icon: Icons.privacy_tip_outlined,
+                            title: 'Privacy and security',
+                            subtitle:
+                                'Receipts, payment proof, exports, and payment details stay protected by server policy.',
+                            statusLabel: 'Readout',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Activity and records',
+                        children: [
+                          SettingsRow(
+                            key: const Key('server-shell-more-notifications'),
+                            icon: Icons.notifications_outlined,
+                            title: 'Notifications',
+                            subtitle:
+                                'Open the notification center and review queue.',
+                            onTap: _openNotifications,
+                          ),
+                          SettingsRow(
+                            key: const Key('server-shell-receipt-reviews'),
+                            icon: Icons.receipt_long_outlined,
+                            title: 'Receipt reviews',
+                            subtitle:
+                                'Review saved OCR receipt work before it affects a bill.',
+                            onTap: _openReceiptReviews,
+                          ),
+                          SettingsRow(
+                            key: const Key('server-shell-reports'),
+                            icon: Icons.summarize_outlined,
+                            title: 'Monthly reports',
+                            subtitle:
+                                'Open the saved monthly summary for loaded report data.',
+                            onTap: _openMonthlyReport,
+                          ),
+                          SettingsRow(
+                            key: const Key('server-shell-manual-finance'),
+                            icon: Icons.account_balance_wallet_outlined,
+                            title: 'Accounts and income',
+                            subtitle:
+                                'Open manual account and income read/write surfaces when available.',
+                            statusLabel: widget.manualFinanceRepository == null
+                                ? 'Unavailable'
+                                : null,
+                            onTap: _openManualFinance,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Data and sync',
+                        children: const [
+                          SettingsRow(
+                            key: Key('server-shell-more-mode-readout'),
+                            icon: Icons.cloud_sync_outlined,
+                            title: 'Local and server mode',
+                            subtitle:
+                                'Server mode is active here. The API remains authoritative for shared data and sync acceptance.',
+                            statusLabel: 'Server mode',
+                            statusVariant: StatusChipVariant.info,
+                          ),
+                          SettingsRow(
+                            key: Key('server-shell-more-data-readout'),
+                            icon: Icons.inventory_2_outlined,
+                            title: 'Data, import, and export',
+                            subtitle:
+                                'Backup JSON generation and import preview are available below when this build includes local backup support.',
+                            statusLabel: 'Preview only',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _DashboardDataSafetySection(
+                        export: _latestBackupExport,
+                        isBuildingBackup: _isBuildingBackup,
+                        isAvailable: widget.dataBackupService != null,
+                        onBuildBackup: _buildLocalBackupExport,
+                        onPreviewImport: _openImportPreview,
+                      ),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Preferences',
+                        children: const [
+                          SettingsRow(
+                            key: Key('server-shell-more-notification-settings'),
+                            icon: Icons.tune_outlined,
+                            title: 'Notification settings',
+                            subtitle:
+                                'Mobile-local readouts filter this device only; persisted server notification preferences are not wired yet.',
+                            statusLabel: 'Local',
+                            statusVariant: StatusChipVariant.warning,
+                          ),
+                          SettingsRow(
+                            key: Key('server-shell-more-appearance-readout'),
+                            icon: Icons.palette_outlined,
+                            title: 'Appearance and theme',
+                            subtitle:
+                                'Current mobile appearance uses built-in tokens; custom theme presets are readout-only here.',
+                            statusLabel: 'Readout',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SettleoraNotificationPreferencePanel(
+                        settings: _notificationPreferences,
+                        onChanged: _setNotificationPreferences,
+                      ),
+                      const SizedBox(height: 16),
+                      const VisualPreferenceUnsupportedReadout(
+                        key: Key('server-shell-visual-preference-readout'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1597,81 +1727,89 @@ class _DashboardQuickActions extends StatelessWidget {
   }
 }
 
-class _DashboardMoreSection extends StatelessWidget {
-  const _DashboardMoreSection({
-    required this.onOpenProfile,
-    required this.onOpenReceiptReviews,
-    required this.onOpenSessions,
-    required this.onOpenMonthlyReport,
-    required this.onOpenManualFinance,
-  });
+class _DashboardMorePrompt extends StatelessWidget {
+  const _DashboardMorePrompt({required this.onOpenMore});
 
-  final VoidCallback onOpenProfile;
-  final VoidCallback onOpenReceiptReviews;
-  final VoidCallback onOpenSessions;
-  final VoidCallback onOpenMonthlyReport;
-  final VoidCallback onOpenManualFinance;
+  final VoidCallback onOpenMore;
 
   @override
   Widget build(BuildContext context) {
     return _DashboardSection(
-      title: 'More',
-      child: Column(
+      title: 'More tools',
+      child: SettingsRow(
+        key: const Key('server-shell-open-more-hub'),
+        icon: Icons.more_horiz,
+        title: 'Open More',
+        subtitle:
+            'Profile, payment details, sessions, notifications, reports, receipt reviews, data, and appearance readouts.',
+        onTap: onOpenMore,
+      ),
+    );
+  }
+}
+
+class _MoreHubHeader extends StatelessWidget {
+  const _MoreHubHeader({required this.currentUser});
+
+  final SettleoraCurrentUser currentUser;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      key: const Key('server-shell-more-header'),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Monthly report opens the saved summary for the selected month.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          CircleAvatar(
+            backgroundColor: colors.primarySoft,
+            foregroundColor: colors.primary,
+            child: const Icon(Icons.more_horiz),
+          ),
+          const SizedBox(width: SettleoraSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('More', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: SettleoraSpacing.xxs),
+                Text(
+                  'All functions hub for ${currentUser.displayName}.',
+                  style: TextStyle(color: colors.textMuted),
+                ),
+                const SizedBox(height: SettleoraSpacing.xs),
+                StatusChip(
+                  label: 'Server mode',
+                  icon: Icons.cloud_done_outlined,
+                  variant: StatusChipVariant.info,
+                  size: StatusChipSize.small,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth >= 380
-                  ? (constraints.maxWidth - 8) / 2
-                  : constraints.maxWidth;
-              final items = [
-                _DashboardCompactAction(
-                  key: const Key('server-shell-more-profile'),
-                  width: width,
-                  icon: Icons.account_circle_outlined,
-                  title: 'Profile',
-                  onTap: onOpenProfile,
-                ),
-                _DashboardCompactAction(
-                  key: const Key('server-shell-manual-finance'),
-                  width: width,
-                  icon: Icons.account_balance_wallet_outlined,
-                  title: 'Accounts & income',
-                  onTap: onOpenManualFinance,
-                ),
-                _DashboardCompactAction(
-                  key: const Key('server-shell-receipt-reviews'),
-                  width: width,
-                  icon: Icons.receipt_long_outlined,
-                  title: 'Receipt Reviews',
-                  onTap: onOpenReceiptReviews,
-                ),
-                _DashboardCompactAction(
-                  key: const Key('server-shell-sessions'),
-                  width: width,
-                  icon: Icons.devices_outlined,
-                  title: 'Sessions',
-                  onTap: onOpenSessions,
-                ),
-                _DashboardCompactAction(
-                  key: const Key('server-shell-reports'),
-                  width: width,
-                  icon: Icons.summarize_outlined,
-                  title: 'Monthly report',
-                  onTap: onOpenMonthlyReport,
-                ),
-              ];
+        ],
+      ),
+    );
+  }
+}
 
-              return Wrap(spacing: 8, runSpacing: 8, children: items);
-            },
-          ),
+class _MoreHubSection extends StatelessWidget {
+  const _MoreHubSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardSection(
+      title: title,
+      child: Column(
+        children: [
+          for (var index = 0; index < children.length; index += 1) ...[
+            if (index > 0) const SizedBox(height: SettleoraSpacing.xs),
+            children[index],
+          ],
         ],
       ),
     );
@@ -1995,33 +2133,6 @@ class _ReadinessLine extends StatelessWidget {
             child: Text(value, style: TextStyle(color: muted)),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DashboardCompactAction extends StatelessWidget {
-  const _DashboardCompactAction({
-    super.key,
-    required this.width,
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  final double width;
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: OutlinedButton.icon(
-        onPressed: onTap,
-        icon: Icon(icon),
-        label: Text(title, overflow: TextOverflow.ellipsis),
       ),
     );
   }

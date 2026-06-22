@@ -160,6 +160,82 @@ class AppCard extends StatelessWidget {
   }
 }
 
+class SettingsRow extends StatelessWidget {
+  const SettingsRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+    this.statusLabel,
+    this.statusVariant = StatusChipVariant.neutral,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final String? statusLabel;
+  final StatusChipVariant statusVariant;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: SettleoraSpacing.md,
+        vertical: 12,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: colors.primarySoft,
+            foregroundColor: colors.primary,
+            child: Icon(icon, size: 20),
+          ),
+          const SizedBox(width: SettleoraSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: SettleoraSpacing.xxs),
+                Text(subtitle, style: TextStyle(color: colors.textMuted)),
+              ],
+            ),
+          ),
+          const SizedBox(width: SettleoraSpacing.sm),
+          if (statusLabel != null)
+            Flexible(
+              child: StatusChip(
+                label: statusLabel!,
+                variant: statusVariant,
+                size: StatusChipSize.small,
+              ),
+            ),
+          if (statusLabel != null && onTap != null)
+            const SizedBox(width: SettleoraSpacing.xs),
+          if (onTap != null)
+            Icon(Icons.chevron_right, color: colors.textSubtle),
+        ],
+      ),
+    );
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: onTap == null
+          ? row
+          : InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+              child: row,
+            ),
+    );
+  }
+}
+
 class VisualPreferenceUnsupportedReadout extends StatelessWidget {
   const VisualPreferenceUnsupportedReadout({super.key});
 

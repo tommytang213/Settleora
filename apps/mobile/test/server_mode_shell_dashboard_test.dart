@@ -75,15 +75,13 @@ void main() {
     expect(find.text('Upcoming bills'), findsOneWidget);
     expect(find.text('Group activity'), findsOneWidget);
     expect(find.text('This month'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.textContaining('Monthly report opens the saved summary'),
-      220,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(
-      find.textContaining('Monthly report opens the saved summary'),
-      findsOneWidget,
-    );
+    await scrollToAndTap(tester, const Key('server-shell-open-more-hub'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    expect(find.text('Profile and account'), findsOneWidget);
+    expect(find.text('Monthly reports'), findsOneWidget);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const Key('server-shell-notifications-header')),
       findsOneWidget,
@@ -115,10 +113,10 @@ void main() {
       find.byKey(const Key('server-shell-sync-status-card')),
       findsNothing,
     );
-    expect(billRepository.listCalls, 1);
-    expect(notificationRepository.summaryCalls, 1);
-    expect(settlementRepository.listBalanceCalls, 1);
-    expect(recurringRepository.listForecastCalls, 1);
+    expect(billRepository.listCalls, 2);
+    expect(notificationRepository.summaryCalls, 2);
+    expect(settlementRepository.listBalanceCalls, 2);
+    expect(recurringRepository.listForecastCalls, 2);
   });
 
   testWidgets('dashboard exposes backup export and import preview guards', (
@@ -126,6 +124,12 @@ void main() {
   ) async {
     final dataBackupService = FakeLocalDataBackupService();
     await pumpShell(tester, dataBackupService: dataBackupService);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    expect(find.text('Data, import, and export'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('server-shell-data-safety-panel')),
@@ -167,16 +171,15 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('data-safety-build-export')),
-      160,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.byKey(const Key('data-safety-build-export')));
-    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('data-safety-build-export'));
 
     expect(dataBackupService.buildCalls, 1);
     expect(dataBackupService.previewCalls, 1);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('data-safety-preview-card')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Backup preview'), findsOneWidget);
     expect(find.text('Version 1'), findsOneWidget);
     expect(
@@ -186,13 +189,7 @@ void main() {
     expect(find.textContaining('preview_only'), findsOneWidget);
     expect(find.byKey(const Key('data-safety-export-json')), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('data-safety-open-import-preview')),
-      160,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.byKey(const Key('data-safety-open-import-preview')));
-    await tester.pumpAndSettle();
+    await ensureAndTap(tester, const Key('data-safety-open-import-preview'));
     await tester.enterText(
       find.byKey(const Key('data-safety-import-json')),
       dataBackupService.encodedJson,
@@ -313,6 +310,12 @@ void main() {
 
     await pumpShell(tester, notificationRepository: notificationRepository);
 
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    expect(find.text('Notification settings'), findsOneWidget);
+
     await tester.scrollUntilVisible(
       find.byKey(const Key('notification-preference-panel')),
       260,
@@ -325,18 +328,9 @@ void main() {
     expect(find.text('Immediate'), findsOneWidget);
     expect(find.text('Digest'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('notification-preferences-bills')));
-    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('notification-preferences-bills'));
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('server-shell-notifications-header')),
-      -260,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(
-      find.byKey(const Key('server-shell-notifications-header')),
-    );
-    await tester.pumpAndSettle();
+    await ensureAndTap(tester, const Key('server-shell-more-notifications'));
 
     expect(find.text('Settlement row.'), findsOneWidget);
     expect(find.text('Dinner bill is ready.'), findsNothing);
@@ -1622,6 +1616,14 @@ Future<void> scrollToAndTap(WidgetTester tester, Key key) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
+}
+
+Future<void> ensureAndTap(WidgetTester tester, Key key) async {
+  final finder = find.byKey(key);
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
 }
 
 Finder bottomNavDestination(Key key) => find.byKey(key);
