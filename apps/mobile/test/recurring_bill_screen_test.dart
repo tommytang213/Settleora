@@ -20,6 +20,8 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets('recurring bill screen shows loading and loaded content', (
@@ -82,7 +84,7 @@ void main() {
     expect(find.text('Upcoming one-time bills'), findsOneWidget);
     expect(find.text('Future bill'), findsWidgets);
     expect(find.text('Insurance'), findsOneWidget);
-    expect(find.text('120.00 USD'), findsOneWidget);
+    expect(_moneyText('120.00', 'USD'), findsOneWidget);
     expect(
       find.textContaining('This is not recorded as paid yet.'),
       findsWidgets,
@@ -109,6 +111,7 @@ void main() {
     expect(find.byKey(const Key('future-bill-detail-post')), findsOneWidget);
     expect(find.text('Post future bill'), findsOneWidget);
     expect(find.byKey(const Key('future-bill-detail-cancel')), findsOneWidget);
+    expect(_moneyText('120.00', 'USD'), findsNWidgets(2));
     expect(futureBillRepository.getCalls, 1);
   });
 
@@ -144,9 +147,7 @@ void main() {
     }
 
     final archivedDraftRepository = FakeFutureBillRepository(
-      detail: sampleFutureBillDetail(
-        archivedAtUtc: DateTime.utc(2026, 6, 19),
-      ),
+      detail: sampleFutureBillDetail(archivedAtUtc: DateTime.utc(2026, 6, 19)),
     );
 
     await tester.pumpWidget(
@@ -332,8 +333,9 @@ void main() {
       find.byKey(const Key('future-bill-form-note')),
       'Annual premium',
     );
-    await tester.enterText(
-      find.byKey(const Key('future-bill-form-due-date')),
+    await _setDateField(
+      tester,
+      const Key('future-bill-form-due-date'),
       '2026-06-19',
     );
     await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
@@ -430,8 +432,9 @@ void main() {
       find.byKey(const Key('future-bill-form-note')),
       'Upcoming stay',
     );
-    await tester.enterText(
-      find.byKey(const Key('future-bill-form-due-date')),
+    await _setDateField(
+      tester,
+      const Key('future-bill-form-due-date'),
       '2026-06-21',
     );
     await tester.ensureVisible(find.byKey(const Key('future-bill-form-save')));
@@ -2717,6 +2720,22 @@ String visibleText(WidgetTester tester) {
       .map((widget) => widget.data)
       .whereType<String>()
       .join('\n');
+}
+
+Finder _moneyText(String amount, String currencyCode) {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is MoneyText &&
+        widget.amount == amount &&
+        widget.currencyCode == currencyCode,
+  );
+}
+
+Future<void> _setDateField(WidgetTester tester, Key key, String isoDate) async {
+  final field = tester.widget<DateField>(find.byKey(key));
+  field.controller.text = isoDate;
+  field.onChanged?.call(isoDate);
+  await tester.pumpAndSettle();
 }
 
 Future<void> tapRecurringFilterChip(WidgetTester tester, Key key) async {
