@@ -2623,16 +2623,16 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
               runSpacing: 8,
               children: [
                 if (preview.merchant != null)
-                  _ReviewChecklistChip(label: 'Merchant suggested'),
+                  SettleoraReadinessChip(label: 'Merchant suggested'),
                 if (preview.receiptDate != null)
-                  _ReviewChecklistChip(label: 'Date suggested'),
+                  SettleoraReadinessChip(label: 'Date suggested'),
                 if (preview.currency != null)
-                  _ReviewChecklistChip(label: preview.currency!),
-                _ReviewChecklistChip(
+                  SettleoraReadinessChip(label: preview.currency!),
+                SettleoraReadinessChip(
                   label: _pluralCount(preview.items.length, 'suggested line'),
                 ),
                 if (preview.total != null)
-                  _ReviewChecklistChip(label: 'Total suggested'),
+                  SettleoraReadinessChip(label: 'Total suggested'),
               ],
             ),
             const SizedBox(height: 10),
@@ -3992,10 +3992,10 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(itemControllers.length, 'item row'),
                   ),
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(attachmentCount, 'attachment'),
                   ),
                 ],
@@ -8698,7 +8698,12 @@ class _GroupBillAssignableItemRow extends StatelessWidget {
                         runSpacing: 6,
                         children: [
                           for (final member in assignedMembers)
-                            _AssignedMemberChip(member: member),
+                            SettleoraAssignedMemberChip(
+                              label: member.safeDisplayName,
+                              avatarLabel: _memberInitial(
+                                member.safeDisplayName,
+                              ),
+                            ),
                         ],
                       ),
               ],
@@ -8706,26 +8711,6 @@ class _GroupBillAssignableItemRow extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _AssignedMemberChip extends StatelessWidget {
-  const _AssignedMemberChip({required this.member});
-
-  final SettleoraGroupMember member;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = member.safeDisplayName;
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: CircleAvatar(
-        backgroundColor: context.settleoraColors.primary,
-        foregroundColor: context.settleoraColors.onPrimary,
-        child: Text(_memberInitial(label)),
-      ),
-      label: Text(label, overflow: TextOverflow.ellipsis),
     );
   }
 }
@@ -9828,19 +9813,19 @@ class _GroupBillCreateReviewChecklist extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(itemControllers.length, 'item row'),
                   ),
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(splitCount, 'split row'),
                   ),
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(payerControllers.length, 'payer row'),
                   ),
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(attachmentCount, 'attachment'),
                   ),
-                  _ReviewChecklistChip(
+                  SettleoraReadinessChip(
                     label: _pluralCount(members.length, 'active member'),
                   ),
                 ],
@@ -9902,21 +9887,6 @@ String _draftAttachmentHandoffMessage(SettleoraBillAttachmentPurpose purpose) {
       'Supporting evidence uploads after save; it is not sent to OCR review.',
     _ => 'Attachment uploads after save as bill evidence.',
   };
-}
-
-class _ReviewChecklistChip extends StatelessWidget {
-  const _ReviewChecklistChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      label: Text(label),
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-  }
 }
 
 class _ReviewChecklistHint extends StatelessWidget {
@@ -14641,28 +14611,28 @@ class _ReadOnlyBillSummaryTile extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraBillStatusLabel(bill.status),
                     icon: Icons.assignment_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraBillArchiveStateLabel(bill.archiveState),
                     icon: bill.isArchived
                         ? Icons.inventory_2_outlined
                         : Icons.check_circle_outline,
                   ),
                   if (participantSummary.currentUserLabel != null)
-                    _SoftChip(
+                    SettleoraStatusChip(
                       label: participantSummary.currentUserLabel!,
                       icon: participantSummary.currentUserIcon,
                     ),
                   if (participantSummary.participantCountLabel != null)
-                    _SoftChip(
+                    SettleoraStatusChip(
                       label: participantSummary.participantCountLabel!,
                       icon: Icons.group_outlined,
                     ),
                   if (participantSummary.rejectedLabel != null)
-                    _SoftChip(
+                    SettleoraStatusChip(
                       label: participantSummary.rejectedLabel!,
                       icon: Icons.report_problem_outlined,
                     ),
@@ -14836,7 +14806,7 @@ class _PendingRevisionBanner extends StatelessWidget {
                   icon: Icons.payments_outlined,
                 ),
                 if (requiresPayerConfirmation)
-                  const _SoftChip(
+                  const SettleoraStatusChip(
                     label: 'Payer confirmation required',
                     icon: Icons.verified_user_outlined,
                   ),
@@ -16328,7 +16298,7 @@ class _SyncQueueItemTile extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                _SoftChip(
+                SettleoraStatusChip(
                   label: settleoraBillSyncStateLabel(item),
                   icon: _syncIcon(item.state),
                 ),
@@ -16339,16 +16309,16 @@ class _SyncQueueItemTile extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _SoftChip(
+                SettleoraStatusChip(
                   label: settleoraBillSyncOperationLabel(item),
                   icon: Icons.receipt_long_outlined,
                 ),
-                _SoftChip(
+                SettleoraStatusChip(
                   label: _syncAttemptLabel(item.attemptCount),
                   icon: Icons.repeat_outlined,
                 ),
                 if (item.lastAttemptAtUtc != null)
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label:
                         'Last attempt ${_formatUtcMinute(item.lastAttemptAtUtc!)}',
                     icon: Icons.schedule_outlined,
@@ -16771,23 +16741,6 @@ class _MoneyChip extends StatelessWidget {
         currencyCode: currency,
         style: Theme.of(context).textTheme.labelLarge,
       ),
-    );
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
     );
   }
 }

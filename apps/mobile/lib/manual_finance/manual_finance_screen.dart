@@ -369,10 +369,7 @@ class _AvailableEstimateSection extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final label in warningLabels)
-                  Chip(
-                    label: Text(label),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                  SettleoraReadinessChip(label: label),
               ],
             ),
           ],

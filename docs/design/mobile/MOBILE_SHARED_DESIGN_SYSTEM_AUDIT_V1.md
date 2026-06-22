@@ -217,6 +217,28 @@ V1-aligned updates made in this branch:
   persistence, routing, notification read/archive/bulk-selection actions,
   manual finance archive/income/account/summary-window behavior, OpenAPI,
   generated clients, schema, money authority, or backend/API authority.
+- Mobile chip/status/readiness consolidation now includes
+  `SettleoraStatusChip`, `SettleoraCountChip`, `SettleoraReadinessChip`, and
+  `SettleoraAssignedMemberChip` for behavior-free compact metadata chips,
+  count chips, local readiness/checklist chips, and assigned-member pills.
+  Static presentational chips were migrated in personal/group bill OCR and
+  bill-list/read-only/sync surfaces, recurring template and forecast rows,
+  settlement landing/balance/request/guidance surfaces, monthly report status
+  counts, notification summary/list metadata, and manual-finance estimate
+  warning labels. Groups was inspected but left unchanged because current chip
+  usage is interactive `ChoiceChip` discovery/member controls. Manual finance
+  was migrated only for the exact static warning-label chips; segmented window
+  controls, account/income cards, failure cards, and behavior-bearing controls
+  remain feature-private. Interactive filter, choice, assignment, bulk/action,
+  and selectable chips remain explicitly deferred. Feature-specific inline
+  failure/guidance panels remain explicitly deferred except for no-behavior
+  static chips inside existing panels. This records the 2026-06-23 01:20 HKT
+  chip/status/readiness follow-up without changing navigation, filtering,
+  selection, bulk actions, notification read/archive behavior, group
+  membership behavior, recurring generation, settlement/payment behavior,
+  bill/OCR behavior, manual-finance account/income/archive behavior,
+  repository contracts, persistence, OpenAPI, generated clients, schema,
+  money authority, or backend/API behavior.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -276,18 +298,22 @@ Recommended next task queue:
 1. No remaining money/date migration or saved OCR apply-preview screenshot
    cutoff follow-up is tracked in this audit as of the 2026-06-23 00:55 HKT
    groups/notifications shared primitive consolidation update.
-2. Chip/status/filter/readiness variants remain intentionally deferred to a
-   later dedicated bundle because behavior and copy differ by feature.
+2. Interactive chip/status/filter/readiness variants remain intentionally
+   deferred because behavior and copy differ by feature. Deferred examples
+   include `FilterChip`, `ChoiceChip`, bulk-selection chips, assignment chips
+   with selection behavior, and action controls with chip-shaped styling.
 3. Feature-specific inline failure/guidance panels remain intentionally
    deferred unless a later task identifies exact shared primitive equivalence.
 4. Manual finance account/income cards and summary estimate rows remain
    intentionally deferred until a shared primitive can preserve their current
    flexible label layout, actions, warnings, and card structure exactly.
-5. Consider a later shared chip/status bundle for `_SoftChip`, `_StatusChip`,
-   `_CountChip`, `_ReviewChecklistChip`, `_AssignedMemberChip`, `_ChannelChip`,
-   and feature-local status/readiness chips. These need behavior-by-behavior
-   review because some chips are filters, some are static readouts, and some
-   carry domain-specific icons or counts.
+5. Static `_SoftChip`, `_StatusChip`, `_CountChip`, `_ReviewChecklistChip`,
+   and `_AssignedMemberChip` equivalents covered by the 2026-06-23 01:20 HKT
+   chip/status/readiness bundle have been migrated. Remaining feature-local
+   money chips, such as bill pending-revision selected-total and settlement
+   selected-total chips, remain intentionally local because they combine
+   money-specific readouts with feature panel copy and were not part of this
+   behavior-aware chip/status/readiness scope.
 6. Consider a later shared inline failure/guidance panel bundle for groups,
    notifications, recurring future-bill failures, settlement guidance, and
    manual finance failure cards. These were deferred here because their

@@ -767,31 +767,15 @@ class _StatusSection extends StatelessWidget {
             runSpacing: 6,
             children: [
               for (var index = 0; index < rows.length; index += 1)
-                _StatusChip(
+                SettleoraCountChip(
                   key: ValueKey('$keyPrefix-$index'),
                   label: labelBuilder(rows[index].status),
                   count: rows[index].count,
+                  icon: Icons.checklist_outlined,
                 ),
             ],
           ),
       ],
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({super.key, required this.label, required this.count});
-
-  final String label;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: const Icon(Icons.checklist_outlined, size: 16),
-      label: Text('$label: $count'),
     );
   }
 }
