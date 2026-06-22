@@ -107,6 +107,14 @@ V1-aligned updates made in this branch:
   values remain unchanged. This records the 2026-06-22 17:17 HKT bounded
   follow-up completion without changing bill revision review, approval, payer
   confirmation, apply, split, rounding, persistence, or API authority.
+- Recurring bill template create/edit item amount rows now use shared
+  `MoneyInput`: create keeps the template-level explicit currency selector and
+  static-code item amounts, while edit keeps row-level item currency selectors
+  for payload rows returned by the API. Recurring bill template list, detail,
+  and forecast readouts now use shared `MoneyText` where they render amount
+  plus ISO currency. This records the 2026-06-22 18:22 HKT recurring follow-up
+  without changing recurring forecast, draft generation, split, payer,
+  rounding, persistence, request construction, or API authority.
 
 ## Feature-Private Duplicate Inventory
 
@@ -185,8 +193,7 @@ Current tests already guard many unsafe details, but audit risks remain:
   amount, item line total, and payer amount fields now use shared static-code
   money inputs while keeping row currency controls visible. Bill revision
   editor rows and review readouts now use shared `MoneyInput` / `MoneyText`.
-  Remaining bounded follow-ups are recurring bills, reports, and other
-  non-migrated money fields.
+  Remaining bounded follow-ups are reports and other non-migrated money fields.
 - Shared `MoneyText` exists; broader amount display migration remains
   incremental where feature-local formatting is still repeated.
 - Money display should continue to include ISO-style uppercase currency codes wherever ambiguity matters.
