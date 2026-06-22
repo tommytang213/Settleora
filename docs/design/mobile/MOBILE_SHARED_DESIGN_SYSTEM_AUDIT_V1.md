@@ -123,6 +123,131 @@ V1-aligned updates made in this branch:
   aggregation, rounding, filtering authority, persistence, OpenAPI, generated
   clients, or backend behavior.
 
+## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
+
+Branch basis: `origin/main` at
+`ad177485cfff508e8dae93ceed7962fdd5bab980`.
+
+Audit scope:
+
+- `apps/mobile/lib/**`
+- `apps/mobile/test/**`
+- Current shared mobile docs and feature references for Bills/OCR, Groups,
+  Settle, More/Settings, and Notifications.
+
+Search families included raw Flutter form fields, money/date terms,
+shared-component names, ISO/date parsing patterns, and feature-local widget
+name patterns. The audit found remaining eligible candidates; there are still
+shared money/date migration follow-ups.
+
+Remaining eligible raw money/date candidates:
+
+- Home/dashboard, `apps/mobile/lib/app/server_mode_shell.dart`:
+  `_BalanceMetric` and `_DashboardBillRow` still pass formatted money strings
+  through `_money(...)` / `'$currency 0.00'` and render them with plain `Text`.
+  These are display-only amount-plus-currency readouts and should move to
+  amount/currency data plus `MoneyText` in a small Home dashboard slice.
+- Personal bill itemized creation,
+  `apps/mobile/lib/bills/bill_list_screen.dart`: `_PersonalBillCreateItemCard`
+  still uses raw `TextFormField` with `TextInputType.number` for
+  `personal-bill-item-unit-amount-*` and `personal-bill-item-amount-*`, with a
+  nearby row-level `_CurrencyPickerField`. These should move to `MoneyInput`
+  with `MoneyInputCurrencyControl.staticCode`, preserving the existing row
+  currency controller, validation, line-total sync behavior, and request
+  construction. Quantity/name/note fields are not money candidates.
+- Saved OCR review inside bill detail,
+  `apps/mobile/lib/bills/bill_list_screen.dart`:
+  `_ReceiptOcrEditableReviewForm` still uses raw `TextFormField` for
+  `*-ocr-edit-date`; `_ReceiptOcrEditableItemCard` still uses raw numeric
+  `TextFormField` rows for `*-ocr-item-unit-price-*` and
+  `*-ocr-item-line-total-*`, with per-line `CurrencySelector`. These should
+  move to shared `DateField` and `MoneyInput` in the in-bill saved-review
+  editor while preserving the provisional-review-only apply/save authority.
+- Saved OCR review readouts,
+  `apps/mobile/lib/bills/bill_list_screen.dart`: apply preview header totals,
+  line sums, saved review totals, saved line unit/total labels, and some bill
+  detail rows still format money through `_savedReceiptOcrMoney(...)` or
+  `_money(...)` into `_KeyValueText`, chips, or concatenated `Text`. Standalone
+  readouts are eligible for `MoneyText` or a local key-value wrapper that
+  delegates to `MoneyText`; combined semantics/search strings can remain
+  strings.
+- Group/personal bill detail readouts,
+  `apps/mobile/lib/bills/bill_list_screen.dart`: several non-editor amount
+  readouts still use `_money(...)`, including read-only group bill list
+  subtitles, pending revision chip labels, current-user share panel text, payer
+  summaries, item rows, participant share rows, payer rows, adjustment rows, and
+  acknowledgement copy. Standalone UI readouts should move toward `MoneyText`;
+  hidden/searchable-field collections and sentence copy can remain string-based
+  unless a later UI slice gives them a structured readout.
+- Settlements,
+  `apps/mobile/lib/settlements/settlement_list_screen.dart`: balance amounts,
+  request tile/header totals, review-summary chips, request line values,
+  payment tile/header actual-paid values, allocation rows, and residual rows
+  still use `_money(...)` strings in `Text`, `_KeyValueText`, or chip labels.
+  A settlement readout slice should add a small key-value money helper backed by
+  `MoneyText` and migrate standalone readouts without changing settlement,
+  residual, allocation, proof, or payment authority. The mark-paid amount field
+  already uses the compatibility wrapper.
+- Future bills / upcoming one-time bills,
+  `apps/mobile/lib/recurring_bills/recurring_bill_screen.dart`: the future bill
+  form uses a raw due-date `TextFormField` with a picker suffix at
+  `future-bill-form-due-date`; this should move to shared `DateField`. Future
+  bill tile/header/item amount readouts still use `_money(...)` strings and are
+  eligible for `MoneyText`. The create amount/currency field already uses
+  `MoneyAmountCurrencyField`, which delegates to shared `MoneyInput`.
+
+Inspected but no action needed for this money/date migration queue:
+
+- Search/filter fields such as group search, group member search, settlement
+  search, settlement detail line/payment search, monthly report search,
+  attachment search, and receipt-review queue search are plain text search
+  inputs, not money/date controls.
+- Auth/setup/profile/payment-detail fields such as server URL, email,
+  password, display name, payment handle, notes, method labels, and language or
+  timezone strings are not money/date shared-field candidates.
+- Numeric but non-money controls such as quantities, recurring interval, due
+  offset days, share weights, selected counts, line counts, bill counts, and
+  percentages should not move to `MoneyInput`.
+- Standalone `CurrencySelector` uses are appropriate where the screen is
+  choosing a default or section-level currency, including profile default
+  currency, recurring template currency, OCR section currency, and bill-level or
+  row-level currency selectors.
+- `MoneyAmountCurrencyField` usages in settlement mark-paid and future bill
+  create are compatibility-wrapper uses that already delegate to `MoneyInput`.
+- Repository and storage parsing/normalization such as `DateTime.parse(...)` in
+  secure storage/sync queue code, generated repository ISO date validation, and
+  `yyyy-MM-dd` error messages are not UI field migrations.
+- Tests under `apps/mobile/test/**` contain fixtures, expectations, and widget
+  lookups for current runtime behavior; they should be updated only alongside
+  future runtime migration slices.
+- Server-authored or domain-authored strings, statuses, notification labels,
+  safe messages, and audit/authority copy are not candidates unless a screen is
+  rendering a standalone amount/date with local formatting.
+
+Recommended next task queue:
+
+1. Personal bill itemized money fields: migrate personal bill item unit amount
+   and line total rows to `MoneyInput` static-code rows with focused bill-list
+   tests; do not change item math, split, payer, rounding, request, sync, or API
+   authority.
+2. Saved OCR in-bill editor date/money fields: migrate the saved OCR review
+   date field and per-line unit/line-total fields in
+   `bill_list_screen.dart` to `DateField` and `MoneyInput` static-code rows;
+   keep provisional OCR review save/apply semantics unchanged.
+3. Settlement money readouts: add or reuse a key-value money readout wrapper
+   backed by `MoneyText` and migrate settlement balances, requests, payments,
+   allocations, and residual standalone readouts; do not change settlement
+   state, residual handling, proof, payment, or authorization behavior.
+4. Home dashboard money readouts: carry amount/currency separately through
+   `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
+   loaded-summary-only dashboard behavior unchanged.
+5. Bill detail/read-only money readouts: migrate standalone bill list/detail,
+   share panel, payer, participant, adjustment, and saved OCR readouts to
+   `MoneyText` where they are not sentence/search/semantics strings.
+6. Future bill due-date/readout slice: replace the future bill due-date
+   `TextFormField` with `DateField` and migrate future bill amount readouts to
+   `MoneyText`; keep future bill create/edit/post/cancel authority unchanged.
+
 ## Feature-Private Duplicate Inventory
 
 Feature-private duplicates exist across current starter surfaces:
