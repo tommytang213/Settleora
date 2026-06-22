@@ -179,7 +179,9 @@ class _SettleoraMonthlyReportScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel();
+              return const SettleoraLoadingPanel(
+                label: 'Loading monthly report',
+              );
             }
 
             if (failure != null) {
@@ -374,12 +376,12 @@ class _SummaryPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            _KeyValueText(label: 'Scope', value: groupLabel),
-            _KeyValueText(
+            SettleoraKeyValueText(label: 'Scope', value: groupLabel),
+            SettleoraKeyValueText(
               label: 'Generated',
               value: _formatTimestamp(report.generatedAtUtc),
             ),
-            _KeyValueText(label: 'Bills', value: '${report.billCount}'),
+            SettleoraKeyValueText(label: 'Bills', value: '${report.billCount}'),
             const SizedBox(height: 8),
             Text(
               'Server monthly aggregate. Search and filters only hide loaded rows on this device.',
@@ -586,7 +588,7 @@ class _DiscoveryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Section(
+    return SettleoraSection(
       title: 'Find report details',
       children: [
         TextField(
@@ -645,7 +647,7 @@ class _FilteredSummaryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.filter_alt_outlined,
       title: '${discovery.visibleRowCount} matching report rows',
       message:
@@ -670,11 +672,11 @@ class _CurrencySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Section(
+    return SettleoraSection(
       title: title,
       children: [
         if (rows.isEmpty)
-          _StatePanel(
+          SettleoraStatePanel(
             icon: Icons.account_balance_wallet_outlined,
             title: emptyLabel,
             message: 'No currency buckets are visible for this month.',
@@ -749,11 +751,11 @@ class _StatusSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Section(
+    return SettleoraSection(
       title: title,
       children: [
         if (rows.isEmpty)
-          const _StatePanel(
+          const SettleoraStatePanel(
             icon: Icons.format_list_bulleted_outlined,
             title: 'No status counts',
             message: 'No status counts are visible for this month.',
@@ -811,7 +813,7 @@ class _FailurePanel extends StatelessWidget {
         failure.kind == SettleoraMonthlyReportFailureKind.sessionRequired ||
         failure.kind == SettleoraMonthlyReportFailureKind.sessionExpired;
 
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: failure.userMessage,
@@ -837,7 +839,7 @@ class _ZeroStatePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.calendar_month_outlined,
       title: 'No monthly report activity',
       message:
@@ -852,131 +854,12 @@ class _FilteredEmptyPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.search_off_outlined,
       title: 'No matching report rows',
       message:
           'No loaded report rows match these local filters. Clear filters to show loaded server rows; no-match does not recompute report, reconciliation, or settlement truth.',
       compact: true,
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 14),
-          Text('Loading monthly report'),
-        ],
-      ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        ...children,
-      ],
-    );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 104,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: content,
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
     );
   }
 }

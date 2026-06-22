@@ -11,7 +11,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../recurring_bill_screen_test.dart' as recurring;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1822-mobile-recurring-bill-money-fields';
+    '/workspace/logs/settleora-visual-qa/20260622-2355-mobile-shared-component-consolidation-bundle';
 
 void main() {
   testWidgets('captures recurring bill money field visual QA evidence', (

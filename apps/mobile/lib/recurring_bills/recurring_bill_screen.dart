@@ -444,7 +444,9 @@ class _SettleoraRecurringBillScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading recurring bills');
+              return const SettleoraLoadingPanel(
+                label: 'Loading recurring bills',
+              );
             }
 
             final failure = _failure;
@@ -486,7 +488,7 @@ class _SettleoraRecurringBillScreenState
                     const SizedBox(height: 12),
                   ],
                   if (widget.futureBillRepository != null) ...[
-                    _Section(
+                    SettleoraSection(
                       title: 'Upcoming one-time bills',
                       trailing: FilledButton.icon(
                         key: const Key('future-bill-create'),
@@ -495,7 +497,7 @@ class _SettleoraRecurringBillScreenState
                         label: const Text('Save upcoming bill'),
                       ),
                       children: [
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.event_available_outlined,
                           title: 'Future bill',
                           message:
@@ -516,7 +518,7 @@ class _SettleoraRecurringBillScreenState
                         ],
                         const SizedBox(height: 10),
                         if (_futureBills.isEmpty)
-                          const _StatePanel(
+                          const SettleoraStatePanel(
                             icon: Icons.receipt_long_outlined,
                             title: 'No upcoming one-time bills',
                             message:
@@ -524,7 +526,7 @@ class _SettleoraRecurringBillScreenState
                             compact: true,
                           )
                         else if (_visibleFutureBills.isEmpty)
-                          const _StatePanel(
+                          const SettleoraStatePanel(
                             icon: Icons.search_off_outlined,
                             title: 'No matching one-time bills',
                             message:
@@ -558,11 +560,11 @@ class _SettleoraRecurringBillScreenState
                     ),
                     const SizedBox(height: 22),
                   ],
-                  _Section(
+                  SettleoraSection(
                     title: 'Templates',
                     children: [
                       if (_templates.isEmpty)
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.event_repeat_outlined,
                           title: 'No recurring bills',
                           message:
@@ -570,7 +572,7 @@ class _SettleoraRecurringBillScreenState
                           compact: true,
                         )
                       else if (_visibleTemplates.isEmpty)
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.search_off_outlined,
                           title: 'No matching templates',
                           message:
@@ -595,11 +597,11 @@ class _SettleoraRecurringBillScreenState
                     ],
                   ),
                   const SizedBox(height: 22),
-                  _Section(
+                  SettleoraSection(
                     title: 'Forecast',
                     children: [
                       if (_forecast.isEmpty)
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.calendar_month_outlined,
                           title: 'No forecast',
                           message:
@@ -607,7 +609,7 @@ class _SettleoraRecurringBillScreenState
                           compact: true,
                         )
                       else if (_visibleForecast.isEmpty)
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.search_off_outlined,
                           title: 'No matching forecast',
                           message:
@@ -1040,7 +1042,9 @@ class _SettleoraRecurringBillDetailScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading recurring bill');
+              return const SettleoraLoadingPanel(
+                label: 'Loading recurring bill',
+              );
             }
 
             final failure = _failure;
@@ -1088,44 +1092,44 @@ class _SettleoraRecurringBillDetailScreenState
                       _runLifecycleAction(_TemplateLifecycleAction.archive),
                 ),
                 const SizedBox(height: 20),
-                _Section(
+                SettleoraSection(
                   title: 'Schedule',
                   children: [
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Next step',
                       value: _templateGuidance(template),
                     ),
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Frequency',
                       value: settleoraRecurringBillScheduleLabel(
                         template.schedule,
                       ),
                     ),
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Start',
                       value: template.schedule.startDate,
                     ),
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Due timing',
                       value: _scheduleDueCopy(template.schedule),
                     ),
                     if (template.schedule.endDate != null)
-                      _KeyValueText(
+                      SettleoraKeyValueText(
                         label: 'End',
                         value: template.schedule.endDate!,
                       ),
                     if (template.schedule.dueOffsetDays != null)
-                      _KeyValueText(
+                      SettleoraKeyValueText(
                         label: 'Due offset',
                         value: '${template.schedule.dueOffsetDays} days',
                       ),
                     if (template.nextOccurrenceDate != null)
-                      _KeyValueText(
+                      SettleoraKeyValueText(
                         label: 'Next',
                         value: template.nextOccurrenceDate!,
                       ),
                     if (template.nextOccurrenceDate == null)
-                      const _KeyValueText(
+                      const SettleoraKeyValueText(
                         label: 'Next',
                         value:
                             'No upcoming occurrence is available from the server.',
@@ -1133,23 +1137,23 @@ class _SettleoraRecurringBillDetailScreenState
                   ],
                 ),
                 const SizedBox(height: 20),
-                _Section(
+                SettleoraSection(
                   title: 'Details',
                   children: [
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Scope',
                       value: template.isGroupScoped ? 'Group' : 'Personal',
                     ),
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Updated',
                       value: _formatTimestamp(template.updatedAtUtc),
                     ),
                     if (template.archivedAtUtc != null)
-                      _KeyValueText(
+                      SettleoraKeyValueText(
                         label: 'Archived',
                         value: _formatTimestamp(template.archivedAtUtc!),
                       ),
-                    _KeyValueText(
+                    SettleoraKeyValueText(
                       label: 'Payload',
                       value: 'Version ${template.payloadVersion}',
                     ),
@@ -1406,7 +1410,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
                   _InlineFailure(failure: _failure!),
                 ],
                 const SizedBox(height: 18),
-                _Section(
+                SettleoraSection(
                   title: 'Template',
                   children: [
                     TextFormField(
@@ -1446,7 +1450,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
                   ],
                 ),
                 const SizedBox(height: 20),
-                _Section(
+                SettleoraSection(
                   title: 'Schedule',
                   children: [
                     DropdownButtonFormField<String>(
@@ -1548,7 +1552,7 @@ class _SettleoraRecurringBillTemplateFormScreenState
                 ),
                 if (!isEditing || widget.template?.billPayload != null) ...[
                   const SizedBox(height: 20),
-                  _Section(
+                  SettleoraSection(
                     title: 'Template Payload',
                     children: [
                       if (isEditing) ...[
@@ -1758,7 +1762,7 @@ class _EditablePayloadNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.edit_note_outlined,
       title: 'Safe template payload',
       message:
@@ -1785,7 +1789,7 @@ class _PayloadUnsupportedState extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.account_tree_outlined,
       title: 'Advanced payload preserved',
       message:
@@ -1800,7 +1804,7 @@ class _UnsupportedPayloadShapePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.lock_outline,
       title: 'Payload editing unavailable',
       message:
@@ -2053,7 +2057,7 @@ class _SettleoraFutureBillDetailScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading future bill');
+              return const SettleoraLoadingPanel(label: 'Loading future bill');
             }
             final failure = _failure;
             if (failure != null) {
@@ -2109,11 +2113,11 @@ class _SettleoraFutureBillDetailScreenState
                     ),
                   ),
                 const SizedBox(height: 20),
-                _Section(
+                SettleoraSection(
                   title: 'Items',
                   children: [
                     if (futureBill.items.isEmpty)
-                      const _StatePanel(
+                      const SettleoraStatePanel(
                         icon: Icons.receipt_long_outlined,
                         title: 'No item rows',
                         message:
@@ -2122,7 +2126,7 @@ class _SettleoraFutureBillDetailScreenState
                       )
                     else
                       for (final item in futureBill.items)
-                        _KeyValueMoney(
+                        SettleoraKeyValueMoneyText(
                           label: item.name,
                           amount: item.amount,
                           currencyCode: item.currency,
@@ -2494,7 +2498,7 @@ class _SettleoraFutureBillFormScreenState
                   ),
                   const SizedBox(height: 12),
                 ] else
-                  _StatePanel(
+                  SettleoraStatePanel(
                     icon: Icons.lock_outline,
                     title: 'Amount editing unavailable',
                     message:
@@ -2573,7 +2577,7 @@ class _FutureBillGroupAuthoringSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!groupRepositoryAvailable) {
-      return const _StatePanel(
+      return const SettleoraStatePanel(
         icon: Icons.group_off_outlined,
         title: 'Personal one-time bill',
         message:
@@ -2583,7 +2587,7 @@ class _FutureBillGroupAuthoringSection extends StatelessWidget {
     }
 
     final failure = groupFailure;
-    return _Section(
+    return SettleoraSection(
       title: 'Bill scope and split',
       children: [
         DropdownButtonFormField<String>(
@@ -2626,7 +2630,7 @@ class _FutureBillGroupAuthoringSection extends StatelessWidget {
         ],
         if (!_groupSelected && !isLoadingGroups && failure == null) ...[
           const SizedBox(height: 10),
-          const _StatePanel(
+          const SettleoraStatePanel(
             icon: Icons.person_outline,
             title: 'Personal upcoming bill',
             message:
@@ -2636,7 +2640,7 @@ class _FutureBillGroupAuthoringSection extends StatelessWidget {
         ],
         if (_groupSelected) ...[
           const SizedBox(height: 12),
-          const _StatePanel(
+          const SettleoraStatePanel(
             icon: Icons.call_split_outlined,
             title: 'Equal split preview',
             message:
@@ -2653,7 +2657,7 @@ class _FutureBillGroupAuthoringSection extends StatelessWidget {
             ),
           ] else if (members.isEmpty && failure == null) ...[
             const SizedBox(height: 10),
-            const _StatePanel(
+            const SettleoraStatePanel(
               icon: Icons.group_off_outlined,
               title: 'No active members',
               message:
@@ -2699,7 +2703,7 @@ class _GroupAuthoringFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.error_outline,
       title: failure.title,
       message: failure.message,
@@ -2786,17 +2790,17 @@ class _FutureBillHeader extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 10),
-        _KeyValueMoney(
+        SettleoraKeyValueMoneyText(
           label: 'Amount',
           amount: futureBill.totalAmount,
           currencyCode: futureBill.totalCurrency,
         ),
-        _KeyValueText(label: 'Due date', value: futureBill.dueDate),
-        _KeyValueText(
+        SettleoraKeyValueText(label: 'Due date', value: futureBill.dueDate),
+        SettleoraKeyValueText(
           label: 'Status',
           value: settleoraFutureBillStatusLabel(futureBill.status),
         ),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Settlements',
           value: futureBill.settlementEffective
               ? 'Settlement-effective'
@@ -2812,7 +2816,7 @@ class _FutureBillAuthorityPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.upcoming_outlined,
       title: 'Upcoming obligation',
       message:
@@ -2830,7 +2834,7 @@ class _FutureBillFailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.error_outline,
       title: failure.title,
       message: failure.message,
@@ -3256,17 +3260,17 @@ class _TemplateHeader extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 10),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Status',
           value: settleoraRecurringBillTemplateStatusLabel(template.status),
         ),
-        _KeyValueMoney(
+        SettleoraKeyValueMoneyText(
           label: 'Estimate',
           amount: template.forecastAmount,
           currencyCode: template.forecastCurrency,
         ),
         if (description != null && description.isNotEmpty)
-          _KeyValueText(label: 'Description', value: description),
+          SettleoraKeyValueText(label: 'Description', value: description),
       ],
     );
   }
@@ -3280,7 +3284,7 @@ class _FailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: failure.message,
@@ -3463,7 +3467,7 @@ class _ServerAuthorityPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.verified_user_outlined,
       title: 'Server checked',
       message:
@@ -3480,7 +3484,7 @@ class _RecurringTemplateFormPreviewPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: Icons.preview_outlined,
       title: isEditing ? 'Template update only' : 'Recurring template only',
       message: isEditing
@@ -3595,7 +3599,7 @@ class _TemplateLifecycleActions extends StatelessWidget {
     final archived =
         template.status == SettleoraRecurringBillTemplateStatusValues.archived;
     if (archived) {
-      return const _StatePanel(
+      return const SettleoraStatePanel(
         icon: Icons.archive_outlined,
         title: 'Archived template',
         message:
@@ -3606,7 +3610,7 @@ class _TemplateLifecycleActions extends StatelessWidget {
 
     final paused =
         template.status == SettleoraRecurringBillTemplateStatusValues.paused;
-    return _Section(
+    return SettleoraSection(
       title: 'Lifecycle',
       children: [
         Text(_lifecycleAvailabilityCopy(template)),
@@ -3677,180 +3681,6 @@ class _LifecycleButton extends StatelessWidget {
             )
           : Icon(icon),
       label: Text(inFlight ? '$label...' : label),
-    );
-  }
-}
-
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: content,
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(label),
-        ],
-      ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children, this.trailing});
-
-  final String title;
-  final List<Widget> children;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            ?trailing,
-          ],
-        ),
-        const SizedBox(height: 10),
-        ...children,
-      ],
-    );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 112,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
-      ),
-    );
-  }
-}
-
-class _KeyValueMoney extends StatelessWidget {
-  const _KeyValueMoney({
-    required this.label,
-    required this.amount,
-    required this.currencyCode,
-  });
-
-  final String label;
-  final String amount;
-  final String currencyCode;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 112,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: MoneyText(
-              amount: amount,
-              currencyCode: currencyCode,
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
